@@ -635,15 +635,23 @@ impl Mux {
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return Ok(());
         }
+        // A sidecar this build cannot read (a newer build's after a
+        // rollback, a damaged file) is no receipt: the end is a host loss and
+        // the file stays for a build that reads it. Failing here failed every
+        // start of the daemon, with every live terminal unreachable.
         let sidecar = options
             .terminal_host_root
             .as_ref()
             .map(|root| root.join(format!("{terminal_id}.json")))
-            .map(|record_path| {
+            .and_then(|record_path| {
                 crate::terminal_host_runtime::terminal_host_exit_record(&record_path)
+                    .unwrap_or_else(|error| {
+                        eprintln!(
+                            "cmux-tui: terminal {terminal_id} exit sidecar not read, kept: {error:#}"
+                        );
+                        None
+                    })
             })
-            .transpose()?
-            .flatten()
             .filter(|(_, record)| {
                 record.terminal_id == terminal_id
                     && terminal
