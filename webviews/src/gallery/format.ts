@@ -339,6 +339,8 @@ export type CloudPageVariant = VariantBase & {
   retention?: import("../pages/cloud/ops").CloudRetention;
   /** The plan's machines cap (paused ones count): a create past it is refused with a cap offer. */
   machinesCap?: number;
+  /** The running machines the platform calls idle: a create at the running limit pauses one. */
+  idle?: string[];
   /** The machine the cap refusal names to free (`details.free_up`). */
   freeUp?: { machine: string; name: string | null; reason: string };
   /** The caller is not a team admin: saving the team's cleanup numbers is refused. */

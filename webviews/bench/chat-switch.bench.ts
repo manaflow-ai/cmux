@@ -16,6 +16,9 @@
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
 // Each arm's last round also measures 5 s of idle wakeups and renderer task time (bench/stability.ts).
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
+// FIXTURE=god makes A and B god sessions (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
+// subagents, images, months of history) instead of TURNS-turn chats, and names every row chat_switch.god.*: a row
+// pairs with its ordinary twin by dropping `.god`.
 // REMOTE_TAIL=both (or present/absent) switches to remote B before read-ahead, with A fast and
 // PEER_ATTACH_MS=2000 delaying only B's live attach. This is a synthetic click-origin comparison,
 // not a native Mac measurement. Each round starts a fresh page and ends after live reconciliation.
@@ -25,7 +28,8 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { perfRow, TARGET_MS } from "./perfRow";
+import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
+import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
@@ -34,6 +38,8 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isInteger(TURNS) || TURNS
   console.error("usage: bun bench/chat-switch.bench.ts [rounds=7] [turns=300]");
   process.exit(2);
 }
+const FIXTURE = benchFixture();
+const perfRow = scaledPerfRow(printRow, FIXTURE);
 const LATENCY = Number(process.env.LATENCY ?? 0);
 const REMOTE_TAIL = process.env.REMOTE_TAIL;
 if (REMOTE_TAIL !== undefined && !["both", "present", "absent"].includes(REMOTE_TAIL))
@@ -45,14 +51,14 @@ let remoteTail: RemoteTail | undefined;
 const webviews = path.resolve(import.meta.dir, "..");
 const A = PAPERCUT_CHAT;
 const B = "0190a000-0000-7000-8000-00000000fc02";
-const FIRST_TEXT = `Answer ${TURNS}:`;
-const SECOND_TEXT = `Reply ${TURNS}:`;
+const FIRST_TEXT = FIXTURE === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
+const SECOND_TEXT = FIRST_TEXT.replace("Answer ", "Reply ");
 
 type Chat = {
   session: Record<string, unknown>;
   events: ReturnType<typeof papercutEvents>["events"];
 };
-const first = papercutEvents({ turns: TURNS, running: false });
+const first = FIXTURE === "god" ? godChat(A) : papercutEvents({ turns: TURNS, running: false });
 const chats = new Map<string, Chat>([
   [A, { session: first.session, events: first.events.map((event) => ({ ...event, sessionId: A })) }],
   [
@@ -472,7 +478,9 @@ try {
   };
 
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
-  console.log(`chat-switch: ${TURNS} turns per chat, answers delayed ${LATENCY} ms, median of ${ROUNDS}`);
+  console.log(
+    `chat-switch: ${FIXTURE === "god" ? "god sessions" : `${TURNS} turns per chat`}, answers delayed ${LATENCY} ms, median of ${ROUNDS}`,
+  );
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
   const arms: { name: string; idle: number; mode?: RemoteTail }[] = REMOTE_TAIL
     ? (REMOTE_TAIL === "both" ? (["absent", "present"] as const) : [REMOTE_TAIL as RemoteTail]).map((mode) => ({

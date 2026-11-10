@@ -39,6 +39,12 @@ fileprivate final class SidebarListingFlips {
 /// callback is ignored by its generation. Observation tracking has no
 /// cancel call; without this every inputs change left one registration per
 /// unchanged row behind.
+///
+/// A row the pass names no longer (its space is not the one the window shows) is parked while
+/// ``keeps`` says its workspace may list here again: it stays mapped and observed, a change it hears only marks it
+/// for its next map, and the pass that names it again gets it as it is, at no cost. A space switch then maps the
+/// rows that changed while their space was hidden, not every row of the space on every switch (200 maps, each
+/// with its own observation, for a list that draws about 29: "changing spaces in sidebar also feels kinda slow").
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor). A row in a
@@ -123,6 +129,8 @@ public final class SidebarRowFeed {
         let cancel = SidebarRowWatchCancel()
         /// The pass that last named the row.
         var pass: UInt64
+        /// No pass names the row now and `keeps` held it: nothing draws it, so a change marks it and maps nothing.
+        var parked = false
 
         init(make: Make, row: SidebarWorkspace, pass: UInt64) {
             self.make = make
@@ -145,6 +153,8 @@ public final class SidebarRowFeed {
         let tracking = SingleArmedTracking()
         /// The pass that last asked.
         var pass: UInt64
+        /// No pass asks now and `keeps` held it: a change marks it stale and wakes nothing.
+        var parked = false
 
         init(value: Bool, rule: @escaping () -> Bool, pass: UInt64) {
             self.value = value
@@ -176,11 +186,21 @@ public final class SidebarRowFeed {
     /// delayed the next frame's scroll update: scroll hitches with ticking rows, perf round 2).
     public typealias Schedule = (@escaping @MainActor @Sendable () -> Void) -> Void
     private let schedule: Schedule
+    /// Whether a workspace no pass names now may list here again (the app: this window still owns it), so its row
+    /// and its listing stay parked. False forgets them: a closed workspace, one moved to another window.
+    private let keeps: @MainActor (WorkspaceID) -> Bool
+    /// The parked rows and listings, apart from the ones the last pass named: a pass and its fill walk only the rows
+    /// they list. And whether a check of the parked ones against `keeps` is scheduled.
+    private var parkedEntries: [WorkspaceID: Entry] = [:]
+    private var parkedListings: [WorkspaceID: Listing] = [:]
+    private var parkedCheckScheduled = false
 
-    /// `schedule` defaults to the next main-actor turn.
-    public init(schedule: Schedule? = nil) {
+    /// `schedule` defaults to the next main-actor turn. `keeps` defaults to no workspace: a row no pass names is
+    /// forgotten at once.
+    public init(schedule: Schedule? = nil, keeps: @escaping @MainActor (WorkspaceID) -> Bool = { _ in false }) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         self.schedule = schedule ?? { work in Task { @MainActor in work() } }
+        self.keeps = keeps
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -198,6 +218,8 @@ public final class SidebarRowFeed {
             listings.removeAll()
             unarmedListings.removeAll()
             staleListings.removeAll()
+            // A parked row was mapped with the old inputs: it maps again when a pass names it.
+            forgetParked()
         }
         self.inputs = inputs
     }
@@ -212,6 +234,14 @@ public final class SidebarRowFeed {
         listings.removeAll()
         unarmedListings.removeAll()
         staleListings.removeAll()
+        forgetParked()
+    }
+
+    private func forgetParked() {
+        for entry in parkedEntries.values { disarm(entry) }
+        parkedEntries.removeAll()
+        for listing in parkedListings.values { disarm(listing) }
+        parkedListings.removeAll()
     }
 
     /// Whether workspace `id` lists, by `rule`, for the structural pass. `rule` reads the workspace's own records (its
@@ -223,7 +253,7 @@ public final class SidebarRowFeed {
     /// when the answer flips.
     public func lists(_ id: WorkspaceID, rule: @escaping () -> Bool) -> Bool {
         _ = listingFlips.epoch
-        if let listing = listings[id] {
+        if let listing = listings[id] ?? unparkedListing(id) {
             listing.pass = pass
             listing.rule = rule
             guard listing.stale else { return listing.value }
@@ -248,7 +278,7 @@ public final class SidebarRowFeed {
     /// ``row(_:machine:make:)`` for a row that may map in a batch.
     public func row(_ id: WorkspaceID, machine: MachineID, make: Make) -> SidebarWorkspace {
         named.append(id)
-        if let entry = entries[id] {
+        if let entry = entries[id] ?? unparkedEntry(id) {
             entry.make = make
             entry.pass = pass
             entry.namedRevision = entry.revision
@@ -261,9 +291,9 @@ public final class SidebarRowFeed {
 
     /// `sections` with every row the last pass named filled in: a new row
     /// mapped under its own observation, a known one as last mapped (all of
-    /// them again when the pass's inputs changed). Forgets rows the pass did
-    /// not name. Each row keeps its row state from `sections`. Call outside
-    /// any observation tracking.
+    /// them again when the pass's inputs changed). Parks or forgets the rows
+    /// the pass did not name (`keeps`). Each row keeps its row state from
+    /// `sections`. Call outside any observation tracking.
     ///
     /// Writes only the rows that differ from what the pass got (new rows, rows mapped again here or by a flush
     /// since): a reorder writes none, so its cost does not grow with the sidebar (a rewrite of every row was
@@ -275,11 +305,20 @@ public final class SidebarRowFeed {
     }
 
     private func fillNow(_ sections: [SidebarSection]) -> [SidebarSection] {
+        var parkedNow = false
         for (id, entry) in entries where entry.pass != pass {
-            disarm(entry)
             entries[id] = nil
+            // A row mapped with the inputs this pass replaced is not kept: no later pass would map it again.
+            guard !inputsChanged, keeps(id) else {
+                disarm(entry)
+                continue
+            }
+            // Its pending patch has no row to land on; it maps when a pass names it again (`armed` is false).
+            (entry.parked, parkedNow) = (true, true)
+            dirty.remove(id)
+            parkedEntries[id] = entry
         }
-        armListings()
+        if armListings() || parkedNow { scheduleParkedCheck() }
         var rows: [SidebarWorkspace] = []
         let remap = inputsChanged
         inputsChanged = false
@@ -335,11 +374,19 @@ public final class SidebarRowFeed {
         entry.cancel.epoch &+= 1
     }
 
-    /// Forgets the listings the last pass did not ask for and observes the ones it ran.
-    private func armListings() {
+    /// Parks or forgets the listings the last pass did not ask for (true when it parked one) and observes the ones
+    /// it ran.
+    private func armListings() -> Bool {
+        var parkedNow = false
         for (id, listing) in listings where listing.pass != pass {
-            disarm(listing)
             listings[id] = nil
+            guard keeps(id) else {
+                disarm(listing)
+                continue
+            }
+            (listing.parked, parkedNow) = (true, true)
+            staleListings.remove(id)
+            parkedListings[id] = listing
         }
         let ids = unarmedListings
         unarmedListings.removeAll(keepingCapacity: true)
@@ -350,6 +397,43 @@ public final class SidebarRowFeed {
             if value != listing.value { (listing.value, flipped) = (value, true) }
         }
         if flipped { listingFlips.epoch &+= 1 }
+        return parkedNow
+    }
+
+    /// The parked rows and listings whose workspace `keeps` holds no longer are forgotten. It runs after the turn
+    /// that parked them and after a change one of them heard (its workspace closed or left the window), never in
+    /// an input's turn.
+    private func scheduleParkedCheck() {
+        guard !parkedCheckScheduled else { return }
+        parkedCheckScheduled = true
+        schedule { [weak self] in self?.checkParked() }
+    }
+
+    private func checkParked() {
+        parkedCheckScheduled = false
+        for (id, entry) in parkedEntries where !keeps(id) {
+            disarm(entry)
+            parkedEntries[id] = nil
+        }
+        for (id, listing) in parkedListings where !keeps(id) {
+            disarm(listing)
+            parkedListings[id] = nil
+        }
+    }
+
+    /// The parked row of `id`, listed again by the pass that names it; nil when none is parked.
+    private func unparkedEntry(_ id: WorkspaceID) -> Entry? {
+        guard let entry = parkedEntries.removeValue(forKey: id) else { return nil }
+        entry.parked = false
+        entries[id] = entry
+        return entry
+    }
+
+    private func unparkedListing(_ id: WorkspaceID) -> Listing? {
+        guard let listing = parkedListings.removeValue(forKey: id) else { return nil }
+        listing.parked = false
+        listings[id] = listing
+        return listing
     }
 
     /// Runs `listing`'s rule under an observation that marks it stale on its next change (one armed at most).
@@ -376,9 +460,11 @@ public final class SidebarRowFeed {
     }
 
     private func markStale(_ id: WorkspaceID, generation: UInt64) {
-        guard let listing = listings[id], listing.generation == generation else { return }
+        guard let listing = listings[id] ?? parkedListings[id], listing.generation == generation else { return }
         listing.armed = false
         listing.stale = true
+        // No pass reads a parked listing: the pass that asks again runs its rule (`lists`).
+        guard !listing.parked else { return scheduleParkedCheck() }
         staleListings.insert(id)
         guard !listingCheckScheduled else { return }
         listingCheckScheduled = true
@@ -401,10 +487,12 @@ public final class SidebarRowFeed {
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64) {
         // A batched row's other observation firing on the same change finds it already dirty.
-        guard let entry = entries[id], entry.generation == generation, entry.armed else { return }
+        guard let entry = entries[id] ?? parkedEntries[id], entry.generation == generation, entry.armed else { return }
         entry.armed = false
         entry.lingering = true
         SidebarPerfCounters.add(.rowInvalidations)
+        // Nothing draws a parked row: it maps when a pass names it again, and sends no patch before.
+        guard !entry.parked else { return scheduleParkedCheck() }
         dirty.insert(id)
         guard !flushScheduled else { return }
         flushScheduled = true

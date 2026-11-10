@@ -416,8 +416,8 @@ final class FilePageService: InternalPageProvider {
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
-        // Unsaved edits app health's reload must keep: a remote file's (no crash draft keeps it) or the shared quit document's.
-        page.holdsUnsavedEdits = { [weak self, weak provider] in provider?.remoteUnsaved != nil || provider?.file.flatMap { self?.documents.existing($0) }?.hasUnsavedChanges == true }
+        // Unsaved edits app health's reload must keep: reported ones no save has covered (a remote file's has no crash draft) or the shared quit document's.
+        page.holdsUnsavedEdits = { [weak self, weak provider] in provider?.reportedEdits.held == true || provider?.file.flatMap { self?.documents.existing($0) }?.hasUnsavedChanges == true }
         tab.page = page
         tab.provider = provider
         tab.host = host
