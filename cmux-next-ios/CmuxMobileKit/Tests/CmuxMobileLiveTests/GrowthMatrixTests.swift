@@ -478,6 +478,8 @@ struct GrowthMatrixTests {
 
         dialer.release()
         try await until("reconnected") { controller.phase.isConnected }
+        // The controller closes the dropped link in a task of its own (`.close`).
+        try await until("the dropped link closed") { first.isClosed }
         GrowthProbe.report("device_low_memory", "mid-reconnect", [
             "dials": dialer.counts.dials, "relieved": relieved, "old_link_closed": first.isClosed,
         ])
