@@ -292,7 +292,7 @@ impl Brain {
                 }
                 let _ = reply.send(outcome(
                     "noop",
-                    format!("{id} has no workspace; it runs hidden"),
+                    format!("{id} has no workspace; its chat lives in acpmux"),
                 ));
                 return;
             };
@@ -319,8 +319,27 @@ impl Brain {
             });
             return;
         }
-        if sub.workspace.is_some() {
-            let _ = reply.send(outcome("noop", format!("{id} already has its workspace (closed by the user? hide, then show, opens a new one)")));
+        if let Some(key) = sub.workspace.clone() {
+            // It has one, maybe in the collapsed "Chief's workspaces" group: show moves it to
+            // the top of the sidebar (Lawrence 2026-11-09). Where moving is not supported (or
+            // it is already there), a noop.
+            std::thread::spawn(move || {
+                let answer = match workspaces.move_to(&key, false) {
+                    Ok(()) => outcome(
+                        "done",
+                        format!(
+                            "moved {id}'s workspace to the top of the sidebar, out of any group"
+                        ),
+                    ),
+                    Err(e) => outcome(
+                        "noop",
+                        format!(
+                            "{id} already has its workspace ({e}; closed by the user? hide, then show, opens a new one)"
+                        ),
+                    ),
+                };
+                let _ = reply.send(answer);
+            });
             return;
         }
         let Some(session) = sub.session_id.clone() else {

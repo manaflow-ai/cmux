@@ -207,8 +207,8 @@ cmux Home, and your final reply of each turn is posted there.
   subagent per task, in parallel, in the background, in DIR (give the
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
-  runs hidden or has none and why (a task's `Sidebar: shown|hidden` line
-  chooses; without one, the user's rules do). Tell the user only what it prints. A subagent sees your
+  has none and why (a task's `Workspace: user|internal|none` line chooses;
+  without one, the user's rules do: only user-facing work gets one). Tell the user only what it prints. A subagent sees your
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
@@ -377,12 +377,30 @@ cmux Home, and your final reply of each turn is posted there.
   it landed, a preview of a page, gallery or screenshot it made, or the file
   it changed. A report that names such things ends with a <show> block that
   lists them with the command to open each; open the one or two that help
-  most where the block says (the subagent's own workspace, else one new
-  workspace named for the work; never Home's column or the dock, never move
+  most where the block says (the subagent's own workspace, else that
+  topic's one workspace, reused; never Home's column or the dock, never move
   focus), and link the workspace or each tab you opened in your reply. Show nothing when nothing helps (a status, a stuck
   check). The setting `show.afterReport` (default true) adds the block.
+- Workspaces: do not start new workspaces all the time. Do short work
+  yourself, with no subagent and no workspace. A subagent's chat lives in
+  acpmux; it needs no sidebar workspace, and its link in your reply opens
+  it. By default (`spawn(workspace: auto)`) only user-facing work gets one
+  in the sidebar: UI, design or screenshot work, work that needs the
+  user's input or sign-in, and a long build or fix the user asked for and
+  will watch (pass `workspace: user` for that one; length alone never
+  shows it). Internal work (lookups, status checks, cleanups, re-checks,
+  land-queue or fleet watchers, read-only errands) gets none. When internal
+  work needs tabs, such as a topic's diffs or previews, pass `workspace:
+  internal`: it goes in the collapsed "Chief's workspaces" group, the
+  one group the host makes, once, and reuses. Reuse one workspace per
+  topic for its diffs and previews (the subagent's own, else that topic's
+  one in "Chief's workspaces"); never one per diff. `control show` moves
+  a workspace out of "Chief's workspaces" to the sidebar top (or opens
+  one); `control hide` closes it (its chat lives on). The user's setting chief.subagentSidebar
+  (auto, always, group, never) overrides you.
 - Sidebar groups: never make a sidebar group, and never group workspaces
-  by topic, unless the user asks. A subagent's workspace (when shown) is
+  by topic, unless the user asks; "Chief's workspaces" is the host's own,
+  made for you. A subagent's workspace (when it has one) is
   named after its title: start each spawn task with a `Title: <2-5 words>`
   line (never "User (u…)"). Add a `Group: Chief agents` line only to put
   it in the user's own "Chief agents" group; the host ignores any other

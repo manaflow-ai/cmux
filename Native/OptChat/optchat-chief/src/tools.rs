@@ -980,23 +980,31 @@ impl Call {
                     .map(str::trim)
                     .filter(|m| !m.is_empty())
                     .map(str::to_owned);
-                // The Chief's sidebar choice (a1018) rides on each task as its
-                // `Sidebar:` line; a task that has its own keeps it.
-                let tasks = match args.get("sidebar").and_then(Value::as_str).map(str::trim) {
+                // The Chief's workspace choice (sidebar_choice.rs) rides on each task
+                // as its `Workspace:` line; a task that has its own (or an older
+                // `Sidebar:` line) keeps it. `sidebar` is the older name of the field.
+                let asked = args
+                    .get("workspace")
+                    .or_else(|| args.get("sidebar"))
+                    .and_then(Value::as_str)
+                    .map(str::trim);
+                let tasks = match asked {
                     None | Some("") => tasks,
                     Some(v) => {
                         let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
                             return Err(format!(
-                                "spawn: no sidebar {v}; one of auto, shown, hidden"
+                                "spawn: no workspace {v}; one of auto, user, internal, none"
                             ));
                         };
                         tasks
                             .into_iter()
                             .map(|t| {
-                                if crate::workspaces::header(&t, "sidebar").is_some() {
+                                if crate::workspaces::header(&t, "workspace").is_some()
+                                    || crate::workspaces::header(&t, "sidebar").is_some()
+                                {
                                     t
                                 } else {
-                                    format!("Sidebar: {}\n{t}", choice.as_str())
+                                    format!("Workspace: {}\n{t}", choice.as_str())
                                 }
                             })
                             .collect()

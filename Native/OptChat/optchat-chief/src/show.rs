@@ -101,7 +101,7 @@ fn block_in_new_workspace(shown: &Shown) -> String {
     let mut lines = vec![
         "<show>".to_owned(),
         format!(
-            "Done work to show (show.afterReport): open the one or two most useful in one new workspace named for the work, made once with `cmux --json workspace create --name \"<2-5 word title>\" --cwd <its repo or folder>` ({ws} from its answer), as new tabs, without moving focus; link it in your reply ([title](cmux://workspace/ws_…), or a tab in it). Never Home's column or the dock; show nothing if none helps."
+            "Done work to show (show.afterReport): open the one or two most useful in the one workspace of this topic: reuse it when it exists (`cmux --json workspace list`), never one per diff; else make it once with `cmux --json workspace create --name \"<2-5 word title>\" --cwd <its repo or folder>` ({ws} from its answer), as new tabs, without moving focus; link it in your reply ([title](cmux://workspace/ws_…), or a tab in it). Never Home's column or the dock; show nothing if none helps."
         ),
     ];
     push_items(&mut lines, shown, ws);

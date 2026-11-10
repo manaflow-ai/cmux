@@ -496,12 +496,30 @@ macro_rules! home_rule {
   it landed, a preview of a page, gallery or screenshot it made, or the file
   it changed. A report that names such things ends with a <show> block that
   lists them with the command to open each; open the one or two that help
-  most where the block says (the subagent's own workspace, else one new
-  workspace named for the work; never Home's column or the dock, never move
+  most where the block says (the subagent's own workspace, else that
+  topic's one workspace, reused; never Home's column or the dock, never move
   focus), and link the workspace or each tab you opened in your reply. Show nothing when nothing helps (a status, a stuck
   check). The setting `show.afterReport` (default true) adds the block.
+- Workspaces: do not start new workspaces all the time. Do short work
+  yourself, with no subagent and no workspace. A subagent's chat lives in
+  acpmux; it needs no sidebar workspace, and its link in your reply opens
+  it. By default (`spawn(workspace: auto)`) only user-facing work gets one
+  in the sidebar: UI, design or screenshot work, work that needs the
+  user's input or sign-in, and a long build or fix the user asked for and
+  will watch (pass `workspace: user` for that one; length alone never
+  shows it). Internal work (lookups, status checks, cleanups, re-checks,
+  land-queue or fleet watchers, read-only errands) gets none. When internal
+  work needs tabs, such as a topic's diffs or previews, pass `workspace:
+  internal`: it goes in the collapsed \"Chief's workspaces\" group, the
+  one group the host makes, once, and reuses. Reuse one workspace per
+  topic for its diffs and previews (the subagent's own, else that topic's
+  one in \"Chief's workspaces\"); never one per diff. `control show` moves
+  a workspace out of \"Chief's workspaces\" to the sidebar top (or opens
+  one); `control hide` closes it (its chat lives on). The user's setting chief.subagentSidebar
+  (auto, always, group, never) overrides you.
 - Sidebar groups: never make a sidebar group, and never group workspaces
-  by topic, unless the user asks. A subagent's workspace (when shown) is
+  by topic, unless the user asks; \"Chief's workspaces\" is the host's own,
+  made for you. A subagent's workspace (when it has one) is
   named after its title: start each spawn task with a `Title: <2-5 words>`
   line (never \"User (u…)\"). Add a `Group: Chief agents` line only to put
   it in the user's own \"Chief agents\" group; the host ignores any other
@@ -588,10 +606,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Subagents: the tool `spawn(tasks, cwd?)` starts one subagent per task, in
   parallel, in the background, in `cwd` (give the directory the work is in);
   it answers their ids at once, and for each one the cmux workspace where
-  the user can watch and join its chat, or that it runs hidden (its link
-  opens its chat; `control show` adds a workspace) or has none and why.
-  You choose with `sidebar`: shown for work the user will watch or join,
-  hidden for short errands, auto (the default) for the user's rules.
+  the user can watch and join its chat, or that it has none and why (its
+  link opens its chat; `control show` adds a workspace). You choose with
+  `workspace` (the Workspaces rule above): user for work the user will
+  watch or join, internal for the Chief's own tabs, none for the rest, auto
+  (the default) for the user's rules.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
@@ -824,8 +843,8 @@ cmux Home, and your final reply of each turn is posted there.
   subagent per task, in parallel, in the background, in DIR (give the
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
-  runs hidden or has none and why (a task's `Sidebar: shown|hidden` line
-  chooses; without one, the user's rules do). Tell the user only what it prints. A subagent sees your
+  has none and why (a task's `Workspace: user|internal|none` line chooses;
+  without one, the user's rules do: only user-facing work gets one). Tell the user only what it prints. A subagent sees your
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
@@ -1030,7 +1049,7 @@ fn without_stop_lines(view: &str) -> String {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (control show adds its workspace) or has none and why; sidebar chooses which. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. The Chief picks the machine automatically; place overrides it with here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why (control show adds one); workspace chooses which, and by default only user-facing work gets one. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). A sidebar workspace joins no group; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. An internal one goes in the host's collapsed \"Chief's workspaces\" group. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. The Chief picks the machine automatically; place overrides it with here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 /// `spawn(harness)`: route each task to the agent best at it (Leo,
 /// 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto
 /// route stuff all the time"); off until the person turns it on with
@@ -1038,10 +1057,10 @@ pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, i
 pub const SPAWN_HARNESS_DESCRIPTION: &str = "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out. With routing on, a spawn that names neither harness nor model is routed task by task (code to Codex, writing and research to Claude, a review to the other model), and the answer names each pick.";
 /// `spawn(model)`: the model beside `harness`, under the same switch.
 pub const SPAWN_MODEL_DESCRIPTION: &str = "The model they run on, an id the harness takes (for example gpt-6-astra or claude-sonnet-5-5); by default, the harness's. Refused, like harness, while routing is off: then leave it out.";
-/// `spawn(sidebar)`: whether each subagent gets a sidebar workspace (a1018,
-/// Lawrence 2026-11-05: "the chief will make the decision if the workspace
-/// is visible in the sidebar or not", with heuristics the user shapes).
-pub const SPAWN_SIDEBAR_DESCRIPTION: &str = "Whether each subagent gets a workspace in the user's sidebar as it starts. shown: work the user will want to watch or join: long or multi-step builds and fixes, UI, design and screenshot work, anything that needs the user's input or sign-in. hidden: short errands nobody watches: lookups, status checks, cleanups, land-queue followers, quick reads. auto (the default): the user's rules decide (a task that mentions UI, design or the user's input shows; a lookup or cleanup hides; else a task of 50 words or more shows). A `Sidebar: shown|hidden` line in one task overrides it for that task. The user's setting chief.subagentSidebar (always or never) overrides every choice, and a subagent that asks before it acts always shows. control show/hide changes it later.";
+/// `spawn(workspace)`: where each subagent's workspace goes (a1018, then
+/// Lawrence 2026-11-09: "Chief's default must be to NOT start new workspaces
+/// all the time").
+pub const SPAWN_WORKSPACE_DESCRIPTION: &str = "Where each subagent's workspace goes as it starts. Its chat lives in acpmux and its link opens it, so most need none. user: a workspace in the user's sidebar, for work the user will watch or join: UI, design and screenshot work, anything that needs the user's input or sign-in, a long build or fix the user asked for directly. internal: a workspace in the collapsed \"Chief's workspaces\" sidebar group (made once, reused), for internal work that needs tabs, such as one topic's diffs and previews. none: no workspace, for lookups, status checks, cleanups, re-checks, land-queue and fleet watchers, read-only errands. auto (the default): the user's rules decide (a task that mentions UI, design, screenshots, the user's input or sign-in gets user; everything else gets none). A `Workspace: user|internal|none` line in one task overrides it for that task. The user's setting chief.subagentSidebar (always, group or never) overrides every choice, and a subagent that asks before it acts always gets user. control show moves it to the sidebar later, control hide closes it.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
 /// The `cloud_workspace` tool's description (cloud_workspace.rs, #25596).
 pub const CLOUD_WORKSPACE_DESCRIPTION: &str = "Start a cmux Cloud workspace for a task: a Cloud machine (a Linux VM) named after `title` and a workspace on it, which shows in the person's sidebar under that machine and is ready for terminals and agents. A machine is billed and on a paid plan cmux makes it at once without asking, so call it only when the person asked for a Cloud workspace, VM or machine for this task, or said yes when you asked. A machine of that name, or one still being made, is answered and never made twice; a create the server is still making answers queued, and the same title later says whether it is up. machine: open another workspace on an existing machine instead. Answers its machine:<id>, which `cmux cloud exec --target` and the other `cmux cloud` verbs take. A cloud.plan.required error means a paid plan: the paid-plans skill.";
@@ -1082,7 +1101,7 @@ pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `second
 pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: show moves its workspace to the top of the sidebar (out of \"Chief's workspaces\"), or opens one when it has none; hide closes its workspace and its chat lives on in acpmux (spawn(workspace) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";

@@ -58,6 +58,11 @@ pub trait Workspaces: Send + Sync {
     fn close_idle(&self, _key: &str) -> Result<bool, String> {
         Ok(false)
     }
+    /// Moves workspace `key` into ``CHIEF_GROUP_NAME`` (`internal`) or out of any group to the
+    /// top of the sidebar: `control hide` / `control show` of a subagent that has one.
+    fn move_to(&self, _key: &str, _internal: bool) -> Result<(), String> {
+        Err("moving a workspace between groups is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -89,7 +94,7 @@ impl WorkspaceRef {
 }
 
 /// The value of a leading `key: value` header line of `task` (`Title:`,
-/// `Group:`, `Sidebar:`), among its first three non-empty lines; any case.
+/// `Group:`, `Workspace:`, `Sidebar:`), among its first three non-empty lines; any case.
 pub fn header(task: &str, key: &str) -> Option<String> {
     task.lines()
         .map(str::trim)
@@ -102,13 +107,14 @@ pub fn header(task: &str, key: &str) -> Option<String> {
         })
 }
 
-/// Whether `line` is a `Title:`, `Group:` or `Sidebar:` header.
+/// Whether `line` is a `Title:`, `Group:`, `Workspace:` or `Sidebar:` header.
 pub fn is_header(line: &str) -> bool {
     line.split_once(':').is_some_and(|(k, _)| {
         let k = k.trim();
         k.eq_ignore_ascii_case("title")
             || k.eq_ignore_ascii_case("group")
             || k.eq_ignore_ascii_case("sidebar")
+            || k.eq_ignore_ascii_case("workspace")
     })
 }
 
@@ -258,6 +264,19 @@ fn clip(s: &str) -> String {
 /// "Chief agents" group, when the sidebar has it. The host never makes a group and never picks
 /// one by topic or by a name close to the task's.
 pub const AGENTS_GROUP_NAME: &str = "Chief agents";
+
+/// The one sidebar group the host makes (Lawrence 2026-11-09): "Chief's workspaces", for the
+/// Chief's internal workspaces (`spawn(workspace: internal)`, sidebar_choice.rs). Made collapsed
+/// the first time one joins it and reused after (`workspace_group.create` with `reuse`); the
+/// user can expand, rename or delete it like any group.
+pub const CHIEF_GROUP_NAME: &str = "Chief's workspaces";
+
+/// Whether `name` is ``CHIEF_GROUP_NAME`` (any case, straight or curly apostrophe).
+pub fn is_chief_group(name: &str) -> bool {
+    name.trim()
+        .replace('\u{2019}', "'")
+        .eq_ignore_ascii_case(CHIEF_GROUP_NAME)
+}
 
 /// The group a spawn task asks for: ``AGENTS_GROUP_NAME`` when its `Group:` line names it (any
 /// case; a line that runs on after a full stop, "Chief agents. Repo ~/fun/…", still does), else
@@ -648,6 +667,10 @@ impl Workspaces for AppWorkspaces {
         rename_by_key(&self.daemon, key, name)
     }
 
+    fn move_to(&self, key: &str, internal: bool) -> Result<(), String> {
+        move_personal(&self.daemon, key, internal)
+    }
+
     fn place(&self) -> String {
         "the cmux app on this Mac".to_owned()
     }
@@ -675,8 +698,27 @@ fn group_workspace(
         .ok()
         .map(|listed| groups_of(&listed["groups"]))
         .unwrap_or_default();
-    let Some(group) = agents_group(name, &listed) else {
-        return Ok(());
+    let group = match agents_group(name, &listed) {
+        Some(group) => group,
+        None if is_chief_group(name) => match listed.iter().find(|(_, g)| is_chief_group(g)) {
+            Some((id, _)) => id.clone(),
+            None => {
+                let made = client
+                    .create_workspace_group(cmux::raw::CreateWorkspaceGroupRequest {
+                        collapsed: Some(true),
+                        color: Optional::Missing,
+                        group: Optional::Missing,
+                        index: Optional::Missing,
+                        name: CHIEF_GROUP_NAME.to_owned(),
+                    })
+                    .map_err(|e| format!("create-workspace-group: {e}"))?;
+                made["group"]["id"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or("create-workspace-group answered no group id")?
+            }
+        },
+        None => return Ok(()),
     };
     client
         .move_workspace_to_group(MoveWorkspaceToGroupRequest {
@@ -786,9 +828,14 @@ pub fn place_in_personal_group_from(
         return Ok(());
     }
     let here = || json!({"machine": "current", "session": "current"});
-    let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let Some(group) = agents_group(name, &groups_of(&listed)) else {
-        return Ok(());
+    let group = if is_chief_group(name) {
+        chief_group(daemon)?
+    } else {
+        let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
+        let Some(group) = agents_group(name, &groups_of(&listed)) else {
+            return Ok(());
+        };
+        group
     };
     let workspace = locate_by_key(daemon, key)
         .ok_or("the session does not list the new workspace")?
@@ -810,10 +857,61 @@ pub fn place_in_personal_group_from(
     .map(|_| ())
 }
 
+/// The id of the user's session's ``CHIEF_GROUP_NAME`` group: made collapsed the first time,
+/// the same group after (`reuse` joins one of that name; the stable idempotency key makes a
+/// retried create answer the same group).
+fn chief_group(daemon: &Path) -> Result<String, String> {
+    let mut params = json!({"machine": "current", "session": "current"});
+    params["name"] = json!(CHIEF_GROUP_NAME);
+    params["collapsed"] = json!(true);
+    params["reuse"] = json!(true);
+    let made = resource_call(
+        daemon,
+        "workspace_group.create",
+        params,
+        Some("optchat-chief-workspaces-group"),
+    )?;
+    made["value"]["id"]
+        .as_str()
+        .or_else(|| made["id"].as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| format!("workspace_group.create answered no group id: {made}"))
+}
+
+/// Moves workspace `key` of the user's session (the app's daemon at `daemon`) into
+/// ``CHIEF_GROUP_NAME`` (`internal`), or out of any group to the top of the sidebar (`!internal`):
+/// `control show` and `control hide` of a subagent that has a workspace.
+pub fn move_personal(daemon: &Path, key: &str, internal: bool) -> Result<(), String> {
+    let workspace = locate_by_key(daemon, key)
+        .ok_or("the session does not list the workspace")?
+        .id;
+    let mut params = json!({"machine": "current", "session": "current", "workspace": workspace});
+    if internal {
+        params["group"] = json!(chief_group(daemon)?);
+        if let Some(index) = new_group_index(&home_dir()) {
+            params["index"] = json!(index);
+        }
+    } else {
+        params["group"] = Value::Null;
+        params["index"] = json!(0);
+    }
+    resource_call(
+        daemon,
+        "workspace.place",
+        params,
+        Some(&format!("optchat-subagent-move-{key}-{}", new_key())),
+    )
+    .map(|_| ())
+}
+
 /// Puts the workspace `key` on the session daemon at `daemon` in the group
 /// named `name`, when the daemon has workspace groups.
 fn group_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig};
+    // The Chief's own group is a personal group of the user's session, as the app shows it.
+    if is_chief_group(name) {
+        return place_in_personal_group(daemon, key, name);
+    }
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
         .map_err(|e| format!("the session daemon: {e}"))?;
     let groups = client
@@ -1020,6 +1118,21 @@ impl Workspaces for DaemonWorkspaces {
 
     fn locate(&self, key: &str) -> Option<WorkspaceRef> {
         self.holders().find_map(|daemon| locate_by_key(daemon, key))
+    }
+
+    fn move_to(&self, key: &str, internal: bool) -> Result<(), String> {
+        let (daemon, personal) = self.target();
+        if personal {
+            return move_personal(daemon, key, internal);
+        }
+        // A server host's own session: its shared groups.
+        if internal {
+            let mut client = self.client(daemon)?;
+            let moved = group_workspace(&mut client, None, key, CHIEF_GROUP_NAME);
+            client.close();
+            return moved;
+        }
+        Err("moving a workspace out of a group needs the user's session".into())
     }
 
     fn place(&self) -> String {

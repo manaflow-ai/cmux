@@ -10,12 +10,15 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. A subagent the Chief shows (`spawn(sidebar)` under the
-//!   user's rules, sidebar_choice.rs, a1018) also gets a cmux workspace whose
-//!   tab is its chat (workspaces.rs), so the user can watch and join it, when
-//!   this host has somewhere to make one; a hidden one (#26386) is reached
-//!   from its link and `control show` opens its workspace later. The answer says, per subagent, which workspace it got
-//!   and where, that it is hidden, or that it got none and why: the Chief
+//!   ids at once. Where its workspace goes is the Chief's choice
+//!   (`spawn(workspace)` under the user's rules, sidebar_choice.rs): user-facing
+//!   work gets a cmux workspace in the sidebar whose tab is its chat
+//!   (workspaces.rs), so the user can watch and join it; internal work the
+//!   Chief asks a workspace for goes in the collapsed "Chief's workspaces"
+//!   group; the rest (the default, Lawrence 2026-11-09) gets none: it is
+//!   reached from its link and `control show` opens its workspace later. The
+//!   answer says, per subagent, which workspace it got and where, or that it
+//!   got none and why: the Chief
 //!   repeats it to the user, so it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
@@ -1161,22 +1164,33 @@ impl Spawner {
         };
         let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The Chief's choice under the user's rules (sidebar_choice.rs, a1018):
-        // a hidden one is reached from its link in the Chief's reply, and
-        // `control show` adds its workspace. One that runs with policy ask
-        // (the spawn floor, or MUX_POLICY) always shows: only its tab can
-        // allow its prompts.
-        let choice = self.sidebar_choice(task);
-        if spec.policy != crate::approval::ASK && !choice.show {
+        // The Chief's choice under the user's rules (sidebar_choice.rs; Lawrence
+        // 2026-11-09: no new workspace by default). One with none is reached from
+        // its link in the Chief's reply (its chat lives in acpmux), and `control
+        // show` adds its workspace. One that runs with policy ask (the spawn floor,
+        // or MUX_POLICY) always gets a sidebar workspace: only its tab can allow
+        // its prompts.
+        let asks = spec.policy == crate::approval::ASK;
+        let mut choice = self.sidebar_choice(task);
+        if asks {
+            choice.place = crate::sidebar_choice::Place::User;
+        }
+        if !choice.opens() {
             self.trace.emit(
                 "subagent.hidden",
                 json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "why": choice.why}),
             );
             return Ok(format!(
-                "hidden: no sidebar workspace ({}); its link opens its chat, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
+                "no workspace ({}); its chat lives in acpmux and its link opens it; control(action: \"show\", id: \"{id}\") adds a sidebar workspace when the user asks",
                 choice.why
             ));
         }
+        let internal = choice.place == crate::sidebar_choice::Place::Internal;
+        let group = if internal {
+            crate::workspaces::CHIEF_GROUP_NAME.to_owned()
+        } else {
+            group
+        };
         match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
@@ -1189,7 +1203,13 @@ impl Spawner {
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let mut note = format!("workspace \"{name}\" in {place}");
+                let mut note = match internal {
+                    true => format!(
+                        "workspace \"{name}\" in the collapsed group \"{}\" in {place}",
+                        crate::workspaces::CHIEF_GROUP_NAME
+                    ),
+                    false => format!("workspace \"{name}\" in {place}"),
+                };
                 if let Some(r) = &located {
                     note.push_str(&format!(
                         " (id {}; `{}` moves it to the top)",
@@ -1197,9 +1217,10 @@ impl Spawner {
                         r.move_to_top()
                     ));
                 }
-                note.push_str(&match spec.policy == crate::approval::ASK {
-                    true => "; shown because it asks before it acts".to_owned(),
-                    false => format!("; shown because {}", choice.why),
+                note.push_str(&match (asks, internal) {
+                    (true, _) => "; in the sidebar because it asks before it acts".to_owned(),
+                    (false, true) => format!("; internal because {}", choice.why),
+                    (false, false) => format!("; in the sidebar because {}", choice.why),
                 });
                 let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
@@ -1269,8 +1290,8 @@ impl Spawner {
         }
     }
 
-    /// Whether `task` gets its sidebar workspace as it starts: its `Sidebar:`
-    /// line (the Chief's choice) under the user's rules, read now.
+    /// Where `task` gets its workspace as it starts: its `Workspace:` line (the
+    /// Chief's choice) under the user's rules, read now.
     fn sidebar_choice(&self, task: &str) -> crate::sidebar_choice::Choice {
         let user = match &self.user_settings {
             Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {

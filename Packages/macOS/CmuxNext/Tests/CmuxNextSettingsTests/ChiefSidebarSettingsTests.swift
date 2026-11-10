@@ -1,8 +1,9 @@
 import CmuxNextSettings
 import Testing
 
-/// Settings > Chief > Subagents (a1018): the four rows the Chief host reads at each spawn to decide which
-/// subagents get a sidebar workspace. Their keys must match what optchat-chief `sidebar_choice.rs` reads,
+/// Settings > Chief > Subagents (a1018; Lawrence 2026-11-09: no new workspace by default): the four rows the
+/// Chief host reads at each spawn to decide where a subagent gets a workspace (the sidebar, the collapsed
+/// "Chief's workspaces" group, or none). Their keys must match what optchat-chief `sidebar_choice.rs` reads,
 /// their defaults must match its defaults, and only the person may change them.
 struct ChiefSidebarSettingsTests {
     static let paths: [[String]] = [
@@ -21,10 +22,10 @@ struct ChiefSidebarSettingsTests {
         for row in rows { #expect(!row.title.isEmpty && row.help?.isEmpty == false, "\(row.id) has a title and help") }
     }
 
-    @Test func modeChoosesAutoAlwaysOrNeverAndDefaultsToAuto() throws {
+    @Test func modeChoosesAutoAlwaysGroupOrNeverAndDefaultsToAuto() throws {
         let row = try #require(SettingsSchema.descriptor(for: Self.paths[0]))
         guard case .choice(let choices) = row.kind else { Issue.record("mode is a choice, got \(row.kind)"); return }
-        #expect(choices.map(\.value) == ["auto", "always", "never"])
+        #expect(choices.map(\.value) == ["auto", "always", "group", "never"])
         #expect(row.defaultValue == .string("auto"))
     }
 
@@ -36,12 +37,12 @@ struct ChiefSidebarSettingsTests {
         }
     }
 
-    @Test func minWordsIsACountDefaultingToFifty() throws {
+    @Test func minWordsIsACountDefaultingToOff() throws {
         let row = try #require(SettingsSchema.descriptor(for: Self.paths[3]))
         guard case .number(let number) = row.kind else { Issue.record("min words is a number, got \(row.kind)"); return }
         #expect(number.unit == .count)
         #expect(number.range == 0...1000)
-        #expect(row.defaultValue == .number(50), "matches sidebar_choice.rs DEFAULT_MIN_WORDS")
+        #expect(row.defaultValue == .number(0), "matches sidebar_choice.rs DEFAULT_MIN_WORDS: off")
     }
 
     @Test func onlyThePersonChangesThem() throws {

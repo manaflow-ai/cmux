@@ -8,18 +8,18 @@
         "key": "settings.group.chiefSubagents",
         "text": "Subagents"
       },
-      "note": "Which Chief subagents get a workspace in the sidebar (a1018, Lawrence 2026-11-05: \"the chief will make the decision if the workspace is visible in the sidebar or not\", with heuristics the user shapes). Under auto the host shows a task that mentions a show word, hides one that mentions a hide word, else shows a task of at least the minimum words; the words listed add to the built-in ones (optchat-chief sidebar_choice.rs). Read at each spawn.",
+      "note": "Where Chief subagents get a workspace (a1018; Lawrence 2026-11-09: \"Chief's default must be to NOT start new workspaces all the time\"). Under auto the host gives a sidebar workspace to a task that mentions a show word and none to the rest (the Chief's own `Workspace: internal` puts one in the collapsed \"Chief's workspaces\" group); group sends the rest to that group; the words listed add to the built-in ones; the length rule is off at 0 (optchat-chief sidebar_choice.rs). Read at each spawn.",
       "rows": [
         {
           "key": "chief.subagentSidebar",
           "name": "mode",
           "title": {
             "key": "settings.chief.subagentSidebar",
-            "text": "Subagents in the Sidebar"
+            "text": "Subagent Workspaces"
           },
           "help": {
             "key": "settings.chief.subagentSidebar.help",
-            "text": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+            "text": "Chief Decides gives a sidebar workspace only to work you will look at or join: UI, design, screenshots, or anything that needs your input. Other subagents get none; the Chief's link opens their chat. Chief's Workspaces Group puts those in one collapsed group instead. Always and Never override the Chief."
           },
           "kind": "choice",
           "choices": [
@@ -35,6 +35,13 @@
               "title": {
                 "key": "settings.choice.subagentSidebarAlways",
                 "text": "Always"
+              }
+            },
+            {
+              "value": "group",
+              "title": {
+                "key": "settings.choice.subagentSidebarGroup",
+                "text": "Chief's Workspaces Group"
               }
             },
             {
@@ -54,7 +61,9 @@
             "show",
             "hide",
             "hidden",
-            "visible"
+            "visible",
+            "group",
+            "internal"
           ]
         },
         {
@@ -126,7 +135,7 @@
           },
           "help": {
             "key": "settings.chief.subagentSidebarMinWords.help",
-            "text": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+            "text": "A task with no show or hide word gets a sidebar workspace when it has at least this many words. 0, the default, turns this rule off: length alone says little about whether you will look at a task."
           },
           "kind": "number",
           "range": {
@@ -135,7 +144,7 @@
             "step": 10,
             "unit": "count"
           },
-          "default": 50,
+          "default": 0,
           "keywords": [
             "chief",
             "subagent",

@@ -5,7 +5,7 @@ extension ChiefSidebarSettingsSchema {
     /// `chief.subagentSidebar`.
     nonisolated static let modePath = ["chief", "subagentSidebar"]
     nonisolated static let modeDefault = "auto"
-    nonisolated static let modeValues = ["auto", "always", "never"]
+    nonisolated static let modeValues = ["auto", "always", "group", "never"]
     /// `chief.subagentSidebarShowWords`.
     nonisolated static let showWordsPath = ["chief", "subagentSidebarShowWords"]
     nonisolated static let showWordsDefault: [String] = []
@@ -14,13 +14,13 @@ extension ChiefSidebarSettingsSchema {
     nonisolated static let hideWordsDefault: [String] = []
     /// `chief.subagentSidebarMinWords`.
     nonisolated static let minWordsPath = ["chief", "subagentSidebarMinWords"]
-    nonisolated static let minWordsDefault: Double = 50
+    nonisolated static let minWordsDefault: Double = 0
     nonisolated static let minWordsRange: ClosedRange<Double> = 0...1000
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum ChiefSidebarSettingsSchema {
-    /// Which Chief subagents get a workspace in the sidebar (a1018, Lawrence 2026-11-05: "the chief will make the decision if the workspace is visible in the sidebar or not", with heuristics the user shapes). Under auto the host shows a task that mentions a show word, hides one that mentions a hide word, else shows a task of at least the minimum words; the words listed add to the built-in ones (optchat-chief sidebar_choice.rs). Read at each spawn.
+    /// Where Chief subagents get a workspace (a1018; Lawrence 2026-11-09: "Chief's default must be to NOT start new workspaces all the time"). Under auto the host gives a sidebar workspace to a task that mentions a show word and none to the rest (the Chief's own `Workspace: internal` puts one in the collapsed "Chief's workspaces" group); group sends the rest to that group; the words listed add to the built-in ones; the length rule is off at 0 (optchat-chief sidebar_choice.rs). Read at each spawn.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefSubagents", "Subagents")
         return [
@@ -28,15 +28,16 @@ nonisolated enum ChiefSidebarSettingsSchema {
                 ChiefSidebarSettingsSchema.modePath,
                 section: .home,
                 group: group,
-                title: SettingsText.keyed("settings.chief.subagentSidebar", "Subagents in the Sidebar"),
-                help: SettingsText.keyed("settings.chief.subagentSidebar.help", "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."),
+                title: SettingsText.keyed("settings.chief.subagentSidebar", "Subagent Workspaces"),
+                help: SettingsText.keyed("settings.chief.subagentSidebar.help", "Chief Decides gives a sidebar workspace only to work you will look at or join: UI, design, screenshots, or anything that needs your input. Other subagents get none; the Chief's link opens their chat. Chief's Workspaces Group puts those in one collapsed group instead. Always and Never override the Chief."),
                 kind: .choice([
                     SettingChoice("auto", SettingsText.keyed("settings.choice.subagentSidebarAuto", "Chief Decides")),
                     SettingChoice("always", SettingsText.keyed("settings.choice.subagentSidebarAlways", "Always")),
+                    SettingChoice("group", SettingsText.keyed("settings.choice.subagentSidebarGroup", "Chief's Workspaces Group")),
                     SettingChoice("never", SettingsText.keyed("settings.choice.subagentSidebarNever", "Never")),
                 ]),
                 default: .string(ChiefSidebarSettingsSchema.modeDefault),
-                keywords: ["chief", "subagent", "sidebar", "workspace", "show", "hide", "hidden", "visible"]
+                keywords: ["chief", "subagent", "sidebar", "workspace", "show", "hide", "hidden", "visible", "group", "internal"]
             ),
             SettingDescriptor(
                 ChiefSidebarSettingsSchema.showWordsPath,
@@ -65,7 +66,7 @@ nonisolated enum ChiefSidebarSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.chief.subagentSidebarMinWords", "Show Tasks Longer Than"),
-                help: SettingsText.keyed("settings.chief.subagentSidebarMinWords.help", "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."),
+                help: SettingsText.keyed("settings.chief.subagentSidebarMinWords.help", "A task with no show or hide word gets a sidebar workspace when it has at least this many words. 0, the default, turns this rule off: length alone says little about whether you will look at a task."),
                 kind: .number(SettingNumber(ChiefSidebarSettingsSchema.minWordsRange, step: 10, unit: .count)),
                 default: .number(ChiefSidebarSettingsSchema.minWordsDefault),
                 keywords: ["chief", "subagent", "sidebar", "workspace", "show", "hide", "hidden", "visible", "length", "words"]

@@ -168,9 +168,9 @@ fn by_default_a_subagent_runs_hidden_and_show_and_hide_toggle_its_workspace() {
 
     // Hidden: nothing in the sidebar, and the answer says so and how to show it.
     assert!(recorder.opened.lock().unwrap().is_empty(), "{answer}");
-    assert!(answer.contains("hidden"), "{answer}");
-    // A short task under the Chief's default `auto` (sidebar_choice.rs).
-    assert!(answer.contains("short task"), "{answer}");
+    assert!(answer.contains("no workspace"), "{answer}");
+    // Not user-facing under the Chief's default `auto` (sidebar_choice.rs).
+    assert!(answer.contains("not user-facing"), "{answer}");
     assert!(answer.contains("\"show\""), "{answer}");
     assert!(
         !answer.contains("ws_"),
@@ -262,7 +262,7 @@ fn the_setting_opts_back_into_a_workspace_per_subagent() {
         .set_setting("subagents.showWorkspaces", "false")
         .unwrap();
     let answer = spawn(&mut h, &sp, "Title: Agent system rules\nsay hello");
-    assert!(answer.contains("hidden"), "{answer}");
+    assert!(answer.contains("no workspace"), "{answer}");
     assert_eq!(recorder.opened.lock().unwrap().len(), 1);
     assert!(workspace(&h, "a1").is_some());
     assert_eq!(workspace(&h, "a2"), None);

@@ -32,10 +32,11 @@ pub struct ChiefSettings {
     pub show_after_report: bool,
     /// Every subagent gets a sidebar workspace when it starts
     /// (`subagents.showWorkspaces`), whatever the Chief chose. Default false:
-    /// the Chief chooses per spawn (`spawn(sidebar)`, sidebar_choice.rs, a1018)
-    /// under the user's cmux-next.json rules (`chief.subagentSidebar*`); a
-    /// hidden one is reachable from its link in the Chief's replies, and
-    /// `control show ID` / `control hide ID` add or close one's workspace.
+    /// the Chief chooses per spawn (`spawn(workspace)`, sidebar_choice.rs)
+    /// under the user's cmux-next.json rules (`chief.subagentSidebar*`); one
+    /// with no workspace is reachable from its link in the Chief's replies, and
+    /// `control show ID` / `control hide ID` add (or move to the sidebar) or
+    /// close one's workspace.
     pub show_subagent_workspaces: bool,
     /// The trace keeps whole texts (replies, tool arguments) for replaying
     /// real turns (`trace.full`). Default false.
