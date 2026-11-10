@@ -92,6 +92,7 @@ members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -190,6 +191,7 @@ default-members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -311,6 +313,7 @@ cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
+cmux-customize = { path = "crates/cmux-customize" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }

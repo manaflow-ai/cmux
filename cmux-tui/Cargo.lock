@@ -1359,6 +1359,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-customize"
+version = "0.1.0"
+dependencies = [
+ "cmux-app-manifest",
+ "cmux-config",
+ "fs4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
