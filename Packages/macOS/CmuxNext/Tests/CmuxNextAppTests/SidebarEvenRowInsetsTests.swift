@@ -69,7 +69,7 @@ import Testing
         hovered.isHovered = true
         hovered.layoutSubtreeIfNeeded()
         let list = sidebar.list
-        let inset = SidebarStyle.horizontalInset
+        let inset = SidebarStyle.contentInset
         for (name, id) in [("pinned", Self.pinnedID), ("grouped", Self.groupedID), ("loose", Self.looseID),
                            ("errored", Self.erroredID), ("hovered", Self.hoveredID), ("selected", Self.selectedID)] {
             let row = try Self.row(sidebar, id)
@@ -110,8 +110,8 @@ import Testing
                 "the fill is \(pill.minX) pt from the row's left edge, \(bandRow.bounds.width - pill.maxX) pt from its right")
         #expect(!bandRow.activity.isHidden && bandRow.activity.frame.width > 0, "the row shows its status mark")
         let trailing = pill.maxX - bandRow.activity.frame.maxX
-        #expect(abs(trailing - SidebarStyle.horizontalInset) <= Self.tolerance,
-                "the mark (\(bandRow.activity.frame)) ends \(trailing) pt before the fill's end (\(pill)), the row inset \(SidebarStyle.horizontalInset)")
+        #expect(abs(trailing - SidebarStyle.contentInset) <= Self.tolerance,
+                "the mark (\(bandRow.activity.frame)) ends \(trailing) pt before the fill's end (\(pill)), the content inset \(SidebarStyle.contentInset)")
     }
 
     /// Lawrence 2026-11-09: "for each workspace row, padding on left/bottom/top/right should be even, on all

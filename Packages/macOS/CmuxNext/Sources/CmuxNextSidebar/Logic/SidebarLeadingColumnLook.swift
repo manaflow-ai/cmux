@@ -7,14 +7,14 @@ public import CmuxNextDesign
 /// text-only row keeps the box empty.
 public nonisolated enum SidebarLeadingColumnLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The default (Lawrence msg 19643, "left alignment here is bad"): a workspace row's glyph ink (a favicon, an
-    /// emoji, a symbol) starts at the row inset, on the left edge text-only titles start on. A band row's glyph (Home's
-    /// house) and a pinned row's pin center in the icon column at every look (`SidebarStyle.bandGlyphX`, #38061).
+    /// emoji, a symbol) starts at the row inset, on the left edge text-only titles start on, and so do Home's house and
+    /// a pinned row's pin (`SidebarStyle.bandGlyphX`; Lawrence 2026-11-09).
     case inset
     /// As `inset`, and a text-only row keeps the icon column empty, so every title starts at the one text x. Takes
     /// back Lawrence msg 11405 ("text needs to be as left as possible"); kept for comparison only.
     case slotted
-    /// Before msg 19643: each workspace row glyph's ink centers in the column too (Leo 2026-10-28, "the alignment"), as
-    /// Home's glyph and the pins do at every look (#38061).
+    /// Before msg 19643: each glyph's ink centers in the column (Leo 2026-10-28, "the alignment"), Home's and the pins
+    /// too.
     case centered
 
     public var tunableTitle: String {

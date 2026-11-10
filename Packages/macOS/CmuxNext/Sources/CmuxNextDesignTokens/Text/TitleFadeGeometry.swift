@@ -10,7 +10,8 @@ public import CoreGraphics
 /// marquee moves the title left until its last glyph sits where the fade
 /// starts, so the end reads fully opaque; the glyphs that leave on the left
 /// fade out across `leadingPadding` (the row's own padding, left of the
-/// first glyph). Both fades are alpha masks, so they work on every theme.
+/// first glyph), and over at least `fadeWidth` while it scrolls (``scrolledMaskLocations``). Both fades are alpha
+/// masks, so they work on every theme.
 public nonisolated struct TitleFadeGeometry: Equatable, Sendable {
     /// Typographic width of the whole title.
     public var textWidth: CGFloat
@@ -70,6 +71,17 @@ public nonisolated struct TitleFadeGeometry: Equatable, Sendable {
     public var maskLocations: [CGFloat] {
         let width = max(1, leadingPadding + span)
         return [0, leadingPadding / width, (leadingPadding + fadeStart) / width, (leadingPadding + fadeEnd) / width, 1]
+    }
+
+    /// Gradient stops while the marquee has scrolled the title: as ``maskLocations``, but the glyphs that leave on the
+    /// left fade out over at least `fadeWidth`, reaching into the title where ``leadingPadding`` is shorter. A
+    /// text-only sidebar row has no padding before its first glyph, so with the rest stops its marquee cut the leaving
+    /// glyphs with a hard edge and left a sliced stub at the row's edge (Lawrence 2026-11-09, "left side transparency
+    /// is bad"). The ramp never reaches past half the opaque run before ``fadeStart``.
+    public var scrolledMaskLocations: [CGFloat] {
+        let width = max(1, leadingPadding + span)
+        let ramp = min(max(leadingPadding, fadeWidth), leadingPadding + fadeStart * 0.5)
+        return [0, max(leadingPadding, ramp) / width, (leadingPadding + fadeStart) / width, (leadingPadding + fadeEnd) / width, 1]
     }
 
     /// Width the title's layer needs: its span, or the whole title while
