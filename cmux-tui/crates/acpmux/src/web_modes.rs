@@ -369,6 +369,16 @@ pub(crate) fn mode_family(m: &SessionMeta) -> String {
     mode_family_by(m.agent_info.as_ref(), m.family.as_deref(), &m.harness)
 }
 
+/// [`mode_family`] of a profile before its session exists: `claude` for a profile of acpmux's own
+/// Claude Code backend (kind `claude-stdio`, a launcher such as `claude-sr2` included), else its
+/// family (`config::derive_family`).
+pub(crate) fn profile_mode_family(agent: &str, profile: &crate::config::HarnessProfile) -> String {
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        return "claude".to_owned();
+    }
+    crate::config::derive_family(agent, profile)
+}
+
 /// [`mode_family`] from a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`),
 /// for a client that holds no `SessionMeta`: the same rule ([`mode_family_by`]). `None` when the
 /// detail names no harness.
