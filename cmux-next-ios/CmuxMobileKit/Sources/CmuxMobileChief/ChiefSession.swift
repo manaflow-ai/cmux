@@ -155,7 +155,9 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
-        store.useTranscriptCache(transcripts, key: transcriptKey)
+        // `self.`: the `transcriptKey` parameter is only the fixed key; the property falls back
+        // to the outbox target (a Chief made on its backend, such as the mock at launch).
+        store.useTranscriptCache(transcripts, key: self.transcriptKey)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
