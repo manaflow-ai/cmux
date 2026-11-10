@@ -9,7 +9,6 @@ pub(crate) mod bounded_child;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
-#[cfg(unix)]
 pub mod command;
 pub mod command_host;
 pub mod command_new;

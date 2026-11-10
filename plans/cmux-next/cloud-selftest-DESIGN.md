@@ -74,53 +74,54 @@ Harness actions (fixtures, the stub, local gateways, and exec-built probes such 
 the runner. Renaming a verb when a lane lands means changing one line in `actions.ts`.
 
 Catalogue (`list` prints it with what each scenario waits on):
-- `identity.isolated`, `team.list`, `team.role_matrix`, `auth.expired_revoked`, `team.member_removed_live`: run
-  today against the routes. Their CLI verbs `cmux cloud team list|members` are lane D's.
-- `vm.login_free`: no login files on the machine, no real provider keys, base URLs at the edge. Runs today by
-  exec; the `vm.auth_status` verb is lane A's.
+- `identity.isolated`, `team.list`, `team.role_matrix`, `auth.expired_revoked`, `team.member_removed_live`: the
+  routes a client calls (`user.teams.list`, `team.members.list`). No CLI verb lists a headless account's teams;
+  `cmux cloud team-members` is the app's.
+- `vm.login_free`: no login files on the machine, no real provider keys, base URLs at the edge, by exec, then
+  `cmux cloud machine-auth --machine` (lane A).
 - `vm.chat_sleep_wake`, `vm.restart_mid_turn` (the agent daemon killed mid-turn: the prompt is kept once, the
   session comes back), `chat.large_transcript` (a 200 KB prompt and 20 turns): base.
-- `gateway.offline_reconnect` (`inference.gateway_offline`), `gateway.two_gateways`, `gateway.provider_errors`
-  (rate limit, auth, then a passing retry): base routes plus local gateways. `gateway.status` becomes lane B's
-  `cmux inference gateway status --json`.
-- `share.cloud_chat_guest` (held, approved, revoked), `share.member_attach_steer` (members steer, two at once,
-  an idempotent retry, presence and author stamps): lane C.
-- `share.follow_then_removed`, `chat.reassign_transfer_mid_turn`, `links.cloud_session`: lanes C and D.
-- `team_keys.shared_path` (admin-only writes, the secret never read back): lane E.
+- `gateway.admin`, `gateway.admin_personal` (`cmux inference gateway status|mode`, no machine),
+  `gateway.route_order` (`cmux inference route`), `gateway.offline_reconnect` (`inference.gateway_offline`),
+  `gateway.two_gateways`, `gateway.provider_errors` (rate limit, auth, then a passing retry): lane B.
+- `team_keys.shared_path` (`cmux cloud team-keys status|set|remove`: owner-only writes, a replayed set, the
+  secret never read back): lane E.
+- `cli.usage_errors`: the verbs' stable usage codes, with no account.
+- `app.team_read`, `app.session_changes`, `app.transfer_local`: lane D's app actions, as the tagged app's person.
+- `link.chat_owner`, `share.guest_held`, `share.member_steer`: lane C's `cmux link chat`.
 
-## 6. Expected verbs for lanes A to E (the contract this runner scripts)
+## 6. The shipped verbs (the contract this runner scripts)
 
-Every verb needs `--json`, must run headless with `CMUX_CLOUD_ACCESS_TOKEN` (not only through the app socket)
-and must report a stable `error.code`. A verb that works only through a running app cannot be driven for
-several actors, so it stays PENDING here.
+The full table, with each verb's JSON, error codes and Rust tests, is
+[cloud-multiplayer-cli-matrix.md](cloud-multiplayer-cli-matrix.md). `cloud-selftest/verbs.ts` reads the offered
+verbs from the Rust sources and `cloud-selftest.test.ts` fails when an action names one that is not offered.
 
-| lane | verb | answer |
-|---|---|---|
-| C | `cloud share chat --session cloud:T/V/S [--role view]` | `{link, share_id}` |
-| C | `cloud share join LINK` | `{role}` |
-| C | `cloud share list\|revoke ID\|approve --session --prompt` | the share rows / ok |
-| C | `cloud attach --session S --once [--since N]` | `{presence[], typing[], held[{prompt_id, author}], owner}` |
-| C | `cloud send --session S --text T [--idempotency-key K]` | `{held, steered, prompt_id, duplicate}` |
-| C | `cloud presence\|events --session S [--since N]` | presence; events from a cursor |
-| D | `cloud team list\|members\|sessions` | `{teams[{id, role}]}`, `{members[{user, role}]}`, `{sessions[{session}]}` |
-| D | `cloud follow --session S --once`, `cloud reassign --session S --to USER` | ok, `{owner}` |
-| D | `cloud transfer-local --session S` | `{turns, running_turn: finished\|carried}` |
-| D | `cloud link --session S` / `--parse URL` | `{url}` / `{session, can_open}` |
-| E | `cloud team-keys status\|set --agent A --kind K --secret-file F\|clear --agent A` | `{claude: {set}}` (never a secret) |
-| B | `inference gateway status [--personal]` | `{mode, online, gateways}` |
-| A | `cloud machine-auth --target machine:ID` | `{holds_login: false, ...}` |
+Three routes, by what a verb needs:
 
-Error codes asserted so far: `team.not_member`, `auth.forbidden`, `auth.unauthenticated`,
-`auth.refresh_refused`, `inference.gateway_offline`, `provider.rate_limited`, `provider.auth`,
-`share.revoked`, `fixtures.*`.
+- Headless (`CMUX_CLOUD_API_URL`, `CMUX_CLOUD_ACCESS_TOKEN`, `CMUX_CLOUD_TEAM`; several actors at once):
+  `cloud team-keys`, `inference gateway status|mode`, `inference route`, `cloud machine-auth`,
+  `machine access exec`.
+- The app's socket (`on: "app"`, the `app` actor): `cloud team-sessions`, `team-session`, `copy-session-link`,
+  `follow`, `unfollow`, `reassign`, `archive-session`, `show-team-section`, `team-members`, `group-members`,
+  `group-member-set`, `group-member-remove`, `transfer-local`. They answer as the one person signed in to the
+  tagged app (`CMUX_TAG` or `--app-socket`, `--cmux` that app's CLI), so they cannot be driven as several actors.
+  With no app answering `cmux app ping` their scenarios SKIP with the reason. `--app-session KEY` and
+  `--app-tab TAB` name what the run may change.
+- This computer's link: `cmux link chat list|read|send|approve|decline --host ID` (`--link-host ID`), as the
+  person the link's registration names. A member's steer and a guest's held prompt need a link per actor
+  (`link.actors`), which this runner does not make: those scenarios SKIP.
+
+Error codes asserted: `team.not_member`, `auth.forbidden`, `auth.unauthenticated`, `auth.refresh_refused`,
+`inference.gateway_offline`, `provider.rate_limited`, `provider.auth`, `usage.invalid`, `cli.invalid_args`,
+`chat.bad_usage`, `cloud_session.invalid`, `agent_session.owner_only`, `remote_denied`, `fixtures.*`.
 
 ## 7. MCP
 
 No new MCP family. An agent running in a checkout runs the self-test from its shell; the runner is a repository
 tool, not something shipped in the app. The actions it drives are already MCP tools:
 - Every app action with `cli: .offered` becomes an `app_*` MCP tool generated from the app's action list
-  (`cmux-tui/.../cli/mcp/action_tools.rs`). A lane's `cmux cloud share chat` app action therefore appears as
-  `app_cloud_share_chat` with no extra work.
+  (`cmux-tui/.../cli/mcp/action_tools.rs`). `cmux cloud team-sessions` therefore appears as
+  `app_cloud_team_sessions` with no extra work.
 - The Cloud repository actions are the existing `cloud_repo_*` family (`cloud_repo_tools.rs`).
 - acpmux is the `acpmux_*` family.
 
