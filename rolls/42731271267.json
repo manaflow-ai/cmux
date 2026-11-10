@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42731271267",
+  "recorded_at": "2026-11-10T01:01:24Z",
+  "reason": "cmux-tui 3a456cc24797 changes the image's cmux-tui (pinned b1bc69640088)",
+  "dry_run": false,
+  "cmux_tui": "3a456cc247974845573402d99f7ce3d11147b8e6",
+  "fixes": [
+    {
+      "sha": "3a456cc247974845573402d99f7ce3d11147b8e6",
+      "mergedAt": "2026-11-09T16:35:29-08:00",
+      "subject": "Agent chat: an agent clicks through its UI change and the answer shows a pass/fail walkthrough (#39559)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T01:01:24Z",
+    "snapshot_id": "sh-24063e654b25430c9464f45d2c1bb4e0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42731271267): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "50c5badcd4aef7617e4b7fd5b284b1a98ebfcb71",
+    "image": "cloud-native-auto-3a456cc2-42731271267-1",
+    "revision": "ci-42731271267-1",
+    "at": "2026-11-10T01:01:24Z"
+  },
+  "rolled_back": false
+}
