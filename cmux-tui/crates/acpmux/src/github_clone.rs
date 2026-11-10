@@ -20,11 +20,20 @@
 //!   person's own credential helpers, global and system config are not used, so nothing stores
 //!   it. A clone whose `.git/config` holds it all the same is removed.
 //! - `DIR` is a new folder name: one plain name (no `/`, no `..`, no leading `.` or `-`), that
-//!   nothing in the chat's folder has (a file, a folder or a link, [`check_target`]). The daemon
-//!   makes the folder itself, opens it without following a link, and git runs inside the folder
-//!   it opened, so a link put in its place after the check does not move the clone elsewhere.
-//!   What a failed clone left is removed through that same open folder, never by its name
-//!   ([`remove_failed`]), so a folder put at the name while git ran keeps everything in it.
+//!   nothing in the chat's folder has (a file, a folder or a link, [`check_target`]).
+//! - git never runs in the chat's folder (Codex review on #40513: git removes its own failed
+//!   clone through its working folder, so what the agent wrote or moved there while git ran
+//!   went with it). It clones into a new private folder (0700, `mkdtemp`) under the daemon's
+//!   state folder, `clone-staging` in `config::home()`, which no sandbox lets the agent write
+//!   (`hub/remote_sandbox.rs`: the session folder, its temporary folders and Claude Code's own).
+//!   git runs inside that folder by its open handle. The finished clone, its `.git/config`
+//!   checked for the token first, moves to `DIR` in one rename through both folders' handles
+//!   that never replaces anything (`RENAME_NOREPLACE` on Linux, `RENAME_EXCL` on macOS): a name
+//!   the agent took since the check is refused and keeps what it holds. A failed clone is
+//!   removed in the staging folder only, through its handle ([`remove_failed`]); the chat's
+//!   folder is never touched. The staging folder must be on the chat folder's file system,
+//!   since nothing is copied; a chat folder on another one (a `/tmp` on its own disk) is refused
+//!   with that reason.
 //! - git runs with `--template=` and `core.hooksPath=/dev/null` (no hook or template runs),
 //!   https only (`protocol.allow=never`), no submodules, a bounded time and bounded output.
 
@@ -154,7 +163,7 @@ fn clean(text: &[u8], token: Option<&str>) -> String {
 }
 
 /// The machine's side: clone `r.repo` into its new folder under `cwd` with the credential the
-/// Mac lent, if any (module docs). The folder is removed again when the clone fails.
+/// Mac lent, if any (module docs). Nothing is made in `cwd` unless the clone succeeds.
 pub async fn run(
     cwd: &Path,
     r: &GithubActionParams,
@@ -219,32 +228,148 @@ fn helper(host: &str) -> String {
     )
 }
 
+/// The folder under the staging folder git clones into, moved to `DIR` when it is done.
 #[cfg(unix)]
-async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
+const STAGED: &std::ffi::CStr = c"clone";
+
+/// Opens folder `path` without following a link at its last part.
+#[cfg(unix)]
+fn open_dir(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    // Made here, never followed: a name taken since the check (by the agent, in its own
-    // folder) is refused, and a link put in its place after this is not where git writes.
-    std::fs::create_dir(target).map_err(|e| match e.kind() {
-        std::io::ErrorKind::AlreadyExists => exists_error(&name),
-        _ => RpcError::internal(format!("could not make {name}: {e}")),
-    })?;
-    let dir = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(target)
-        .map_err(|e| RpcError::internal(format!("could not open {name}: {e}")))?;
-    let cloned = clone_in(&dir, repo, token).await;
-    if cloned.is_err() {
-        remove_failed(&dir, target);
+        .open(path)
+}
+
+/// A new private staging folder for one clone (module docs).
+#[cfg(unix)]
+fn make_stage() -> Result<PathBuf, RpcError> {
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::DirBuilderExt as _;
+    let root = crate::config::home().join("clone-staging");
+    let failed = |e: &dyn std::fmt::Display| {
+        RpcError::internal(format!("could not make a staging folder in {}: {e}", root.display()))
+    };
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).map_err(|e| failed(&e))?;
+    if !std::fs::symlink_metadata(&root).is_ok_and(|m| m.is_dir()) {
+        return Err(failed(&"it is not a folder"));
     }
-    cloned
+    let template = std::ffi::CString::new(root.join("clone-XXXXXX").as_os_str().as_bytes())
+        .map_err(|e| failed(&e))?;
+    let mut template = template.into_bytes_with_nul();
+    // SAFETY: `template` is a NUL-terminated buffer that mkdtemp rewrites in place.
+    if unsafe { libc::mkdtemp(template.as_mut_ptr().cast()) }.is_null() {
+        return Err(failed(&std::io::Error::last_os_error()));
+    }
+    template.pop();
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&template)))
+}
+
+#[cfg(unix)]
+async fn clone_into(target: &Path, repo: &str, token: Option<&str>) -> Result<(), RpcError> {
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let chat = target.parent().unwrap_or(Path::new("/"));
+    let parent = open_dir(chat)
+        .map_err(|e| RpcError::internal(format!("could not open the chat's folder: {e}")))?;
+    let stage = make_stage()?;
+    let staged = stage.join(STAGED.to_str().unwrap_or("clone"));
+    let done = clone_staged(&stage, &staged, &parent, &name, repo, token).await;
+    // The daemon's own folder: empty now, whether the clone moved out or was removed.
+    if let Err(e) = std::fs::remove_dir(&stage) {
+        tracing::warn!(stage = %stage.display(), "github clone: the staging folder stays: {e}");
+    }
+    done
+}
+
+/// The clone in `staged` (under `stage`), then its move to `name` in the chat's folder
+/// (`parent`); what is left in `staged` is removed when either fails.
+#[cfg(unix)]
+async fn clone_staged(
+    stage: &Path,
+    staged: &Path,
+    parent: &std::fs::File,
+    name: &str,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<(), RpcError> {
+    use std::os::unix::fs::MetadataExt as _;
+    let opened =
+        |e: std::io::Error| RpcError::internal(format!("could not open the staging folder: {e}"));
+    let stage_dir = open_dir(stage).map_err(opened)?;
+    let chat_dev = parent.metadata().map_err(opened)?.dev();
+    if stage_dir.metadata().map_err(opened)?.dev() != chat_dev {
+        return Err(other_disk());
+    }
+    std::fs::create_dir(staged).map_err(opened)?;
+    let dir = open_dir(staged).map_err(opened)?;
+    let mut done = clone_in(&dir, repo, token).await;
+    if done.is_ok() {
+        done = place(&stage_dir, parent, name);
+    }
+    if done.is_err() {
+        remove_failed(&dir, staged);
+    }
+    done
+}
+
+#[cfg(unix)]
+fn other_disk() -> RpcError {
+    RpcError::invalid_params(format!(
+        "this chat's folder is on another file system than acpmux's state folder ({}), where a clone is made out of the agent's reach and then moved in; clone from a chat whose folder is on that file system",
+        crate::config::home().display()
+    ))
+    .with_data(json!({"reason": "github.clone_other_disk"}))
+}
+
+/// Moves the finished clone (`STAGED` in `stage`) to `name` in `parent`, never replacing what is
+/// there (module docs).
+#[cfg(unix)]
+fn place(stage: &std::fs::File, parent: &std::fs::File, name: &str) -> Result<(), RpcError> {
+    use std::os::fd::AsRawFd as _;
+    let to = std::ffi::CString::new(name).map_err(|_| exists_error(name))?;
+    // SAFETY: both handles are open folders; both names are C strings.
+    #[cfg(target_os = "linux")]
+    let moved = unsafe {
+        libc::renameat2(
+            stage.as_raw_fd(),
+            STAGED.as_ptr(),
+            parent.as_raw_fd(),
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    // SAFETY: as above.
+    #[cfg(target_vendor = "apple")]
+    let moved = unsafe {
+        libc::renameatx_np(
+            stage.as_raw_fd(),
+            STAGED.as_ptr(),
+            parent.as_raw_fd(),
+            to.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    };
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    let moved: libc::c_int = {
+        let _ = (stage, parent, to);
+        return Err(RpcError::internal("repo clone runs on macOS and Linux only"));
+    };
+    if moved == 0 {
+        return Ok(());
+    }
+    let e = std::io::Error::last_os_error();
+    Err(match e.raw_os_error() {
+        Some(libc::EEXIST) => exists_error(name),
+        Some(libc::EXDEV) => other_disk(),
+        _ => RpcError::internal(format!("could not move the clone to {name}: {e}")),
+    })
 }
 
 /// Removes what a failed clone left in the folder it made (`dir`, opened at `target`), through
-/// that open folder and never through the name `target`: the agent can rename the folder while
-/// git runs and put another at its name (Codex review F1 on #40513), and nothing of that one is
-/// touched. Every entry is removed relative to its own parent's handle, without following a
+/// that open folder and never through the name `target`: had the folder been renamed and
+/// another put at its name (Codex review F1 on #40513), nothing of that one is touched. It is
+/// the staging folder's now, out of the agent's reach; the walk holds regardless. Every entry is removed relative to its own parent's handle, without following a
 /// link, and only on the folder's own file system. A `.git` below the top folder is never one
 /// the clone made (no submodules, and the agent may not write `.git` at all), so one found there
 /// was moved in and is left whole, with the folders above it. The emptied top folder goes only
