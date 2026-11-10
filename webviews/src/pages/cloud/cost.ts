@@ -1,5 +1,5 @@
 // A machine's cost in words, as the Mac sidebar says it (SidebarMachineCost+Text.swift):
-// "$0.26/h · Running 2h 14m · About $0.58 so far"; while paused only "$0.26/h when running". Every
+// "$0.26/h · Running 2h 14m · Est. $0.58 this run"; while paused only "$0.26/h when running". Every
 // number comes from the server (`hourly_rate_usd`, `running_since`); this only formats them.
 import { useEffect, useState } from "react";
 import type { CloudMachine } from "./ops";
@@ -47,7 +47,7 @@ export function costTicks(machine: CloudMachine | undefined): boolean {
 }
 
 /**
- * Rate, time running and the estimate so far; while not running only the rate, "when running", so a
+ * Rate, time running and this running interval's estimated compute; while not running only the rate, "when running", so a
  * paused machine shows no running cost. Undefined without a rate or a running time.
  */
 export function costLine(

@@ -101,7 +101,8 @@ enum CloudCreationRows {
     /// started (nil unless it is live, so a paused machine shows no running
     /// cost) and the account's cap. Nil when the server sent none of them.
     static func cost(_ machine: CloudMachine, limits: CloudMachineLimits?) -> SidebarMachine.Cost? {
-        let since = machine.status.isLive ? machine.runningSince : nil
+        // Starting/provisioning can carry a stale previous run timestamp: only a confirmed running state has a current interval.
+        let since = machine.status == .running ? machine.runningSince : nil
         let cap = limits.map { SidebarMachine.Cost.Cap(maxActiveVms: $0.maxActiveVms, running: $0.activeVmCount) }
         guard machine.hourlyRateUsd != nil || since != nil || cap != nil else { return nil }
         return SidebarMachine.Cost(hourlyRateUsd: machine.hourlyRateUsd, runningSince: since, cap: cap)
