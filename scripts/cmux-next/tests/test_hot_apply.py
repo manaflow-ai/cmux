@@ -482,9 +482,6 @@ class FindSocket(unittest.TestCase):
             self.hot.find_socket(self.app, Path("cmux"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RunningAcpmux(unittest.TestCase):
     """--restart-acpmux: the acpmux daemons running from the app's bin folder are found and restarted, each
@@ -585,3 +582,45 @@ class RunningAcpmux(unittest.TestCase):
         self.hot.subprocess.run = no_new_daemon
         with self.assertRaises(RuntimeError):
             self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+
+    def test_a_daemon_serving_its_own_socket_keeps_it(self):
+        # #40219 review P2: a daemon started with ACPMUX_SOCKET and serving there comes back on that socket.
+        self.envs[52164]["ACPMUX_SOCKET"] = f"{self.CHIEF}/acpmux.sock"
+        self.hot.restart_acpmux(self.app, [self.CHIEF], {self.CHIEF: 52164})
+        env = next(env for argv, env in self.calls if argv[1:] == ["daemon", "restart"])
+        self.assertEqual(env["ACPMUX_SOCKET"], f"{self.CHIEF}/acpmux.sock")
+
+    def test_a_daemon_whose_status_does_not_answer_is_reported(self):
+        # #40219 Codex F2: never dropped from discovery, so the receipt names it as left on the old build.
+        self.status.clear()
+        self.assertEqual(self.hot.running_acpmux(self.app),
+                         [{"pid": 52164, "home": None, "build": "", "keeps_chats": False, "env_readable": False,
+                           "status_unreadable": True}])
+
+    def test_an_ssh_session_on_macos_restarts_nothing(self):
+        # #40219 Codex F1: there launchd would start the daemon without its launch environment.
+        saved = (self.hot.sys.platform, dict(os.environ))
+        try:
+            self.hot.sys.platform = "darwin"
+            os.environ["SSH_CONNECTION"] = "1 2 3 4"
+            self.assertTrue(self.hot.outside_login_session())
+            os.environ.pop("SSH_CONNECTION")
+            os.environ.pop("SSH_TTY", None)
+            self.assertFalse(self.hot.outside_login_session())
+        finally:
+            self.hot.sys.platform = saved[0]
+            os.environ.clear()
+            os.environ.update(saved[1])
+
+    def test_an_empty_environment_is_an_unreadable_one(self):
+        # #40219 review P2: a process always starts with some environment; none read means it is hidden.
+        reloaded = __import__("importlib.util").util
+        spec = reloaded.spec_from_file_location("hot_apply_env_under_test", SCRIPT)
+        fresh = reloaded.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIsNone(fresh.process_env(2 ** 22 + 12345))  # no such process
+        self.assertIsNotNone(fresh.process_env(os.getpid()))
+
+
+if __name__ == "__main__":
+    unittest.main()
