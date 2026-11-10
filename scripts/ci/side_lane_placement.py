@@ -244,9 +244,24 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
     snapshot = getattr(seen, "snapshot", None)
     gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
     labels = gates.get("labels") if isinstance(gates, Mapping) else None
-    if getattr(seen, "stale", False) and not (isinstance(labels, Mapping) and route in labels):
+    if getattr(seen, "stale", False) and not _gates_current(labels, route, getattr(seen, "observed_at", None)):
         return None
     return float(getattr(seen, "owned", {}).get(route, 0.0))
+
+
+def _gates_current(labels: Any, route: str, now: dt.datetime | None) -> bool:
+    """Whether the gates carry a reading for `route` at most RESERVED_SNAPSHOT_MINUTES old: a gates copy as late as
+    the janitor would keep aging its oldest wait after the queue drained."""
+    entry = labels.get(route) if isinstance(labels, Mapping) else None
+    if not isinstance(entry, Mapping) or now is None:
+        return False
+    try:
+        as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if as_of.tzinfo is None:
+        return False
+    return 0 <= (now - as_of).total_seconds() <= cascade.RESERVED_SNAPSHOT_MINUTES * 60
 
 
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
@@ -761,7 +776,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
     The side runner is emitted only for freshly allocated owned jobs (the idle minis `owned` names);
-    fast_runner and gateway_runner stay empty, as every re-run had them: those jobs keep the routes their
+    fast_runner and gateway_runner stay empty here (fast-tier-rerun-placement may still give the fast tier an idle gateway on the bot's attempt 3): those jobs keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
     The GUI jobs follow the routing order, as on attempt 1: gui_runner and session_runner (and the free
     labels) name only a GUI or session runner idle now, else gui_overflow names the Blacksmith leg.
