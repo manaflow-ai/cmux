@@ -13,6 +13,10 @@ public enum ConversationConnectionState: Sendable, Equatable {
     case connecting
     case connected
     case reconnecting
+    /// No connection came within the deadline (`ConversationStore.connectDeadline`).
+    /// The backend keeps dialing; a later connection replaces this, and
+    /// `retryConnection()` starts over.
+    case failed
 }
 
 /// What changed, so the transcript can anchor scrolling correctly.
@@ -292,22 +296,34 @@ public final class ConversationStore {
     private var backgroundGeneration = 0
     private var backgroundInFlight = false
 
+    /// How long the store waits for a connection before it reports `.failed`.
+    public static let connectDeadline: Duration = .seconds(15)
+    /// Times the connection deadline (separate from `clock`, which paces retries).
+    let connectionClock: any Clock<Duration>
+    let connectDeadline: Duration
+    private var connectDeadlineTask: Task<Void, Never>?
+
     public init(
         backend: any ConversationBackend,
         pageSize: Int = ConversationStore.defaultPageSize,
         clock: any Clock<Duration> = ContinuousClock(),
         makeClientMessageID: @escaping @Sendable () -> String = { UUID().uuidString },
-        draftStorage: (any ConversationDraftStorage)? = nil
+        draftStorage: (any ConversationDraftStorage)? = nil,
+        connectionClock: any Clock<Duration> = ContinuousClock(),
+        connectDeadline: Duration = ConversationStore.connectDeadline
     ) {
         self.draftStorage = draftStorage
         self.backend = backend
         self.pageSize = pageSize
         self.clock = clock
         self.makeClientMessageID = makeClientMessageID
+        self.connectionClock = connectionClock
+        self.connectDeadline = connectDeadline
     }
 
     public func start() {
         guard eventTask == nil else { return }
+        if connection != .connected { armConnectDeadline() }
         let stream = backend.events()
         eventTask = Task { [weak self] in
             for await event in stream {
@@ -323,6 +339,8 @@ public final class ConversationStore {
     }
 
     public func stop() {
+        connectDeadlineTask?.cancel()
+        connectDeadlineTask = nil
         eventTask?.cancel()
         scheduledRefreshTask?.cancel()
         olderTask?.cancel()
@@ -357,6 +375,8 @@ public final class ConversationStore {
             self.info?.background = reconciledBackground(incoming: info.background, current: previousBackground)
             if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
+            connectDeadlineTask?.cancel()
+            connectDeadlineTask = nil
             connection = .connected
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
@@ -383,7 +403,11 @@ public final class ConversationStore {
             lastEventSeq = eventSeq
             removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
+            // Already past the deadline: each further failed dial stays failed.
+            guard connection != .failed else { return }
             connection = .reconnecting
+            // One deadline per outage: a backend reporting each failed dial does not extend it.
+            if eventTask != nil, connectDeadlineTask == nil { armConnectDeadline() }
             notify(.connection)
         case let .readState(state):
             serverRead = state
@@ -400,6 +424,32 @@ public final class ConversationStore {
             notify(.listState)
             if self.info?.background != previousBackground { notify(.background) }
         }
+    }
+
+    // MARK: Connection deadline
+
+    /// Reports `.failed` unless a connection arrives within `connectDeadline`.
+    private func armConnectDeadline() {
+        connectDeadlineTask?.cancel()
+        let clock = connectionClock
+        let deadline = connectDeadline
+        connectDeadlineTask = Task { [weak self] in
+            do { try await clock.sleep(for: deadline) } catch { return }
+            guard !Task.isCancelled, let self, self.connection != .connected else { return }
+            self.connectDeadlineTask = nil
+            self.connection = .failed
+            self.notify(.connection)
+        }
+    }
+
+    /// Retry after `.failed`: back to connecting with a fresh deadline, and a
+    /// backend that can dial at once (`ConversationReconnectingBackend`) does.
+    public func retryConnection() {
+        guard connection != .connected else { return }
+        connection = .connecting
+        notify(.connection)
+        if eventTask != nil { armConnectDeadline() }
+        (backend as? any ConversationReconnectingBackend)?.reconnectNow()
     }
 
     /// Replays a live event held during the initial load: newer messages and

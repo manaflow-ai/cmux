@@ -119,7 +119,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.connectTimedOut)", "\(store.needsYouCount > 0)", store.filter.rawValue]
     }
 
     /// The filter chips, a refresh error and an empty or connecting state, above the events.
@@ -131,7 +131,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             if store.visibleItems.isEmpty {
                 if store.syncState == .connecting {
-                    connectingState
+                    if store.connectTimedOut { offlineState } else { connectingState }
                 } else {
                     emptyState
                 }
@@ -241,6 +241,27 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .padding(.top, 160)
         .accessibilityIdentifier("feed.connecting")
+    }
+
+    /// Still no events and no Mac answered within the deadline (`FeedStore.connectDeadline`).
+    private var offlineState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "wifi.slash")
+                .font(.title)
+                .padding(.bottom, 10)
+                .accessibilityHidden(true)
+            Text("Your Macs are offline").font(.headline)
+            Text("Open cmux on your Mac and make sure it's online.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+            RetryButton { await store.retryConnecting(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.offline.retry")
+                .padding(.top, 14)
+        }
+        .padding(.top, 160)
+        .accessibilityIdentifier("feed.offline")
     }
 
     private var emptyState: some View {

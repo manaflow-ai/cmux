@@ -50,6 +50,8 @@ final class ConversationHeaderView: UIView {
     var onBack: (() -> Void)?
     var onInfo: (() -> Void)?
     var onTrailing: (() -> Void)?
+    /// Tapping the status line while it reports a failed connection.
+    var onRetry: (() -> Void)?
     var trailingSymbol = "video"
     var presentation = ConversationHeaderPresentation() {
         didSet {
@@ -147,6 +149,8 @@ final class ConversationHeaderView: UIView {
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
         statusLabel.alpha = 0
+        statusLabel.accessibilityIdentifier = "conversation.header.status"
+        statusLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(statusTapped)))
         addSubview(statusLabel)
         if #available(iOS 27.0, *) {
             pocketAnchor.isAccessibilityElement = false
@@ -180,9 +184,19 @@ final class ConversationHeaderView: UIView {
         setNeedsLayout()
     }
 
-    func setConnectionStatus(_ text: String?) {
+    /// `retryable` makes the status line a Retry button (a failed connection).
+    func setConnectionStatus(_ text: String?, retryable: Bool = false) {
         statusLabel.text = text
+        statusLabel.isUserInteractionEnabled = retryable && text != nil
+        statusLabel.accessibilityTraits = retryable ? [.button] : [.staticText]
+        statusLabel.accessibilityHint = retryable
+            ? String(localized: "conversation.header.retryHint", defaultValue: "Tries to connect again", bundle: .module)
+            : nil
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
+    }
+
+    @objc private func statusTapped() {
+        onRetry?()
     }
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {

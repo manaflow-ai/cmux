@@ -116,6 +116,8 @@ public final class ConversationViewController: UIViewController {
     var composerBottomConstraint: NSLayoutConstraint?
     /// Shown until the newest page arrives (slow links can take seconds).
     let initialSpinner = CmuxSpinnerView(side: 20)
+    /// Replaces the spinner when no connection came in time and nothing is kept.
+    let connectFailedView = ConversationConnectFailedView()
     lazy var cameraDelegate: ConversationMediaDelegate = {
         let delegate = ConversationMediaDelegate()
         delegate.controller = self
@@ -325,6 +327,7 @@ public final class ConversationViewController: UIViewController {
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
+        header.onRetry = { [weak self] in self?.store.retryConnection() }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
         if #available(iOS 26.0, *), options.header.scrollEdge == .system {
@@ -406,6 +409,16 @@ public final class ConversationViewController: UIViewController {
             initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
+        connectFailedView.translatesAutoresizingMaskIntoConstraints = false
+        connectFailedView.isHidden = true
+        connectFailedView.onRetry = { [weak self] in self?.store.retryConnection() }
+        view.insertSubview(connectFailedView, belowSubview: header)
+        NSLayoutConstraint.activate([
+            connectFailedView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            connectFailedView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            connectFailedView.leadingAnchor.constraint(greaterThanOrEqualTo: view.layoutMarginsGuide.leadingAnchor),
+            connectFailedView.trailingAnchor.constraint(lessThanOrEqualTo: view.layoutMarginsGuide.trailingAnchor),
+        ])
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
         }
@@ -416,6 +429,9 @@ public final class ConversationViewController: UIViewController {
         store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
         rebuild(change: .reset)
+        // A store kept from an earlier screen may already be past its deadline.
+        if store.connection == .failed { header.setConnectionStatus(Self.connectionStatus(.failed), retryable: true) }
+        updateInitialPlaceholder()
     }
 
     public override func viewWillAppear(_ animated: Bool) {
@@ -768,6 +784,32 @@ public final class ConversationViewController: UIViewController {
 
     // MARK: Rows
 
+    /// The header's status line for `connection`: nil once connected.
+    static func connectionStatus(_ connection: ConversationConnectionState) -> String? {
+        switch connection {
+        case .connected:
+            nil
+        case .failed:
+            String(localized: "conversation.header.failed", defaultValue: "Couldn't connect · Retry", bundle: .module)
+        case .connecting, .reconnecting:
+            String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module)
+        }
+    }
+
+    /// Before anything shows: the spinner while connecting, "Couldn't
+    /// connect" with Retry once the connection deadline passed.
+    func updateInitialPlaceholder() {
+        guard !(store.hasLoadedNewest || store.isShowingKeptTranscript) else { return }
+        let failed = store.connection == .failed
+        connectFailedView.isHidden = !failed
+        initialSpinner.isHidden = failed
+        if failed {
+            initialSpinner.stopAnimating()
+        } else if !initialSpinner.isAnimating {
+            initialSpinner.startAnimating()
+        }
+    }
+
     private func storeDidChange(_ change: ConversationStoreChange) {
         let probeStart = probeClock()
         probeChange(change)
@@ -775,7 +817,8 @@ public final class ConversationViewController: UIViewController {
         detailsController?.storeDidChange(change)
         switch change {
         case .connection:
-            header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
+            header.setConnectionStatus(Self.connectionStatus(store.connection), retryable: store.connection == .failed)
+            updateInitialPlaceholder()
             if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }
             return
         case .readState:
@@ -902,9 +945,10 @@ public final class ConversationViewController: UIViewController {
         defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
         // Kept messages from an earlier run show at once; the server's page replaces them.
-        if store.hasLoadedNewest || store.isShowingKeptTranscript, initialSpinner.isAnimating {
+        if store.hasLoadedNewest || store.isShowingKeptTranscript, initialSpinner.isAnimating || !connectFailedView.isHidden {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
+            connectFailedView.isHidden = true
         }
         var splice = splice
         var generation = generation
