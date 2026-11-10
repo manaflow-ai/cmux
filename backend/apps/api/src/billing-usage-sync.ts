@@ -69,10 +69,13 @@ export const usageKeyRefusal = (env: Pick<Env, "ENVIRONMENT" | "STRIPE_USAGE_KEY
   return /^rk_live_/.test(env.STRIPE_USAGE_KEY!) ? null : "live_full_key"
 }
 
-/** BILLING_USAGE_LIVE_ALLOW as a set of subscription ids, or null (unset or empty: every subscription). */
+/**
+ * BILLING_USAGE_LIVE_ALLOW as a set of subscription ids, or null only when it is unset or blank (every subscription).
+ * A set value keeps only well-formed ids, so a malformed one allows nothing: it fails closed, never open.
+ */
 export const liveAllowList = (raw: string | undefined): ReadonlySet<string> | null => {
-  const ids = (raw ?? "").split(",").map((s) => s.trim()).filter((s) => /^sub_[A-Za-z0-9]{1,64}$/.test(s))
-  return ids.length ? new Set(ids) : null
+  if (raw === undefined || raw.trim() === "") return null
+  return new Set(raw.split(",").map((s) => s.trim()).filter((s) => /^sub_[A-Za-z0-9]{1,64}$/.test(s)))
 }
 
 export interface SyncReport {
@@ -80,6 +83,8 @@ export interface SyncReport {
   readonly refused?: string
   /** A dry run: what the run would add, move and send; it wrote nothing (here or to the payment service). */
   readonly dry_run?: boolean
+  /** A dry run's meter values it would send (USD), one per subscription period. */
+  readonly would_send?: Array<{ readonly subscription: string; readonly period_start: number; readonly value_usd: number }>
   checked: number
   items_added: number
   items_moved: number
@@ -167,7 +172,7 @@ export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRIC
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string; readonly dryRun?: boolean }, liveEnabled: boolean = USAGE_LIVE_ENABLED): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
   const dry = only?.dryRun === true
-  const report: SyncReport = { mode, ...(dry ? { dry_run: true } : {}), checked: 0, items_added: 0, items_moved: 0, pushed: 0, unchanged: 0, skipped: 0, failed: 0 }
+  const report: SyncReport = { mode, ...(dry ? { dry_run: true, would_send: [] } : {}), checked: 0, items_added: 0, items_moved: 0, pushed: 0, unchanged: 0, skipped: 0, failed: 0 }
   const refused = usageKeyRefusal(env, liveEnabled)
   if (refused) {
     if (refused !== "no_key") console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode, refused }))
@@ -235,7 +240,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
     // event (a seat-only change is then still the latest, for the meter's `last`), and inside the period.
     const timestamp = Math.min(end - 1, Math.max(start, Math.floor((level.last_at ?? start * 1000) / 1000), sent?.event_ts != null ? sent.event_ts + 1 : start))
     if (dry) {
-      console.log(JSON.stringify({ msg: "billing.usage_sync.would_send", subscription: sub.id, period_start: start, value_usd: value / 1_000_000 }))
+      report.would_send!.push({ subscription: sub.id, period_start: start, value_usd: value / 1_000_000 })
       return true
     }
     try {
@@ -291,15 +296,35 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
+      /**
+       * The period's billing inputs, read the same way by a run and a dry run: the seats (the plan item's quantity, or
+       * more when the period already saw more), the included amount and the markup the period is pinned to.
+       */
+      const periodInputs = async (start: number) => {
+        // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
+        const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
+        const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
+        const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
+        // A per-seat period already pushed keeps the included amount it was pushed with, like its mode: a price set
+        // change applies from the next period, so the meter value and the console never mix two amounts in one period.
+        const included = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
+        // The period's markup is pinned like its included amount: the set's at the period's first push or mark, kept until
+        // it closes (a set change mid-period neither raises nor lowers it; usage-billing-store.ts periodMarkupBp).
+        const markupBp = await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000))
+        return { seats, included, markupBp }
+      }
       if (dry) {
         // What the run would write, then the level it would send for the period as it stands; nothing is written.
         if (!item) report.items_added++
         else if (item.price.id !== want) report.items_moved++
         const start = item?.current_period_start ?? periodStart
         const end = item?.current_period_end ?? planItem!.current_period_end
-        const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
-        const markupBp = start ? await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000)) : 10_000
-        if (start && end && (await pushLevel(team!, sub, start, end, mode, includedUsd, quantity, markupBp))) report.pushed++
+        if (!start || !end) {
+          report.skipped++
+          continue
+        }
+        const p = await periodInputs(start)
+        if (await pushLevel(team!, sub, start, end, mode, p.included, p.seats, p.markupBp)) report.pushed++
         else report.unchanged++
         continue
       }
@@ -316,18 +341,9 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         report.skipped++
         continue
       }
-      // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
-      const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
-      const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
-      const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
-      // A per-seat period already pushed keeps the included amount it was pushed with, like its mode: a price set
-      // change applies from the next period, so the meter value and the console never mix two amounts in one period.
-      const periodIncluded = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
+      const { seats, included: periodIncluded, markupBp } = await periodInputs(start)
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
-      // The period's markup is pinned like its included amount: the set's at the period's first push or mark, kept until
-      // it closes (a set change mid-period neither raises nor lowers it; usage-billing-store.ts periodMarkupBp).
-      const markupBp = await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000))
       await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded, markup_bp: markupBp })
       // The raise lock lifts at the first paid renewal (team-cap.ts); the subscription list carries its latest invoice.
       const renewal = paidRenewal(sub.latest_invoice)
