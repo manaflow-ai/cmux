@@ -2,7 +2,7 @@
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The kinds the host asks about in its prompt bar
 // (kHostPermissions) go to the host as PERMISSION_PROMPT, answered with
-// cmux_shim_permission_continue; a notification request is refused at once; every
+// cmux_shim_permission_continue; a notification request ends at once, unanswered; every
 // other kind keeps Chromium's default (permission_prompt_policy.h).
 // Chromium persists Accept and Deny in its own content settings.
 
@@ -46,9 +46,10 @@ class Handler : public CefPermissionHandler {
     switch (RoutePermissionPrompt(requested_permissions)) {
       case PermissionPromptRoute::kChromium:
         return false;
-      case PermissionPromptRoute::kDeny:
-        // DENY, not DISMISS or IGNORE: it ends the page's request now with a definite answer.
-        callback->Continue(CEF_PERMISSION_RESULT_DENY);
+      case PermissionPromptRoute::kEndUnanswered:
+        // IGNORE ends the request now and stores no content setting (DENY would). Chromium's
+        // count of ignored prompts, which blocks a site after a few, is off (CEFSwitches).
+        callback->Continue(CEF_PERMISSION_RESULT_IGNORE);
         return true;
       case PermissionPromptRoute::kHost:
         break;
