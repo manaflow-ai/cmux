@@ -36,6 +36,11 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+/// Claude Code kills a command hook at its `timeout` (5 s,
+/// agent_hook_install.rs `COMMAND_HOOK_TIMEOUT_SECONDS`). A `SessionStart`
+/// hook sends the event and then writes the terminal claim, whose roster read
+/// (terminal_agent.rs) must end inside this budget from the hook's start.
+const CLAUDE_HOOK_BUDGET: Duration = Duration::from_millis(4500);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -458,6 +463,14 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
             child.release();
         }
     }
+}
+
+/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
+/// whose time budget ends at `budget_end`.
+#[allow(dead_code, reason = "W5-N3 red: the fix calls it")]
+fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+    let _ = (budget_end, now);
+    HANDOFF_WAIT
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
@@ -950,6 +963,18 @@ mod tests {
         assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
         assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
+    }
+
+    #[test]
+    fn any_launcher_w5n3_claim_start_handoff_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // A fresh hook: past the child's own 4 s deadline, inside the budget.
+        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        assert_eq!(fresh, Duration::from_millis(4250));
+        // A slow start (payload, repository wait): the wait ends with the budget.
+        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        assert_eq!(late, Duration::from_secs(1));
+        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
     }
 
     #[test]

@@ -87,7 +87,9 @@ impl Run<'_> {
 
     fn read_roster(&self) -> anyhow::Result<Value> {
         let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
-        inbox::request(self.socket, "agent.list", params, false, Instant::now() + DEADLINE)
+        let now = Instant::now();
+        let deadline = read_deadline(now + DEADLINE, now).context("no time left to read")?;
+        inbox::request(self.socket, "agent.list", params, false, deadline)
     }
 
     /// Records this Claude as the terminal's agent.
@@ -101,6 +103,14 @@ impl Run<'_> {
             let _ = std::fs::remove_file(&temporary);
         }
     }
+}
+
+/// When the `agent.list` read made at `now` must end: its own bound, cut to
+/// the end of the hook's time budget (`budget_end`). `None` when no time is
+/// left, and the hook then makes no read.
+fn read_deadline(budget_end: Instant, now: Instant) -> Option<Instant> {
+    let _ = budget_end;
+    Some(now + DEADLINE)
 }
 
 /// The verdict of [`nested_in`].
@@ -224,6 +234,19 @@ mod tests {
             start_source: start,
             pid,
         }
+    }
+
+    #[test]
+    fn any_launcher_w5n3_claim_read_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // Much budget left: the read has its own bound.
+        assert_eq!(read_deadline(now + Duration::from_secs(4), now), Some(now + DEADLINE));
+        // Less left than that bound (a slow send): the read ends with the budget.
+        let end = now + Duration::from_millis(300);
+        assert_eq!(read_deadline(end, now), Some(end));
+        // No time left: no read.
+        assert_eq!(read_deadline(now, now), None);
+        assert_eq!(read_deadline(now, now + Duration::from_millis(5)), None);
     }
 
     fn rows(rows: Value) -> impl FnOnce() -> anyhow::Result<Value> {
