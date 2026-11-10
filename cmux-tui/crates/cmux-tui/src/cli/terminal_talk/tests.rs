@@ -1571,3 +1571,69 @@ fn w5p_send_selects_the_terminal_the_daemons_resolver_selects() {
     );
     assert_eq!(daemon.inner.writes().len(), before, "nothing is written");
 }
+
+/// A daemon whose `current` parents are the place the person focuses (as
+/// the real one's are): `word` selects `focused` under any parent, and with
+/// no parents (the session rules) it is `selector.ambiguous` between
+/// `candidates`.
+struct FocusDaemon {
+    inner: FakeDaemon,
+    word: &'static str,
+    focused: &'static str,
+    candidates: [&'static str; 2],
+}
+
+impl Daemon for FocusDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let params = request["params"].clone();
+        let selects = operation
+            .strip_suffix(".get")
+            .filter(|scope| params[*scope] == self.word)
+            .map(str::to_owned);
+        let Some(scope) = selects else { return self.inner.request(session, plan) };
+        self.inner.sent.borrow_mut().push((operation, params.clone()));
+        let placed = ["workspace", "screen", "pane", "tab"]
+            .iter()
+            .any(|parent| *parent != scope && params.get(*parent).is_some());
+        if placed {
+            return Ok(json!({"id": self.focused, "lifecycle": "running", "extra": {}}));
+        }
+        Err(CallFailure {
+            kind: FailureKind::Rejected,
+            error: json!({
+                "code": "selector.ambiguous",
+                "message": format!("2 terminals have the title {}", self.word),
+                "details": {"scope": scope, "selector": self.word, "candidates": self.candidates},
+                "retryable": false,
+            }),
+            idempotency_key: None,
+        })
+    }
+}
+
+/// `terminal … send` (and the MCP terminal tools) to a title two terminals
+/// share is `selector.ambiguous` with both candidates even while the person
+/// focuses one of them (W5-P): the send never takes the person's focus as a
+/// tie-break, and nothing is written.
+#[test]
+fn w5p_send_to_a_shared_title_is_ambiguous_even_when_the_person_focuses_one() {
+    let claude = "term_c1a0de00000000000000000000000001";
+    let muse = "term_0005e000000000000000000000000002";
+    let mut shared = snapshot();
+    shared["terminals"][0]["title"] = json!("build");
+    shared["terminals"][1]["title"] = json!("build");
+    let daemon = FocusDaemon {
+        inner: FakeDaemon::new(shared, &[(1, "")]),
+        word: "build",
+        focused: claude,
+        candidates: [claude, muse],
+    };
+    let request =
+        SendRequest { target: "build".into(), force: true, wait: Wait::None, ..quick("hi") };
+    let failure = send::run(&daemon, None, &request).expect_err("two terminals have the title");
+    assert_eq!(failure.failure.error["code"], "selector.ambiguous", "{}", failure.failure.error);
+    assert_eq!(failure.failure.error["details"]["candidates"], json!([claude, muse]));
+    assert!(daemon.inner.writes().is_empty(), "nothing is written");
+}

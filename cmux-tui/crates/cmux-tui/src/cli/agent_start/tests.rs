@@ -1484,3 +1484,69 @@ fn w5p_resume_takes_the_terminal_the_daemons_resolver_selects() {
     assert_eq!(candidates, Some(2), "{}", failure.error);
     assert!(daemon.sent("pane.run").is_empty(), "no resume ran");
 }
+
+/// The daemon's answer to `<scope>.get` for `word` when its `current`
+/// parents are the place the person focuses (as the real daemon's are):
+/// `focused` under any parent, and `selector.ambiguous` between `candidates`
+/// with no parents (the session rules).
+fn focus_answer(scope: &str, params: &Value, focused: &str, candidates: [&str; 2]) -> Value {
+    let placed = ["workspace", "screen", "pane", "tab"]
+        .iter()
+        .any(|parent| *parent != scope && params.get(*parent).is_some());
+    if placed {
+        return json!({"id": focused, "lifecycle": "exited"});
+    }
+    json!({"daemon_error": {
+        "code": "selector.ambiguous",
+        "message": format!("2 {scope}s are named {}", params[scope]),
+        "details": {"scope": scope, "selector": params[scope], "candidates": candidates},
+        "retryable": false,
+    }})
+}
+
+/// `agent start --pane NAME` and `terminal <t> resume` to a name two places
+/// share are `selector.ambiguous` with both candidates even while the person
+/// focuses one of them (W5-P): neither takes the person's focus as a
+/// tie-break, and no tab opens.
+#[test]
+fn w5p_start_pane_and_resume_to_a_shared_name_are_ambiguous_even_when_one_is_focused() {
+    let other = "term_0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e";
+    let mut snapshot = snapshot();
+    if let Some(tabs) = snapshot["tabs"].as_array_mut() {
+        tabs.push(json!({"id": "tab_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1", "name": null,
+                         "content_id": other, "pane_id": "pane_11111111111111111111111111111111"}));
+    }
+    if let Some(terminals) = snapshot["terminals"].as_array_mut() {
+        terminals.push(json!({"id": other, "lifecycle": "exited", "title": "build",
+                              "tab_id": "tab_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1", "cwd": "/w/other"}));
+    }
+    snapshot["terminals"][1]["title"] = json!("build");
+    let panes = ["pane_11111111111111111111111111111111", "pane_22222222222222222222222222222222"];
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.get" if params["pane"] == "work" => focus_answer("pane", params, panes[1], panes),
+        "terminal.get" if params["terminal"] == "build" => {
+            focus_answer("terminal", params, OLD, [OLD, other])
+        }
+        "pane.run" => created(panes[1], "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+
+    let options =
+        Options { cmd: Some("sr2 claude".into()), pane: Some("work".into()), ..Options::default() };
+    let failure = run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options))
+        .expect_err("two panes are named work");
+    assert_eq!(failure.error["code"], "selector.ambiguous", "{}", failure.error);
+    assert_eq!(failure.error["details"]["candidates"], json!(panes));
+
+    let shared = ResumeTarget::Terminal("build".into());
+    let failure =
+        run_with_clock(|clock| resume(&daemon, &env(), clock, &shared, &Options::default()))
+            .expect_err("two exited terminals have the title build");
+    assert_eq!(failure.error["code"], "selector.ambiguous", "{}", failure.error);
+    assert_eq!(failure.error["details"]["candidates"], json!([OLD, other]));
+    assert!(daemon.sent("pane.run").is_empty(), "no tab opens");
+}
