@@ -256,7 +256,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
-            RetryButton { await store.retryConnecting(reconnect: reconnect) }
+            RetryButton(style: .inline) { await store.retryConnecting(reconnect: reconnect) }
                 .accessibilityIdentifier("feed.offline.retry")
                 .padding(.top, 14)
         }
