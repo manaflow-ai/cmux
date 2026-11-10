@@ -2694,11 +2694,16 @@ impl WorkspaceRegistry {
         if fresh_database {
             connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
         }
+        // No automatic checkpoint: a commit of this open would copy the whole
+        // WAL the previous run left into the database on the starting thread
+        // (5.5 to 18.9 s of a start with a WAL of 426 to 545 MB). The WAL
+        // syncer copies it on its own thread once the registry is open
+        // (`wal_durability`), and its WAL hook then replaces this setting.
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
-             PRAGMA wal_autocheckpoint=1000;
+             PRAGMA wal_autocheckpoint=0;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
