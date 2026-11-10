@@ -114,7 +114,8 @@ struct NewTabSpareStaysInWindowTests {
         try #require(presses.count == pairs, "fixture: \(presses.count) presses, not \(pairs)")
         let report = presses.enumerated().map { "\($0.offset + 1):\($0.element.inWindow ? "window" : "null")" }.joined(separator: " ")
         print("spare per press, \(pairs) pairs: \(report)")
-        #expect(presses.allSatisfy(\.samePage), "a press did not get the page that was closed (the pool made or kept another one)")
+        let other = presses.filter { !$0.samePage }.count
+        #expect(other == 0, "\(other) of \(pairs) presses did not get the page that was closed (the pool made or kept another one)")
         let outside = presses.filter { !$0.inWindow }.count
         #expect(outside == 0, """
             \(outside) of \(pairs) presses took a spare that was in no window (`window: null`): the key's turn attaches \
