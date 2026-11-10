@@ -48,11 +48,12 @@ pub(super) enum Ready {
 /// `url` cloned into `dir` (an empty or missing folder) at `reference` when given; or the clone
 /// already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
 ///
-/// The ref is checked out by `git clone --branch` itself, so no clone is ever left on another
-/// branch for a retry to reuse, and nothing here deletes anything: git refuses a folder that is
-/// not empty, and on failure removes only what it made (the folder, when it made it, else what it
-/// put in it), leaving a folder that was there with its permissions. `--branch` takes a branch or
-/// a tag; a commit is checked out in the chat after the clone.
+/// A branch or tag is checked out by `git clone --branch` itself. A commit ([`is_commit`]) is
+/// cloned with `--no-checkout` and then checked out: until that checkout makes the index, the
+/// clone is never reused ([`reuse`]), so no chat works in it, and a failed checkout removes only
+/// the clone's own `.git` (and the folder, when this start made it and it is empty). git refuses a
+/// folder that is not empty and on a failed clone removes only what it made, so a folder that was
+/// there stays, with its permissions.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     if is_nonempty(dir) {
         return reuse(url, dir);
@@ -66,24 +67,47 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
             )
         })?;
     }
+    let existed = dir.exists();
+    let commit = reference.filter(|reference| is_commit(reference));
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
     let mut args = vec![OsStr::new("clone"), "--quiet".as_ref(), "--filter=blob:none".as_ref()];
-    if let Some(reference) = reference {
-        args.extend([OsStr::new("--branch"), reference.as_ref()]);
+    match (reference, commit) {
+        (_, Some(_)) => args.push("--no-checkout".as_ref()),
+        (Some(reference), None) => args.extend([OsStr::new("--branch"), reference.as_ref()]),
+        (None, None) => {}
     }
     args.extend([OsStr::new("--"), url.as_ref(), dir.as_os_str()]);
     git(None, args).map_err(|said| {
-        let message = match reference {
-            Some(reference) => format!(
-                "git clone {url} at {reference} failed: {said} (a branch or a tag; for a commit, \
-                 start without @REF and check it out in the chat)"
-            ),
-            None => format!("git clone {url} failed: {said}"),
-        };
-        error("repo.clone_failed", message, json!({"url": url, "ref": reference}))
+        let at = reference.map(|reference| format!(" at {reference}")).unwrap_or_default();
+        error(
+            "repo.clone_failed",
+            format!("git clone {url}{at} failed: {said}"),
+            json!({"url": url, "ref": reference}),
+        )
     })?;
+    if let Some(commit) = commit {
+        git(Some(dir), ["-c", "advice.detachedHead=false", "checkout", "--quiet", commit])
+            .map_err(|said| {
+                // Never reused (no index yet), so this clone is this start's alone.
+                let _ = std::fs::remove_dir_all(dir.join(".git"));
+                if !existed {
+                    let _ = std::fs::remove_dir(dir);
+                }
+                error(
+                    "repo.checkout_failed",
+                    format!("cloned {url}, but git checkout {commit} failed: {said}"),
+                    json!({"url": url, "ref": commit, "dir": dir}),
+                )
+            })?;
+    }
     Ok(Ready::Cloned)
+}
+
+/// Whether `reference` reads as a commit id (7 to 40 hex digits) rather than a branch or tag,
+/// which `git clone --branch` takes.
+pub(super) fn is_commit(reference: &str) -> bool {
+    (7..=40).contains(&reference.len()) && reference.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The clone already in `dir`, when its origin is `url`.
@@ -96,6 +120,16 @@ fn reuse(url: &str, dir: &Path) -> Result<Ready, Value> {
         .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
         .flatten();
     if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
+        // A clone with no index has had no checkout yet: another start is still making it.
+        if !dir.join(".git").join("index").exists() {
+            let mut error = error(
+                "repo.cloning",
+                format!("{} is still being cloned; run this again in a moment", dir.display()),
+                json!({"dir": dir}),
+            );
+            error["retryable"] = json!(true);
+            return Err(error);
+        }
         return Ok(Ready::Reused);
     }
     Err(error(
