@@ -13,6 +13,8 @@ final class ChiefVoiceRecordUITests: XCTestCase {
 
     @MainActor
     func testTapHintsHoldRecordsAndLocks() throws {
+        // Dark, as the Messages reference recording was taken.
+        XCUIDevice.shared.appearance = .dark
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_CONVERSATION_AUDIO_INPUT"] = "synthetic"
