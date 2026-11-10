@@ -572,7 +572,7 @@ def god_ratio_rows(rows):
         small, big = twin.get("p95"), god.get("p95")
         if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
             continue
-        if small <= (twin.get("floor") or 0):
+        if small <= max(twin.get("floor") or 0, GOD_RATIO_MIN[unit]):
             continue
         ratio = round(big / small, 3)
         version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
@@ -1611,6 +1611,9 @@ GOD_BENCHES = ["chat-open", "chat-switch", "transcript-replay"]
 # (a growth per operation or per row) has its own target, and a twin under its noise floor says nothing.
 GOD_RATIO_MAX = 1.2
 GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
+# The smallest twin a ratio means anything against: a 2 ms long task on the small chat would make 84 ms on the god chat
+# 42x, and a ratio of noise flaps. A god row whose twin is under it is still judged by its own target.
+GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_)")
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}

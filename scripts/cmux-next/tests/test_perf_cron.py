@@ -565,6 +565,8 @@ class WebUiTests(unittest.TestCase):
         {"name": "chat_switch.god.unread.idle_wakeups", "p95": 6, "unit": "count", "target": 0},
         {"name": "chat_switch.unread.long_ms", "p95": 0, "floor": 1},
         {"name": "chat_switch.god.unread.long_ms", "p95": 84},
+        {"name": "chat_switch.read_ahead.long_ms", "p95": 2},
+        {"name": "chat_switch.god.read_ahead.long_ms", "p95": 84},
         {"name": "chat_switch.god.churn.heap_kb_per_switch", "p95": 12, "unit": "KB", "target": 0, "floor": 4},
         {"name": "chat_switch.churn.heap_kb_per_switch", "p95": 0, "unit": "KB", "target": 0, "floor": 4},
     ], "failed": []}
@@ -577,7 +579,7 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(ratios, {"webui.god_ratio.chat_switch.unread.latest": 2.54,
                                   "webui.god_ratio.chat_open.compact.latest": 1.1,
                                   "webui.god_ratio.transcript_replay.live.cls": 16.237},
-                         "no ratio for a count, a slope, a per-operation row or a twin at its floor")
+                         "no ratio for a count, a slope, a per-operation row, or a twin at its floor or under GOD_RATIO_MIN")
         bad, good = rows["webui.god_ratio.chat_switch.unread.latest"], rows["webui.god_ratio.chat_open.compact.latest"]
         self.assertEqual((bad["unit"], bad["budget"], bad["god_p95"], bad["small_p95"]), ("x", 1.2, 160, 63))
         self.assertTrue(cron.over_target("webui.god_ratio.chat_switch.unread.latest", bad, None))
