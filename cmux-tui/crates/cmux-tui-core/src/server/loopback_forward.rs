@@ -1093,4 +1093,32 @@ impl LoopbackForwarder {
     pub(super) fn release_for_test(&self, client: u64) {
         self.release(client);
     }
+
+    pub(super) fn open_streams_for_test(&self) -> usize {
+        self.state.lock().recover_poison().streams.len()
+    }
+}
+
+/// Tests: what an accepted `loopback-open` of `127.0.0.1:port` runs on its
+/// open thread, run on the caller's thread (the caller reserved the stream).
+#[cfg(test)]
+pub(super) fn open_for_test(
+    mux: &Arc<Mux>,
+    client: u64,
+    stream: u64,
+    port: u16,
+    target: LoopbackTarget,
+    writer: &MessageWriter,
+) {
+    connect_and_start(
+        mux.clone(),
+        client,
+        Some(json!(1)),
+        stream,
+        "127.0.0.1".into(),
+        port,
+        target,
+        DEFAULT_CLIENT_WINDOW,
+        writer.clone(),
+    );
 }
