@@ -9,7 +9,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { composerHatLook } from "./composerHat.experiment";
 
-type Props = { start?: number; waits?: boolean };
+type Props = { start?: number; waits?: boolean; before?: boolean; side?: "left" | "middle" | "right" };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const count = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent ?? "";
@@ -63,6 +63,29 @@ export default componentEntry<Props>({
     waiting: {
       note: "A chat waits on you: the needs-you dot takes the count's place.",
       props: { start: 2, waits: true },
+    },
+    // The card's top line stops at the pill's rim and never runs through its glass (Leo,
+    // 2026-11-09: "theres a line behind the hat toggle. i dont mean the glass rim i mean there's a
+    // line in the midle"). Theme switch for light and dark; test/composer-hat-line-gap.test.ts.
+    "line-seven": {
+      note: "Seven run (^ 7): the card's top line runs up to the pill's rim on each side, none behind its glass.",
+      props: { start: 7 },
+    },
+    "line-many": {
+      note: "128 run (^ 99+): the widest pill, and the gap in the line is as wide.",
+      props: { start: 128 },
+    },
+    "line-left": {
+      note: "The handle at the left (agentPane.display.trayHandle): the gap goes with it.",
+      props: { start: 7, side: "left" },
+    },
+    "line-right": {
+      note: "The handle at the right: the gap goes with it.",
+      props: { start: 7, side: "right" },
+    },
+    "line-before": {
+      note: "Before: the card's top line ran through the middle of the pill's glass.",
+      props: { start: 7, before: true },
     },
     play: {
       note: "Idle → three run → four → idle: the hat grows into the count and shrinks back as one transition.",

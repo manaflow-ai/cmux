@@ -34,7 +34,8 @@ import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
-import { PromptEditor, SentImages } from "./UserBubble";
+import { PromptEditor, SentImages, SentVideoTiles } from "./UserBubble";
+import type { SentVideo } from "./sentVideos";
 import { FindReveal, foldFind } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
@@ -374,6 +375,7 @@ export function IncomingMessageLine({
   whole = false,
   files,
   images,
+  videos,
   onOpen,
   onReply,
   actions,
@@ -394,6 +396,8 @@ export function IncomingMessageLine({
   files?: readonly FileAttachmentInfo[];
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
+  /// The videos the message sent (sentVideos.ts), each its tile before the images, as a sent prompt's.
+  videos?: readonly SentVideo[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
   onOpen(sessionId: string): void;
   /// Sends a reply to the message's sender; rejects when it was not sent.
@@ -546,7 +550,13 @@ export function IncomingMessageLine({
           <div className="cv-received__text selectable">{markdown}</div>
         )}
       </MessageScopeContext.Provider>
-      {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
+      {(Boolean(images?.length) || Boolean(videos?.length)) && (
+        <SentImages
+          images={images ?? []}
+          className="cv-message__images"
+          leading={videos?.length ? <SentVideoTiles videos={videos} /> : null}
+        />
+      )}
       {files && files.length > 0 && (
         <div className="cv-user__files cv-message__files">
           {files.map((file, index) => (

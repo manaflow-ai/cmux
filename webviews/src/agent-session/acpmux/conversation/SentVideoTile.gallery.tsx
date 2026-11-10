@@ -11,6 +11,15 @@ import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPos
 import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
+
+/// The host's `video.info` answer for the recording (composer/videoAttachments.ts).
+const VIDEO_INFO = {
+  durationMs: 42_400,
+  width: 1920,
+  height: 1080,
+  poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  frames: [],
+};
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { UserBubble } from "./UserBubble";
@@ -22,9 +31,11 @@ const NOTE = framesNote(VIDEO, 42_400, 1920, 1080, TIMES);
 const SCREENSHOT_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-type Props = { typed: string; screenshot: boolean; pending?: boolean; placed?: boolean };
+/// `frames` false: the video went as its link alone (its read failed or timed out, a chat on another
+/// machine, an agent that takes no images), so acpmux's record has its file part and no frames.
+type Props = { typed: string; screenshot: boolean; pending?: boolean; placed?: boolean; frames?: boolean };
 
-function GallerySentVideo({ typed, screenshot, pending = false, placed = false }: Props) {
+function GallerySentVideo({ typed, screenshot, pending = false, placed = false, frames: framed = true }: Props) {
   const frames: PromptImage[] = TIMES.map((atMs, index) => ({
     id: `frame-${index}`,
     mimeType: "image/jpeg",
@@ -39,11 +50,15 @@ function GallerySentVideo({ typed, screenshot, pending = false, placed = false }
     ...(typed ? [{ kind: "text" as const, text: typed }] : []),
     ...shot.map((image) => ({ kind: "image" as const, ...image })),
     { kind: "file", name: VIDEO, uri: `file://${encodeURI(PATH)}`, ...(placed ? { placed: true as const } : {}) },
-    { kind: "text", text: NOTE },
-    ...frames.flatMap((frame): PromptContentPart[] => [
-      { kind: "text", text: frame.name! },
-      { kind: "image", ...frame },
-    ]),
+    ...(framed
+      ? [
+          { kind: "text" as const, text: NOTE },
+          ...frames.flatMap((frame): PromptContentPart[] => [
+            { kind: "text", text: frame.name! },
+            { kind: "image", ...frame },
+          ]),
+        ]
+      : []),
     ...(placed ? [{ kind: "text" as const, text: "and then it settles." }] : []),
   ];
   const text = parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n");
@@ -53,7 +68,7 @@ function GallerySentVideo({ typed, screenshot, pending = false, placed = false }
     at: 0,
     kind: "user",
     text,
-    images: [...shot, ...frames],
+    images: [...shot, ...(framed ? frames : [])],
     inlineParts: parts,
   };
   const [actions] = useState(() => ({
@@ -148,6 +163,21 @@ export default componentEntry<Props>({
     "video-loading": {
       note: "While acpmux reads the poster frame, the tile holds its shape with the play glyph and length.",
       props: { typed: "Watch this", screenshot: false, pending: true },
+    },
+    "video-without-frames": {
+      note: 'Leo, 2026-11-06: "how come this didn\'t give a preview and only has file name?". A recording that went to the agent as its link alone (its read failed or timed out, a chat on another machine, an agent that takes no images) was a file chip with its name. It is the same tile: the host reads its poster and length from the file, in the square the row gave it, so nothing moves.',
+      props: { typed: "The sidebar jumps when I open it", screenshot: false, placed: true, frames: false },
+      chipHost: { videos: { [PATH]: VIDEO_INFO } },
+    },
+    "video-without-frames-unread": {
+      note: "The same recording where the host cannot read the file (a chat on another machine): the square with its play glyph, never a file chip. A click still plays it.",
+      props: { typed: "The sidebar jumps when I open it", screenshot: false, placed: true, frames: false },
+      chipHost: { refused: ["video.info"] },
+    },
+    "video-without-frames-and-screenshot": {
+      note: "A frameless recording beside a screenshot, in the attachment row above the bubble: its tile with its poster read from the file, then the screenshot.",
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true, frames: false },
+      chipHost: { videos: { [PATH]: VIDEO_INFO } },
     },
     "video-placed": {
       note: "A recording placed in the text: its tile sits where it was put.",

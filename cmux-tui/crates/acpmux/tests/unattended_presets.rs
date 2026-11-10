@@ -333,6 +333,34 @@ fn every_unattended_start_and_approval_is_logged() {
     });
 }
 
+/// #39916 (F1 of #39884's review): an approval whose config save fails changed nothing, so the
+/// log says nothing about it.
+#[test]
+fn an_approval_that_is_not_saved_is_not_logged() {
+    big_stack(async {
+        let (a, _b) = with_peer("unsaved", true).await;
+        let mut app = Client::person(&a).await;
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}}),
+        )
+        .await;
+        // The log's home exists, as a daemon's does; the config file is a directory, so the
+        // save's rename onto it fails.
+        std::fs::create_dir_all(acpmux::config::home()).unwrap();
+        let dir = std::env::temp_dir().join(format!("acpmux-unsaved-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("config.json")).unwrap();
+        a.config.write().await.path = Some(dir.join("config.json"));
+        let id = "unsaved-approval";
+        let r = app
+            .call("_acpmux/presets", json!({"name": PRESET, "approveMode": true, "sessionId": id}))
+            .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(r["error"]["message"].as_str().unwrap_or("").contains("save config"), "{r}");
+        assert_eq!(logged(id), Vec::<Value>::new());
+    });
+}
+
 #[test]
 fn an_approved_preset_with_an_env_is_refused_on_another_machine() {
     big_stack(async {

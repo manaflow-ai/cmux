@@ -363,7 +363,7 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:focus-within {
+  .nt-box:is(:focus-visible, :has(:focus-visible)) {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
