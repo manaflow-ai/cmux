@@ -13,6 +13,9 @@ extension MainPaneGutterSuites {
     /// chrome around the curved main pane are shaded darker than the pane. The setting applies live,
     /// from cmux.json through the settings applier to the open window.
     @MainActor struct SidebarSurfaceTests {
+        /// The density and chrome style when the case began (a new value per case): ``reset()`` puts them back.
+        private let kept = (density: DesignSettings.shared.densityTokens, style: DesignSettings.shared.chromeStyle)
+
         /// A window root in a titled, full-size-content window, as the app shows it, sidebar shown.
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
@@ -41,9 +44,13 @@ extension MainPaneGutterSuites {
             return SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
         }
 
-        /// Undoes a case's loads: loads an empty file, so every key the case set is back at its default.
+        /// Undoes a case's loads: loads an empty file, so every key the case set is back at its default, then puts back
+        /// the density and chrome style the case found (the empty file's are Default and `default`, not theirs).
         func reset() {
             load(.object([:]))
+            let design = DesignSettings.shared
+            if design.densityTokens != kept.density { design.densityTokens = kept.density }
+            if design.chromeStyle != kept.style { design.chromeStyle = kept.style }
         }
 
         func appearance(_ members: [String: JSONValue]) -> JSONValue {
