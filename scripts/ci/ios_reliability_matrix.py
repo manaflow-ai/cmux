@@ -57,6 +57,10 @@ SWIFT_CRASH = re.compile(
 # How a run that finished ends: xcodebuild's `** TEST SUCCEEDED **` / `** TEST FAILED **`,
 # Swift Testing's `Test run with N tests ... passed|failed`, XCTest's `Executed N tests`.
 SWIFT_SUMMARY = re.compile(r"\*\* TEST (?:SUCCEEDED|FAILED) \*\*|Test run with \d+ tests?|Executed \d+ tests?")
+# A run (or a suite) starting: `swift test` prints XCTest's `Executed 0 tests` summary before
+# Swift Testing's `◇ Test run started.`, so only a summary after the last of these, and after the
+# last test line, ends the log.
+SWIFT_RUN_START = re.compile(r"Test run started|Suite [\w.]+ started|Test Suite '[^']*' started")
 MATRIX_LINE = re.compile(r"MATRIX (\{.*\})\s*$")
 
 
@@ -96,7 +100,8 @@ def parse_rust(log: str) -> dict[str, str]:
     failed: set[str] = set()
     pending = ""  # the --nocapture test whose result line has not come yet
     finished = False
-    seen = False  # this binary printed anything of its own
+    seen = False  # this binary started: its `Running` header or `running N tests`
+    output = False  # it printed a test line since `running N tests`
     in_failures = False
 
     def passed(name: str) -> None:
@@ -104,19 +109,21 @@ def parse_rust(log: str) -> dict[str, str]:
         _record(results, name, "pass")
 
     def close(signal: bool = False) -> None:
-        nonlocal started, failed, pending, finished, seen, in_failures
+        nonlocal started, failed, pending, finished, seen, output, in_failures
         if seen and (signal or not finished):
             crashed_binaries.add(binary)
             for name in started:
                 if name not in explicit_pass:
                     _record(results, name, "crashed")
-        started, failed, pending, finished, seen, in_failures = [], set(), "", False, False, False
+        started, failed, pending, finished, seen, output, in_failures = [], set(), "", False, False, False, False
 
     for line in log.splitlines():
         header = RUST_BINARY.match(line)
         if header:
             close()
             binary = _binary_key(header)
+            # A binary that dies before its first line (a timeout at startup) still crashed.
+            seen = True
             continue
         if RUST_SIGNAL.search(line):
             # cargo reports the dead binary after it ends, before the next one starts.
@@ -126,13 +133,14 @@ def parse_rust(log: str) -> dict[str, str]:
                 crashed_binaries.add(binary)
             continue
         if RUST_RUNNING.match(line.strip()):
-            if seen:
+            # A log without cargo's headers: a second `running N tests` starts the next binary.
+            if output:
                 close()
             seen = True
             continue
         match = RUST_START.match(line)
         if match:
-            seen = True
+            seen = output = True
             in_failures = False
             pending = ""
             name, rest = match["name"], match["rest"].strip()
@@ -189,10 +197,12 @@ def parse_swift(log: str) -> dict[str, str]:
         match = SWIFT_RESULT.search(line)
         if match:
             _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
+            summary = False
             continue
         match = SWIFT_RESTARTED.search(line)
         if match:
             crashed = True
+            summary = False
             name = match["name"] or match["objc"]
             if name and results.get(name) != "pass":
                 _record(results, name, "crashed")
@@ -201,11 +211,14 @@ def parse_swift(log: str) -> dict[str, str]:
         if match:
             name = match["name"] or match["objc"]
             results.setdefault(name, "started")
+            summary = False
             continue
         if SWIFT_CRASH.search(line):
             crashed = True
         if SWIFT_SUMMARY.search(line):
             summary = True
+        elif SWIFT_RUN_START.search(line):
+            summary = False
     if log.strip() and not summary:
         crashed = True
     for name, verdict in list(results.items()):

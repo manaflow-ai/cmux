@@ -134,6 +134,32 @@ Test Case '-[CmuxMobileLiveTests.LinkRecoveryTests resumeAfterSleep]' passed (0.
 Test Case '-[CmuxMobileLiveTests.LinkRecoveryTests staleLinkIsReplaced]' started.
 """
 
+# `swift test`: XCTest's empty summary first, then Swift Testing, cut off mid-test.
+SWIFT_TEST_CUT_OFF_LOG = """\
+Test Suite 'All tests' started at 2026-11-10 08:41:00.001.
+Test Suite 'All tests' passed at 2026-11-10 08:41:00.002.
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2
+◇ Suite ConnectivityMatrixTests started.
+◇ Test cellNetworkOfflineThenBack() started.
+✔ Test cellNetworkOfflineThenBack() passed after 0.412 seconds.
+◇ Test cellAppMemoryWarning() started.
+"""
+
+# The release matrix binary's header, then nothing: it hung at startup until the job's timeout.
+RUST_DIED_AT_STARTUP_LOG = """\
+     Running tests/reliability_matrix.rs (target/debug/deps/reliability_matrix-3f2a1b0c9d8e7f60)
+
+running 1 test
+test cell_host_daemon_restart ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `release` profile [optimized] target(s) in 1m 02s
+     Running tests/reliability_matrix.rs (target/release/deps/reliability_matrix-9a8b7c6d5e4f3a2b)
+"""
+
 
 def cell(id_: str, suite: str, test: str, gate: bool) -> dict:
     return {"id": id_, "axis": "a", "case": id_, "suite": suite, "test": test, "asserts": "x", "gate": gate}
@@ -240,6 +266,22 @@ class MatrixReportTest(unittest.TestCase):
         code, rows = self.run_main(None, IOS_XCTEST_CUT_OFF_LOG, cells)
         self.assertEqual({row["id"]: row["status"] for row in rows},
                          {"sleep": "pass", "stale": "crashed", "cached": "crashed"})
+        self.assertEqual(code, 1)
+
+    def test_an_xctest_summary_before_a_cut_off_swift_testing_run_does_not_finish_it(self) -> None:
+        cells = [
+            cell("offline", "ios", "cellNetworkOfflineThenBack", True),
+            cell("memory", "ios", "cellAppMemoryWarning", True),
+            cell("asleep", "ios", "cellHostMacAsleepThenWakes", True),
+        ]
+        code, rows = self.run_main(None, SWIFT_TEST_CUT_OFF_LOG, cells)
+        self.assertEqual({row["id"]: row["status"] for row in rows},
+                         {"offline": "pass", "memory": "crashed", "asleep": "crashed"})
+        self.assertEqual(code, 1)
+
+    def test_a_rust_binary_that_dies_before_its_first_line_crashes_its_known_tests(self) -> None:
+        code, rows = self.run_main(RUST_DIED_AT_STARTUP_LOG, None, [cell("restart", "rust", "cell_host_daemon_restart", True)])
+        self.assertEqual(rows[0]["status"], "crashed")
         self.assertEqual(code, 1)
 
     def test_a_crashed_cell_reads_crashed_in_the_table(self) -> None:
