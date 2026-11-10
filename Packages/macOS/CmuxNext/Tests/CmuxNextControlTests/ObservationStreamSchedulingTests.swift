@@ -67,9 +67,10 @@ import Testing
     }
 
     @Test func withNoRunnerAnEvaluationRunsUnscheduled() async {
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in SchedulingFakeLink() }
+        work.runsObservationEvaluations()
         ObservationSite.evaluations = nil
-        let board = MainTaskBoard()
-        let seen = SeenTasks(board: board)
+        let seen = SeenTasks(board: work.budget.board)
         let model = SchedulingModel()
         var iterator = ObservationStream { () -> Int in
             seen.record()
@@ -77,7 +78,29 @@ import Testing
         }.makeAsyncIterator()
         let first = await iterator.next()
         #expect(first == 0)
-        #expect(seen.tasks == [nil])
+        #expect(seen.tasks == [nil], "a removed runner schedules nothing")
+        #expect(work.budget.stats.tasks[0] == 0)
+    }
+
+    @Test func anEvaluationOnAnIdleAppStartsAFreshWindow() async {
+        let clock = SchedulingClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in SchedulingFakeLink() }
+        work.runsObservationEvaluations()
+        defer { ObservationSite.evaluations = nil }
+        let model = SchedulingModel()
+        var iterator = ObservationStream { () -> Int in
+            clock.advance(ms: 3)
+            return model.value
+        }.makeAsyncIterator()
+        _ = await iterator.next()
+        // No display link runs: the next change comes a few frames later.
+        clock.advance(ms: 20)
+        model.value = 1
+        _ = await iterator.next()
+        clock.advance(ms: 20)
+        #expect(work.budget.mayRun(.visible))
+        #expect(work.budget.stats.maxFrameNanos[0] == 3_000_000,
+                "two evaluations 20 ms apart are two frames' work, not one frame of 6 ms")
     }
 }
 
