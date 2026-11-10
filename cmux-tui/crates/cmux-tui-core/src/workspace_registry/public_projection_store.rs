@@ -26,22 +26,22 @@ const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 
 #[cfg(test)]
 thread_local! {
-    static AGENT_PROJECTION_ROWS_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static AGENT_HOOK_FENCE_ROWS_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static AGENT_PROJECTION_ROWS_READ: Cell<usize> = const { Cell::new(0) };
+    static AGENT_HOOK_FENCE_ROWS_READ: Cell<usize> = const { Cell::new(0) };
 }
 
 /// How many agent projection rows this thread has read from the registry (test hook): a test
 /// counts the rows a reader pays for, with no clock (AGENT RECORDS, 2026-11-10).
 #[cfg(test)]
 pub(crate) fn agent_projection_rows_read_on_this_thread() -> usize {
-    AGENT_PROJECTION_ROWS_READ.with(std::cell::Cell::get)
+    AGENT_PROJECTION_ROWS_READ.with(Cell::get)
 }
 
 /// How many hook fence rows (`resource_agent_hook_state`) this thread has read from the registry
 /// (test hook): each daemon start reads all of them into memory.
 #[cfg(test)]
 pub(crate) fn agent_hook_fence_rows_read_on_this_thread() -> usize {
-    AGENT_HOOK_FENCE_ROWS_READ.with(std::cell::Cell::get)
+    AGENT_HOOK_FENCE_ROWS_READ.with(Cell::get)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -720,7 +720,9 @@ impl RestoreReducer {
                 if resource == "terminal"
                     && let Some(agents) = self.resources.get_mut("agents")
                 {
-                    agents.retain(|_, agent| agent["terminal_id"].as_str() != Some(id));
+                    agents.retain(|_, agent| {
+                        agent.get("terminal_id").and_then(Value::as_str) != Some(id)
+                    });
                 }
             }
             _ => anyhow::bail!("validated replay change kind is unsupported"),
