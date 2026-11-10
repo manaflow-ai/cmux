@@ -612,28 +612,6 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
-        id: "appearance.animations.bounce.subtle",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.subtle", "Use Bouncy Animations"),
-        keywords: &["animation", "motion", "spring", "bounce", "bouncy", "appearance"],
-        category: "settings",
-        symbol: "arrow.up.and.down.and.sparkles",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-bouncy-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.none",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.none", "Use Animations Without Bounce"),
-        keywords: &["animation", "motion", "spring", "bounce", "critically damped", "appearance"],
-        category: "settings",
-        symbol: "arrow.right.to.line",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-animations-without-bounce",
-        ..Action::DEFAULT
-    },
-    Action {
         id: "browser.defaultEngine.chromium",
         group: GROUP,
         title: t("ActionCatalog", "action.browser.defaultEngine.chromium", "Use Chromium for New Browser Tabs"),
