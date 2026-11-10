@@ -184,15 +184,19 @@ struct PaneContentPolicyTests {
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
-        #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count * windows),
-                "more grid reports than one per terminal per refresh (\(windows)) for one press")
+        // The press's reports are counted at this window's PTYs. `TerminalSurfaceView.gridReports` counts every terminal
+        // of the process, and the terminals of the suites that run beside this one report in the awaits above (the
+        // first case was red at b180ba75b3a beside 12 other suites: 23 reports counted, with each PTY here in its bound).
+        var sent = 0
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
+            sent += grids.count
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids.count <= windows && grids.last == final,
                     "\(pane) asked its PTY for \(grids), not at most one grid per refresh (\(windows)) ending at its final grid \(final)")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
+        #expect(sent <= panes.count * windows, "\(sent) grid reports, more than one per terminal per refresh (\(windows)) for one press")
     }
 
     /// A held key (three Ctrl-Shift-H presses 4 refreshes apart retarget one spring): in every refresh each terminal's
