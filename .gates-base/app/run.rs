@@ -1,0 +1,79 @@
+//! Pieces every app request shares, the CLI's and `cmux mcp`'s: the params
+//! an `action.run` starts from, its idempotency key, and the busy retry.
+
+use std::os::unix::net::UnixStream;
+use std::time::Duration;
+
+use serde_json::{Map, Value, json};
+
+use super::{ActionName, BUSY_RETRIES, busy_retry_delay, request, retry_before_running};
+
+/// The params every `action.run` starts from: the action, whether it is
+/// named by its CLI name, `wait: true`, and who asked (`origin`). Only a run
+/// with `focus: true` may move the app's focus, selection, shown workspace or
+/// key window, unless the action's purpose is focus or the origin is `user`
+/// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
+pub(in crate::cli) fn action_run_params(
+    action: &str,
+    name: ActionName,
+    origin: &str,
+) -> Map<String, Value> {
+    let mut params = Map::new();
+    params.insert("action".into(), json!(action));
+    if name == ActionName::Cli {
+        params.insert("cli".into(), json!(true));
+    }
+    params.insert("wait".into(), json!(true));
+    params.insert("origin".into(), json!(origin));
+    params
+}
+
+/// Gives an `action.run` its idempotency key: `given`, else a new one.
+pub(in crate::cli) fn insert_run_key(
+    params: &mut Value,
+    given: Option<&str>,
+) -> Result<String, String> {
+    let key = match given {
+        Some(key) => key.to_owned(),
+        None => {
+            super::super::command::random_prefixed("mutation").map_err(|error| error.to_string())?
+        }
+    };
+    params["idempotency_key"] = json!(key);
+    Ok(key)
+}
+
+/// The longest wait before one retry.
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(2);
+
+/// One request; an app that says the run never started and why it may pass
+/// (`retry_before_running`) is asked again after the delay it names, doubled
+/// each time, at most `BUSY_RETRIES` times. The caller sees only the last answer.
+pub(in crate::cli) fn request_with_retry(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: impl Into<Option<Duration>>,
+) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
+    let mut retries = 0;
+    loop {
+        match request(stream, method, params.clone(), timeout)? {
+            Err(error) if retries < BUSY_RETRIES && retry_before_running(&error) => {
+                std::thread::sleep(
+                    (busy_retry_delay(&error) * 2u32.pow(retries)).min(MAX_RETRY_WAIT),
+                );
+                retries += 1;
+            }
+            response => return Ok(response),
+        }
+    }
+}
+
+/// Whether a request may be sent again on a new connection after the app
+/// dropped the first one: a read, or a run with its idempotency key (the app
+/// replays a finished run and joins one still running).
+pub(in crate::cli) fn safe_to_resend(method: &str, params: &Value) -> bool {
+    super::is_retryable_read(method)
+        || params.get("idempotency_key").and_then(Value::as_str).is_some()
+}
