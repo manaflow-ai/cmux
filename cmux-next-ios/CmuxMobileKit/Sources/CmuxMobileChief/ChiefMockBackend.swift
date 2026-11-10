@@ -354,7 +354,7 @@ struct ChiefMockScript {
         if lower.contains("test") {
             return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
         }
-        if lower.contains("table") || lower.contains("agents") {
+        if lower.contains("table") {
             return """
             Here are your agents:
 

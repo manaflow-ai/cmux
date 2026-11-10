@@ -102,6 +102,20 @@ import Testing
         #expect(read.textRuns.count == 6)
     }
 
+    /// A Chief transcript kept on the phone by a build before tables
+    /// (no "tables" key) still loads, so relaunching shows it with no spinner.
+    @Test func messageKeptBeforeTablesStillDecodes() throws {
+        let read = try chiefSays("| a | b |\n| - | - |\n| 1 | 2 |")
+        let data = try JSONEncoder().encode(read)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["tables"] != nil)
+        #expect(try JSONDecoder().decode(ConversationMessage.self, from: data) == read)
+        object["tables"] = nil
+        let old = try JSONDecoder().decode(ConversationMessage.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.tables.isEmpty)
+        #expect(old.text == read.text)
+    }
+
     /// Text that is not a table is left as it was: pipes in prose, a table
     /// inside a code fence, and my own messages.
     @Test func nonTableMarkdownIsUnchanged() throws {

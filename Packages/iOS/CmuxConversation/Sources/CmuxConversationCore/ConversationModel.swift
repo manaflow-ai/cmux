@@ -297,7 +297,7 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     public var links: [ConversationTextLink]
     /// Markdown tables over `text` (an agent's pipe table, rewritten as rows
     /// of tab-separated cells by ``ConversationMarkdownTables``).
-    public var tables: [ConversationTextTable]
+    @ConversationEmptyWhenMissing public var tables: [ConversationTextTable]
     /// Rich link card for the URL that opens or ends `text`, if any.
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
