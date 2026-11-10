@@ -12,6 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### The embedder hears each frame the layer shows (ghostty-next)
+
+- Release branch `release/cmux-gi-present-cb-1` at `a0e665d4f` (red tests `3e874ce8c` and `6ef7ba722`), on
+  `b3a5ebfdf`. The pin is `c370b103a` on `release/cmux-gi-land-1`: the merge of `a0e665d4f` and `a0975fd8c` (the
+  section below), with no conflict. ghostty-integration step 3 (P23).
+- What: `ghostty_surface_set_present_callback(surface, cb, userdata)`. Each time a frame becomes the IOSurface layer's
+  contents (off main after the GPU thread's own transaction commits; on main for a new size, the first frame, a display
+  pass or an embedder present), `cb` gets `ghostty_surface_present_s`: the frame's pixel size, the reason
+  (`GHOSTTY_PRESENT_CONTENT` at the shown size, `GHOSTTY_PRESENT_RESIZE` for another size or the first frame), the
+  renderer's present sequence and `mach_absolute_time()`. Dropped and superseded frames are not reported. The layer
+  reads the callback under the CA lock and calls it after the unlock, so the callback may take its own locks.
+  `setSurfaceSync` now always takes the CA lock. The renderer's `prepareDeinit` removes the callback, so no frame is
+  reported after `ghostty_surface_free` returns (the embedder may free the userdata then). cmux's
+  `setContents:` swizzle (`TypingFrameProbe`) is deleted.
+- Conflict notes: `include/ghostty.h` (after `ghostty_surface_host_frame_committed`), `src/apprt/structs.zig`
+  (`PresentReason`, `Present`, `PresentCallback`), `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig` (every contents setter, `presentReportLocked`).
+
 ### Upstream scroll and resize fixes picked onto the pin (ghostty-next, GI PIN SYNC)
 
 - Release branch `release/cmux-gi-pin-sync-2` at `a0975fd8c`, on `b3a5ebfdf`: first `9ae6954e2`, the upstream tests of

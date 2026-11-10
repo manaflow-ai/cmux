@@ -108,6 +108,10 @@ import Foundation
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
+        case .zoomPane(let pane, let zoomed):
+            return zoom(pane, zoomed: zoomed, in: store)
+        case .swapPanes(let leading, let trailing):
+            return swap(leading: leading, trailing: trailing, in: store)
         case .bindAgentSession(let surface, let session, let harness):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession,
                   record.session != session || (harness != nil && record.harness != harness) else { return nil }
@@ -194,6 +198,10 @@ import Foundation
             store.screensByHandle[screen]?.icon = icon
         case .screenPinned(let screen, let pinned):
             store.screensByHandle[screen]?.pinned = pinned
+        case .screenZoom(let screen, let pane):
+            store.screensByHandle[screen]?.zoomedPane = pane
+        case .swappedPanes(let screen, let first, let second):
+            if let screen = store.screensByHandle[screen] { exchange(first, second, in: screen) }
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
         case .workspaceColor(let key, let color):

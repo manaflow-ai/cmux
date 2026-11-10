@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { billedLevelMicros, defaultTeamCapPools, markupPriceVersion, overageModelMarkup, teamCapApplies, teamCapUnpaidMaxPools, usageMeterValueMicros } from "../src/billing-catalog.ts"
+import { billedLevelMicros, defaultTeamCapPools, markupPriceVersion, overageModelMarkup, poolsMachineTime, teamCapApplies, teamCapUnpaidMaxPools, usageMeterValueMicros } from "../src/billing-catalog.ts"
 import { paidRenewal } from "../src/billing-usage-sync.ts"
 import { stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { teamCapReached } from "../src/inference/included-stop.ts"
@@ -25,10 +25,18 @@ const nowS = () => Math.floor(Date.now() / 1000)
 const setCap = async (t: string, usd: number) => expect((await post("/v1/ops", t, { op: "usage.cap.set", params: { cap_usd: usd }, idempotency_key: crypto.randomUUID(), origin: "cli" })).ok).toBe(true)
 
 describe("model overage markup (billing-catalog.ts billedLevelMicros)", () => {
-  it("is 1.10 under v2 only; v1 (production) and e2e stay pass-through", () => {
+  it("is 1.10 under v2's rules (v2 and its test-mode twin e2e); v1 stays pass-through", () => {
     expect(overageModelMarkup("v2")).toBe(1.1)
+    expect(overageModelMarkup("e2e")).toBe(1.1)
     expect(overageModelMarkup("v1")).toBe(1)
-    expect(overageModelMarkup("e2e")).toBe(1)
+  })
+
+  it("e2e bills by v2's rules end to end: pooled machine time, the default cap and the model-call cap", () => {
+    expect(poolsMachineTime("e2e")).toBe(true)
+    expect(defaultTeamCapPools("e2e")).toBe(2)
+    expect(teamCapApplies("e2e")).toBe(true)
+    // A test-mode Pro team (1 USD included): 1.5 of models and 0.5 of machine time is 0.75 + 0.25 above the pool.
+    expect(billedLevelMicros(1.5 * M, 0.5 * M, 1 * M, overageModelMarkup("e2e"))).toBe(2_075_000)
   })
 
   it("v1: the billed level is the level at cost, above the pool too", () => {
@@ -74,7 +82,7 @@ describe("model overage markup (billing-catalog.ts billedLevelMicros)", () => {
 })
 
 describe("the team spending cap (UsageMeterDO.teamCap)", () => {
-  it("a team with no cap is under, cap null; v1 and e2e have no default cap", async () => {
+  it("a team with no cap is under, cap null; v1 has no default cap", async () => {
     const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000001")
     const fresh = await stub(team).teamCap(team, true, "v2")
     expect(fresh).toMatchObject({ state: "under", spent_usd: 0, cap_usd: null })
@@ -83,7 +91,6 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     await markBillable(team, "per_seat", 2, 25, 10_000)
     expect(await stub(team).teamCap(team, false, "v1")).toMatchObject({ state: "under", spent_usd: 500, cap_usd: null })
     expect(defaultTeamCapPools("v1")).toBeNull()
-    expect(defaultTeamCapPools("e2e")).toBeNull()
     expect(teamCapApplies("v1")).toBe(false)
   })
 
