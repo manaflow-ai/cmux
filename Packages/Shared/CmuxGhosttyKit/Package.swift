@@ -197,6 +197,12 @@ import PackageDescription
 // layer's contents (pixel size, content or resize, sequence, host time); it
 // replaces cmux's setContents: swizzle on IOSurfaceLayer.
 //
+// Since c370b103a..b37a94dfe (release/cmux-gi-land-1-cell-guard, the two
+// commits of fork PR #91: red c59eb2db0, fix b37a94dfe): a frame drawn before
+// the surface's first cell build runs no cell pass and has a 0 x 0 grid
+// (Contents.framePlan), so a new surface shows its plain background, never
+// cells of another buffer. No C API change.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -220,8 +226,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c370b103a8707897df449ba9ddd3f5586b227313-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "0669c1040f20e729f507bd3e52da3cb5a4b096c331cf8220b78941bde62811af"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "d5085be1f0af3145bbb45e7b9d5dbdeeab13693ef954a9d00d04c984714814ed"
         ),
     ]
 )
