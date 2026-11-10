@@ -2237,6 +2237,29 @@ async fn a_detach_is_bounded_when_the_host_never_takes_the_terminate() {
     daemon.wait_event(&session, "host_ended", |e| e["kind"] == "host_ended");
 }
 
+/// A session closed while its host never takes the terminate: the close ends the host by its
+/// nonce, so no agent runs on behind a session that reads closed.
+#[tokio::test]
+async fn a_close_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallclose", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let killed = rpc.reply("_acpmux/kill", json!({"sessionId": session, "purge": false}));
+    let r = tokio::time::timeout(Duration::from_secs(20), killed)
+        .await
+        .expect("the close waited on a host that never takes the terminate");
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its session closed"
+    );
+}
+
 /// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
 fn record_mdm_off(daemon: &Daemon) {
     let state = daemon.home.join("start-mode.json");
