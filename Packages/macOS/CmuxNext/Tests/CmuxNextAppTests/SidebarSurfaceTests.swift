@@ -94,7 +94,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func withPaneOutlinesTheSidebarDrawsTheMainPanesSurface() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(outlined())
             let (window, root) = openRoot()
             defer { window.close() }
@@ -104,7 +104,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func separateKeepsTheOldShadedSidebar() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(appearance(["sidebarSurface": .string("separate")]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -114,7 +114,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func switchingTheSettingRepaintsTheOpenWindow() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(outlined())
             let (window, root) = openRoot()
             defer { window.close() }
@@ -136,7 +136,7 @@ extension MainPaneGutterSuites {
         }
 
         @Test func aBadValueKeepsTheDefaultAndSaysWhy() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             let diagnostics = load(outlined(["sidebarSurface": .string("purple")]))
             #expect(diagnostics.contains { $0.path == "appearance.sidebarSurface" && $0.kind == .invalidValue })
             let (window, root) = openRoot()
@@ -149,7 +149,7 @@ extension MainPaneGutterSuites {
         /// shared surface still draws the pane's own color there (Lawrence 2026-10-19: "it should
         /// just have a border on the sidebar, not a different color"; no faint tonal step).
         @Test func withNoLinesTheSidebarStillDrawsTheMainPanesSurface() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(appearance(["borders": .string("none")]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -163,6 +163,7 @@ extension MainPaneGutterSuites {
         /// hairline edge line.
         @Test func byDefaultTheSidebarIsThePanesColorWithAnEdgeLine() async {
             load(.object([:]))
+            defer { MainPaneGutterSuites.pinsCornerFlushOff(false) }
             let (window, root) = openRoot()
             defer { window.close() }
             let pane = root.themeTokens.surfaceBackground.withAlpha(1)
@@ -174,7 +175,7 @@ extension MainPaneGutterSuites {
 
         /// Cards draw no pane outline; the shared surface still draws the pane's color beside them.
         @Test func withoutPaneOutlinesTheSidebarStillDrawsThePanesColor() async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(.object(["layout": .object(["paneSeparation": .string("cards")])]))
             let (window, root) = openRoot()
             defer { window.close() }
@@ -189,7 +190,7 @@ extension MainPaneGutterSuites {
         /// window's own color and parts it with a hairline on its edge; `bare` keeps no lines.
         @Test(arguments: ChromeStyle.allCases)
         func everyWindowStyleDrawsTheSidebarOnTheWindowsColor(style: ChromeStyle) async {
-            defer { load(.object([:])) }
+            defer { load(.object([:])); MainPaneGutterSuites.pinsCornerFlushOff(false) }
             load(appearance(["chromeStyle": .string(style.rawValue)]))
             let (window, root) = openRoot()
             defer { window.close() }

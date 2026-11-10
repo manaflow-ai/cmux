@@ -24,7 +24,11 @@ import Testing
         TunableStore.shared.activate(file: nil)
         let key = TopRowLineLook.tunable.key, look = TunableStore.shared.override(key)
         TunableStore.shared.set(key, TopRowLineLook.lights.tunableValue)
+        // These measure the tab pill's gaps; the flush corner (the default over this chrome) runs the
+        // selected pill to the strip's bottom and has its own suites.
+        MainPaneGutterSuites.pinsCornerFlushOff(true)
         defer {
+            MainPaneGutterSuites.pinsCornerFlushOff(false)
             TunableStore.shared.set(key, look)
             (design.tabBarPosition, design.titlebar, design.densityTokens) = before
         }
