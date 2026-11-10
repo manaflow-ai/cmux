@@ -59,6 +59,14 @@ public struct SafariCookieImportPreparation {
             // constant for it; a system that ignores it still imports the cookie.
             properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
         }
+        switch record.sameSite {
+        case .lax:
+            properties[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteLax.rawValue
+        case .strict:
+            properties[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteStrict.rawValue
+        case nil:
+            break
+        }
         if let expiresDate = record.expiresDate {
             properties[.expires] = expiresDate
         }

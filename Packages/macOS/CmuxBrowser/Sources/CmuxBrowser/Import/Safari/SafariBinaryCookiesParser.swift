@@ -4,7 +4,9 @@ public import Foundation
 ///
 /// The format mixes endianness: the file header and page table are big-endian,
 /// page and cookie records are little-endian. Expiries are IEEE-754 doubles in
-/// Mac absolute time (seconds since 2001-01-01 UTC). Every read is bounds
+/// Mac absolute time (seconds since 2001-01-01 UTC). The flags word carries
+/// Secure (`0x1`), HttpOnly (`0x4`) and SameSite (`0x8` alone for Lax, `0x8`
+/// with `0x10` for Strict); its other bits are ignored. Every read is bounds
 /// checked, so a damaged or hostile file produces a ``ParseError`` instead of a
 /// crash, and the bytes decoded from cookie records are capped so a page whose
 /// offset table points at one record thousands of times cannot exhaust memory.
@@ -46,6 +48,9 @@ public struct SafariBinaryCookiesParser: Sendable {
     private static let cookieFixedHeaderSize = 56
     private static let secureFlag: UInt32 = 0x1
     private static let httpOnlyFlag: UInt32 = 0x4
+    private static let sameSiteMask: UInt32 = 0x18
+    private static let sameSiteLaxFlags: UInt32 = 0x08
+    private static let sameSiteStrictFlags: UInt32 = 0x18
 
     /// Upper bound on the record bytes one `parse` call decodes.
     ///
@@ -156,8 +161,20 @@ public struct SafariBinaryCookiesParser: Sendable {
             value: value,
             expiresDate: expiresDate,
             isSecure: flags & Self.secureFlag != 0,
-            isHTTPOnly: flags & Self.httpOnlyFlag != 0
+            isHTTPOnly: flags & Self.httpOnlyFlag != 0,
+            sameSite: Self.sameSite(fromFlags: flags)
         )
+    }
+
+    /// The SameSite policy in a record's flags word. `HTTPCookieStorage` writes
+    /// `0x08` for Lax and `0x18` for Strict; a cookie with no policy has `0x10`
+    /// alone or neither bit, and both decode to `nil`.
+    private static func sameSite(fromFlags flags: UInt32) -> SafariBinaryCookie.SameSite? {
+        switch flags & sameSiteMask {
+        case sameSiteLaxFlags: .lax
+        case sameSiteStrictFlags: .strict
+        default: nil
+        }
     }
 
     /// Bounds-checked reads over a byte window. Every accessor returns `nil`

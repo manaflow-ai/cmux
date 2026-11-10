@@ -5,6 +5,14 @@ public import Foundation
 /// Values are carried exactly as Safari stored them; the importer decides how
 /// they map onto `HTTPCookie` properties.
 public struct SafariBinaryCookie: Equatable, Sendable {
+    /// The `SameSite` attribute Safari recorded for a cookie.
+    public enum SameSite: Equatable, Sendable {
+        /// `SameSite=Lax`.
+        case lax
+        /// `SameSite=Strict`.
+        case strict
+    }
+
     /// Host the cookie is scoped to, as stored. Safari keeps the leading dot
     /// for domain cookies (`.example.com`).
     public let domain: String
@@ -20,6 +28,8 @@ public struct SafariBinaryCookie: Equatable, Sendable {
     public let isSecure: Bool
     /// Whether Safari recorded the `HttpOnly` attribute.
     public let isHTTPOnly: Bool
+    /// The `SameSite` policy Safari recorded, or `nil` when it recorded none.
+    public let sameSite: SameSite?
 
     /// Whether the cookie had already expired at `date`. A session cookie never has.
     public func isExpired(at date: Date) -> Bool {
@@ -35,7 +45,8 @@ public struct SafariBinaryCookie: Equatable, Sendable {
         value: String,
         expiresDate: Date?,
         isSecure: Bool,
-        isHTTPOnly: Bool
+        isHTTPOnly: Bool,
+        sameSite: SameSite? = nil
     ) {
         self.domain = domain
         self.name = name
@@ -44,5 +55,6 @@ public struct SafariBinaryCookie: Equatable, Sendable {
         self.expiresDate = expiresDate
         self.isSecure = isSecure
         self.isHTTPOnly = isHTTPOnly
+        self.sameSite = sameSite
     }
 }
