@@ -67,20 +67,39 @@ public final class WindowRegistryStore {
         return closeWork
     }
 
-    /// The windows a selection repair visits, counted in `closeWork`.
-    public func repairs() -> [WindowRegistry.Window] {
-        let windows = value.windows
+    /// The windows a selection repair visits, counted in `closeWork`: every window, or window `only` alone. A close
+    /// names its window: the rows it hides are that window's, and no other window lists them (one window owns a
+    /// workspace, `WindowRegistry.violations`), so no other selection can change and no other list is read.
+    public func repairs(only: String? = nil) -> [WindowRegistry.Window] {
+        let windows = only.map { id in value.windows.filter { $0.id == id } } ?? value.windows
         closeWork.repairedWindows += windows.count
         closeWork.repairedIDs += windows.reduce(0) { $0 + $1.workspaceIDs.count }
         return windows
     }
 
-    /// The workspaces window `id` lists, as a set, for its `showWorkspace` (one run, counted in `closeWork`).
-    public func shownMembers(of id: String) -> Set<String> {
-        let listed = Set(members(of: id))
+    /// The ones of `ids` (a window's parked workspaces) that window `id` does not list, for its `showWorkspace` (one
+    /// run, counted in `closeWork`): one lookup of the owner index for each, never a set of the window's whole list
+    /// (826 ids per workspace switch and per close in the person's session). Its own list is searched only for an id
+    /// another window lists first (a broken invariant, `WindowRegistry.violations`); a window not registered yet
+    /// answers from its launch snapshot (`provisional`), as `members(of:)` does.
+    public func unlisted(_ ids: some Sequence<String>, in id: String) -> Set<String> { // perf-hot: 0.01ms workspace-switch (O(parked))
+        let registry = value
+        let window = registry.window(id)
+        let launch = window == nil ? Set(provisional[id] ?? []) : []
+        var unlisted: Set<String> = []
         closeWork.showCalls += 1
-        closeWork.shownIDs += listed.count
-        return listed
+        for workspace in ids {
+            closeWork.shownIDs += 1
+            let owner = registry.owner(of: workspace)
+            if owner == id { continue }
+            var listed = launch.contains(workspace)
+            if let window, owner != nil {
+                closeWork.shownIDs += window.workspaceIDs.count
+                listed = window.workspaceIDs.contains(workspace)
+            }
+            if !listed { unlisted.insert(workspace) }
+        }
+        return unlisted
     }
 
     /// Writes each workspace's window kind: O(listed workspaces); only the entries that changed notify.
