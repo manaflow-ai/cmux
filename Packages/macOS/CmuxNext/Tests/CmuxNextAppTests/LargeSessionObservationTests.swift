@@ -151,7 +151,7 @@ struct LargeSessionObservationTests {
         store.session.apply(.snapshot(SessionStateMirror()), in: store)
         let tabs = AgentPaneAttentionTabs()
         var changes = 0
-        let watch = AttentionTabsWatch(tabs: tabs, snapshots: { [store] in [AttentionTabsWatch.Snapshot(machine: "local", store: store)] },
+        let watch = AttentionTabsWatch(tabs: tabs, machines: { [store] in [(machine: "local", store: store)] },
                                        onChange: { _, _ in changes += 1 })
         defer { withExtendedLifetime(watch) {} }
         await LargeSessionFixture.until { changes > 0 }
