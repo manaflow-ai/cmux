@@ -94,7 +94,7 @@ impl CmuxCuHost {
         let mut out: CmuxCuHost = unsafe { std::mem::zeroed() };
         // SAFETY: the caller promises struct_size is readable.
         let declared = unsafe { std::ptr::addr_of!((*host).struct_size).read_unaligned() } as usize;
-        let len = declared.min(std::mem::size_of::<CmuxCuHost>());
+        let len = declared.min(size_of::<CmuxCuHost>());
         // SAFETY: len bytes are readable from host (caller) and writable in out.
         unsafe {
             std::ptr::copy_nonoverlapping(

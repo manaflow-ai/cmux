@@ -65,8 +65,8 @@ fn rig_with(desktop: FakeDesktop, watched: bool) -> Rig {
     *desktop.focus.lock().unwrap() = Some(person());
     let counter = Arc::new(Counter(AtomicU64::new(0), watched, AtomicBool::new(false)));
     let mut parts = EngineParts::new(desktop.clone());
-    let now = Arc::new(AtomicU64::new(0));
-    let (a, b) = (now.clone(), now.clone());
+    let a = Arc::new(AtomicU64::new(0));
+    let b = a.clone();
     parts.sleep = Arc::new(move |d| {
         a.fetch_add(d.as_millis() as u64, Ordering::SeqCst);
     });
