@@ -10,7 +10,8 @@
 /// list (and the first read), never for one item's change.
 @MainActor public final class ObservedItems<Model: AnyObject & Sendable, Item: Sendable> {
     /// One item's change: its place in the items ``items(for:id:refresh:)`` handed out last, the item handed out
-    /// before and the item now.
+    /// before and the item now. The place is right only while each listed model has its own id (two models under
+    /// one id share one observation), as the workspaces of a store do.
     public struct Change: Sendable {
         public let position: Int
         public let old: Item
@@ -38,8 +39,11 @@
 
     /// `item` maps one model (nil: its owner is gone); `changed` runs after an item changed
     /// (`same` false: an item's equality may be main-actor isolated, so it is passed in). For an owner whose
-    /// work after a change does not grow with the session (one strip's tabs); an owner that joins the items of
-    /// every workspace takes ``init(item:same:changedItem:fileID:line:)``.
+    /// list does not grow with the session (one strip's tabs): it reads ``items(for:id:refresh:)`` again after a
+    /// change. An owner that joins the items of every workspace takes ``init(item:same:changedItem:fileID:line:)``.
+    /// Four owners of a session-sized list still take this one and so still pass over their list after one
+    /// change (2026-11-10): `SidebarSessionTreeFeed`, `SidebarChatHistoryFeed`, `MobileHostWorkspaceFolders` and
+    /// `AgentPaneLinkPlaces`, and `ObservedItemsFeed` does it for its callers. Do not add one.
     public convenience init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,
                             changed: @escaping () -> Void, fileID: StaticString = #fileID, line: UInt = #line) {
         self.init(item: item, same: same, changedItem: { _ in changed() }, fileID: fileID, line: line)
@@ -93,14 +97,14 @@
 
     private func start(_ model: Model, key: String, position: Int) -> Item? {
         watches.removeValue(forKey: key)?.task.cancel()
-        let map = item
+        let map = self.item
         // Each map of a model is counted (``ObservationWork``): one model's change maps that model only.
-        let item: @MainActor @Sendable (Model) -> Item? = { model in
+        let counted: @MainActor @Sendable (Model) -> Item? = { model in
             ObservationWork.visited(1, "ObservedItems.map")
             return map(model)
         }
         // A trigger, compared with the item handed out (not the one emitted last): `refresh` moves it.
-        let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(item)) },
+        let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(counted)) },
                                                        fileID: site.fileID, line: site.line)
         guard let value = first.value else { return nil }
         let task = Task { [weak self] in

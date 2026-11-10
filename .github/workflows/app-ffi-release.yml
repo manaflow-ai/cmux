@@ -164,7 +164,10 @@ jobs:
     # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
     # promote runners (trustedRef feat-cmux-next): on Blacksmith 12 vCPU alone
     # the build once sat queued for 12 hours (run 39402525970, 2026-10-20). A
-    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU.
+    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU. Queued
+    # on a Blacksmith label, the build holds it against pull request placements
+    # as a nightly job does (the queue janitor's reserved_queued,
+    # queue_janitor.RESERVED_POOL_WORKFLOW).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
