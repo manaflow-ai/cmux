@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 // The sidebar's width slide moves its panel, so its titlebar row's controls (the + and its chooser,
