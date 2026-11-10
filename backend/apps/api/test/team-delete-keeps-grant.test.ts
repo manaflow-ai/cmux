@@ -235,4 +235,65 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     t.w.userPlans.set(t.stackUser, "max")
     expect(await personalGrantCached(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
   })
+
+  // Review F1 at e9544f44, and its class: a carry always uses the latest grant observed, never a stale copy.
+  it("a grant revoked to free before an unconfirmed delete is what the confirmed delete sees: nothing is carried", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.vmPlans.set(t.stackTeam, "free")
+    expect((await deliver("team.deleted", { id: t.stackTeam })).body).toMatchObject({ ok: true, outcome: "team_delete_pending" })
+    t.w.teams.delete(t.stackTeam)
+    t.w.vmPlans.delete(t.stackTeam)
+    await inDO(teamStub(t.team), async (_instance, state) => {
+      state.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0`)
+    })
+    await fireAlarm(teamStub(t.team))
+    expect((await teamState(t.team)).team?.deleted_at).toBeTypeOf("number")
+    expect(await carried(t.team)).toBeNull()
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
+  })
+
+  it("a downgrade seen by a sync that stopped early (a member read found the team gone) is the grant carried", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.vmPlans.set(t.stackTeam, "go")
+    const real = t.w.fake.getTeamMember
+    t.w.fake.getTeamMember = async () => "team_gone" as const
+    expect((await deliver("team_membership.created", { team_id: t.stackTeam, user_id: t.stackUser })).body).toMatchObject({ ok: true, outcome: "team_missing_recheck" })
+    t.w.fake.getTeamMember = real
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(await carried(t.team)).toMatchObject({ vm_plan: "go", outcome: "moved" })
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "go" })
+  })
+
+  it("a team event still waiting when the delete is confirmed may carry a newer grant: nothing is carried, an operator decides", async () => {
+    const t = await ownedTeamWithGrant("max")
+    t.w.vmPlans.set(t.stackTeam, "free")
+    // The revocation's team.updated waits for the shared pace, so the copy still says max.
+    await inDO(teamStub(t.team), async (instance) => {
+      instance.stackPace = async () => false
+    })
+    expect((await deliver("team.updated", { id: t.stackTeam, display_name: "Acme" })).body).toMatchObject({ ok: true, outcome: "queued" })
+    await inDO(teamStub(t.team), async (instance) => {
+      instance.stackPace = undefined
+    })
+    expect((await deleteInStack(t)).body).toMatchObject({ ok: true, outcome: "team_deleted" })
+    expect(await carried(t.team)).toMatchObject({ vm_plan: "max", outcome: "unverified", to_team: null })
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
+  })
+
+  it("a team grant that grants no paid limits is never carried", async () => {
+    const t = await ownedTeamWithGrant("enterprise")
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(await carried(t.team)).toBeNull()
+  })
+
+  // Review F2 at e9544f44: an override the carried grant cannot exceed is answered without the paid-plan read.
+  it("an owner override at least the carried grant is answered even when the paid-plan read fails", async () => {
+    const t = await ownedTeamWithGrant("go")
+    expect((await deleteInStack(t)).status).toBe(200)
+    t.w.userVmPlans.set(t.stackUser, "max")
+    t.w.fake.getUserPlan = async () => {
+      throw new Error("stack GET user returned 429")
+    }
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+  })
 })
