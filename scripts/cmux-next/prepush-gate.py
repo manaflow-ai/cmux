@@ -85,19 +85,19 @@ CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow 
 Also wherever the scanners run (the hook, a plain run and CI's --base/--head and --commits modes): "Crash ratchet"
 (crash_ratchet_findings), the Rust part of the crash ratchet with exactly CI's verdict (lead rule after the BLOCK of
 #39853): CI's own crash_ratchet_compare.py and crash_ratchet.py judge two trees that hold every .rs file of each crate
-the push touches (a changed or deleted .rs file, or a Rust row of crash-safety-baseline.json the push changes, also
-with no crate file changed), at the base and the head, each with its own baseline's Rust rows. So a crate under its
-row passes, a crate pushed over it is refused, a raised row is refused, a hit moved into another crate passes only
-when the head's baseline carries its row, and test code is told from the whole crate (`#[cfg(test)] mod`,
-`#[path]`), as in CI (2026-11-08: #39304's first head added two non-test `.lock().unwrap()` to a crate at its row,
-passed the hook and CI refused it). A crate the push does not touch has the same verdict on both sides. The scanner's
-own Rust ratchet lines are dropped (part of a crate against its whole row). The ratchet and comparison code are CI's,
-never a copy of their rules; the hook reads the installed crash_ratchet.py and origin/feat-cmux-next's
-crash_ratchet_compare.py, never the pushed ones, and the pushed baseline, which the comparison judges against the base's
-as CI does. A main-based push (its tree has no CmuxNext app entry, or it left origin/main after feat-cmux-next did)
-skips check-crash-safety.sh, which reads that feat-only file, and this layer: main's CI has no crash ratchet and main
-keeps no baseline, so the gate passes what main's CI passes (lead decision on #39853; the layer refused 6 of the last 40
-main ports).
+the push touches (a changed or deleted .rs file, or a Rust row of crash-safety-baseline.json the push changes, also with
+no crate file changed), at the base and the head, each with its own baseline's Rust rows. So a crate under its row
+passes, a crate pushed over it is refused, a raised row is refused, a hit moved into another crate passes only when the
+head's baseline carries its row, and test code is told from the whole crate (`#[cfg(test)] mod`, `#[path]`), as in CI
+(2026-11-08: #39304's first head added two non-test `.lock().unwrap()` to a crate at its row, passed the hook and CI
+refused it). A crate the push does not touch has the same verdict on both sides. The scanner's own Rust ratchet lines
+are dropped (part of a crate against its whole row). The ratchet and comparison code are CI's, never a copy of their
+rules; the hook reads the installed crash_ratchet.py and origin/feat-cmux-next's crash_ratchet_compare.py, never the
+pushed ones, and the pushed baseline, which the comparison judges against the base's as CI does. A main-based push (its
+tree has no CmuxNext app entry, or the base it is judged against is on origin/main and not on origin/feat-cmux-next; a
+feat branch that merged main stays feat-based) skips check-crash-safety.sh, which reads that feat-only file, and this
+layer: main's CI has no crash ratchet and main keeps no baseline, so the gate passes what main's CI passes (lead
+decision on #39853; the layer refused 6 of the last 40 main ports).
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -1127,17 +1127,22 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
 STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
 
-def main_based(repo: Path, head: str, head_tree: Path) -> bool:
-    """True for a push cut from main: HEAD's tree has no CmuxNext app entry, or the commit where HEAD left origin/main
-    is not on origin/feat-cmux-next (HEAD_TREE holds HEAD's copy of the entry when HEAD has one)."""
+def main_based(repo: Path, base: str, head_tree: Path) -> bool:
+    """True for a push cut from main: HEAD's tree has no CmuxNext app entry (HEAD_TREE holds HEAD's copy of the entry
+    when HEAD has one), or BASE, the commit the gate judges the push against, is on origin/main and not on
+    origin/feat-cmux-next. Never from where HEAD left origin/main: a feat branch that merged the current main tip
+    read as main-based and got no Rust crash check (ratchet-rev-3, BLOCK of #39853 at 95f48d97)."""
     if not (head_tree / APP_ENTRY).is_file():
         return True
     feat = DEFAULT_BASE_REFS[0]
     if not (rev_ok(repo, MAIN_REF) and rev_ok(repo, feat)):
         return False
-    fork = git(repo, "merge-base", head, MAIN_REF, check=False).decode().strip()
-    return bool(fork) and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", fork, feat],
-                                         capture_output=True).returncode == 1
+
+    def on(ref: str) -> bool:
+        return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, ref],
+                              capture_output=True).returncode == 0
+
+    return on(MAIN_REF) and not on(feat)
 
 
 def load_crash_ratchet(head_tree: Path, trusted_scripts: Path | None):
@@ -1256,7 +1261,7 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
     scanner's. On a refusal, each hit line the head adds in a red row is named at its place in a changed file. A
     main-based push gets no verdict ([]): main's CI has no crash ratchet and main keeps no baseline."""
     started = time.monotonic()
-    if main_based(repo, head, head_tree):
+    if main_based(repo, base, head_tree):
         return [], time.monotonic() - started
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
