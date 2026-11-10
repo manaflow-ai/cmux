@@ -89,6 +89,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// one endpoint (``RemoteTmuxSocketName/normalized(_:)``).
     let socketName: String?
 
+    /// Creates a host. Only `destination` is required; every other value defaults to what a
+    /// plain `ssh <destination>` to the default tmux server uses. `socketName` is normalized,
+    /// so `default` and `nil` build the same endpoint.
     init(
         destination: String,
         port: Int? = nil,

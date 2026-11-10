@@ -768,6 +768,8 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// added at the spawn site.
     let socketName: String?
 
+    /// Creates the profile. `executable` defaults to the `et` client found on this Mac;
+    /// `socketName` is the host's already-normalized tmux server name.
     init(
         port: Int = 2022,
         executable: String? = nil,
@@ -800,6 +802,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
 
     func executablePath() -> String { broker?.executable ?? executable }
 
+    /// The local argv that opens the control stream: the `et` client, or the broker's wrapper
+    /// when the host is brokered, running ``controlStreamRemoteCommand(sessionName:mode:socketName:)``
+    /// for this profile's socket name in a login shell on the host.
     func controlStreamArgv(
         host: RemoteTmuxHost,
         sessionName: String,
