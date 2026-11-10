@@ -131,6 +131,14 @@ async function mount({ videoFails = false } = {}) {
   const document = dom!.window.document;
   const lightbox = () => document.querySelector<HTMLElement>(".hc-lightbox");
   const title = () => lightbox()?.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent;
+  // Lets React and the attachment service settle until `reached` holds: a poll of the real state, bounded by a
+  // deadline, not one fixed tick that hopes the lightbox has rendered.
+  const until = async (reached: () => boolean) => {
+    const deadline = Date.now() + 5_000;
+    while (!reached() && Date.now() < deadline) {
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+  };
   const press = async (key: string) => {
     const target = document.activeElement ?? document.body;
     await act(async () => {
@@ -145,7 +153,7 @@ async function mount({ videoFails = false } = {}) {
     await act(async () => button!.click());
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   };
-  return { container, document, strings, lightbox, title, press, expand };
+  return { container, document, strings, lightbox, title, press, expand, until };
 }
 
 test("a video's Expand opens it in the lightbox, paused, and Escape closes it", async () => {
@@ -169,9 +177,9 @@ test("a video's Expand opens it in the lightbox, paused, and Escape closes it", 
 });
 
 test("the arrow keys move from an image to the video and back", async () => {
-  const { container, lightbox, title, press } = await mount();
+  const { container, lightbox, title, press, until } = await mount();
   await act(async () => container.querySelector<HTMLButtonElement>(".hc-att-image")!.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await until(() => title() === "before.png");
   expect(title()).toBe("before.png");
   expect(lightbox()!.querySelector(".hc-lightbox-stage img")).not.toBeNull();
   await press("ArrowRight");
