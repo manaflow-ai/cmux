@@ -121,6 +121,17 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
     })
 }
 
+/// Where a chat with `env` keeps `family`'s sign-in, as the sign-in that wrote it resolved it: the
+/// account home for Claude and Codex, else `agent_login`'s store (Cursor's, OpenCode's), which
+/// has no account-home variable.
+fn login_store(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    if route_account::home_var(family).is_some() {
+        return account_home(family, env);
+    }
+    let agent = crate::agent_login::Agent::parse(family)?;
+    Some(crate::agent_login::Cli { env: env.clone(), ..Default::default() }.store(agent))
+}
+
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
     let last = meta.last_turn.as_ref();
     meta.auth_change = Some(crate::store::AuthChange {
@@ -329,14 +340,16 @@ impl Hub {
         home: &Path,
         route: Option<&str>,
     ) -> Result<(), RpcError> {
-        if route_account::home_var(family).is_none() {
+        if route_account::home_var(family).is_none()
+            && crate::agent_login::Agent::parse(family).is_none()
+        {
             return Ok(());
         }
         for session in self.sessions() {
             let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
                 continue;
             };
-            if account_home(family, &profile.env).as_deref() != Some(home)
+            if login_store(family, &profile.env).as_deref() != Some(home)
                 || current_route.as_deref() != route
             {
                 continue;
@@ -950,5 +963,21 @@ mod tests {
             route_account::login_command(Some("codex login".into()), None),
             Some("codex login".into())
         );
+    }
+
+    /// A saved OpenCode key (or a Cursor sign-in) marks the chats on that store as changed, as a
+    /// Claude or Codex sign-in does: their store comes from `agent_login`, not an account home.
+    #[test]
+    fn login_store_covers_agents_without_an_account_home() {
+        let env = BTreeMap::from([
+            ("HOME".to_owned(), "/h".to_owned()),
+            ("XDG_DATA_HOME".to_owned(), "/h/data".to_owned()),
+            ("XDG_CONFIG_HOME".to_owned(), "/h/cfg".to_owned()),
+        ]);
+        assert_eq!(login_store("opencode", &env), Some(PathBuf::from("/h/data/opencode")));
+        assert_eq!(login_store("cursor", &env), Some(PathBuf::from("/h/cfg/cursor")));
+        let pinned = BTreeMap::from([("CODEX_HOME".to_owned(), "/accounts/A".to_owned())]);
+        assert_eq!(login_store("codex", &pinned), Some(PathBuf::from("/accounts/A")));
+        assert_eq!(login_store("pi", &env), None);
     }
 }

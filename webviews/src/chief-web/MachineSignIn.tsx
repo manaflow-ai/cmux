@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LoginAgent, LoginStart } from "../agent-session/acpmux/cloudAgentLogin";
+import { signsInWithPage, type LoginAgent, type LoginStart } from "../agent-session/acpmux/cloudAgentLogin";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { useT } from "../agent-session/acpmux/i18n";
 import { MachineLoginError, type MachineLoginApi, type MachineLoginStatus } from "./machineLogin";
@@ -143,6 +143,8 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
   };
   if (state.phase === "hidden") return null;
   const busy = state.phase !== "ready";
+  // This card runs only a page sign-in: OpenCode's key-only one is the chat card's (Retry here).
+  const pageAgent = state.harness && signsInWithPage(state.harness) ? state.harness : undefined;
   const title =
     state.harness === "codex"
       ? t("turn.signIn.codex")
@@ -209,8 +211,8 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
         </>
       )}
       {!state.login && (
-        <button type="button" className="chief-web__action" disabled={busy} onClick={state.harness ? start : refresh}>
-          {state.harness ? title : t("turn.retry")}
+        <button type="button" className="chief-web__action" disabled={busy} onClick={pageAgent ? start : refresh}>
+          {pageAgent ? title : t("turn.retry")}
         </button>
       )}
     </section>

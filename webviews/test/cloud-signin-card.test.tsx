@@ -221,8 +221,8 @@ test("only an allowed provider page over https opens", () => {
     "https://cursor.com/loginDeepControl?challenge=c",
   );
   expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
-  expect(signInURL("https://opencode.ai/auth")).toBe("https://opencode.ai/auth");
-  expect(signInURL("https://opencode.ai.evil.example/auth")).toBeUndefined();
+  // OpenCode's key page is the app's own fixed link, not a page a machine's sign-in may name.
+  expect(signInURL("https://opencode.ai/auth")).toBeUndefined();
 });
 
 test("each refusal reason has its own failure", () => {
@@ -264,6 +264,10 @@ test("the sign-in is offered only for a connected Cloud Claude or Codex chat on 
   expect(cloudAgentLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
   expect(cloudAgentLogin({ ...base, harness: "cursor" })?.agent).toBe("cursor");
   expect(cloudAgentLogin({ ...base, harness: "opencode" })?.agent).toBe("opencode");
+  // Only on Zen's and Go's models: another provider's model needs that provider's own login.
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode/big-pickle" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode-go/kimi-k2" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "anthropic/claude-sonnet" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, harness: "pi" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, machineID: undefined })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, connected: false })).toBeUndefined();

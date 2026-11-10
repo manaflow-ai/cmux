@@ -23,8 +23,17 @@ export function signsInWithPage(agent: LoginAgent): agent is Exclude<LoginAgent,
 }
 
 /// The page that makes `agent`'s API key, shown beside its key field (OpenCode's, whose card has no
-/// sign-in page to point there).
+/// sign-in page to point there). A fixed page this app names, so not one of ``SIGN_IN_HOSTS``,
+/// which only check the pages a machine's sign-in names.
 export const KEY_PAGE: Partial<Record<LoginAgent, string>> = { opencode: "https://opencode.ai/auth" };
+
+/// Whether an OpenCode chat on `model` signs in with the OpenCode key the card saves: Zen's and
+/// Go's models (`opencode/...`, `opencode-go/...`). Another provider's model (`anthropic/...`) needs
+/// that provider's own login, which the saved key would not repair. An unknown model keeps the card.
+function opencodeKeyServes(model: string | undefined): boolean {
+  const provider = model?.includes("/") ? model.split("/")[0] : undefined;
+  return provider === undefined || provider === "opencode" || provider === "opencode-go";
+}
 
 /// Whether `agent`'s card offers Use an API key: Cursor's key goes in as the Cloud secret
 /// `CURSOR_API_KEY` (acpmux `agent_login` refuses one here), so its card offers only Sign in.
@@ -69,7 +78,6 @@ export const SIGN_IN_HOSTS: ReadonlySet<string> = new Set([
   "auth.anthropic.com",
   "auth.openai.com",
   "cursor.com",
-  "opencode.ai",
 ]);
 
 /// `raw` as a URL the card may open: https, no user info, on ``SIGN_IN_HOSTS``; else undefined.
@@ -208,6 +216,8 @@ type LoginOptions = {
   machineID: string | undefined;
   sessionId: string | undefined;
   harness: string | undefined;
+  /// The chat's model (`provider/model` for OpenCode), when known.
+  model?: string;
   supported: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
@@ -244,6 +254,7 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     options;
   const agent = agentKey(harness?.split("/").pop());
   if (!connected || !sessionId || !supported || !loginAgent(agent)) return undefined;
+  if (agent === "opencode" && !opencodeKeyServes(options.model)) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");
@@ -276,7 +287,8 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         return started;
       }),
     open: (url) => {
-      const safe = signInURL(url);
+      // A machine's sign-in page on an allowed host, or this agent's own key page exactly.
+      const safe = signInURL(url) ?? (url === KEY_PAGE[agent] ? url : undefined);
       if (safe) openURL(safe);
     },
     openOnMachine: async (url) => {
