@@ -261,6 +261,38 @@ fn stored_roster_version(source: &Connection) -> anyhow::Result<Option<u32>> {
     }))
 }
 
+/// The registry's saved roster as this build reads it (restored at the
+/// current reducer version, migrated from an older one) with its cursor.
+/// `None` when there is none, it does not restore, or its cursor is not in
+/// the journal.
+fn saved_roster(source: &Connection, head: u64) -> anyhow::Result<Option<(AgentRoster, u64)>> {
+    let Some(raw) = meta_value(source, &format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}"))?
+    else {
+        return Ok(None);
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&raw) else { return Ok(None) };
+    let version = value
+        .get("version")
+        .and_then(Value::as_u64)
+        .and_then(|version| u32::try_from(version).ok())
+        .unwrap_or(0);
+    let cursor =
+        value.get("cursor").and_then(Value::as_str).and_then(|cursor| cursor.parse::<u64>().ok());
+    let (Some(cursor), Some(snapshot)) = (cursor, value.get("snapshot").and_then(Value::as_str))
+    else {
+        return Ok(None);
+    };
+    if cursor > head {
+        return Ok(None);
+    }
+    let roster = if version == AGENT_ROSTER_REDUCER_VERSION {
+        AgentRoster::restore(snapshot)
+    } else {
+        AgentRoster::migrate(version, snapshot)
+    };
+    Ok(roster.map(|roster| (roster, cursor)))
+}
+
 fn fold_roster(
     source: &Connection,
     db_path: &Path,
@@ -294,11 +326,17 @@ fn fold_roster(
         let _ = fs::remove_file(&side_file);
         return Ok(report);
     }
+    // Journal retention deleted the records through this sequence: a fold
+    // from the first record does not see them.
+    let pruned_through = super::journal_retention::journal_pruned_through(source)?;
     let resumed = match SideSnapshot::read(&side_file) {
         Ok(Some(side))
             if side.registry_id == registry_id
                 && side.version == AGENT_ROSTER_REDUCER_VERSION
-                && side.cursor <= head =>
+                && side.cursor <= head
+                // A side file that stopped below the deleted records cannot
+                // go on: the records after its cursor are gone.
+                && (pruned_through == 0 || side.cursor >= pruned_through) =>
         {
             AgentRoster::restore(&side.snapshot).map(|roster| (roster, side.cursor))
         }
@@ -307,6 +345,15 @@ fn fold_roster(
             eprintln!("cmux-tui: premigrate: ignoring the side snapshot: {error:#}");
             None
         }
+    };
+    // With records deleted, the saved roster is the one copy of an agent
+    // whose records were all below the floor: the fold goes on from it (the
+    // rule of the owner's background rebuild, `agent_roster_rebuild.rs`).
+    // Retention never passes the saved roster's cursor, so no record
+    // between that cursor and the head is missing.
+    let resumed = match resumed {
+        None if pruned_through > 0 => saved_roster(source, head)?,
+        resumed => resumed,
     };
     let (mut roster, mut cursor) = resumed.unwrap_or_default();
     report.from_cursor = cursor;

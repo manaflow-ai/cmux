@@ -734,8 +734,13 @@ A subscription cursor below the floor fails with `cursor.gap` and
 and subscribes from that revision. Restore previews of every kept checkpoint,
 hook delivery and reducer restores do not read below the floor. An ingress
 retry whose receipt was deleted is appended as a new event, and a
-`causation_id` that names a deleted event is refused. Storage
-v1 does not accept secret content. Encrypted secret retention and journaled
+`causation_id` that names a deleted event is refused. A roster reducer of a
+newer version, in the owner's background rebuild and in `server
+premigrate-registry`, continues from the saved roster when records are
+deleted: a fold of the retained journal alone lacks every agent whose records
+are all below the floor.
+
+Storage v1 does not accept secret content. Encrypted secret retention and journaled
 redaction markers are reserved for a later storage version.
 
 ## Migration state
