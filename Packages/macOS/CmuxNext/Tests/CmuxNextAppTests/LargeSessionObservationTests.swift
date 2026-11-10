@@ -1,6 +1,8 @@
+import AppKit
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextAgentPane
+@testable import CmuxNextApp
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
@@ -24,8 +26,11 @@ struct LargeSessionFixture {
 
     let store: DaemonStore
 
-    init() {
-        store = DaemonStore()
+    init() { self.init(store: DaemonStore()) }
+
+    /// The large session in `store` (an app's local store: the app's own observers follow it).
+    init(store: DaemonStore) {
+        self.store = store
         _ = store.apply(.connected(DaemonIdentity(generation: "large"), generationChanged: true))
         store.apply(snapshot: Self.tree())
     }
@@ -397,6 +402,81 @@ struct LargeSessionObservationTests {
         store.set("s-7", SidebarApprovalAnswerTests.lane("s-7", .input))
         await LargeSessionFixture.until { approvals.answerable["s-7"] != nil }
         #expect(approvals.answerable == ["s-7": "perm-s-7"])
+    }
+
+    /// O4, the app's own read (review of #40213): the app asked each tab with a favicon whether it is incognito
+    /// (`BrowserTabService.isIncognitoTab`), and that answer found the tab's workspace through the store's tab index
+    /// (`tabListRevision`), its workspace list and the whole window registry, inside each workspace's favicon
+    /// observation. One tab added in any workspace then woke every workspace's favicon observation. This starts the
+    /// app's own wiring (`SidebarDocument.start`, the first `sidebarLayout` read) over the large session in the app's
+    /// local store, gives each workspace's Chromium page a favicon (the app asks about incognito only for a tab that
+    /// has one), then adds one terminal tab in each workspace in turn: the stand-in tab of New Terminal Tab's turn
+    /// (`NewTabWakesDoNotGrowWithSessionTests`).
+    @Test(.timeLimit(.minutes(2)))
+    func o4FaviconsAreNotWokenByATabAddInAnotherWorkspace() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        defer { for controller in services.windows.controllers { controller.teardown(); controller.window?.close() } }
+        let fixture = LargeSessionFixture(store: services.machines.local.store)
+        _ = services.sidebarLayout // the app's sidebar document starts: its open tab favicons follow the local store
+        await LargeSessionFixture.drainMain()
+        // The open tab favicons' observers: the workspace list's and each workspace's (`ObservedItems`).
+        let observers = "CmuxNextBridge/OpenTabFavicons.swift"
+
+        // Each workspace's Chromium page gets its favicon: from here on the app reads whether its workspace is incognito.
+        let pages = fixture.tabs().filter { $0.tab.kind == .browser && $0.tab.url?.hasSuffix("/cef") == true }
+        try #require(pages.count == LargeSessionFixture.workspaces)
+        let favicons = pages.map { item -> (workspace: Int, change: @MainActor () -> Void) in
+            (item.workspace, { item.tab.faviconURL = "http://127.0.0.1:9/\(item.workspace)/icon.png" })
+        }
+        let lit = await LargeSessionFixture.workspacesWaking(observers, changes: favicons)
+        let following = lit.values.reduce(into: Set<Int>()) { $0.formUnion($1.workspaces) }
+        try #require(following.count == LargeSessionFixture.workspaces,
+                     "fixture: the app's favicon observers follow \(following.count) of 60 workspaces")
+        try #require(services.openTabFaviconsByOrigin()["http://127.0.0.1:9"] == "http://127.0.0.1:9/1/icon.png",
+                     "fixture: the app gives no favicon for a normal window's page")
+
+        // The probe: one new terminal tab in the first pane of each workspace.
+        let store = fixture.store
+        let before = fixture.tabs().count
+        let changes = store.workspaces.enumerated().map { offset, workspace -> (workspace: Int, change: @MainActor () -> Void) in
+            let pane = workspace.screens[0].panes[0].handle
+            return (offset + 1, {
+                store.intend(.createTab(pane: pane, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
+                             transaction: ClientTransactionID.generate())
+            })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking(observers, changes: changes)
+        try #require(fixture.tabs().count == before + LargeSessionFixture.workspaces,
+                     "fixture: the probe made \(fixture.tabs().count - before) tabs, not 60")
+        // Each workspace's own observer reads its tab list: it wakes for its workspace's new tab.
+        let own = woken.values.reduce(into: Set<Int>()) { $0.formUnion($1.workspaces) }
+        #expect(own.count == LargeSessionFixture.workspaces, "fixture: a new tab woke a favicon observer in \(own.count) of 60 workspaces")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "favicon observers woken by a new tab in more than one workspace: \(wide)")
+    }
+
+    /// The app's open tab favicons leave out an incognito window's page (its favicon address would be stored on a
+    /// sidebar link item), and give a normal window's. The same before and after the incognito read became one per
+    /// workspace (`o4FaviconsAreNotWokenByATabAddInAnotherWorkspace`).
+    @Test func o4AnIncognitoWindowsPageGivesNoOpenTabFavicon() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        let window = services.windows.newIncognitoWindow()
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        let normalPage = TabSnapshot(surface: 1, kind: .browser, url: "https://normal.example/a", faviconURL: "https://normal.example/icon.png")
+        let secretPage = TabSnapshot(surface: 2, kind: .browser, url: "https://secret.example/a", faviconURL: "https://secret.example/icon.png")
+        let normalScreen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [normalPage])])
+        let secretScreen = ScreenSnapshot(id: 2, layout: .leaf(2), panes: [PaneSnapshot(id: 2, tabs: [secretPage])])
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [
+            WorkspaceSnapshot(id: 1, key: .generate(), name: "normal", screens: [normalScreen]),
+            WorkspaceSnapshot(id: 2, key: secret, name: "secret", screens: [secretScreen]),
+        ]))
+        let table = services.openTabFaviconsByOrigin()
+        #expect(table["https://normal.example"] == "https://normal.example/icon.png", "a normal window's page gives no favicon: \(table)")
+        #expect(table["https://secret.example"] == nil, "an incognito window's page gave its favicon to the sidebar links")
     }
 }
 
