@@ -318,7 +318,8 @@ public final class SidebarRowFeed {
             dirty.remove(id)
             parkedEntries[id] = entry
         }
-        if armListings() || parkedNow { scheduleParkedCheck() }
+        // Also while any row is parked: a parked workspace that closed or left the window tells nobody (no row parks, none hears it).
+        if armListings() || parkedNow || !parkedEntries.isEmpty || !parkedListings.isEmpty { scheduleParkedCheck() }
         var rows: [SidebarWorkspace] = []
         let remap = inputsChanged
         inputsChanged = false
@@ -400,9 +401,8 @@ public final class SidebarRowFeed {
         return parkedNow
     }
 
-    /// The parked rows and listings whose workspace `keeps` holds no longer are forgotten. It runs after the turn
-    /// that parked them and after a change one of them heard (its workspace closed or left the window), never in
-    /// an input's turn.
+    /// The parked rows and listings whose workspace `keeps` holds no longer are forgotten. It runs after a fill
+    /// while any is parked and after a change one of them heard, never in an input's turn.
     private func scheduleParkedCheck() {
         guard !parkedCheckScheduled else { return }
         parkedCheckScheduled = true
