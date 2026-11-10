@@ -684,3 +684,9 @@ pub const WORKTREE_NAME: Argument = Argument { name: "name", title: t("ActionCat
 pub const WORKTREE_BASE: Argument = Argument { name: "base", title: t("ActionCatalog", "argument.git.worktree.base", "Base Revision"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const WORKTREE_DISCARD: Argument = Argument { name: "discard", title: t("ActionCatalog", "argument.git.worktree.discard", "Discard Unsaved Work"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_ITEM: Argument = Argument { name: "item", title: t("ActionCatalog", "argument.feed.item", "Feed Item"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_GITHUB_ACTION: Argument = Argument { name: "action", title: t("ActionCatalog", "argument.feed.githubAction", "GitHub Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionCatalog", "argument.feed.comment", "Comment"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

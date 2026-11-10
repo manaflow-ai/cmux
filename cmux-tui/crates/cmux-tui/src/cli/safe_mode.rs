@@ -22,7 +22,7 @@ use super::{GlobalArgs, OutputMode};
 
 const USAGE: &str = "usage: cmux safe-mode on|off|status [--json] [--state-dir DIR]\n\n  Safe mode turns every extension off (third-party, local and customize apps, and the\n  bundled apps that run scripts), so a broken extension cannot break cmux.\n  on:     turn it on now; cmux shows its own views in place of every extension.\n  off:    leave it. While cmux runs, only you can do this, in cmux (Leave Safe Mode).\n          With cmux quit, this removes the flag so the next start is normal.\n  status: whether it is on, why, and which extensions a crash loop held off.\n  With no cmux running, on and off write the flag in the state folder\n  (--state-dir, else CMUX_TUI_STATE_DIR, else the default) for the next start.\n\n  cmux apps rollback <app> puts back the last version of a local app that worked.";
 
-const ROLLBACK_USAGE: &str = "usage: cmux apps rollback <app> [--json]\n\n  Puts back the last version of a local or customize app that loaded and drew.\n  The files it replaces are kept, so nothing is lost. Only you can roll back:\n  cmux refuses an agent's call (apps.origin) and this prints its answer.";
+const ROLLBACK_USAGE: &str = "usage: cmux apps rollback <app> [--json]\n\n  Rollback is confirmed by you, in cmux (Roll Back on the app). This asks cmux\n  and prints its answer; an agent's call is refused.\n  It puts back the last version of a local or customize app that loaded and drew.\n  The files it replaces are kept, so nothing is lost.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
@@ -161,6 +161,9 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
         }
     };
     if let Request::Rollback { app } = request {
+        if global.output != OutputMode::Quiet {
+            eprintln!("cmux: rollback is confirmed by you, in cmux (Roll Back on {app}).");
+        }
         let frame = json!({"id": "cmux-rollback-1", "cmd": "apps-store", "op": "cmux.apps.rollback", "args": {"app": app}});
         return match ask(global, frame) {
             Answer::Ok(data) => {

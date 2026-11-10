@@ -1479,27 +1479,23 @@ test("Leo's menu: the setup actions are the Where control's right-click menu, ea
 test("Leo's menu: the moved actions keep their homes in the app (palette, File menu, Settings, Cloud page)", async () => {
   const { readFileSync } = await import("node:fs");
   const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
-  const catalog = (name: string) =>
-    readFileSync(
-      new URL(`../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/${name}.swift`, import.meta.url),
-      "utf8",
-    );
-  const descriptor = (source: string, id: string) => {
-    const at = source.indexOf(`id: "${id}"`);
-    expect(at, id).toBeGreaterThan(-1);
-    const end = source.indexOf("ActionDescriptor(", at);
-    return source.slice(at, end < 0 ? undefined : end);
+  // The app's catalog (cmux-action-catalog in Rust), as its dump: the Rust and Swift tests both check
+  // that this file is what the app reads.
+  const actions: { id: string; surfaces: string[]; mainMenu: string | null }[] = JSON.parse(
+    readFileSync(new URL("../../plans/cmux-next/action-catalog.json", import.meta.url), "utf8"),
+  ).actions;
+  const descriptor = (id: string) => {
+    const found = actions.find((action) => action.id === id);
+    expect(found, id).toBeDefined();
+    return found!;
   };
-  const cloud = catalog("CloudActionCatalog");
-  const remote = catalog("RemoteActionCatalog");
-  const pane = catalog("PaneActionCatalog");
   // New Cloud Machine…, SSH… and Connect Phone… are command palette rows; Add Machine… is in the
   // File menu and Settings > Devices; Open Cloud… is the profile menu's Cloud row and the palette's.
-  expect(descriptor(cloud, CONNECT_ACTIONS.cloud)).toContain(".palette");
-  expect(descriptor(cloud, CONNECT_ACTIONS.phone)).toContain(".palette");
-  expect(descriptor(remote, CONNECT_ACTIONS.ssh)).toContain(".palette");
-  expect(descriptor(remote, CONNECT_ACTIONS.addMachine)).toContain("mainMenu: .file");
-  expect(descriptor(pane, CONNECT_ACTIONS.cloudPage)).toContain(".palette");
+  expect(descriptor(CONNECT_ACTIONS.cloud).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.phone).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.ssh).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.addMachine).mainMenu).toBe("file");
+  expect(descriptor(CONNECT_ACTIONS.cloudPage).surfaces).toContain("palette");
 });
 
 test("Leo's menu: Where shows where it runs, the machine chip which machine, each with its icon", async () => {

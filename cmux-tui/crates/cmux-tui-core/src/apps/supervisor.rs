@@ -500,9 +500,15 @@ impl Supervisor {
                 row
             })
             .collect();
+        // `local_dir`: the local development folder this daemon watches
+        // (`<state>/apps/local`, local_reload.rs), so `cmux ext dev` puts an
+        // extension where this daemon loads it.
+        let local_dir =
+            self.config.sources.local.as_ref().map(|d| d.to_string_lossy().into_owned());
         json!({
             "revision": inner.mirror.revision,
             "apps": apps,
+            "local_dir": local_dir,
             "safe_mode": super::safe_mode::flag_json(inner.safe_mode.as_ref()),
         })
     }
