@@ -244,6 +244,23 @@ class WarmCheckoutTest(unittest.TestCase):
 
     # -- the states that worked before stay as they were -----------------------------------------
 
+    def test_the_deltas_jobs_cone_checkout_keeps_the_root_files_after_the_signer(self) -> None:
+        """Runs 42819750253 and 42829570644: generate-nightly-deltas itself had no .xcode-version."""
+        forget = "Forget the kept clone's sparse-checkout mode"
+        for job in ("generate-nightly-deltas", "republish-nightly-deltas"):
+            names = [s.get("name") for s in JOBS[job]["steps"]]
+            self.assertIn(forget, names, job)
+            self.assertLess(names.index(forget), names.index("Checkout build ref"), job)
+        self.kept_workspace()
+        self.after_the_signer()
+        done = subprocess.run(["bash", "-e", "-c", step("generate-nightly-deltas", forget)["run"]], cwd=self.ws,
+                              text=True, capture_output=True, env={**os.environ, "GITHUB_WORKSPACE": str(self.ws)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.after_the_deltas_job()
+        root_files = sorted(name for name in OLD_TREE if "/" not in name)
+        self.assertTrue(root_files)
+        self.assertEqual([name for name in root_files if not (self.ws / name).is_file()], [])
+
     def test_a_workspace_that_was_never_sparse(self) -> None:
         self.kept_workspace()
         self.assert_whole_tree("never sparse")

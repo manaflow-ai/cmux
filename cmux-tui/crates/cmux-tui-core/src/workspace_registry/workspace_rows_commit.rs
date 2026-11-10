@@ -15,6 +15,33 @@ pub(super) fn commit_workspace_registry_in_transaction(
     workspaces: &[RegistryWorkspace],
     result_json: &str,
 ) -> anyhow::Result<(u64, TerminalBatchClose)> {
+    commit_workspace_rows_in_transaction(
+        transaction,
+        mutation,
+        fingerprint,
+        expected_revision,
+        event_kind,
+        workspace_key,
+        workspaces,
+        result_json,
+    )
+    .map(|(revision, terminal_batch, _)| (revision, terminal_batch))
+}
+
+/// [`commit_workspace_registry_in_transaction`], also returning the keys of
+/// the desired workspaces whose row it wrote (new, moved, renamed or
+/// regrouped): every other desired workspace's row was already as desired.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn commit_workspace_rows_in_transaction(
+    transaction: &Transaction<'_>,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+    expected_revision: Option<u64>,
+    event_kind: &str,
+    workspace_key: &str,
+    workspaces: &[RegistryWorkspace],
+    result_json: &str,
+) -> anyhow::Result<(u64, TerminalBatchClose, HashSet<String>)> {
     validate_identifier("mutation id", &mutation.id)?;
     validate_identifier("mutation origin", &mutation.origin)?;
     validate_workspace_key(workspace_key)?;
@@ -101,6 +128,7 @@ pub(super) fn commit_workspace_registry_in_transaction(
             Some(_) => {}
         }
     }
+    let mut written = HashSet::new();
     for (position, workspace) in workspaces.iter().enumerate() {
         // Only a rename of the same workspace is fenced by its stored name:
         // another workspace at this key is refused by the identity checks.
@@ -131,6 +159,7 @@ pub(super) fn commit_workspace_registry_in_transaction(
         if unchanged {
             continue;
         }
+        written.insert(workspace.key.clone());
         transaction.execute(
             "INSERT INTO workspaces(
                workspace_key, numeric_id, name, group_key, position, tombstoned,
@@ -177,5 +206,5 @@ pub(super) fn commit_workspace_registry_in_transaction(
             result_json
         ],
     )?;
-    Ok((revision, terminal_batch))
+    Ok((revision, terminal_batch, written))
 }

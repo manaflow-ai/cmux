@@ -30,6 +30,10 @@ import Foundation
 ///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
 /// - `stuck_header_updates`: finds of the stuck project header (`SidebarListView.followStuckHeader`): one per scroll
 ///   frame, at 30 rows as at 3,000 (SIDEBAR-STICKY).
+/// - `rows_made`: rows mapped from their stores (`SidebarRowFeed.Make.rows`), by the feed (its due rows) or by a caller
+///   with no feed (every row it lists): one new workspace maps its own row, at 60 workspaces as at 826 (WORKSPACE LIST 800).
+/// - `slot_rows`: rows `SidebarSection.withoutPlaceholders` walked and copied (a new workspace's slot rule).
+/// - `doc_reshows`: `SidebarDocStore.reshow` calls (a create's placement: one, with one read of every live ref).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -55,6 +59,12 @@ nonisolated enum SidebarPerfCounters {
         /// A scroll frame or pass that found the stuck project header (`SidebarListView.followStuckHeader`): one per
         /// frame, whatever the group's size.
         case stuckHeaderUpdates = "stuck_header_updates"
+        /// Rows mapped from their stores, with or without a feed (`SidebarRowFeed.Make.rows`).
+        case rowsMade = "rows_made"
+        /// Rows the slot rule's placeholder filter walked (`SidebarSection.withoutPlaceholders`).
+        case slotRows = "slot_rows"
+        /// `SidebarDocStore.reshow` calls.
+        case docReshows = "doc_reshows"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

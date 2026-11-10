@@ -545,3 +545,55 @@ fn agents_at_rest_a_report_for_a_closed_terminal_keeps_no_table_entry() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A hook row whose projection failed waits for a retry
+/// (`enqueue_agent_hook_pending`). Before reports at rest, the next hook of
+/// the terminal was a row, and its projection ran the retry first
+/// (`reconcile_preceding_agent_hooks`). A report at rest is no row, so it
+/// must run the retry itself: a failed turn start must not wait for the
+/// turn's end.
+#[test]
+fn agents_at_rest_a_report_at_rest_retries_a_pending_projection() {
+    let (mux, agent, root) = one_agent("pending");
+    let projected = |mux: &Arc<Mux>| {
+        mux.agent_records.lock().unwrap().get(&agent.terminal).map(|record| record.state)
+    };
+    let pending = |mux: &Arc<Mux>| {
+        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len()
+    };
+    send(&mux, &agent, "Stop", json!({}));
+    assert_eq!(projected(&mux), Some(AgentState::Idle), "setup: the turn ended");
+    assert_eq!(pending(&mux), 0, "setup: no projection waits");
+
+    // The next turn's start is a journal row whose projection fails.
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+    let started = send(&mux, &agent, "UserPromptSubmit", json!({ "prompt": "next" }));
+    mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+    assert!(!started.replayed, "setup: the turn's start is a row: {started:?}");
+    assert_eq!(pending(&mux), 1, "setup: the projection of the turn's start waits");
+    assert_eq!(projected(&mux), Some(AgentState::Idle), "setup: the start is not projected");
+
+    // A report that changes nothing: no row of its own, and the retry runs.
+    let head = settled(&mux).session_journal_head().unwrap();
+    let answer = send(&mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
+    assert_eq!(
+        pending(&mux),
+        0,
+        "the report after a failed projection must run its retry (answer {answer:?})"
+    );
+    assert_eq!(
+        projected(&mux),
+        Some(AgentState::Working),
+        "the turn's start is projected with the next report, not with the turn's end"
+    );
+    // The report itself is no row: its receipt is the one of the turn's
+    // start, and the journal holds no row of the tool call.
+    assert!(answer.replayed && answer.sequence == started.sequence, "{answer:?} {started:?}");
+    let page = mux.session_journal_after(head, 500).unwrap();
+    assert!(
+        page.records.iter().all(|record| record.payload["native_event"] != "PreToolUse"),
+        "the report at rest got a journal row"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
