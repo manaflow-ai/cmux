@@ -212,7 +212,10 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         if let Some(vm) = last.vm {
             let error = refusal(
                 "chat_target.vm_chat",
-                format!("the last chat ({}) runs on vm:{vm}; chat {verb} reads a chat here", last.session),
+                format!(
+                    "the last chat ({}) runs on vm:{vm}; chat {verb} reads a chat here",
+                    last.session
+                ),
                 "cmux chat send -w 'TEXT' sends to it and prints the reply",
                 json!({"session_id": last.session, "vm": vm}),
             );

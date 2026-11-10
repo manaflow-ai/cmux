@@ -256,5 +256,8 @@ fn timeouts_are_durations_and_a_bare_number_is_seconds() {
     assert_eq!(timeout_secs("0"), Ok(None));
     assert_eq!(timeout_secs("1500ms"), Ok(Some(2)));
     assert_eq!(timeout_secs("2m"), Ok(Some(120)));
-    assert_eq!(sent(&["s-1", "hi", "-w", "--timeout", "5m"], true).timeout, Some(Duration::from_secs(300)));
+    assert_eq!(
+        sent(&["s-1", "hi", "-w", "--timeout", "5m"], true).timeout,
+        Some(Duration::from_secs(300))
+    );
 }

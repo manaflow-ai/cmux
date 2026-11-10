@@ -53,8 +53,6 @@ mod chat_send;
 #[cfg(unix)]
 mod chat_start;
 #[cfg(unix)]
-mod last_chat;
-#[cfg(unix)]
 mod chief;
 mod chief_target;
 #[cfg(unix)]
@@ -104,6 +102,8 @@ mod inference_gateway;
 mod inference_setup;
 mod internal;
 mod keys_help;
+#[cfg(unix)]
+mod last_chat;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
