@@ -1,5 +1,26 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: app health's line on the footer, #39247. The coordinator (claude-sr2), verbatim: "take (1), the
+  sidebar footer, but quiet. Show nothing while everything is healthy. When something degrades, show a dot and a
+  one-line reason, and clicking it opens the popover." `SidebarView.healthIndicator` (the App's
+  `AppHealthIndicatorView`) sits on the footer row after the avatar and live mode mark, before the spaces strip,
+  truncated to fit; with less than two button widths of room it steps out. It never fades with the footer. The
+  "Restoring sessions…" card gains an opt-in quiet Details (`SidebarNoticeCard.restoring(_:withDetails:)`) that
+  presses the same line. Gallery: `AAAppHealthIndicatorGalleryTests` (a-line shipped, b-chip, c-dot).
+  df6c4fd518c: with the spaces strip on the footer row, the line leaves it two slots (the active dot and the "+"),
+  so a long line never squeezes the switcher out (Codex at fd18923). Regression:
+  `SidebarProfileChipTests.aLongHealthLineLeavesTheSpacesStripRoom`.
+- 2026-11-10 (lane/small-views-react-sidebar-history): the session tree's chat history blocks (Pinned, Earlier) are a
+  React page (webviews/src/pages/sidebar-chats) in each block's gap of the list (`SidebarChatHistoryHost`,
+  CmuxNextSidebar); the AppKit `SidebarChatHistoryView`, `SidebarChatHistoryRow` and `SidebarChatHistoryHeader` are
+  gone. All hands, verbatim: "move the area's views to React ... and delete their Swift in the same PR series, with no
+  shims and no flags." The look is the AppKit block's, on the same grid (the host sends `SidebarStyle`'s columns, fonts
+  and the layout's row metrics; gallery `pages.sidebar-chats`, the native look chosen, `v2-dense-meta` and
+  `v3-no-marks` not). The layout keeps every height (`SidebarChatHistoryState.pinnedHeight` / `earlierHeight`), so no
+  row moves when the page loads; the page shows once it reports drawing its block. Clicks run the same
+  `SidebarChatHistory` paths (open, fold, Show More, the registry's Pin or Unpin menu) on the person's own click
+  only. Look change: none intended (WebKit text instead of AppKit labels). Regression: `SidebarChatHistoryTests`,
+  webviews `sidebar-chats-page.test.tsx`.
 - 2026-11-09: a group can draw as a plain section heading. Leo (2026-11-05, softened): "Like [chat apps] and Claude, they
   don't deal with this problem because they don't have f***ing groups. They have these sections ... And, like, you
   know, maybe we can also have an option to have that, right?" `sidebar.groupHeader.background` gains Sections
@@ -24,6 +45,15 @@
   the press switched goes back to the space it showed before the press (`ProfileBarView.pressOrigin`).
   Regression: `SpaceBarMouseDownSwitchTests`, `SidebarSpaceSwitchAtRestTests`, `SidebarSpaceSwitchBlocksTests`,
   `SpaceSwitchSameTurnTests`.
+- 2026-11-10 (lane/sidebar-sticky-headers): sticky project headers. Leo, verbatim: "you also don't want to make a,
+  like a scrollable area within a scrollable area because that's like awkward and stuff." and "We're just going to
+  decide on this. We're going ahead." While the one list scrolls through an open top-level group, its header stays
+  pinned at the visible top until the group's last row passes, then the next row pushes it up (iOS/Finder). Only
+  top-level groups stick. The look is the gallery pick `veil` (#40299): the sidebar tone at 90% over a within-window
+  blur, a 12 pt fade into the rows, no line, no shadow; opaque tone and no blur under Reduce Transparency; the list's
+  top edge fade holds while a header is stuck. It is the header's own view, so hover, hover card, click, menus,
+  keyboard and VoiceOver reach the same element. Clicking it collapses the group and leaves the header at its own
+  place at the top. At rest the header draws as before. Regression: `SidebarStickyHeaderTests`.
 - 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
   their min width ... the show and hide details, um, that can probably also be a little bit more ... animated ... I
   don't want it to disappear as quickly as other ones would ... if the inner tab is the exact same name as the

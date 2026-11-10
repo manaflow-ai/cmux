@@ -33,6 +33,17 @@ nested splits, 6 tabs each, Chromium pages, 10 busy terminals) instead of the --
 terminal is the measured workspace's last pane, and the churn rearranges STRESS's 59 other workspaces. STRESS needs
 a 1920 x 1080 main display (split-spring.sh --vdisplay=120). The report quotes the built shape (`stress_session`).
 
+--session large builds the LARGE session (perf-stress-session.py `build_large`, plans/cmux-next/main-thread-scheduling.md
+1.5: 60 workspaces x 6 tabs, one pane each, the window on the last one). The typed terminal is a terminal of the last
+workspace. Its churn phase is the agent-like load instead of sidebar moves: the 5 title streams run (spinner titles at
+12.5 Hz, a new text every 2 s, in 5 hidden workspaces) and a second thread sets an agent status on those 5 workspaces at
+--status-hz (default 5) through the app's CLI (`workspace <id> status set agent <state>`). No groups are made. The
+report quotes the built shape (`large_session`).
+
+Each phase also reports `missed_while_typing`: display frame intervals over 1.5 refreshes (debug.frames) that overlap a
+key's window, from the key event's time to the frame that shows its echo (the typing probe), and per owner the main
+thread's task times (debug.main_budget `owners`, every scheduled task's own time, the store drain's too).
+
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
 phase's p95 by more than --gate-delta-ms (default 2). --task-diagnostics: launch with
 CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1, so debug.hangs also lists scheduled tasks past their class budget with a
@@ -66,10 +77,11 @@ parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a chur
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", choices=["debug", "real"], default="debug",
                     help="real: HID-tap key events through the event queue (needs the input grant); debug: debug.key over the socket")
-parser.add_argument("--session", choices=["light", "stress"], default="light",
+parser.add_argument("--session", choices=["light", "stress", "large"], default="light",
                     help="light: --workspaces empty workspaces and a typing workspace; stress: the STRESS session "
                          "(perf-stress-session.py), the typed terminal in its measured workspace, the churn over its "
-                         "59 other workspaces")
+                         "59 other workspaces; large: the LARGE session, the churn its 5 title streams and agent statuses")
+parser.add_argument("--status-hz", type=float, default=5.0, help="--session large: agent status changes a second")
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
@@ -211,6 +223,67 @@ class Churn(threading.Thread):
     def stop(self):
         self.stop_flag.set()
         self.join(timeout=30)
+
+
+class LargeChurn(threading.Thread):
+    """The LARGE session's agent load until stopped: its title streams run (shell loops in 5 hidden terminals), and
+    this thread sets an agent status on their workspaces at `hz`, round robin, through the app's CLI."""
+
+    def __init__(self, builder, ids, hz):
+        super().__init__(daemon=True)
+        self.builder, self.ids, self.period = builder, ids, 1.0 / hz
+        self.stop_flag = threading.Event()
+        self.ops = {"status": 0}
+        self.cli_ms = []
+
+    def run(self):
+        self.builder.start_title_streams(SCRATCH)
+        states = ["working", "waiting", "working", "done"]
+        index = 0
+        while not self.stop_flag.is_set():
+            t0 = time.perf_counter()
+            cli("workspace", self.ids[index % len(self.ids)], "status", "set", "agent", states[(index // len(self.ids)) % len(states)],
+                timeout=20)
+            index += 1
+            self.ops["status"] += 1
+            spent = time.perf_counter() - t0
+            self.cli_ms.append(spent * 1000)
+            rest = self.period - spent
+            if rest > 0:
+                self.stop_flag.wait(rest)  # the status pace
+
+    def stop(self):
+        self.stop_flag.set()
+        self.join(timeout=30)
+        self.builder.stop_title_streams()
+
+
+def missed_while_typing(frames, rows):
+    """Display frame intervals over 1.5 refreshes that overlap a key's window (its event time to the frame that shows
+    its echo), from a raw `debug.frames` reply (`first_frame_s`, `intervals_ms`, `refresh_ms`) and typing probe rows
+    (`event_uptime_ns`, `contents_ms`): both on the CLOCK_UPTIME_RAW timebase. Returns {"count", "keys", "worst_ms"},
+    or None when the reply has no frame times (an app before them)."""
+    if not isinstance(frames, dict) or not frames.get("first_frame_s") or not frames.get("refresh_ms"):
+        return None
+    limit = frames["refresh_ms"] * 1.5
+    long_frames, end = [], frames["first_frame_s"]
+    for interval in frames.get("intervals_ms") or []:
+        end += interval / 1000
+        if interval > limit:
+            long_frames.append((end - interval / 1000, end, interval))
+    keys, missed, worst = 0, set(), 0.0
+    for row in rows:
+        try:
+            start = int(row["event_uptime_ns"]) / 1e9
+            shown = start + float(row["contents_ms"]) / 1000
+        except (KeyError, TypeError, ValueError):
+            continue
+        hit = [frame for frame in long_frames if frame[0] < shown and frame[1] > start]
+        if hit:
+            keys += 1
+            missed.update(hit)
+            worst = max([worst] + [frame[2] for frame in hit])
+    return {"count": len(missed), "keys": keys, "worst_ms": round(worst, 2), "limit_ms": round(limit, 2)}
 
 
 # ---------------------------------------------------------------- profiling
@@ -385,7 +458,7 @@ def type_keys(count, pid=None, label="warmup"):
     return trips, stalls
 
 
-def phase(name, pid, ids, groups, churn_hz, trace=False):
+def phase(name, pid, ids, groups, churn_hz, trace=False, builder=None):
     rows_before = len(probe_rows())
     rpc("debug.hangs", {"clear": True})
     rpc("debug.main_budget", {"reset": True})
@@ -397,7 +470,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         seconds = int(opts.samples * opts.interval + 8)
         tracer = trace_start(pid, f"{name}", seconds)
     if churn_hz > 0:
-        churn = Churn(ids, groups, churn_hz)
+        churn = LargeChurn(builder, ids, opts.status_hz) if opts.session == "large" else Churn(ids, groups, churn_hz)
         churn.start()
         time.sleep(1.0)  # the churn is running before the first key
     t0 = time.monotonic()
@@ -405,12 +478,16 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     wall = time.monotonic() - t0
     if churn:
         churn.stop()
-    frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     perf = rpc("debug.sidebar_perf", timeout=20)
     budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
+    missed = missed_while_typing(frames, complete)
+    if isinstance(frames, dict):
+        # The per-frame arrays were for missed_while_typing; the report keeps the stats.
+        frames = {k: v for k, v in frames.items() if k not in ("intervals_ms", "main_ms")}
     entry = {
         "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1),
         "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": pct(trips), "probe_rows": len(rows), "complete": len(complete),
@@ -422,7 +499,8 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
         "over_budget_count": (hangs or {}).get("over_budget_count") if isinstance(hangs, dict) else None,
         "over_budget": (hangs or {}).get("over_budget") if isinstance(hangs, dict) else None,
-        "main_budget": budget,
+        "main_budget": budget, "missed_while_typing": missed,
+        "owners": (budget or {}).get("owners") if isinstance(budget, dict) else None,
         "frames": frames, "sidebar_perf": perf,
     }
     if churn:
@@ -489,6 +567,7 @@ def main():
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
+    builder = None
     try:
         try:
             bench.launch(timeout=180)
@@ -497,16 +576,22 @@ def main():
             raise
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         t0 = time.monotonic()
-        builder = None
         if opts.session == "stress":
             builder = load_stress().Stress(rpc, log=note)
             results["stress_session"] = builder.build()
             print("STRESS-SESSION " + json.dumps(results["stress_session"]), flush=True)
-        for g in range(opts.groups):
+        elif opts.session == "large":
+            builder = load_stress().Stress(rpc, log=note)
+            results["large_session"] = builder.build_large()
+            print("LARGE-SESSION " + json.dumps(results["large_session"]), flush=True)
+        for g in range(0 if opts.session == "large" else opts.groups):
             name = f"churn group {g:02d}"
             cli("workspace", "group", "create", "--name", name)
             groups.append(name)
-        if builder:
+        if opts.session == "large":
+            # The agent statuses go to the 5 title streams' workspaces.
+            ids = list(results["large_session"]["stream_workspaces"])
+        elif builder:
             ids = list(builder.background)  # STRESS's 59 other workspaces are the ones that rearrange
         else:
             for i in range(opts.workspaces):
@@ -523,7 +608,7 @@ def main():
             # The typed terminal: the selected terminal of the measured workspace's last pane (the busy output runs
             # in its first 10 panes), turned into `cat` so the tty echoes each key; the grid stays on screen.
             typed_id = builder.measured
-            pane = builder.panes(builder.workspace(typed_id))[-1]
+            pane = builder.panes(builder.workspace(typed_id))[-1]  # LARGE: the last workspace's one pane
             terminal = typed_terminal(builder, typed_id, pane)
             builder.send(terminal["id"], "exec cat\r")
             builder.show(typed_id)
@@ -543,9 +628,11 @@ def main():
         if opts.input == "real" and len(probe_rows()) <= rows_before_warmup:
             sys.exit("--input real: no key reached the app (not frontmost, or this session has no input grant)")
         for r in range(opts.rounds):
-            phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
-            phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0)
+            phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0, builder=builder)
+            phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0, builder=builder)
     finally:
+        if builder is not None and opts.session == "large":
+            builder.stop_title_streams()  # a phase that raised leaves no stream running
         idle = [p for p in results["phases"] if p["churn_hz"] == 0 and p.get("key_to_frame_ms")]
         churn = [p for p in results["phases"] if p["churn_hz"] > 0 and p.get("key_to_frame_ms")]
         summary = {}
