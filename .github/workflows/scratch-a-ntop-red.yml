@@ -1,0 +1,26 @@
+name: scratch a-ntop red
+
+# Scratch (side branch a-ntop-red only, never on feat-cmux-next): the fleet controller is down,
+# so build CmuxNext with its tests on Blacksmith and run the notified-to-top suites.
+on:
+  push:
+    branches: [a-ntop-red]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 2
+      - name: Build CmuxNext with its tests and run the notified-to-top suites
+        env:
+          CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: >-
+          ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext
+          NotificationMoveToTopOnAgentFinishTests,NotificationSourceDefaultsTests,SidebarManualOrderTests
