@@ -468,7 +468,9 @@ pub(super) fn model_word(word: &str) -> Result<String, UsageError> {
     let ok = (1..=200).contains(&model.len())
         && !model.starts_with('-')
         && !model.chars().any(|c| c.is_whitespace() || c.is_control())
-        && !model.contains(['{', '}', '$', '"', '\\', '\'']);
+        // 0x22 and 0x27 are the double and single quote (as bytes: a quote character literal
+        // reads as an open string to check-resource-api-boundary.py's CLI literal scan).
+        && !model.bytes().any(|b| matches!(b, b'{' | b'}' | b'$' | b'\\' | 0x22 | 0x27));
     if ok {
         Ok(model.to_owned())
     } else {
