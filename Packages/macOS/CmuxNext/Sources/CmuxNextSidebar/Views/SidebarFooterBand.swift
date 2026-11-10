@@ -81,7 +81,12 @@ final class SidebarFooterBand {
 
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
-    func placeSpaces(top: CGFloat, height: CGFloat) {
+    ///
+    /// `modelChanged`: the spaces, the current space or the sidebar's metrics changed since the last layout, so the
+    /// bar shows them (`ProfileBarView.refresh`). A layout for a new size only (a step of a window resize) passes
+    /// false: the bar moves, and it draws and builds its tooltips and accessibility elements again only when its
+    /// own size or insets change (its setters do that).
+    func placeSpaces(top: CGFloat, height: CGFloat, modelChanged: Bool) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
@@ -113,7 +118,7 @@ final class SidebarFooterBand {
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
         }
-        bar.refresh()
+        if modelChanged { bar.refresh() }
     }
 
     // MARK: Search button
