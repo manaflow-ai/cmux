@@ -60,6 +60,21 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
 `cmux cloud start-chat --help` has every flag.
 
+### A test, proof or lane makes a machine: name it `cmux-test-<run>`, kill it after
+
+A machine a test, proof, journey or agent lane makes counts against the person's team cap
+like any other (20, paused ones count). Leo's own team filled with leftover `chat-…` and
+`lease-…` machines, and his NIGHTLY could not make one (2026-11-09). So:
+
+- Name it `cmux-test-<run>` (lowercase letters, digits, `.`, `_`, `-`): `cmux cloud
+  start-chat --name cmux-test-<run> ...` or `cmux machine new --name cmux-test-<run>`.
+  Never let a test start-chat pick its own `chat-…` name: that name is the person's.
+- Kill it in a cleanup that always runs: a shell `trap 'cmux cloud kill-machine --target machine:$ID --confirm --json' EXIT`,
+  a `finally`, or an `if: always()` step in a workflow.
+- The platform deletes a `cmux-test-…` machine (and a journey's `cloud journey auto jr-…`
+  or a chat proof's `ccp-<run>`) 6 hours after its create, and the cap message names
+  these as test leftovers. A machine with any other name is never touched.
+
 ## Start with discovery
 
 ```sh

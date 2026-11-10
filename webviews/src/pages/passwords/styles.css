@@ -61,8 +61,8 @@
   user-select: text;
 }
 
-.pw-search:focus,
-.pw-username-input:focus {
+.pw-search:focus-visible,
+.pw-username-input:focus-visible {
   border-color: var(--page-text-3);
 }
 

@@ -2075,17 +2075,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
-      // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
+      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
         const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
         const pre = await waitPreflight(exec, programs.preflight, team ? "owner or team" : "owner");
-        const folder = "/home/cmux/.cmux/credential-transfer";
-        const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
-        if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
+        const folder = "/home/cmux/.cmux/credential-transfer"; // made and checked by the preflight that just passed
         const file = `${folder}/${randomUUID().toUpperCase()}.json`;
         try {
           const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });

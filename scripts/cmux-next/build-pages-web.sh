@@ -101,6 +101,8 @@ for page in $PAGES; do
     *" $page "*) shiki="$src/shiki" ;;
   esac
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$shiki" "$WORK/$page/app.js"
+  # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
+  if [ -f "$WORK/$page/app.css" ]; then bun scripts/postcss/gate-css.mjs "$WORK/$page/app.css"; fi
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
