@@ -152,8 +152,8 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   # A shallow checkout (cmux-next.yml's checks job has 2 commits) shows its oldest commit as adding every input, so
   # the list named #39749 for #39027's change on 2026-11-09. Deepen (trees only: the log reads no blob) until no
   # commit since the pin is a shallow boundary; a full checkout never fetches here. The list walks first parents
-  # only: the pin is a feat-cmux-next commit, so that chain reaches it, and a merge names its own input change, while
-  # a merged branch that forks before the pin would list input commits older than the pin.
+  # only: the pin is a feat-cmux-next commit, so that chain reaches it, and a merge is named for the input change it
+  # brought in, while a merged branch that forks before the pin would list input commits older than the pin.
   shallow_range() {
     local list
     list="$(git rev-parse --git-path shallow)"

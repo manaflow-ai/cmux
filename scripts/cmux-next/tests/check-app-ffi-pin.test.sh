@@ -257,6 +257,7 @@ commits="${commits%%Fix:*}"
 
 # A full checkout never fetches for the list: only a shallow one deepens.
 GIT_TRACE="$tmp/full-trace" check_tree >/dev/null 2>&1 && fail "the full checkout's stale pin passed"
+grep -q "built-in: git diff" "$tmp/full-trace" || fail "GIT_TRACE did not reach the check"
 ! grep -q "built-in: git fetch" "$tmp/full-trace" || fail "a full checkout fetched to list the commits since the pin"
 
 # A pull request merge whose branch forks before the pin, checked shallow: the list names the merge (on the pinned
