@@ -302,7 +302,8 @@ if out="$(cd "$tmp" && bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --tre
 fi
 commits="${out#*Commits since the pin:}"
 commits="${commits%%Fix:*}"
-[[ "$commits" == *" t: merge pr"* ]] || fail "the list does not name the merge that changed an input: $out"
-[[ "$commits" != *"old input"* ]] || fail "the list names an input commit older than the pin: $out"
+# Exactly the merge: not the branch's own commit, and no input commit older than the pin (c0, "old input ...").
+listed="$(grep -E '^  [0-9a-f]{7,} ' <<<"$commits" | sed -E 's/^  [0-9a-f]+ t: //')"
+[[ "$listed" == "merge pr" ]] || fail "the list is not exactly the merge that changed an input: [$listed] in: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"
