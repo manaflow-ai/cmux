@@ -823,6 +823,10 @@ pub fn registry_path(state_root: &Path, session: &str) -> PathBuf {
     persistent_session_state_dir(state_root, session).join(WORKSPACE_REGISTRY_FILE)
 }
 
+#[path = "synth_shape.rs"]
+mod shape;
+pub use shape::{ShapeOptions, ShapeReport, counts, generate_shape};
+
 #[cfg(test)]
 #[path = "synth_tests.rs"]
 mod tests;
