@@ -301,15 +301,15 @@ mod tests {
     #[test]
     fn antigravity_token_files_prove_a_sign_in() {
         let dir = home("antigravity");
-        let env = env(&dir, &[]);
+        let acp = env(&dir, &[]);
         write(&dir.join(".gemini/antigravity-acp/acp_token.json"), r#"{"refresh_token":"x"}"#);
-        assert_eq!(auth("antigravity", "agy_acp_server.par", &env), Some(Auth::SignedIn));
+        assert_eq!(auth("antigravity", "agy_acp_server.par", &acp), Some(Auth::SignedIn));
         let _ = std::fs::remove_dir_all(&dir);
         let dir = home("agy-cli");
-        let env = env(&dir, &[]);
+        let cli = env(&dir, &[]);
         write(&dir.join(".gemini/antigravity-cli/antigravity-oauth-token"), "ya29.token");
-        assert_eq!(auth("antigravity", "agy", &env), Some(Auth::SignedIn));
-        assert_eq!(auth("antigravity", "agy-wrapper", &env), None);
+        assert_eq!(auth("antigravity", "agy", &cli), Some(Auth::SignedIn));
+        assert_eq!(auth("antigravity", "agy-wrapper", &cli), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
