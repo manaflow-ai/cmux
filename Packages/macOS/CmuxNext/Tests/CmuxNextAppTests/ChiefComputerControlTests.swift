@@ -369,6 +369,93 @@ struct ChiefComputerControlTests {
         #expect(store.entitled(agent: Self.agent) == false)
     }
 
+    // MARK: Set Up Computer's refusals, and a Chief of this Mac's own computer
+
+    /// A server that makes no Chief computers (the route missing: 404; or 409 computer.unavailable)
+    /// is not a failure to retry; a full owner (computer.local_limit) is its own refusal; any other
+    /// refusal stays the route's ``ChiefComputerControlClient/Failure`` (Try again).
+    @Test func setUpTellsANoComputerServerAndAFullOwnerFromAFailure() async {
+        let transport = Transport()
+        let client = ChiefComputerControlClient(send: transport.send)
+        transport.replies = [(404, #"{"ok":false,"error":{"code":"not_found","message":"no route"}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.unavailable) { try await client.provision(agent: Self.agent) }
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.unavailable","message":"off"}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.unavailable) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.local_limit","message":"full","cap":3}}"#)]
+        await #expect(throws: HomeChiefProfileView.SetUpRefusal.localLimit) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(502, #"{"ok":false,"error":{"code":"computer.unreachable","message":"slow"}}"#)]
+        await #expect(throws: ChiefComputerControlClient.Failure.self) { try await client.provision(agent: "local:conv_mario") }
+        transport.replies = [(403, #"{"ok":false,"error":{"code":"cloud.plan.required","message":"plan"}}"#)]
+        await #expect(throws: ChiefComputerControlClient.Failure.self) { try await client.provision(agent: "local:conv_mario") }
+        #expect(transport.calls.map(\.path) == ["v1/chiefs/\(Self.agent)/computer/control"] + Array(repeating: "v1/local-chiefs/conv_mario/computer/control", count: 4))
+        #expect(transport.calls.allSatisfy { $0.method == "POST" && $0.body?["action"] as? String == "provision" })
+    }
+
+    /// A Chief of this Mac's computer is keyed `local:<conversation>` and reaches the owner's
+    /// `v1/local-chiefs/<id>/computer…` routes; nothing else becomes a route.
+    @Test func aLocalChiefsComputerUsesItsOwnRoutes() async throws {
+        #expect(HomeChiefComputerRoute.localKey("conv_mario") == "local:conv_mario")
+        #expect(HomeChiefComputerRoute.localKey("a b") == nil)
+        #expect(HomeChiefComputerRoute.localKey(String(repeating: "a", count: 65)) == nil)
+        #expect(HomeChiefComputerRoute.base(of: "local:conv_mario") == "v1/local-chiefs/conv_mario")
+        #expect(HomeChiefComputerRoute.base(of: Self.agent) == "v1/chiefs/\(Self.agent)")
+        #expect(HomeChiefComputerRoute.base(of: "local:../x") == nil)
+        #expect(HomeChiefComputerRoute.base(of: "vm-1") == nil)
+        let transport = Transport()
+        let store = ChiefComputerControlStore()
+        transport.replies = [(200, #"{"ok":true,"value":{"used":true,"control":{"holder":"chief","since_ms":4},"entitled":true}}"#)]
+        let send = ChiefComputerControlClient.feeding(transport.send, into: store)
+        _ = try await send("GET", "v1/local-chiefs/conv_mario/computer", nil)
+        #expect(store.state(.agent("local:conv_mario")) == HomeChiefComputerControlState(holder: .chief, sinceMs: 4))
+        let source = HomeChiefComputerControlSource.sandbox(agent: "local:conv_mario", store: store, client: ChiefComputerControlClient(send: transport.send))
+        transport.replies = [(200, #"{"ok":true,"value":{"control":{"holder":"human","since_ms":9}}}"#)]
+        try await source.takeOver()
+        #expect(transport.calls.last?.path == "v1/local-chiefs/conv_mario/computer/control")
+        #expect(transport.calls.last?.body?["action"] as? String == "take_over")
+    }
+
+    /// `cmux cloud chief-computer` (the local Chief's `cloud_computer` on its own computer): the op and
+    /// its arguments go to the act route as one body, the route's value comes back as the result,
+    /// and its refusal keeps its code; another client and a bad request are refused before any send.
+    @Test func theChiefsOwnVerbsGoToTheActRouteAndKeepTheLeaseRefusal() async throws {
+        let services = Self.services()
+        let transport = Transport()
+        let client = ChiefComputerControlClient(send: transport.send)
+        #expect(services.registry.bindEffect("cloud.chiefComputer") { client.actEffect($0) })
+        func run(_ arguments: [String: ActionValue], origin: ActionOrigin = .mcp) async -> (Result<[String: ActionResultValue], ActionWorkFailure>?, String?) {
+            var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
+            let refusal = services.registry.capturingRefusal {
+                captured = services.registry.capturingRun {
+                    _ = services.registry.perform("cloud.chiefComputer", invocation: ActionInvocation(arguments: arguments, origin: origin))
+                }
+            }
+            return (await captured.results.first?.value, refusal)
+        }
+        transport.replies = [(200, #"{"ok":true,"value":{"done":"click","image":"/9j/","screen":{"width":1280,"height":800}}}"#)]
+        let (clicked, _) = await run(["chief": .string("chief:conv_mario"), "op": .string("click"), "args": .string(#"{"x":3,"y":4,"shot":false,"op":"setup"}"#)])
+        guard case .success(let fields)? = clicked else { Issue.record("no result: \(String(describing: clicked))"); return }
+        #expect(fields["done"] == .string("click"))
+        #expect(fields["image"] == .string("/9j/"))
+        #expect(fields["screen"] == .object(["width": .int(1280), "height": .int(800)]))
+        #expect(transport.calls.last?.method == "POST")
+        #expect(transport.calls.last?.path == "v1/local-chiefs/conv_mario/computer/act")
+        #expect(transport.calls.last?.body as NSDictionary? == ["op": "click", "x": 3, "y": 4, "shot": false] as NSDictionary)
+
+        transport.replies = [(409, #"{"ok":false,"error":{"code":"computer.human_has_control","message":"The person has the computer."}}"#)]
+        let (held, _) = await run(["chief": .string("conv_mario"), "op": .string("type"), "args": .string(#"{"text":"x"}"#)])
+        guard case .failure(let failure)? = held else { Issue.record("not refused: \(String(describing: held))"); return }
+        #expect(failure.code == "computer.human_has_control")
+
+        let sent = transport.calls.count
+        let (_, remote) = await run(["chief": .string("chief:conv_mario"), "op": .string("click")], origin: .remote)
+        #expect(remote != nil)
+        let (_, badOp) = await run(["chief": .string("chief:conv_mario"), "op": .string("setup")])
+        #expect(badOp != nil)
+        let (_, badChief) = await run(["chief": .string("machine:vm-1"), "op": .string("click")])
+        #expect(badChief != nil)
+        #expect(transport.calls.count == sent)
+    }
+
     /// Waits for the store's status read in flight for `agent` to land.
     static func drain(_ store: ChiefComputerControlStore, agent: String) async {
         await store.refreshTask(agent: agent)?.value

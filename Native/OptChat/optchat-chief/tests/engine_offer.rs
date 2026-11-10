@@ -929,6 +929,56 @@ fn computer_control_attaches_a_cloud_machine_and_detaches_it() {
     );
 }
 
+/// The Chief's own computer (Set Up Computer for a Chief on this Mac): the
+/// app writes `chief:<id>`, and the turn line tells the Chief to drive it
+/// with cloud_computer, whose default it is.
+#[test]
+fn computer_control_attaches_the_chiefs_own_computer() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", optchat_chief::acpmux::Family::Claude)],
+    );
+    let set = |computer: &str| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Box::new(optchat_chief::brain::ReactionFields {
+            computer: Some(computer.into()),
+            ..Default::default()
+        }),
+        turn_routing: None,
+    };
+    let attached = engine(&mut brain, set("chief:conv_mario-1"));
+    assert_eq!(
+        attached["choice"]["computer"], "chief:conv_mario-1",
+        "{attached}"
+    );
+    for bad in [
+        "chief:",
+        "chief:a b",
+        "chief:x;y",
+        &format!("chief:{}", "a".repeat(65)),
+    ] {
+        let refused = engine(&mut brain, set(bad));
+        assert_eq!(refused["error"]["code"], "invalid_value", "{bad}");
+    }
+    let line = optchat_chief::engine::computer_line(&optchat_chief::engine::load(
+        &dir.path().join("engine.json"),
+    ))
+    .expect("its own computer gives the turn its line");
+    assert!(
+        line.contains("your own Cloud computer chief:conv_mario-1"),
+        "{line}"
+    );
+    assert!(line.contains("cloud_computer"), "{line}");
+    assert!(!line.contains("Cloud machine"), "{line}");
+}
+
 /// chief.engine.set `permission_mode` (cmux#37392): the Home Chief Settings
 /// panel and `cmux chief engine --mode` reach the brain; the answer names
 /// the mode the next turn runs in and what chose it.

@@ -227,6 +227,11 @@ import Testing
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false, machine: true) == .machine)
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: false, machine: true) == .notSetUp)
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: true) == nil)
+        // A Chief of this Mac that can have its own computer: Set Up Computer; once it has one, the screen.
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false, setsUp: true) == .noComputer)
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: true, setsUp: true) == nil)
+        #expect(HomeChiefProfileView.gate(paid: false, cloudChief: false, hasComputer: false, setsUp: true) == .paywall)
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false, machine: true, setsUp: true) == .machine)
         // A Chief of this Mac: the note points at the Computer Use picker under it, with the move.
         let panel = HomeChiefProfileView(settings: Self.card())
         panel.name = { "mario" }
@@ -322,6 +327,80 @@ import Testing
         page.computer.open()
         await until { page.computer.shown != nil }
         #expect(page.shownGate == nil)
+    }
+
+    /// A paid Chief of this Mac with no computer: Set Up Computer asks the Cloud service for the Chief's own
+    /// computer (a new one for this Chief, never a team machine), then picks it for Computer Use
+    /// (engine.json `computer` = `chief:<conversation>`), so its `cloud_computer` drives it. Move to Cloud stays beside it.
+    @Test func setUpComputerOnALocalChiefMakesItsOwnComputerAndUsesIt() async throws {
+        let brain = OwnComputerChief()
+        let card = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory.appendingPathComponent("chief-own-\(UUID().uuidString)"), source: brain)
+        await card.refresh().value
+        var status = HomeChiefComputer.Status(used: false, computer: nil, entitled: true)
+        var asks = 0
+        let page = HomeChiefProfileView(settings: card)
+        page.name = { "mario" }
+        page.paid = { true }
+        page.localComputer = { "chief:conv_mario" }
+        page.onProvision = {
+            asks += 1
+            status = .init(used: false, computer: nil, entitled: true, provisioning: true)
+        }
+        page.computer.source = .init(paid: { true }, chief: { "mario" }, status: { status }, screen: { nil })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(page)
+        defer { window.close() }
+        page.select(.computer)
+        #expect(page.shownGate == .noComputer)
+        #expect(page.gateButton.title == HomeEngineStrings.computerProvision)
+        #expect(!page.gateButton.isHidden)
+        #expect(!page.gateMoveButton.isHidden, "Move to Cloud stays a choice")
+        #expect(page.gateMoveButton.title == HomeEngineStrings.computerMove)
+        page.gateButton.performClick(nil)
+        await until { brain.computer != nil }
+        #expect(asks == 1)
+        #expect(brain.computer == "chief:conv_mario")
+        #expect(brain.writes == [["computer": "chief:conv_mario"]])
+        // The computer arrives: the screen replaces the note.
+        status = .init(used: true, computer: ("sbx", "running"), entitled: true)
+        page.computer.open()
+        await until { page.computer.shown != nil }
+        #expect(page.shownGate == nil)
+        // A Cloud Chief is never offered the local path.
+        let cloudCard = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory.appendingPathComponent("chief-own-\(UUID().uuidString)"), source: OwnComputerChief())
+        await cloudCard.refresh().value
+        let cloud = HomeChiefProfileView(settings: cloudCard)
+        cloud.paid = { true }
+        cloud.cloudChief = { true }
+        cloud.localComputer = { "chief:conv_mario" }
+        cloud.onProvision = {}
+        cloud.refresh()
+        #expect(cloud.shownGate == .notSetUp)
+        #expect(cloud.gateMoveButton.isHidden)
+    }
+
+    /// Set Up Computer where the server makes no computers says so with no Try again; a full owner says so and
+    /// may ask again; nothing is picked for Computer Use either way.
+    @Test func setUpComputerTellsANoComputerServerAndAFullOwner() async throws {
+        for (refusal, line, button) in [(HomeChiefProfileView.SetUpRefusal.unavailable, HomeEngineStrings.computerNotOnServer, false),
+                                         (.localLimit, HomeEngineStrings.computerLocalLimit, true)] {
+            let brain = OwnComputerChief()
+            let card = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory.appendingPathComponent("chief-own-\(UUID().uuidString)"), source: brain)
+            await card.refresh().value
+            let page = HomeChiefProfileView(settings: card)
+            page.name = { "mario" }
+            page.paid = { true }
+            page.localComputer = { "chief:conv_mario" }
+            page.onProvision = { throw refusal }
+            page.computer.source = .init(paid: { true }, chief: { "mario" }, status: { .init(used: false, computer: nil, entitled: true) }, screen: { nil })
+            page.select(.computer)
+            page.gateButton.performClick(nil)
+            await until { page.gateLabel.stringValue == line }
+            #expect(page.gateLabel.stringValue == line, "\(refusal)")
+            #expect(page.gateButton.isHidden == !button, "\(refusal)")
+            #expect(brain.writes.isEmpty)
+        }
     }
 
     @Test func aCloudMachineOpensItsDesktopOnTakeOverAndTheScreenTakesNoInput() async {
@@ -566,6 +645,28 @@ import Testing
         func source() -> HomeChiefComputerSection.Source {
             .init(paid: { true }, chief: { "mario" }, status: { .init(used: true, computer: ("vm", "running")) }, screen: { [image] in image })
         }
+    }
+}
+
+/// A Chief of this Mac's brain that records each engine write and answers with the computer it last took.
+private final class OwnComputerChief: HomeChiefEngineSource, @unchecked Sendable {
+    var computer: String?
+    var writes: [[String: String?]] = []
+    var isLocal: Bool { true }
+    var place: String? { nil }
+
+    private var snapshot: HomeChiefSnapshot {
+        var snapshot = HomeChiefSnapshot(harness: "claude", model: nil, effort: nil, avatar: nil, turns: [])
+        snapshot.computer = computer
+        return snapshot
+    }
+
+    func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { snapshot }
+
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        if case let value?? = fields["computer"] { computer = value == "none" ? nil : value }
+        writes.append(fields)
+        return snapshot
     }
 }
 
