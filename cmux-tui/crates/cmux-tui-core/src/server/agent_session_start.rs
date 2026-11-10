@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_link::AcpmuxLink;
+use super::agent_session_link::{AcpmuxLink, LinkError, Patience};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
@@ -119,17 +119,29 @@ pub enum AgentStartHost {
 /// Starts that may run at once on one daemon.
 const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
-/// A harness spawns and answers `session/new` (a cold agent can take long).
-const NEW_TIMEOUT: Duration = Duration::from_secs(60);
+/// How each acpmux call of a start waits ([`AcpmuxLink::call_while_alive_until`]): a harness spawning
+/// and answering `session/new` in a big folder, or reading its catalog there, on a machine under
+/// load, takes as long as it takes while acpmux still answers beside it. Was a fixed 60 s for
+/// `session/new` and 5 s for each check, which failed the starts of a 1.9 GB and a 20,000-file
+/// folder with `agent_session.timeout` while acpmux was still working (cmux#40385's matrix). A
+/// silent acpmux fails the start within `quiet + probe` (the status answer reads the host's
+/// load, so a busy machine gets 30 s for it); the ceiling, one for the whole start, is the login
+/// finish's. This covers the catalog read (`_acpmux/harnesses`) too: a starting acpmux holds that
+/// answer until its login shell read and catalog reload end (`Hub::harnesses_reply`), and the app
+/// restarts acpmux with a person key just before a Cloud chat's start, so a fixed 5 s refused it
+/// `agent_session.timeout` while acpmux was about to answer (cmuxterm-hq run 42837396397).
+pub(super) const START_PATIENCE: Patience = Patience {
+    quiet: Duration::from_secs(10),
+    probe: Duration::from_secs(30),
+    ceiling: Duration::from_secs(15 * 60),
+};
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long the start waits for acpmux's catalog (`_acpmux/harnesses`). A starting acpmux holds
-/// that answer until its catalog is ready (`Hub::harnesses_reply` waits on `catalog_ready`): after
-/// its login shell read (`login_env::import`, up to 2 x 3 s) and the catalog reload that follows.
-/// The app restarts acpmux with a person key just before a Cloud chat's start (remote approvals),
-/// so the start's catalog read can land on an acpmux still in that wait; with [`CALL_TIMEOUT`] it
-/// was refused `agent_session.timeout` ("did not start the agent in time") while acpmux was about
-/// to answer (cmuxterm-hq run 42837396397, cloud-chat-replies-production, 2026-11-10).
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// One acpmux call of a start, waiting on acpmux's liveness ([`START_PATIENCE`]) until the
+/// start's one ceiling, `until`.
+fn ask(link: &AcpmuxLink, until: Instant, method: &str, params: Value) -> Result<Value, LinkError> {
+    link.call_while_alive_until(method, params, START_PATIENCE, until)
+}
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
@@ -583,6 +595,7 @@ fn start_and_bind(
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
     let checks = Instant::now();
+    let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -592,16 +605,15 @@ fn start_and_bind(
     // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
     // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
     // the start answers.
-    let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking);
     }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog = link
-        .call("_acpmux/harnesses", json!({"cwd": cwd}), CATALOG_TIMEOUT)
-        .map_err(Refusal::of)?;
+    let catalog =
+        ask(link, until, "_acpmux/harnesses", json!({"cwd": cwd})).map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
@@ -616,8 +628,7 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust =
-        link.call("acp.trust.get", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let trust = ask(link, until, "acp.trust.get", json!({"cwd": cwd})).map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
@@ -644,7 +655,7 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
-    let created = link.call("session/new", new, NEW_TIMEOUT).map_err(Refusal::of);
+    let created = ask(link, until, "session/new", new).map_err(Refusal::of);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -660,11 +671,11 @@ fn start_and_bind(
         refusal
     };
     let family = if phone {
-        settle_phone_mode(link, &session).map_err(end)?
+        settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
-        session_family(link, &session).map_err(end)?
+        session_family(link, until, &session).map_err(end)?
     } else {
-        settle_asking_mode(link, &session).map_err(end)?
+        settle_asking_mode(link, until, &session).map_err(end)?
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
@@ -739,9 +750,8 @@ fn refused_family(table: &Value, family: &str) -> bool {
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
 /// mode rule: a start on the caller's own Cloud VM. None is refused.
-fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
-    let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
+    let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
         .map_err(Refusal::of)?;
     table
         .pointer("/session/family")
@@ -754,10 +764,9 @@ fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
 /// asking default; anything else is refused. Returns the session's family.
-fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn settle_asking_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
     let read = || {
-        link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
-            .map_err(Refusal::of)
+        ask(link, until, "_acpmux/web_modes", json!({"sessionId": session})).map_err(Refusal::of)
     };
     let asks = |table: &Value| -> (bool, Option<String>) {
         let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
@@ -783,12 +792,8 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
         (true, _) => Ok(family),
         (false, None) => Err(Refusal::NotAsking),
         (false, Some(default)) => {
-            link.call(
-                "session/set_mode",
-                json!({"sessionId": session, "modeId": default}),
-                CALL_TIMEOUT,
-            )
-            .map_err(|_| Refusal::NotAsking)?;
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": default}))
+                .map_err(|_| Refusal::NotAsking)?;
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
@@ -808,10 +813,9 @@ fn phone_modes(family: &str) -> &'static [&'static str] {
 /// (`cloudMobileAsks`, which reads the harness profile the session actually runs), else it moves
 /// to the family's phone modes in turn until acpmux says so; anything else is refused (the caller
 /// ends the session). Returns the session's family.
-fn settle_phone_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn settle_phone_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
     let read = || -> Result<(String, bool), Refusal> {
-        let table = link
-            .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+        let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
             .map_err(Refusal::of)?;
         let family =
             table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -826,11 +830,8 @@ fn settle_phone_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal
         return Ok(family);
     }
     for mode in phone_modes(&family) {
-        let set = link.call(
-            "session/set_mode",
-            json!({"sessionId": session, "modeId": mode}),
-            CALL_TIMEOUT,
-        );
+        let set =
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
         if set.is_ok() && read()? == (family.clone(), true) {
             return Ok(family);
         }
