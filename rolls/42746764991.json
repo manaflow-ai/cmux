@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42746764991",
+  "recorded_at": "2026-11-10T03:11:18Z",
+  "reason": "cmux-tui ad2657118136 changes the image's cmux-tui (pinned b685cd91d55a)",
+  "dry_run": false,
+  "cmux_tui": "ad26571181363b1d70c0c22c998379325a1cbf5c",
+  "fixes": [
+    {
+      "sha": "ad26571181363b1d70c0c22c998379325a1cbf5c",
+      "mergedAt": "2026-11-10T02:44:59Z",
+      "subject": "cmux chat: a slow app's Cloud chat.on setting is waited for, not dropped after 1.5 s (#40048)"
+    },
+    {
+      "sha": "c24ca550d4974b5c670582116f60a757ad996f75",
+      "mergedAt": "2026-11-09T18:43:54-08:00",
+      "subject": "Cloud copy: a Mac folder no seed can take opens the chat at its head (#39786)"
+    },
+    {
+      "sha": "32dce454e84f63d477d4a9ba47cd9d9c54748b2f",
+      "mergedAt": "2026-11-09T18:28:10-08:00",
+      "subject": "cmux-host adopt: a failed relink puts the kept file back; restore only this run's file; rustfmt (#40039)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T03:11:18Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
