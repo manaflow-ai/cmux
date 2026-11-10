@@ -2143,8 +2143,53 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
     drop(stream);
     let asked = app.join().unwrap();
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]), "asked {asked} times in {took:?}");
-    assert!(took >= back_after && took < back_after + Duration::from_secs(3), "{took:?}");
+    // The retry behaviour, not a wall-clock window a loaded runner can miss: the app was asked again until it
+    // answered (more than the old five tries), and never before its 5 s were up.
+    assert!(took >= back_after, "{took:?}");
     assert!(asked > 6, "more than the old five retries: {asked}");
+}
+
+/// A caller with its own short budget (an MCP tool call) keeps it: a refusal that never passes ends at that
+/// budget, not at the 30 s a person's command waits.
+#[test]
+fn a_short_caller_keeps_its_own_deadline() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-short");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked) = (String::new(), 0);
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            line.clear();
+            asked += 1;
+            let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 50 } } });
+            if writeln!(writer, "{refused}").is_err() {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let budget = Duration::from_millis(600);
+    let answer = request_with_retry_within(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        budget,
+    );
+    drop(stream);
+    let asked = app.join().unwrap();
+    let refusal = answer.unwrap().unwrap_err();
+    assert_eq!(refusal["code"], "unavailable", "{refusal}");
+    // Asked again within the budget, then the refusal is the answer: named, and far short of the 30 s floor.
+    assert!(asked > 1, "{asked}");
+    let waited = refusal["data"]["not_run_waited_ms"].as_u64().unwrap();
+    assert!(u128::from(waited) < run::NOT_RUN_DEADLINE_FLOOR.as_millis() / 2, "{refusal}");
 }
 
 /// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.

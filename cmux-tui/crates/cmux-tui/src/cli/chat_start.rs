@@ -99,8 +99,8 @@ const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
-                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
-                 [--timeout SECONDS] [--json] [[--prompt] TEXT]
+                 [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [-w]
+                 [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
 
@@ -132,11 +132,14 @@ Starts an agent chat, right here unless --on names another target:
                      a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
-  --wait             Wait for the chat's turn to end and print the reply
-  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+  -w, --wait         Wait for the chat's turn to end and print the reply
+  --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
+                     default 15m, at most 4h)
 
 EXAMPLES
   cmux chat 'Summarize README.md'
+  cmux chat -w 'Summarize README.md'
+  cmux chat send -w 'Now the tests'          (the next prompt to that chat)
   cmux chat --prompt 'Summarize README.md' --wait --json
   cmux chat --repo https://gitlab.com/group/project --prompt 'Summarize README.md'
   cmux chat --on studio-mac 'Run the tests'
@@ -145,8 +148,9 @@ EXAMPLES
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
-and in Cloud. The chat goes on with cmux chat send SESSION TEXT --wait,
-cmux chat wait SESSION and cmux chat read SESSION (`cmux chat send --help`).
+and in Cloud. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
+last and cmux chat read last: without a SESSION they mean the last chat this
+terminal started or sent to (`cmux chat send --help`).
 Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO
 (`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
@@ -335,7 +339,7 @@ pub(super) fn parse_with(
                 start.environment = Some(environment);
             }
             "--timeout" => start.timeout = Some(value()?),
-            "--wait" => start.wait = true,
+            "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
@@ -906,12 +910,7 @@ pub(super) fn here_wait(start: &Start) -> Result<Option<Duration>, UsageError> {
         };
     }
     let Some(text) = &start.timeout else { return Ok(Some(turn::DEFAULT_TIMEOUT)) };
-    let seconds = text
-        .parse::<u64>()
-        .ok()
-        .filter(|seconds| *seconds > 0)
-        .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
-    Ok(Some(Duration::from_secs(seconds).min(turn::MAX_TIMEOUT)))
+    Ok(Some(super::chat_send::timeout_value(text)?.min(turn::MAX_TIMEOUT)))
 }
 
 /// Every check a chat here makes of its arguments before it starts, run before `--repo` clones

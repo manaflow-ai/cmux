@@ -24,6 +24,10 @@ final class ProfileBarView: NSView {
     private(set) var pressed: Int?
     /// Where the press on a space started (bar coordinates): a move past the threshold drags its dot.
     var pressPoint: NSPoint?
+    /// The press now down showed its space (`switchOnPress`): its release is no click.
+    private var pressSwitched = false
+    /// The space this window showed before that press; a tear-off of the dot gives it back (`dropDot`).
+    var pressOrigin: ProfileKey?
     /// The space dot being dragged (`ProfileBarView+DotDrag`); nil otherwise.
     var dotDrag: ProfileBarDotDrag?
     private var swipeTracker = ProfileSwipeTracker()
@@ -292,10 +296,18 @@ final class ProfileBarView: NSView {
         needsDisplay = true
     }
 
+    /// A press on another space shows it now, in the press's own turn, as a browser activates a tab on
+    /// mouse-down (Lawrence 2026-11-10: "when i mousedown on switching space, it instantly switches"). The
+    /// press stays down on the dot: past the threshold it drags the now current space. What a click answers
+    /// with a menu or with another window, and the "+", wait for the release (`mouseUp`).
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
-        setPressed(interactionIndex(at: point))
+        let index = interactionIndex(at: point)
+        setPressed(index)
+        let shown = model.activeProfileID
+        pressSwitched = index.map { switchOnPress($0, option: event.modifierFlags.contains(.option)) } ?? false
+        pressOrigin = pressSwitched ? shown : nil
     }
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
@@ -307,11 +319,14 @@ final class ProfileBarView: NSView {
         defer {
             pressed = nil
             pressPoint = nil
+            pressSwitched = false
+            pressOrigin = nil
             needsDisplay = true
         }
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
         if dropDot() { return }
-        guard let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
+        // A press that switched is done: its release is not a click on the space it made current.
+        guard !pressSwitched, let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed, option: event.modifierFlags.contains(.option))
     }
 
@@ -351,8 +366,9 @@ final class ProfileBarView: NSView {
         return nil
     }
 
-    /// A click on a mark: the "+" makes a space; a space switches here, or, when another window shows it,
-    /// offers Go to Window / Move Here (`SpaceSwitcherLogic.click`, `ProfileBarView+Windows`).
+    /// A click on a mark (the release of a press that did not switch, or an accessibility press): the "+"
+    /// makes a space; a space switches here, or, when another window shows it, offers Go to Window / Move Here
+    /// (`SpaceSwitcherLogic.click`, `ProfileBarView+Windows`).
     func activate(_ index: Int, option: Bool = false) {
         if index == Self.plusIndex { return model.send(.newProfile) }
         guard model.profiles.indices.contains(index) else { return }
