@@ -205,6 +205,12 @@ import PackageDescription
 // with the first frame drawn at it, in one transaction; cmux no longer sets
 // the layer's contentsScale.
 //
+// Since 0efdef967..748966825 (release/cmux-gi-land-2, fork PR #91: red
+// c59eb2db0, fix b37a94dfe): a frame drawn before the surface's first cell
+// build runs no cell pass and has a 0 x 0 grid (Contents.framePlan), so a new
+// surface shows its plain background, never cells of another buffer. No C API
+// change.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -228,8 +234,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-0efdef967bd28f1f3327eaaddc306ba29e693e97-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "4cc00bf88b6f42a316c5ca520bee4964cc9cfe0c5d3a9540db61606cec275807"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-74896682575b7a8ccff0b7f4718de574a8e3a38f-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "0ad2435acbb96227ae735d4fa17850ecaacdaf1643ab3d9b9ea907b06b5f846f"
         ),
     ]
 )

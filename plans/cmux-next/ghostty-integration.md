@@ -426,7 +426,8 @@ Pins: the fork branches of #40153 (`a0975fd8c`) and of #40169 (`a0e665d4f`) both
 has the other's commits; `c31377f1a` (#40174) has #40169's commits and not #40153's. A pin PR must not drop what an
 earlier pin PR landed, so each later pin is a merge on a new fork branch: `c370b103a` (`release/cmux-gi-land-1`) =
 `a0975fd8c` + `a0e665d4f` for #40169, and `0efdef967` (`release/cmux-gi-land-2`) = `c370b103a` + `c31377f1a` + the
-P12 content-scale change for #40174. Both merges had no conflict.
+P12 content-scale change for #40174. Both merges had no conflict. `748966825` is the next commit on
+`release/cmux-gi-land-2`: the merge of fork PR #91 (a frame with no built cells runs no cell pass; cmux f14), no conflict.
 
 ## 6. Baseline
 
