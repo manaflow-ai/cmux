@@ -821,7 +821,17 @@ struct MacConversationScreen: View {
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
         .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
                              hasRows: feed.rows != nil, homeProblem: feed.problem)) {
-            await loader.load { try await feed.session(for: route) }
+            // A dropped link keeps the open conversation on screen with its bar's Try Again
+            // (CMUX-30), never a full-screen error over the transcript and the composer.
+            await loader.load({ try await feed.session(for: route) }, tryAgain: { [loader, feed, macID, reconnect] in
+                Task { @MainActor in
+                    await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
+                }
+            })
+        }
+        .onChange(of: loader.isStale) { _, stale in
+            guard stale else { return }
+            AccessibilityNotification.Announcement(MacConversationLoader.staleTitle).post()
         }
     }
 }
