@@ -416,10 +416,11 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 crate::server::outbox::resume(hub, vec![d]);
             }
             Some(_) => {}
-            None => {
-                hub.outbox.add(d.clone());
-                crate::server::outbox::resume(hub, vec![d]);
-            }
+            // Not saved: the watch still owes it and hands it over again on a later drain.
+            None => match hub.outbox.add(d.clone()) {
+                Ok(_) => crate::server::outbox::resume(hub, vec![d]),
+                Err(e) => tracing::warn!("watch: wake {} not queued: {e:#}", d.id),
+            },
         }
     }
 }
