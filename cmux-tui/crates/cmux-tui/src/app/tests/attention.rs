@@ -236,3 +236,75 @@ fn attention_a_hidden_tabs_bell_rings_the_host_bell_only_when_configured() {
     let done = app.host_notification_bytes(&daemon_notification(43, "bench done", true), later);
     assert_eq!(done.as_deref(), Some(&b"\x1b]777;notify;bench done;\x07"[..]));
 }
+
+/// Two panes: the person's shell (first, focused in the session) and an
+/// agent split beside it that the roster shows blocked.
+struct AgentBeside {
+    mux: Arc<Mux>,
+    person: SurfaceId,
+    person_pane: cmux_tui_core::PaneId,
+    agent: SurfaceId,
+    agent_pane: cmux_tui_core::PaneId,
+}
+
+fn blocked_agent_beside_the_person(name: &str) -> AgentBeside {
+    let (mux, person) = test_mux(name, None);
+    let person_pane = mux.with_state(|state| state.pane_of(person.id).unwrap());
+    let agent = mux.split(person_pane, SplitDir::Right, Some((20, 8))).unwrap();
+    let agent_pane = mux.with_state(|state| state.pane_of(agent.id).unwrap());
+    assert!(mux.focus_pane_as(&cmux_tui_core::Actor::Daemon, person_pane));
+    mux.report_agent(agent.id, AgentState::Blocked, AgentSource::Hook, Some("s1".into())).unwrap();
+    AgentBeside { mux, person: person.id, person_pane, agent: agent.id, agent_pane }
+}
+
+fn close_all(mux: &Arc<Mux>) {
+    let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+    for surface in surfaces {
+        mux.close_surface(surface).unwrap();
+    }
+}
+
+/// W6-D (bench r5 #5): with one blocked agent, `Ctrl-b a` moved the TUI's
+/// view only: `pane list` / `tab list` still said the person's pane had
+/// focus, and the screen said nothing. The jump is the person's explicit
+/// focus request, as `cmux attention next --focus`: it moves the session's
+/// focus to the agent's tab (what `pane list` reports) and a toast names
+/// the tab and why it needs the person.
+#[test]
+fn w6d_attention_jump_moves_the_session_focus_and_says_where_it_went() {
+    let AgentBeside { mux, person, person_pane, agent, agent_pane } =
+        blocked_agent_beside_the_person("w6d-attention-jump-session-focus");
+    let mut app = test_app(Session::Local(mux.clone()));
+    app.replace_tree(app.session.tree());
+    assert_eq!(app.active_surface(), Some(person));
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+    app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).unwrap();
+
+    let shared = mux.with_state(|state| state.active_pane());
+    let toast = app.toast.as_ref().map(|toast| toast.text.clone()).unwrap_or_default();
+    close_all(&mux);
+    assert_eq!(app.active_surface(), Some(agent), "the TUI shows the agent");
+    assert_eq!(shared, Some(agent_pane), "the session focus (pane list) moved from {person_pane}");
+    let messages = &localization::catalog().attention;
+    assert!(
+        toast.contains(messages.needs_you) && toast.contains(messages.blocked),
+        "the toast must say where the jump went and why: {toast:?}"
+    );
+}
+
+/// A row picked in the "Needs you" list takes the same path as the key.
+#[test]
+fn w6d_attention_list_row_moves_the_session_focus() {
+    let AgentBeside { mux, agent, agent_pane, .. } =
+        blocked_agent_beside_the_person("w6d-attention-list-session-focus");
+    let mut app = test_app(Session::Local(mux.clone()));
+    app.replace_tree(app.session.tree());
+
+    app.activate_menu(MenuAction::FocusAttention(agent)).unwrap();
+
+    let shared = mux.with_state(|state| state.active_pane());
+    close_all(&mux);
+    assert_eq!(app.active_surface(), Some(agent));
+    assert_eq!(shared, Some(agent_pane), "the list row must move the session focus");
+}
