@@ -1,4 +1,4 @@
-import type { OutboxFailure, OwnerEngine } from "@cmux/ownership"
+import { OUTBOX_IN_FLIGHT_MAX_MS, type OutboxFailure, type OwnerEngine } from "@cmux/ownership"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import type { Env } from "./env.ts"
 import { isTransientError } from "./projection.ts"
@@ -18,6 +18,7 @@ export const DEAD_REPLAY_MS = 24 * 3600_000
  */
 export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
   if (channel === "") return isTransientError(e) ? "transient" : "poison"
+  if ((e as { inFlight?: unknown } | null)?.inFlight === true) return "in_flight"
   if (channel.startsWith(`${SECURITY_MAIL_CLASS}:`)) return "poison"
   const flags = e as { retryable?: unknown; overloaded?: unknown } | null
   if (flags?.retryable === true || flags?.overloaded === true) return "transient"
@@ -131,7 +132,18 @@ export const drainOutboxChannels = async <S>(
           if (only && isWakeChannel(channel)) for (const c of new Set(batch.items.filter((i) => i.op === "mux.wake").map((i) => (i.params as { conversation?: unknown } | null)?.conversation))) void warmBrain(env, batch.name, c)
           const res = await stub.systemDeliver(batch.name, engine.stream, batch.items)
           outbox.markSent(res.done, Date.now())
-          if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
+          if (res.done.length < batch.items.length) {
+            const done = new Set(res.done)
+            const inFlight = new Set(res.in_flight ?? [])
+            const missing = batch.items.filter((i) => !done.has(i.id))
+            const err = new Error(`${missing.length} items not delivered`)
+            // Every item not done is still running in the target: retried soon, not counted, until the bound.
+            if (missing.every((i) => inFlight.has(i.id))) {
+              const since = outbox.inFlightSince(channel)
+              if (since === null || Date.now() - since < OUTBOX_IN_FLIGHT_MAX_MS) throw Object.assign(err, { inFlight: true })
+            }
+            throw err
+          }
         }
         outbox.succeeded(channel)
       } catch (e) {
