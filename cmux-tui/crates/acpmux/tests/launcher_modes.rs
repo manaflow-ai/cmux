@@ -193,6 +193,8 @@ mod launcher_modes {
                 "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
                 "claude-sr2": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "family": "claude-sr2"},
                 "lane": {"argv": ["python3", FAKE_AGENT], "family": "lane"},
+                "impostor": {"argv": ["python3", FAKE_AGENT], "family": "lane",
+                    "env": {"FAKE_AGENT_NAME": "claude-stdio", "FAKE_PLAN_MODE": "claude"}},
             },
             "defaultHarness": "claude",
             "permissionPolicy": "ask",
@@ -210,6 +212,32 @@ mod launcher_modes {
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Web));
         Client(in_tx, out_rx, 0)
+    }
+
+    /// An ACP agent writes its own `agentInfo`: one of family `lane` (no reviewed row) that names
+    /// itself `claude-stdio` and offers Claude's mode names does not get Claude's Web row. Only a
+    /// configured profile of kind `claude-stdio` does (review of #40365).
+    #[tokio::test]
+    async fn from_the_web_an_agent_that_names_itself_claude_gets_no_claude_row() {
+        let (hub, d) = web_hub("impostor");
+        let mut web = web_client(&hub);
+        let mut cli = Client::new(&hub);
+        let r = cli
+            .call(
+                "session/new",
+                json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "impostor"}}}),
+            )
+            .await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        let info = cli.call("_acpmux/info", json!({"sessionId": id})).await;
+        assert_eq!(info["result"]["agentInfo"]["name"], json!("claude-stdio"), "{info}");
+        for mode in ["plan", "default"] {
+            let set = web.call("session/set_mode", json!({"sessionId": id, "modeId": mode})).await;
+            let message = set["error"]["message"].as_str().unwrap_or_default();
+            assert!(message.contains("never from a remote WebSocket"), "impostor {mode}: {set}");
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// From a remote (Web) connection, a launcher profile of Claude Code gets exactly Claude's set.

@@ -1796,7 +1796,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
-                "agentInfo": {"name": "fake", "version": "0"},
+                "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
                                       # It asks (session/request_permission) before every tool call
                                       # it makes, so it keeps any acpmux policy (acpmux believes it
