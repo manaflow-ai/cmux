@@ -26,7 +26,10 @@ on:
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
       - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
+      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/**"
       - "cmux-next-ios/reliability-matrix/**"
+      - "tests/test_ci_ios_reliability_matrix.py"
       - "cmux-tui/crates/cmux-wg/**"
       - "cmux-tui/crates/cmux-transport/**"
       - "cmux-tui/vendor/smoltcp/**"
@@ -153,7 +156,17 @@ jobs:
             -only-testing:CmuxMobileLiveTests/LinkRecoveryTests \
             -only-testing:CmuxMobileLiveTests/PairingRetryTests \
             -only-testing:CmuxMobileWorkspacesTests/WorkspacesLaunchStateTests \
+            -only-testing:CmuxMobileWorkspacesTests/DeviceAxesTests \
+            -only-testing:CmuxMobileLiveTests/DeviceAxesLiveTests \
             2>&1 | tee "$RUNNER_TEMP/matrix/ios.log" || true
+          # Growth cells measure the whole test process (phys_footprint), so they run
+          # by themselves, after the run above has built everything. TEST_RUNNER_ hands
+          # CMUX_GROWTH_MATRIX to the test process; without it they are skipped.
+          TEST_RUNNER_CMUX_GROWTH_MATRIX=1 xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
+            -only-testing:CmuxMobileLiveTests/GrowthMatrixTests \
+            -only-testing:CmuxMobileWorkspacesTests/WorkspaceSwitchGrowthTests \
+            2>&1 | tee -a "$RUNNER_TEMP/matrix/ios.log" || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
