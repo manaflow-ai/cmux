@@ -110,6 +110,21 @@ pub(super) fn acp_prompt_blocks(
     Ok(out)
 }
 
+/// The turn a pending run of `prompt_id` was given on `session`, and whether it still waits in
+/// the queue: the queued prompt's, or the running turn's. None while that run has not been
+/// accepted (its agent still starts, a check still runs), or between its leaving the queue and
+/// its turn's start.
+fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
+    let queued = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| (q.turn_id.clone(), true))
+    };
+    queued.or_else(|| {
+        let turn = session.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        turn.as_ref().filter(|t| t.prompt_id == prompt_id).map(|t| (t.turn_id.clone(), false))
+    })
+}
+
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
 /// spaces or non-ASCII letters still names a valid link (and a Windows path
 /// gets its drive form).
@@ -228,7 +243,15 @@ impl Hub {
         let outcome = match seen {
             Err(mut first) => {
                 if let Some(f) = opts.on_accepted.take() {
-                    f(duplicate(Value::Null));
+                    // The first run's turn, once it has one (queued or running): the sender of
+                    // this copy then knows the prompt was taken. With none yet, the first run
+                    // may still be held or refused, and only its answer says.
+                    let (turn, queued) = pending_turn(session, &prompt_id).unzip();
+                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    if queued == Some(true) {
+                        notice.set("queued", json!(true));
+                    }
+                    f(notice);
                 }
                 let result = first
                     .wait_for(Option::is_some)
