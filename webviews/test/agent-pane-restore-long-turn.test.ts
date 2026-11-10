@@ -226,17 +226,20 @@ test("a restored chat whose current turn outgrows a page shows the turn before i
 });
 
 test("a current turn longer than one ask reads is read on by the next ask, from where it stopped", async () => {
-  // Each tool output passes an older page's 256 KiB cap, so every record is a page of its own, and
-  // the turn is longer than one ask reads (direct.ts OLDER_PAGES_PER_ASK, 128 pages).
+  // Each tool output passes an older page's 1 MiB cap, so every record is a page of its own, and the
+  // turn (160 records) is longer than one ask reads (direct.ts OLDER_PAGES_PER_ASK, 128 pages).
   const TOOLS = 80;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 300 * 1024));
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 1100 * 1024));
   try {
     expect(prompts()).toEqual(["The current turn"]);
     stats.historyReads = 0;
     await client.loadOlder();
     // Capped: nothing above the prompt yet, but the read moved where the history starts
-    // (`historyFrom`), which is what makes the transcript ask again.
-    expect(stats.historyReads).toBe(128);
+    // (`historyFrom`), which is what makes the transcript ask again. The ask keeps 128 pages; its
+    // first pages are asked together (direct.ts readWindow), and those past a byte-capped one are
+    // asked again, at most one window's worth.
+    expect(stats.historyReads).toBeGreaterThanOrEqual(128);
+    expect(stats.historyReads).toBeLessThanOrEqual(128 + 16);
     expect(prompts()).toEqual(["The current turn"]);
     expect(state.snapshot?.canLoadOlder).toBe(true);
     // The next ask goes on from there and reaches the turns before it.

@@ -204,12 +204,13 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
 });
 
 test("one ask reads past a run of rows that draw nothing to the turn before it, in a bounded number of pages", async () => {
-  // Twelve prompts queued with 300 KB pastes in a row: twelve pages that draw no row. One ask reads on past them
+  // Twelve prompts queued with pastes larger than an older page (1 MiB) in a row: twelve pages that draw no row.
+  // One ask reads on past them
   // (direct.ts OLDER_PAGES_PER_ASK) instead of stopping after eight with nothing new to draw.
   const history = records([
     ...turn(1),
     ...ask(2),
-    ...Array.from({ length: 12 }, (_, i) => queued(`q-${i}`, 300)),
+    ...Array.from({ length: 12 }, (_, i) => queued(`q-${i}`, 1100)),
     ["in", "agent_message_chunk", say("Answer 2")],
     done,
     ...turn(3),
