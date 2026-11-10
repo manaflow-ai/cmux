@@ -259,3 +259,46 @@ test("a Show less on a scrolled list takes the scroll back on the fold, never at
   for (const animation of animations) await act(async () => animation.onfinish?.());
   expect(scroller.children.length).toBe(2);
 });
+
+// Show less turned back midway on a scrolled list: the close already moved the scroll into its first
+// row's margin, so dropping that margin's motion moved the rows by what it still held (100 px at
+// once). The reopen puts what the margin still held back into the scroll: nothing moves on that frame.
+test("a Show less on a scrolled list turned back midway keeps the rows where they are drawn", async () => {
+  const proto = dom!.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+  const record = proto.animate as (frames: Keyframe[], timing: KeyframeAnimationOptions) => FakeAnimation;
+  proto.animate = function (this: HTMLElement, frames: Keyframe[], timing: KeyframeAnimationOptions) {
+    const animation = record.call(this, frames, timing);
+    // The margin's motion a quarter of the way: 30 of its 40 px still to go, as drawn now.
+    if (frames[0]?.marginTop !== undefined) {
+      this.style.marginTop = "-30px";
+      const cancel = animation.cancel.bind(animation);
+      animation.cancel = () => {
+        this.style.marginTop = "";
+        cancel();
+      };
+    }
+    return animation;
+  };
+  const tops = new WeakMap<Element, number>();
+  Object.defineProperty(proto, "scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return tops.get(this) ?? 0;
+    },
+    set(this: HTMLElement, value: number) {
+      tops.set(this, value);
+    },
+  });
+  const container = dom!.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(<ScrolledList />));
+  const scroller = container.querySelector<HTMLElement>("ul.scroller")!;
+  const button = container.querySelector("button")!;
+  scroller.scrollTop = 40;
+  await act(async () => button.click());
+  expect(scroller.scrollTop).toBe(0);
+  await act(async () => button.click());
+  expect(scroller.children.length).toBe(5);
+  expect(scroller.scrollTop).toBe(30);
+  expect((scroller.firstElementChild as HTMLElement).style.marginTop).toBe("");
+});
