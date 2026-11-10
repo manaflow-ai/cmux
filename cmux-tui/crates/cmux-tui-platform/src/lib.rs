@@ -4,8 +4,8 @@
 //! scope, the Windows process queries, and file birth times ([`file_birth`]). cmux-tui-core re-exports each
 //! module at its old path (`cmux_tui_core::platform`, ...).
 
-pub mod file_birth;
 pub mod codex_config_lock;
+pub mod file_birth;
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;
