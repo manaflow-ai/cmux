@@ -123,7 +123,7 @@
       ]
     },
     "bookmarks-bar": {
-      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (which keeps its own copy and the last folder up to date), never by the page; it hears bookmarks-changed and re-reads its row.",
+      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (through the home daemon, and makes the bar the last folder), never by the page; it hears bookmarks-changed and re-reads its row.",
       "read": [
         "bookmarks.children"
       ],
@@ -204,18 +204,23 @@
     },
     "bookmarks": {
       "owner": "bookmarks.tree",
-      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank and the Netscape export as reads; apply (the bookmark ops in turn, each replay-keyed), import_html and import_source as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank, the Netscape export, and the app's get, status (the omnibar star and the bar), folders (the edit bubble) and resolve (CLI and MCP names) as reads; apply (the bookmark ops in turn, each replay-keyed), import_html, import_source and import_legacy_file (an older build's bookmarks.json, sent as ordered batches of at most 256 rows) as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
       "read": [
         "bookmarks.list",
         "bookmarks.children",
         "bookmarks.search",
         "bookmarks.rank",
-        "bookmarks.export"
+        "bookmarks.export",
+        "bookmarks.get",
+        "bookmarks.status",
+        "bookmarks.folders",
+        "bookmarks.resolve"
       ],
       "mutation": [
         "bookmarks.apply",
         "bookmarks.import_html",
-        "bookmarks.import_source"
+        "bookmarks.import_source",
+        "bookmarks.import_legacy_file"
       ]
     },
     "tasks": {

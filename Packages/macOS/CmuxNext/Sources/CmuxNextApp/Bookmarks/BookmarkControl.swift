@@ -5,8 +5,9 @@ import CmuxNextSettings
 import Foundation
 
 /// `bookmark.list {profile?, text?, folder?, limit?}` for `cmux bookmark
-/// list` and `cmux bookmark search <text>`; its `loaded` says the tree is the
-/// stored one, not the empty placeholder shown until the daemon answers.
+/// list` and `cmux bookmark search <text>`: the home daemon's rows, each with
+/// its index and path from the stored tree; `loaded` is true when the daemon
+/// answered (false, with no rows, before it serves bookmarks).
 /// `bookmark.importSources {browser, source?}`: the profiles
 /// `bookmark.importFromBrowser` with the same params would import, each with
 /// the `source_key` its folder gets. `debug.bookmarks` (the bar and star of a
@@ -14,12 +15,10 @@ import Foundation
 enum BookmarkControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
-            // Off the main actor: a search (`text`) runs on the home daemon (cmux-bookmarks-ops).
+            // Off the main actor: the rows (a search's too) come from the home daemon (cmux-bookmarks-ops).
             .async("bookmark.list") { [weak services] call in
-                let params = call.params
                 guard let services else { return .null }
-                guard let text = params["text"]?.stringValue, !text.isEmpty else { return await list(services, params) }
-                return try await search(services, params, text: text)
+                return try await list(services, call.params)
             },
             // Off the main actor: detection reads the browsers' data folders, the
             // same read-only pass as the import picker (no Keychain, no writes).
@@ -40,40 +39,33 @@ enum BookmarkControl {
         ]
     }
 
-    /// `text`'s matches, found by the home daemon; the main actor waits on nothing.
+    /// The rows for `params`: a search's matches (`text`), else a folder's children (`folder`),
+    /// else every node, read from the home daemon with their places; the main actor waits on nothing.
     @MainActor
-    static func search(_ services: AppServices, _ params: [String: JSONValue], text: String) async throws -> JSONValue {
+    static func list(_ services: AppServices, _ params: [String: JSONValue]) async throws -> JSONValue {
         let profile = params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
+        let limit = params["limit"]?.intValue.map { max(1, $0) }
+        guard services.bookmarks.usesDaemon else { return answer(profile, loaded: false, nodes: []) }
+        let routed = services.bookmarks.routed
         do {
-            let found = try await services.bookmarks.routed.search(text, profile: profile, limit: params["limit"]?.intValue.map { max(1, $0) })
-            return list(services, params, profile: profile, nodes: found)
+            var nodes: [BookmarkNode]
+            if let text = params["text"]?.stringValue, !text.isEmpty {
+                nodes = try await routed.search(text, profile: profile, limit: limit, places: true)
+            } else if let folder = params["folder"]?.stringValue {
+                nodes = try await routed.children(of: folder, profile: profile, limit: limit ?? 20_000, places: true)
+            } else {
+                nodes = try await routed.list(profile: profile, places: true)
+            }
+            if let limit { nodes = Array(nodes.prefix(limit)) }
+            return answer(profile, loaded: true, nodes: nodes)
         } catch {
             throw ControlError(code: "unavailable", message: BookmarkAppStrings.failure(error))
         }
     }
 
-    /// The answer for `profile`; `nodes` are a search's results (else the folder's children, or every node).
-    @MainActor
-    static func list(_ services: AppServices, _ params: [String: JSONValue], profile chosen: String? = nil,
-                     nodes found: [BookmarkNode]? = nil) -> JSONValue {
-        let profile = chosen ?? params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
-        // `tree` asks the daemon the first time, so read it before `isLoaded`.
-        let tree = services.bookmarks.tree(profile)
-        var nodes: [BookmarkNode]
-        if let found {
-            nodes = found
-        } else if let folder = params["folder"]?.stringValue {
-            nodes = tree.children(of: folder)
-        } else {
-            nodes = tree.ordered
-        }
-        if let limit = params["limit"]?.intValue { nodes = Array(nodes.prefix(max(1, limit))) }
-        return .object([
-            "profile": .string(profile),
-            "storage": .string(services.bookmarks.usesDaemon ? "daemon" : "file"),
-            "loaded": .bool(services.bookmarks.isLoaded(profile)),
-            "bookmarks": .array(nodes.map { json($0, tree: tree) }),
-        ])
+    static func answer(_ profile: String, loaded: Bool, nodes: [BookmarkNode]) -> JSONValue {
+        .object(["profile": .string(profile), "storage": .string("daemon"), "loaded": .bool(loaded),
+                 "bookmarks": .array(nodes.map(json))])
     }
 
     /// What an import of `browser` (and `source`) would read: the same
@@ -87,11 +79,12 @@ enum BookmarkControl {
         })])
     }
 
-    static func json(_ node: BookmarkNode, tree: BookmarkTree) -> JSONValue {
+    /// One row; `index` and `path` are the daemon's (its place in the stored tree).
+    static func json(_ node: BookmarkNode) -> JSONValue {
         var object: [String: JSONValue] = [
             "id": .string(node.id), "kind": .string(node.kind.rawValue), "parent": .string(node.parent),
-            "title": .string(node.title), "index": .number(Double(tree.index(of: node.id) ?? 0)),
-            "path": .string(tree.folderPath(of: node.id).joined(separator: "/")),
+            "title": .string(node.title), "index": .number(Double(node.index)),
+            "path": .string(node.path.joined(separator: "/")),
             "created": .string(ISO8601DateFormatter().string(from: node.created)),
         ]
         if let url = node.url { object["url"] = .string(url.absoluteString) }
@@ -105,7 +98,7 @@ enum BookmarkControl {
         let key = tab ?? services.windows.active?.focusedPane?.selectedTab?.id
         var object: [String: JSONValue] = [
             "bar_shown": .bool(services.bookmarks.isBarShown),
-            "storage": .string(services.bookmarks.usesDaemon ? "daemon" : "file"),
+            "storage": .string("daemon"),
         ]
         if let key, let entry = services.cache.existingBrowser(key) {
             object["tab"] = .string(key)

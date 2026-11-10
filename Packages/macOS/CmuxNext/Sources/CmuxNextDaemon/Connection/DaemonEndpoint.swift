@@ -286,7 +286,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     case bookmarks = "bookmarks-v1"
-    /// A bookmark folder's `icon` on `list-bookmarks` and `update-bookmark` (null clears).
+    /// A bookmark folder's `icon` on the `bookmarks.*` rows and their `update` op (null clears).
     case bookmarkIcon = "bookmark-icon-v1"
     /// The daemon history module (react-pages.md H3): page visits, the merged read model,
     /// removal with restore ids, and `history-changed`.

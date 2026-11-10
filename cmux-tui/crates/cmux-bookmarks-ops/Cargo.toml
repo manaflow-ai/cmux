@@ -13,6 +13,7 @@ description = "The home daemon's bookmark reads and imports beyond the op reduce
 # `url`: links are checked with the URL parser the store uses, so the reader skips what it would refuse.
 cmux-bookmarks-core = { workspace = true, features = ["url"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 unicode-normalization = { workspace = true }
 
 [lints]

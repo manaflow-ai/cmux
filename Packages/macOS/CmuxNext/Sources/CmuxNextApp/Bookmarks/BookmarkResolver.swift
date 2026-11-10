@@ -3,9 +3,10 @@ import CmuxNextBookmarks
 import CmuxNextBrowser
 import Foundation
 
-/// Turns an invocation into a browser profile, a bookmark and a folder:
-/// `--target bookmark:<id>` (a right-click on the bar), else the `bookmark`
-/// argument as an id, an exact URL, or text matched like the omnibar does.
+/// Turns an invocation into a browser profile, a bookmark and a folder: `--target bookmark:<id>`
+/// (a right-click on the bar), else the `bookmark` argument as an id, an exact URL, or text
+/// matched like the omnibar does. The names resolve on the home daemon's tree
+/// (`bookmarks.resolve`, cmux-bookmarks-ops `lookup`): the app holds no copy that could lag it.
 @MainActor
 struct BookmarkResolver {
     let services: AppServices
@@ -17,87 +18,87 @@ struct BookmarkResolver {
         return tab.id
     }
 
-    /// `profile` argument, else the focused browser tab's profile, else `default`.
+    /// `profile` argument, else the profile of the bar whose menu named the bookmark, else the
+    /// focused browser tab's profile, else `default`.
     func profile(_ invocation: ActionInvocation) -> String {
         if let explicit = invocation["profile"]?.targetValue?.id ?? invocation["profile"]?.stringValue { return explicit }
-        if let target = invocation.target, target.kind == .bookmark,
-           let owner = services.bookmarks.trees.first(where: { $0.value.node(target.id) != nil })?.key {
-            return owner
+        if let target = invocation.target, target.kind == .bookmark, let menu = services.bookmarks.menuTarget, menu.id == target.id {
+            return menu.profile
         }
         if let key = browserTabKey(invocation) { return services.bookmarks.profile(ofTab: key) }
         return BrowserProfileRecord.defaultID
     }
 
-    func node(_ invocation: ActionInvocation, profile: String) throws -> BookmarkNode {
-        let tree = services.bookmarks.tree(profile)
-        if let target = invocation.target, target.kind == .bookmark {
-            guard let node = tree.node(target.id) else { throw ActionFailure(message: BookmarkAppStrings.notFound) }
-            return node
-        }
-        guard let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else {
-            // No name: the focused page's bookmark.
-            if let key = browserTabKey(invocation), let url = services.cache.existingBrowser(key)?.tab.state.url,
-               let node = tree.bookmarks(for: url).first { return node }
-            throw ActionFailure(message: BookmarkAppStrings.needsBookmark)
-        }
-        if let node = tree.node(text) { return node }
-        if let url = URL(string: text), url.scheme != nil, let node = tree.bookmarks(for: url).first { return node }
-        throw Unresolved(text: text)
-    }
-
-    /// ``node(_:profile:)`` without the daemon's text match: unmatched text is not found.
-    func namedNode(_ invocation: ActionInvocation, profile: String) throws -> BookmarkNode {
-        do { return try node(invocation, profile: profile) } catch is Unresolved {
-            throw ActionFailure(message: BookmarkAppStrings.notFound)
-        }
-    }
-
-    /// Text that names no id or URL: the home daemon matches it (``matched(_:profile:)``).
-    struct Unresolved: Error {
+    /// What names the bookmark, and whether only an id or a link to the same page may answer it.
+    struct Name: Equatable {
         var text: String
+        var exact: Bool
     }
 
-    /// The bookmark the omnibar would rank first for `text`, else the first node (a folder
-    /// too) whose title or URL holds it, both on the home daemon (cmux-bookmarks-ops).
-    func matched(_ text: String, profile: String) async throws -> BookmarkNode {
-        let service = services.bookmarks
-        if let node = try await service.routed.rank(text, profile: profile, limit: 1).first { return node }
-        if let node = try await service.routed.search(text, profile: profile, limit: 1).first { return node }
-        throw ActionFailure(message: BookmarkAppStrings.notFound)
+    /// What names the bookmark: the target's id, else the `bookmark` argument (matched like the
+    /// omnibar does), else the focused page's URL, exactly: a page with no bookmark of its own names
+    /// none, never another page's by a text match. Nil when nothing does.
+    func name(_ invocation: ActionInvocation) -> Name? {
+        if let target = invocation.target, target.kind == .bookmark { return Name(text: target.id, exact: true) }
+        if let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
+            return Name(text: text, exact: false)
+        }
+        guard let key = browserTabKey(invocation), let url = services.cache.existingBrowser(key)?.tab.state.url else { return nil }
+        return Name(text: url.absoluteString, exact: true)
     }
 
-    /// Runs `body` on the invocation's bookmark: at once when an id, a target or a URL names it,
-    /// else after the daemon matched the text (tracked work, so the CLI waits for it).
-    func withNode(_ invocation: ActionInvocation, _ body: @escaping @MainActor (BookmarkNode, String) throws -> Void) throws {
-        let profile = profile(invocation)
+    /// The parts an invocation names, resolved in one daemon read: the bookmark when `bookmark`
+    /// (folders by title first with `foldersFirst`), the `folder` argument when `folder` (none is
+    /// the default folder), the `url` argument when given.
+    func resolve(_ invocation: ActionInvocation, profile: String, bookmark: Bool = false, foldersFirst: Bool = false,
+                 folder: Bool = false) async throws -> BookmarkRoutedClient.Resolved {
+        var name: Name?
+        if bookmark {
+            guard let named = self.name(invocation) else { throw ActionFailure(message: BookmarkAppStrings.needsBookmark) }
+            name = named
+        }
+        let folderText: String?? = folder ? .some(invocation["folder"]?.stringValue) : nil
+        let url = invocation["url"]?.stringValue
+        guard services.bookmarks.usesDaemon else {
+            throw ActionFailure(message: BookmarkAppStrings.failure(services.bookmarks.unavailable))
+        }
         do {
-            return try body(try node(invocation, profile: profile), profile)
-        } catch let unresolved as Unresolved {
-            services.registry.track(Task {
-                do {
-                    try body(try await matched(unresolved.text, profile: profile), profile)
-                    return nil
-                } catch let failure as ActionFailure {
-                    return ActionWorkFailure(failure.message)
-                } catch {
-                    return ActionWorkFailure(BookmarkAppStrings.failure(error))
-                }
-            })
+            return try await services.bookmarks.routed.resolve(profile: profile, bookmark: name?.text, exact: name?.exact ?? false,
+                                                               foldersFirst: foldersFirst,
+                                                               folder: folderText, fallback: services.bookmarks.lastFolder[profile],
+                                                               url: url)
+        } catch BookmarkError.notFound(_) {
+            throw ActionFailure(message: BookmarkAppStrings.notFound)
+        } catch BookmarkError.invalidParent(_) {
+            throw ActionFailure(message: BookmarkAppStrings.notFolder)
+        } catch BookmarkError.invalidURL {
+            throw ActionFailure(message: BookmarkAppStrings.invalidURL)
         }
     }
 
-    /// The `folder` argument: `bar`, `other`, a folder id, or a folder title
-    /// (first match in tree order); absent means the default folder.
-    func folder(_ invocation: ActionInvocation, profile: String) throws -> String {
-        let tree = services.bookmarks.tree(profile)
-        guard let text = invocation["folder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else {
-            return services.bookmarks.defaultFolder(profile: profile)
+    /// Runs `body` on what the invocation names, as tracked work (the CLI waits for it); a
+    /// failure is the action's, shown as a refusal when nobody awaits the run.
+    func withResolved(_ invocation: ActionInvocation, bookmark: Bool = false, foldersFirst: Bool = false, folder: Bool = false,
+                      _ body: @escaping @MainActor (BookmarkRoutedClient.Resolved, String) async throws -> Void) {
+        let profile = profile(invocation)
+        services.registry.trackOrRefuse(Task {
+            do {
+                try await body(try await resolve(invocation, profile: profile, bookmark: bookmark, foldersFirst: foldersFirst,
+                                                 folder: folder), profile)
+                return nil
+            } catch let failure as ActionFailure {
+                return ActionWorkFailure(failure.message)
+            } catch {
+                return ActionWorkFailure(BookmarkAppStrings.failure(error))
+            }
+        })
+    }
+
+    /// ``withResolved(_:bookmark:foldersFirst:folder:_:)`` for the bookmark alone.
+    func withNode(_ invocation: ActionInvocation, _ body: @escaping @MainActor (BookmarkNode, String) async throws -> Void) {
+        withResolved(invocation, bookmark: true) { resolved, profile in
+            guard let node = resolved.bookmark else { throw ActionFailure(message: BookmarkAppStrings.notFound) }
+            try await body(node, profile)
         }
-        if tree.isContainer(text) { return text }
-        let folded = text.lowercased()
-        if folded == BookmarkStrings.barTitle.lowercased() { return BookmarkRoot.bar.rawValue }
-        if folded == BookmarkStrings.otherBookmarks.lowercased() { return BookmarkRoot.other.rawValue }
-        if let folder = tree.ordered.first(where: { $0.isFolder && $0.title.lowercased() == folded }) { return folder.id }
-        throw ActionFailure(message: BookmarkAppStrings.notFolder)
     }
 }

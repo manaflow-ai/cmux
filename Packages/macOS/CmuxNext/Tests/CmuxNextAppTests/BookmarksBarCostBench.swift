@@ -7,13 +7,14 @@ import Foundation
 import Testing
 import WebKit
 
-/// The bookmarks bar's cost as tabs and bookmarks grow (the bar is chrome in every browser tab):
-/// 200 browser tabs whose profile has 2,000 bookmarks, 50 on the bar, one tab shown in a window.
-/// It times attaching every tab's bar, one bookmark change fanned out to every chrome, and showing
-/// the one bar, and counts the views and web views every bar holds. It uses only what the bar's
-/// owner had before and after the move to React, so the same file runs on both.
+/// The bookmarks bar's and star's cost as tabs and bookmarks grow (they are chrome in every
+/// browser tab): 200 browser tabs whose profile has 2,000 or 20,000 bookmarks, 50 on the bar, one
+/// tab shown in a window. It times attaching every tab's chrome, the main-actor work of one daemon
+/// change event fanned out to every chrome, and showing the one bar, and counts the views and web
+/// views every bar holds. The model it seeds and changes is ``BookmarkBenchModel`` (the app's tree
+/// before the tree moved to the daemon, the status cache after), so this file runs on both.
 /// `scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext BookmarksBarCostBench`; it prints
-/// one `BENCH bookmarks-bar` line.
+/// one `BENCH bookmarks-bar` line per size.
 @MainActor @Suite(.serialized)
 struct BookmarksBarCostBench {
     static let tabs = 200
@@ -22,16 +23,6 @@ struct BookmarksBarCostBench {
     static func page() -> BrowserEntry {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
         return BrowserEntry(tab: tab)
-    }
-
-    static func tree() throws -> BookmarkTree {
-        var tree = BookmarkTree()
-        let url = try #require(URL(string: "https://example.com/"))
-        for index in 0..<50 { try tree.apply(.create(.bookmark("Bar \(index)", url: url, in: BookmarkRoot.bar.rawValue), index: nil)) }
-        let folder = BookmarkNode.folder("Archive", in: BookmarkRoot.other.rawValue)
-        try tree.apply(.create(folder, index: nil))
-        for index in 0..<1_949 { try tree.apply(.create(.bookmark("Saved \(index)", url: url, in: folder.id), index: nil)) }
-        return tree
     }
 
     static func ms(_ start: ContinuousClock.Instant) -> Double {
@@ -46,12 +37,13 @@ struct BookmarksBarCostBench {
         }
     }
 
-    @Test func barCostAsTabsAndBookmarksGrow() throws {
+    @Test(arguments: [2_000, 20_000]) func barCostAsTabsAndBookmarksGrow(total: Int) throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let bookmarks = services.bookmarks
         let profile = BrowserProfileRecord.defaultID
-        bookmarks.trees[profile] = try Self.tree()
+        try BookmarkBenchModel.seed(bookmarks, profile: profile, page: try #require(URL(string: "https://example.com/")),
+                                    bar: 50, total: total)
         bookmarks.setBarShown(true)
         let entries = (0..<Self.tabs).map { _ in Self.page() }
         defer { entries.forEach { $0.close() } }
@@ -72,17 +64,18 @@ struct BookmarksBarCostBench {
         let show = Self.ms(showStart)
 
         var fanOut: [Double] = []
-        for _ in 0..<Self.rounds {
+        for round in 0..<Self.rounds {
             let start = ContinuousClock.now
-            bookmarks.changed(profiles: [profile])
+            BookmarkBenchModel.change(bookmarks, profile: profile, round: round)
             shown.layoutSubtreeIfNeeded()
             fanOut.append(Self.ms(start))
         }
         fanOut.sort()
         let p50 = fanOut[fanOut.count / 2], p95 = fanOut[fanOut.count * 95 / 100], worst = fanOut[fanOut.count - 1]
         let counts = entries.compactMap(\.state.accessory?.view).map(Self.descendants).reduce((0, 0)) { ($0.0 + $1.views, $0.1 + $1.web) }
-        print(String(format: "BENCH bookmarks-bar tabs=%d bookmarks=2000 attach_ms=%.2f show_ms=%.2f change_p50_ms=%.3f change_p95_ms=%.3f change_max_ms=%.3f views=%d webviews=%d",
-                     Self.tabs, attach, show, p50, p95, worst, counts.0, counts.1))
+        print(String(format: "BENCH bookmarks-bar tabs=%d bookmarks=%d attach_ms=%.2f show_ms=%.2f change_p50_ms=%.3f change_p95_ms=%.3f change_max_ms=%.3f views=%d webviews=%d",
+                     Self.tabs, total, attach, show, p50, p95, worst, counts.0, counts.1))
         #expect(entries.allSatisfy { $0.state.accessory != nil })
+        #expect(entries.allSatisfy { $0.state.bookmarkStar == .on }, "every tab shows the bookmarked page")
     }
 }

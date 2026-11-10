@@ -236,6 +236,40 @@ native `BookmarksBarView`'s look and behavior, now drawn by a page.
 the items as buttons, but a strip of filled pills under every tab is busy; dense fits more before
 the chevron, but titles run into each other.
 
+## Bookmark edit bubble
+
+The "Bookmark Added" / "Edit Bookmark" card the omnibar star opens
+(`webviews/src/browser-chrome/bookmark-edit/BookmarkEditBubble.tsx`, page `pages/bookmark-edit`,
+host `CmuxNextBookmarks/Page/BookmarkEditBubble.swift`, gallery `browser-chrome.bookmark-edit`).
+It is the native SwiftUI form's look and behavior, now drawn by a page. References: chrome
+`menus-extensions-popover` (a small anchored card under a toolbar control) and cmux
+`browser-toolbar-icon-alignment` (the star's anchor).
+
+- **Hosting.** The shared native popup (`NativePopupHost`) under the star, the glass card behind
+  the page. Width half the palette's; height the page's report for each state it drew, so it opens
+  at its size and never grows after it appeared. It takes the keys: the name field has them with
+  its text selected.
+- **Layout (Standard density).** Padding 20; the title in the body step at emphasis; 16 to a
+  two-column grid (Name, Folder; labels in the muted ink, 16 to the fields, 12 between rows); 16
+  to one row: More… a quiet link on the start, Remove and Done (the accent, with its Return
+  keycap) at the end, all at the compact control height.
+- **Folder.** The daemon's folder choices (`bookmarks.folders`), indented by depth. The menu shows
+  through the app's popup host past the card's edge, so the card never grows or clips it. The host
+  draws at most 1,000 rows a level, so the menu draws the first 500 folders in tree order (and the
+  current one), with a search field on top that finds any folder by title, each found folder with
+  the folders it is in (`parity-many-folders`).
+- **Saving.** Every edit goes to the host, so Done, Return, Escape and a click outside all save
+  what the card shows; Remove deletes every link to the page; More… opens the manager on it. A page
+  title that arrives after the star renames a new bookmark only while its name is unedited.
+
+| surface | variants | recommended |
+| --- | --- | --- |
+| bookmark edit bubble | parity (the native form), compact (the popups' padding), roomy (labels over fields) | **parity** |
+| bookmark edit bubble, Folder menu | every folder in one menu (refused past 1,000 rows), nested submenus a level at a time, first 500 plus a search field | **first 500 plus search** |
+
+**Parity** keeps the bubble as it was: the move to a page changes nothing a person sees. Compact
+crowds the buttons against the fields; roomy is easier to scan but taller than the form it replaces.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts

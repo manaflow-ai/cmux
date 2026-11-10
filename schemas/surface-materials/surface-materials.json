@@ -87,7 +87,7 @@
     "CmuxNextApp/IconPicker/IconPickerPanel.swift": "web-host",
     "CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift": "native-overlay",
     "CmuxNextApps/NativeRender/AppScenePanelNSView.swift": "scene-renderer",
-    "CmuxNextBookmarks/UI/BookmarkEditBubble.swift": "native-overlay",
+    "CmuxNextBookmarks/Page/BookmarkEditBubble.swift": "web-host",
     "CmuxNextBridge/TabDrag/TabDragGhostPanel.swift": "native-overlay",
     "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift": "native-overlay",
     "CmuxNextBrowser/UI/BrowserCookieImportCard.swift": "native-overlay",

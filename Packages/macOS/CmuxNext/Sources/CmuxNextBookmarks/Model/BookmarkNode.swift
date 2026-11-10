@@ -10,8 +10,9 @@ public nonisolated enum BookmarkRoot: String, CaseIterable, Sendable, Codable {
     public static func isRoot(_ id: String) -> Bool { BookmarkRoot(rawValue: id) != nil }
 }
 
-/// One bookmark or folder (plans/cmux-next/bookmarks.md section 1). Order is
-/// not stored on the node: `BookmarkTree` keeps each parent's children in order.
+/// One bookmark or folder (plans/cmux-next/bookmarks.md section 1), as the home daemon's routed
+/// `bookmarks.*` reads answer it. The app keeps no tree: each read brings the rows it needs, and a
+/// placed row (`places: true`) also says where it is.
 public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codable {
     public enum Kind: String, Sendable, Hashable, Codable {
         case url
@@ -35,10 +36,16 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
     /// or a stored `image:`/`svg:sha256-<hex>` asset of the home daemon. Nil
     /// draws the folder symbol; a URL bookmark never has one.
     public var icon: String?
+    /// Its position among its parent's children, in the daemon's tree when it was read.
+    public var index: Int
+    /// A placed row's root id (`bar`, `other`), then its folders' titles; empty otherwise.
+    public var path: [String]
+    /// A placed link's URL as a list shows it (`github.com/foo`), from the daemon.
+    public var displayURL: String?
 
     public init(id: String = BookmarkID.make(), parent: String, kind: Kind, title: String, url: URL? = nil,
                 faviconKey: String? = nil, sourceKey: String? = nil, created: Date = Date(), lastUsed: Date? = nil,
-                icon: String? = nil) {
+                icon: String? = nil, index: Int = 0, path: [String] = [], displayURL: String? = nil) {
         self.id = id
         self.parent = parent
         self.kind = kind
@@ -49,29 +56,22 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         self.created = created
         self.lastUsed = lastUsed
         self.icon = icon
-    }
-
-    public static func folder(_ title: String, in parent: String, id: String = BookmarkID.make(), created: Date = Date()) -> BookmarkNode {
-        BookmarkNode(id: id, parent: parent, kind: .folder, title: title, created: created)
-    }
-
-    public static func bookmark(_ title: String, url: URL, in parent: String, id: String = BookmarkID.make(),
-                                created: Date = Date()) -> BookmarkNode {
-        BookmarkNode(id: id, parent: parent, kind: .url, title: title, url: url, faviconKey: BookmarkURL.faviconKey(for: url),
-                     created: created)
+        self.index = index
+        self.path = path
+        self.displayURL = displayURL
     }
 
     public var isFolder: Bool { kind == .folder }
 
-    /// The title, else the URL as shown in the omnibar (a bookmark with an
-    /// empty name shows its URL).
+    /// The title, else the URL as a list shows it (a bookmark with an empty name shows its URL).
     public var displayTitle: String {
         if !title.isEmpty { return title }
-        return url.map(BookmarkURL.displayText) ?? ""
+        return displayURL ?? url?.absoluteString ?? ""
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, parent, kind, title, url, icon
+        case id, parent, kind, title, url, icon, index, path
+        case displayURL = "display_url"
         case faviconKey = "favicon_key"
         case sourceKey = "source_key"
         case created = "created_ms"
@@ -90,6 +90,9 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         created = BookmarkTime.date(ms: try c.decodeIfPresent(Int64.self, forKey: .created) ?? 0)
         lastUsed = try c.decodeIfPresent(Int64.self, forKey: .lastUsed).map(BookmarkTime.date(ms:))
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
+        path = try c.decodeIfPresent([String].self, forKey: .path) ?? []
+        displayURL = try c.decodeIfPresent(String.self, forKey: .displayURL)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -104,5 +107,6 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         try c.encode(BookmarkTime.ms(created), forKey: .created)
         try c.encodeIfPresent(lastUsed.map(BookmarkTime.ms), forKey: .lastUsed)
         try c.encodeIfPresent(icon, forKey: .icon)
+        try c.encode(index, forKey: .index)
     }
 }

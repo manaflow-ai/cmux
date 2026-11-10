@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowserImport
+import CmuxNextSettings
 import CmuxNextDesign
 import Foundation
 import CmuxNextCompat
@@ -36,8 +37,9 @@ struct BookmarkBrowserImport {
     struct Undo {
         var profile: String
         var sourceKey: String
-        /// The folder the import replaced; nil when the import created it.
-        var previous: BookmarkDraft?
+        /// The folder the import replaced, as one import node (the daemon's answer); nil when
+        /// the import created it.
+        var previous: JSONValue?
     }
 
     /// Browsers found on this Mac whose bookmarks a person can import:
@@ -154,10 +156,10 @@ struct BookmarkBrowserImport {
             }
             let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
             do {
-                // The folder as the daemon stores it now, before this import replaces it.
-                let undo = Undo(profile: target, sourceKey: profile.id, previous: try await services.bookmarks.routed.sourceDraft(profile.id, profile: target))
+                // The daemon says what the folder was before this import replaced it.
                 let counts = try await services.bookmarks.routed.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id,
                                                                        profile: target)
+                let undo = Undo(profile: target, sourceKey: profile.id, previous: counts.previous)
                 outcome.added += counts.added
                 outcome.duplicates += counts.duplicates
                 outcome.sources.append(Self.pickerTitle(profile))
@@ -192,15 +194,11 @@ extension BookmarkService {
     /// Puts each source's folder back as it was before the import, newest first.
     func undoImport(_ steps: [BookmarkBrowserImport.Undo]) {
         for step in steps.reversed() {
-            do {
-                if let previous = step.previous {
-                    try apply(.importDrafts(parent: BookmarkRoot.bar.rawValue, index: nil, sourceKey: step.sourceKey, replace: true,
-                                            drafts: [previous]), profile: step.profile)
-                } else {
-                    routed.removeSource(step.sourceKey, profile: step.profile)
-                }
-            } catch {
-                logger.error("undo bookmarks import \(step.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
+            if let previous = step.previous {
+                run([.importNodes([previous], profile: step.profile, parent: BookmarkRoot.bar.rawValue, sourceKey: step.sourceKey,
+                                  replace: true)])
+            } else {
+                routed.removeSource(step.sourceKey, profile: step.profile)
             }
         }
     }

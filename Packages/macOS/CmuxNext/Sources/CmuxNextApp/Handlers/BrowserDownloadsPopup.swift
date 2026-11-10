@@ -200,7 +200,7 @@ final class BrowserDownloadsPopupModel {
     }
 }
 
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`).
+/// The popup's colors from the toolbar's theme scope (resolved as the bookmark surfaces did).
 struct BrowserDownloadsPopupColors: Equatable {
     var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
     var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor

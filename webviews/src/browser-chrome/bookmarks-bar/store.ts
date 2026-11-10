@@ -2,8 +2,8 @@
 // it draws: the bar root's own children and whether Other Bookmarks holds anything, with one
 // `cmux.bookmarks.children` each, again on every `cmux.bookmarks.changed` of its profile (and on a
 // relay resync). A folder menu reads the folder's subtree on its click. Every change is one
-// `cmux.bookmarksBar.apply` from the person's drag or drop, written by the app (its copy of the tree
-// and the last folder follow, as for the star). The app serves the profile, the icons and opening
+// `cmux.bookmarksBar.apply` from the person's drag or drop: the app checks the gesture and sends one
+// daemon `bookmarks.apply` for it (the last folder follows, as for the star). The app serves the profile, the icons and opening
 // (`cmux.bookmarkPage.*`), and the native menus, layout reports and writes (`cmux.bookmarksBar.*`).
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { subscribePageStreams } from "../../pages/shared/pageStreams";
@@ -34,7 +34,8 @@ export const BarOps = {
   /** `{profile, lend, title, anchor: {x, y, width, height}, rows}`: the host pops a native menu
    * under `anchor` and opens what the person picks there; it drops one for a profile or lend it left. */
   menu: "cmux.bookmarksBar.menu",
-  /** `{bookmark?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at `point`. */
+  /** `{bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark (or Bookmarks Bar) menu at
+   * `point`; `kind` and `icon` say which rows that menu has (a folder's icon rows, a link's Copy). */
   contextMenu: "cmux.bookmarksBar.contextMenu",
   /** `{visible: [{id, title, x, width}], overflow: [title]}` after each layout: the host's
    * diagnostics, the icon picker's anchor, and the first one shows the bar. */
@@ -379,7 +380,9 @@ export class BookmarksBarStore {
   }
 
   contextMenu(bookmark: string | null, point: { x: number; y: number }): void {
-    void this.client?.call(BarOps.contextMenu, { bookmark, point }).catch(() => undefined);
+    const node = bookmark ? this.snapshot.items.find((item) => item.id === bookmark) : undefined;
+    const facts = node ? { kind: node.kind, icon: node.icon ?? null } : {};
+    void this.client?.call(BarOps.contextMenu, { bookmark, ...facts, point }).catch(() => undefined);
   }
 
   /** Reports what the bar shows (diagnostics, the icon picker's anchor; the first shows the bar). */

@@ -714,7 +714,7 @@ final class AppServices {
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }
-            BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
+            bookmarks.feed($0, profile: bookmarks.profile(of: $1))
         }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }

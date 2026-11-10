@@ -21,7 +21,7 @@ extension BookmarkService {
 
     /// The favicon URL of a bookmark (``AppServices/siteFaviconAddress(origin:)``).
     private func faviconAddress(of node: BookmarkNode) -> String? {
-        guard !node.isFolder, let origin = node.faviconKey ?? node.url.flatMap(BookmarkURL.faviconKey(for:)) else { return nil }
+        guard !node.isFolder, let origin = node.faviconKey ?? node.url.flatMap(PageInfoSite.origin(of:)) else { return nil }
         return services.siteFaviconAddress(origin: origin)
     }
 }

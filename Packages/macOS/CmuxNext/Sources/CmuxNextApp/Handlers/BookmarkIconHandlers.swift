@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// Set and remove a bookmark folder's icon (`bookmark-icon-v1`, cx-qno.11.3):
@@ -15,56 +16,60 @@ enum BookmarkIconHandlers {
         let services = ctx.services, resolver = BookmarkResolver(services: services)
         let capability = DaemonCapability.bookmarkIcon.rawValue
         registry.bind("bookmark.setIcon", requires: capability, daemon: services.machines.local, run: { invocation in
-            let node = try folder(invocation, resolver)
-            let history = IconHistory.bookmark(ctx), id = node.id, profile = resolver.profile(invocation)
-            if let icon = try iconArgument(invocation) {
-                return try history.change(id, from: node.icon, to: icon, origin: invocation.origin)
-            }
-            guard let anchor = services.iconPicker.anchor(bookmark: id) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
-            }
-            services.iconPicker.pick(current: node.icon, target: "bookmark:\(id)", at: anchor,
-                                     assets: IconAssetStore.owner(services.bookmarks.iconOwner)) { result in
-                // The node is a value: read the icon the folder shows when the pick lands.
-                let current = services.bookmarks.tree(profile).node(id)?.icon
-                switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true):
-                    try? history.change(id, from: current, to: icon, origin: .user)
-                case .clear: try? history.change(id, from: current, to: nil, origin: .user)
-                case .set, .cancel: break
+            let icon = try iconArgument(invocation)
+            withFolder(invocation, resolver) { folder, profile in
+                let history = IconHistory.bookmark(ctx, profile: profile)
+                if let icon { return try history.change(folder.id, from: folder.icon, to: icon, origin: invocation.origin) }
+                guard let anchor = services.iconPicker.anchor(bookmark: folder.id) else {
+                    throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
+                }
+                services.iconPicker.pick(current: folder.icon, target: "bookmark:\(folder.id)", at: anchor,
+                                         assets: IconAssetStore.owner(services.bookmarks.iconOwner)) { result in
+                    switch result {
+                    case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true):
+                        try? history.change(folder.id, from: folder.icon, to: icon, origin: .user)
+                    case .clear: try? history.change(folder.id, from: folder.icon, to: nil, origin: .user)
+                    case .set, .cancel: break
+                    }
                 }
             }
         })
         registry.bind("bookmark.clearIcon", requires: capability, daemon: services.machines.local, run: { invocation in
-            let node = try folder(invocation, resolver)
-            try IconHistory.bookmark(ctx).change(node.id, from: node.icon, to: nil, origin: invocation.origin)
+            withFolder(invocation, resolver) { folder, profile in
+                try IconHistory.bookmark(ctx, profile: profile).change(folder.id, from: folder.icon, to: nil, origin: invocation.origin)
+            }
         })
-        // A bookmark's menu leaves both out; a folder's leaves Remove Icon out
-        // while it has none (quiet: building a menu never refuses).
-        ActionTargetVisibility.hide("bookmark.setIcon", in: registry) { quietFolder($0, resolver) == nil }
-        ActionTargetVisibility.hide("bookmark.clearIcon", in: registry) { (quietFolder($0, resolver)?.icon ?? "").isEmpty }
+        // A bookmark's menu leaves both out; a folder's leaves Remove Icon out while it has none
+        // (quiet: building a menu never refuses). The bar that opened the menu said what its row is.
+        ActionTargetVisibility.hide("bookmark.setIcon", in: registry) { menuFolder($0, services) == nil }
+        ActionTargetVisibility.hide("bookmark.clearIcon", in: registry) { (menuFolder($0, services)?.icon ?? "").isEmpty }
     }
 
-    /// The folder an invocation names: a folder id or title (first in tree order) ahead of the
-    /// bookmark matching the shared resolver uses, else that; refuses a URL bookmark (only a
-    /// folder has an icon).
-    static func folder(_ invocation: ActionInvocation, _ resolver: BookmarkResolver) throws -> BookmarkNode {
-        let profile = resolver.profile(invocation)
-        if invocation.target?.kind != .bookmark,
-           let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
-            let tree = resolver.services.bookmarks.tree(profile), folded = text.lowercased()
-            if let folder = tree.node(text) ?? tree.ordered.first(where: { $0.isFolder && $0.title.lowercased() == folded }),
-               folder.isFolder {
-                return folder
+    /// The folder row a bar's context menu opened for, when the invocation targets it.
+    private static func menuFolder(_ invocation: ActionInvocation, _ services: AppServices) -> BookmarkService.MenuTarget? {
+        guard let target = invocation.target, target.kind == .bookmark, let menu = services.bookmarks.menuTarget,
+              menu.id == target.id, menu.isFolder else { return nil }
+        return menu
+    }
+
+    /// Runs `body` on the folder an invocation names. The bar's menu row acts at once on what the
+    /// bar drew (the picker opens beside it); a CLI or MCP name (a folder id or title ahead of the
+    /// bookmark matching the shared resolver uses) resolves on the daemon's tree first. A URL
+    /// bookmark is refused: only a folder has an icon.
+    static func withFolder(_ invocation: ActionInvocation, _ resolver: BookmarkResolver,
+                           _ body: @escaping @MainActor (_ folder: (id: String, icon: String?), _ profile: String) throws -> Void) {
+        if let menu = menuFolder(invocation, resolver.services) {
+            do { return try body((menu.id, menu.icon), menu.profile) } catch let failure as ActionFailure {
+                return resolver.services.registry.refuse(failure.message)
+            } catch {
+                return resolver.services.registry.refuse(BookmarkAppStrings.failure(error))
             }
         }
-        let node = try resolver.namedNode(invocation, profile: profile)
-        guard node.isFolder else { throw ActionFailure(message: BookmarkAppStrings.notFolder) }
-        return node
-    }
-
-    private static func quietFolder(_ invocation: ActionInvocation, _ resolver: BookmarkResolver) -> BookmarkNode? {
-        try? folder(invocation, resolver)
+        resolver.withResolved(invocation, bookmark: true, foldersFirst: true) { resolved, profile in
+            guard let node = resolved.bookmark else { throw ActionFailure(message: BookmarkAppStrings.notFound) }
+            guard node.isFolder else { throw ActionFailure(message: BookmarkAppStrings.notFolder) }
+            try body((node.id, node.icon), profile)
+        }
     }
 
     /// The `icon` argument: trimmed, nil when absent or empty (the picker
@@ -78,23 +83,21 @@ enum BookmarkIconHandlers {
 }
 
 extension IconHistory {
-    /// A bookmark folder, in whichever browser profile's tree holds it (the
-    /// home daemon's bookmarks).
-    static func bookmark(_ ctx: AppActionContext) -> Self {
+    /// A bookmark folder of `profile` (the home daemon's bookmarks). The change goes to the daemon;
+    /// a refusal is said in the refusal toast.
+    static func bookmark(_ ctx: AppActionContext, profile: String) -> Self {
         inActiveWindow(ctx) { id, update in
             let bookmarks = ctx.services.bookmarks
-            guard let profile = bookmarks.trees.first(where: { $0.value.node(id)?.isFolder == true })?.key else { return false }
             guard bookmarks.supportsFolderIcons else {
                 throw ActionFailure(message: bookmarks.iconOwner.missingCapabilityMessage(DaemonCapability.bookmarkIcon.rawValue))
             }
-            let change: BookmarkFieldChange<String> = switch update {
-            case .unchanged: .unchanged
-            case .clear: .clear
-            case .set(let icon): .set(icon)
+            let icon: BookmarkRoutedClient.JSONValue? = switch update {
+            case .unchanged: nil
+            case .clear: .null
+            case .set(let value): .string(value)
             }
-            do { try bookmarks.apply(.update(id: id, icon: change), profile: profile) } catch {
-                throw ActionFailure(message: BookmarkAppStrings.failure(error))
-            }
+            guard let icon else { return false }
+            bookmarks.run([.update(id: id, icon: icon)])
             return true
         }
     }

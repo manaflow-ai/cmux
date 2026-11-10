@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextAccounts
 @testable import CmuxNextApps
-@testable import CmuxNextBookmarks
 import CmuxNextDesign
 import CmuxNextTestSupport
 import SwiftUI
@@ -37,28 +36,6 @@ import Testing
         let fields = HomeSheetThemeTests.editableFields(in: root)
         #expect(fields.count == 1, "the search field")
         for field in fields { Self.expectThemedField(field, scope, placeholder: true) }
-    }
-
-    @Test func theBookmarkEditorsNameAndFolderDrawTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = BookmarkEditModel(isNew: true, title: "Docs", folder: "bar", folders: [
-            BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
-            BookmarkFolderChoice(id: "other", title: "Other Bookmarks", depth: 0),
-        ])
-        let (window, root) = try Self.host(BookmarkEditView(model: model), scope)
-        defer { window.contentView = nil; window.close() }
-        let fields = HomeSheetThemeTests.editableFields(in: root)
-        #expect(fields.count == 1, "the name field")
-        for field in fields { Self.expectThemedField(field, scope, placeholder: false) }
-
-        let popups = Self.all(NSPopUpButton.self, in: root)
-        #expect(popups.count == 1, "the folder choice")
-        for popup in popups {
-            #expect(popup is ThemedPopUpButton, "a themed pop-up, not SwiftUI's stock one")
-            let bezel = try #require(popup.bezelColor, "the pop-up has a theme bezel")
-            #expect(ThemedOverlayColorsTests.same(bezel, scope.perform { Palette.selectionFill }))
-            #expect(popup.titleOfSelectedItem == "Bookmarks Bar", "the binding's choice is selected")
-        }
     }
 
     @Test func accountsRefreshSpinnerDrawsTheTheme() throws {
@@ -111,21 +88,6 @@ import Testing
         hosting.rootView = ThemedField(text: text, height: 32).frame(width: 200, height: 60)
         hosting.layoutSubtreeIfNeeded()
         #expect(box.frame.height == 32, "the box resizes: \(box.frame.height)")
-    }
-
-    /// Choosing a folder from the pop-up's menu, as a click does, updates the binding.
-    @Test func choosingAFolderUpdatesTheBinding() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = BookmarkEditModel(isNew: true, title: "Docs", folder: "bar", folders: [
-            BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
-            BookmarkFolderChoice(id: "other", title: "Other Bookmarks", depth: 0),
-        ])
-        let (window, root) = try Self.host(BookmarkEditView(model: model), scope)
-        defer { window.contentView = nil; window.close() }
-        let popup = try #require(Self.all(NSPopUpButton.self, in: root).first)
-        let menu = try #require(popup.menu)
-        menu.performActionForItem(at: 1)
-        #expect(model.folder == "other", "the chosen folder reaches the model")
     }
 
     private static func isEditing(_ field: NSTextField, in window: NSWindow) -> Bool {

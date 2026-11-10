@@ -184,13 +184,18 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
     "read": [
       "bookmarks.children",
       "bookmarks.export",
+      "bookmarks.folders",
+      "bookmarks.get",
       "bookmarks.list",
       "bookmarks.rank",
-      "bookmarks.search"
+      "bookmarks.resolve",
+      "bookmarks.search",
+      "bookmarks.status"
     ],
     "mutation": [
       "bookmarks.apply",
       "bookmarks.import_html",
+      "bookmarks.import_legacy_file",
       "bookmarks.import_source"
     ]
   },

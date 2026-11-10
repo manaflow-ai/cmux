@@ -268,6 +268,11 @@ public extension PageDescriptor {
     /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
     static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
 
+    /// The bookmark edit bubble (webviews/src/pages/bookmark-edit) in the omnibar star's popup
+    /// (CmuxNextBookmarks `BookmarkEditBubble`): `cmux.bookmark-edit.state` brings the bookmark and
+    /// the daemon's folder choices; the page sends its commands and its content height.
+    static let bookmarkEdit = PageDescriptor(id: "cmux.bookmark-edit", resource: "bookmark-edit", namespaces: ["cmux.bookmark-edit."])
+
     /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
     /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
     /// window's state; the page sends its commands and its content height.

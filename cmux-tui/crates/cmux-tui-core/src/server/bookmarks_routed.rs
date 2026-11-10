@@ -16,6 +16,27 @@
 //! - `bookmarks.search {browser_profile_id, text, limit?}`: `{bookmarks}`,
 //!   nodes whose title or URL holds every term, tree order. `text` is at
 //!   most 1 KiB and 32 terms (also for `rank`).
+//! - `places: true` on `list`, `children` and `search`: each row also has
+//!   `path` (its root's id, then its folders' titles) and, for a link,
+//!   `display_url` (cmux-bookmarks-ops `lookup::placed`).
+//! - `bookmarks.get {browser_profile_id, ids}`: `{bookmarks_revision,
+//!   bookmarks}`, the placed rows of at most 1000 ids that exist.
+//! - `bookmarks.status {browser_profile_id, urls}`: `{bookmarks_revision,
+//!   bar_filled, matches}`, whether the bookmarks bar has anything to show
+//!   and, per URL (at most 1000), the ids of links to the same page: the
+//!   app's omnibar stars and bars read this, never a copy of the tree.
+//! - `bookmarks.folders {browser_profile_id, bar_title, other_title}`:
+//!   `{bookmarks_revision, folders: [{id, title, depth}]}`, the roots and
+//!   every folder in tree order (the edit bubble's Folder menu).
+//! - `bookmarks.resolve {browser_profile_id, bookmark?, folders_first?,
+//!   exact?, folder?, fallback_folder?, url?, bar_title, other_title}`: what
+//!   the CLI and MCP name, `{bookmark?, folder?, url?}` (each asked for):
+//!   the placed node `bookmark` names (`lookup::find`; with `exact`, only an
+//!   id or a link to the same page, `lookup::find_exact`, as for the focused
+//!   page the app names when no argument does), the folder
+//!   `folder` names (`lookup::folder`) and the URL `url` was typed as. A
+//!   name that resolves to nothing is `bookmarks.not_found`,
+//!   `bookmarks.not_folder` or `bookmarks.invalid_url`.
 //! - `bookmarks.rank {browser_profile_id, text, limit?}`: `{matches: [{bookmark,
 //!   score}]}`, URL bookmarks the omnibar way, best first, one per page.
 //! - `bookmarks.export {browser_profile_id, bar_title}`: `{html, count}`, the
@@ -29,9 +50,17 @@
 //!   (mutation): the file into one new folder at the end of the bar.
 //! - `bookmarks.import_source {browser_profile_id, title, source_key, items}`
 //!   (mutation): one browser source's folder, replaced in place; no items
-//!   removes it. `{root_ids, count, added, duplicates, skipped, replayed}`
-//!   (`skipped`: items whose URL the store would refuse); a removal also has
-//!   `deleted`.
+//!   removes it. `{root_ids, count, added, duplicates, skipped, replayed,
+//!   previous}` (`skipped`: items whose URL the store would refuse;
+//!   `previous`: the source's folder before, as one import node that puts it
+//!   back, or null, on a removal too); a removal also has `deleted`.
+//! - `bookmarks.import_legacy_file {browser_profile_id, nodes}` (mutation):
+//!   one batch of an older build's `bookmarks.json`, at most 256 of its rows
+//!   (each with its `index` among its siblings in the file), node by node
+//!   with its ids and a stable key per node. The app reads the file and sends
+//!   it as an ordered stream of these batches, parents first, each well under
+//!   the 4 MiB message cap, and deletes the file after the last one: a copy
+//!   that stopped resumes from the start with no duplicate. `{ops}`.
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -44,6 +73,7 @@ use crate::workspace_registry::WorkspaceMutation;
 use crate::workspace_registry::personal_bookmarks::{BookmarkError, BookmarkOp};
 use cmux_bookmarks_core::Tree;
 use cmux_bookmarks_ops::import_plan::{self, SourceItem};
+use cmux_bookmarks_ops::lookup::{self, Unresolved};
 use cmux_bookmarks_ops::{netscape, search};
 
 /// The routed owner's name in spec/page-router.json.
@@ -60,13 +90,17 @@ const HASHED_KEY_PREFIX: &str = "sha256:";
 const MAX_QUERY_BYTES: usize = 1024;
 /// Most rows one `bookmarks.children` returns (a folder menu's subtree).
 const MAX_CHILDREN_LIMIT: usize = 20_000;
+/// Most ids of one `bookmarks.get`, and URLs of one `bookmarks.status`.
+const MAX_LOOKUPS: usize = 1000;
 /// The replay origin of routed bookmark ops.
 const REPLAY_ORIGIN: &str = "bookmarks.routed";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Profile {
+struct List {
     browser_profile_id: String,
+    #[serde(default)]
+    places: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +110,71 @@ struct Query {
     text: String,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    places: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Get {
+    browser_profile_id: String,
+    ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Status {
+    browser_profile_id: String,
+    urls: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Folders {
+    browser_profile_id: String,
+    bar_title: String,
+    other_title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Resolve {
+    browser_profile_id: String,
+    #[serde(default)]
+    bookmark: Option<String>,
+    #[serde(default)]
+    folders_first: bool,
+    /// Only an id or a link to the same page names the bookmark.
+    #[serde(default)]
+    exact: bool,
+    /// Present (even null) asks for a folder: null is the default folder.
+    #[serde(default, deserialize_with = "present")]
+    folder: Option<Option<String>>,
+    #[serde(default)]
+    fallback_folder: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    bar_title: String,
+    other_title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyFile {
+    browser_profile_id: String,
+    /// At most [`MAX_OPS`] rows of the file, in its order.
+    nodes: Vec<cmux_bookmarks_core::Bookmark>,
+    /// Every mutation carries one; this op keys each node by its id instead
+    /// (`lookup::legacy_nodes`), so a copy that stopped replays what it did.
+    #[serde(rename = "idempotency_key")]
+    _idempotency_key: String,
+}
+
+/// An absent field is `None`; a present one, null included, is `Some`.
+fn present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 impl Query {
@@ -107,6 +206,8 @@ struct Children {
     depth: Option<usize>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    places: bool,
 }
 
 #[derive(Deserialize)]
@@ -153,9 +254,42 @@ pub(super) fn routed(
     let params = Value::Object(params);
     match operation {
         "bookmarks.list" => {
-            let Profile { browser_profile_id } = parse(params)?;
-            let (revision, bookmarks) = read(mux, operation, &browser_profile_id)?;
-            Ok(json!({"bookmarks_revision": revision, "bookmarks": bookmarks.listing()}))
+            let List { browser_profile_id, places } = parse(params)?;
+            let (revision, tree) = read(mux, operation, &browser_profile_id)?;
+            let rows = rows(&tree, tree.listing(), places);
+            Ok(json!({"bookmarks_revision": revision, "bookmarks": rows}))
+        }
+        "bookmarks.get" => {
+            let Get { browser_profile_id, ids } = parse(params)?;
+            bounded("ids", ids.len())?;
+            let (revision, tree) = read(mux, operation, &browser_profile_id)?;
+            let rows = ids
+                .iter()
+                .filter_map(|id| tree.get(id))
+                .map(|node| lookup::placed(&tree, node))
+                .collect::<Vec<_>>();
+            Ok(json!({"bookmarks_revision": revision, "bookmarks": rows}))
+        }
+        "bookmarks.status" => {
+            let Status { browser_profile_id, urls } = parse(params)?;
+            bounded("urls", urls.len())?;
+            let (revision, tree) = read(mux, operation, &browser_profile_id)?;
+            Ok(json!({
+                "bookmarks_revision": revision,
+                "bar_filled": lookup::bar_filled(&tree),
+                "matches": lookup::matches(&tree, &urls),
+            }))
+        }
+        "bookmarks.folders" => {
+            let request: Folders = parse(params)?;
+            let (revision, tree) = read(mux, operation, &request.browser_profile_id)?;
+            let folders = lookup::folders(&tree, &request.bar_title, &request.other_title);
+            Ok(json!({"bookmarks_revision": revision, "folders": folders}))
+        }
+        "bookmarks.resolve" => {
+            let request: Resolve = parse(params)?;
+            let (_, tree) = read(mux, operation, &request.browser_profile_id)?;
+            resolve(&tree, request).map_err(|unresolved| unresolved_error(operation, unresolved))
         }
         "bookmarks.children" => {
             let request: Children = parse(params)?;
@@ -163,7 +297,8 @@ pub(super) fn routed(
             let depth =
                 request.depth.unwrap_or(1).clamp(1, cmux_bookmarks_core::MAX_BOOKMARK_DEPTH);
             let limit = request.limit.unwrap_or(MAX_LIMIT).min(MAX_CHILDREN_LIMIT);
-            let (bookmarks, truncated) = subtree(&tree, &request.parent, depth, limit);
+            let (bookmarks, truncated) =
+                subtree(&tree, &request.parent, depth, limit, request.places);
             Ok(json!({
                 "bookmarks_revision": revision,
                 "bookmarks": bookmarks,
@@ -177,7 +312,7 @@ pub(super) fn routed(
             let (_, tree) = read(mux, operation, &query.browser_profile_id)?;
             let mut found = search::search(&tree, &query.text);
             found.truncate(limit(query.limit));
-            Ok(json!({"bookmarks": found}))
+            Ok(json!({"bookmarks": rows(&tree, found, query.places)}))
         }
         "bookmarks.rank" => {
             let query: Query = parse(params)?;
@@ -235,6 +370,10 @@ pub(super) fn routed(
             let import: ImportSource = parse(params)?;
             let actor = super::origin_gate::connection_actor(mux, client);
             let key = import.idempotency_key.as_str();
+            // The folder as it is before this import replaces or removes it: the import's undo
+            // puts it back.
+            let (_, before) = read(mux, operation, &import.browser_profile_id)?;
+            let previous = lookup::source_draft(&before, &import.source_key);
             if import.items.is_empty() {
                 // No items: the source's folder goes (a re-import of an emptied source). The
                 // lookup, the delete and the replay record are one transaction.
@@ -253,6 +392,7 @@ pub(super) fn routed(
                         object.insert(field.into(), json!(0));
                     }
                     object.insert("root_ids".into(), json!([]));
+                    object.insert("previous".into(), json!(previous));
                 }
                 return Ok(result);
             }
@@ -266,11 +406,29 @@ pub(super) fn routed(
             let mut result = one(mux, &actor, key, BookmarkOp::Import(plan.import))
                 .map_err(|error| failure(operation, &error, None))?;
             if let Some(object) = result.as_object_mut() {
+                object.insert("previous".into(), json!(previous));
                 object.insert("added".into(), json!(plan.added));
                 object.insert("duplicates".into(), json!(plan.duplicates));
                 object.insert("skipped".into(), json!(plan.skipped));
             }
             Ok(result)
+        }
+        "bookmarks.import_legacy_file" => {
+            let LegacyFile { browser_profile_id, nodes, .. } = parse(params)?;
+            if nodes.len() > MAX_OPS {
+                return Err(ResourceError::validation_invalid(
+                    Some("nodes"),
+                    format!("at most {MAX_OPS} nodes at once"),
+                ));
+            }
+            let ops = lookup::legacy_nodes(&browser_profile_id, nodes);
+            let actor = super::origin_gate::connection_actor(mux, client);
+            let count = ops.len();
+            // Each node has its own stable key: a copy that stopped replays what it did.
+            for lookup::LegacyOp { key, op } in ops {
+                one(mux, &actor, &key, op).map_err(|error| failure(operation, &error, None))?;
+            }
+            Ok(json!({"ops": count}))
         }
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -314,7 +472,13 @@ fn now_ms() -> u64 {
 
 /// The nodes under `parent` down to `depth` levels, depth-first in listing
 /// order, at most `limit`; true when more were left out.
-fn subtree(tree: &Tree, parent: &str, depth: usize, limit: usize) -> (Vec<Value>, bool) {
+fn subtree(
+    tree: &Tree,
+    parent: &str,
+    depth: usize,
+    limit: usize,
+    places: bool,
+) -> (Vec<Value>, bool) {
     let mut rows = Vec::new();
     let mut stack: Vec<(&cmux_bookmarks_core::Bookmark, usize)> =
         tree.children(parent).into_iter().rev().map(|node| (node, 1)).collect();
@@ -322,12 +486,73 @@ fn subtree(tree: &Tree, parent: &str, depth: usize, limit: usize) -> (Vec<Value>
         if rows.len() == limit {
             return (rows, true);
         }
-        rows.push(json!(node));
+        rows.push(if places { lookup::placed(tree, node) } else { json!(node) });
         if level < depth {
             stack.extend(tree.children(&node.id).into_iter().rev().map(|child| (child, level + 1)));
         }
     }
     (rows, false)
+}
+
+/// `nodes` as rows, placed ([`lookup::placed`]) when asked.
+fn rows(tree: &Tree, nodes: Vec<cmux_bookmarks_core::Bookmark>, places: bool) -> Value {
+    if places {
+        Value::from(nodes.iter().map(|node| lookup::placed(tree, node)).collect::<Vec<_>>())
+    } else {
+        json!(nodes)
+    }
+}
+
+/// At most [`MAX_LOOKUPS`] ids or URLs at once.
+fn bounded(field: &str, count: usize) -> Result<(), ResourceError> {
+    if count > MAX_LOOKUPS {
+        return Err(ResourceError::validation_invalid(
+            Some(field),
+            format!("at most {MAX_LOOKUPS} at once"),
+        ));
+    }
+    Ok(())
+}
+
+/// `bookmarks.resolve`: each part asked for, or the first that names nothing.
+fn resolve(tree: &Tree, request: Resolve) -> Result<Value, Unresolved> {
+    let mut answer = Map::new();
+    if let Some(text) = &request.bookmark {
+        let node = if request.exact {
+            lookup::find_exact(tree, text)
+        } else {
+            lookup::find(tree, text, request.folders_first, now_ms())
+        }
+        .ok_or(Unresolved::NotFound)?;
+        answer.insert("bookmark".into(), lookup::placed(tree, &node));
+    }
+    if let Some(folder) = &request.folder {
+        let id = lookup::folder(
+            tree,
+            folder.as_deref(),
+            request.fallback_folder.as_deref(),
+            &request.bar_title,
+            &request.other_title,
+        )?;
+        answer.insert("folder".into(), Value::from(id));
+    }
+    if let Some(url) = &request.url {
+        answer.insert("url".into(), Value::from(lookup::typed_url(url)?));
+    }
+    Ok(Value::Object(answer))
+}
+
+fn unresolved_error(operation: &str, unresolved: Unresolved) -> ResourceError {
+    let message = match unresolved {
+        Unresolved::NotFound => "no bookmark has that id, URL or name",
+        Unresolved::NotFolder => "no folder has that id or name",
+        Unresolved::InvalidUrl => "not a URL a bookmark can hold",
+    };
+    ResourceError::operation_failed(
+        operation,
+        message,
+        json!({"code": format!("bookmarks.{}", unresolved.code())}),
+    )
 }
 
 /// The profile's stored tree and its revision.

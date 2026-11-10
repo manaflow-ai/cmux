@@ -80,8 +80,8 @@ import PackageDescription
 //     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
-//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
-//     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
+//   CmuxNextBookmarks -> Design, Icons, Pages (the routed `bookmarks.*` client and the hosts of the React
+//     cmux://bookmarks page, bookmarks bar and edit bubble; the tree and its rules are the home daemon's)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextTaskManagerPage -> Pages, Resources, Settings (the React Task Manager page's model lifetime, kill
@@ -1090,11 +1090,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
-        // profile mirrored from the home daemon, the client of its routed
-        // `bookmarks.*` ops (file import/export, search, rank), the local
-        // file store, the cmux://bookmarks React page's host, the bookmarks
-        // bar and the edit bubble.
+        // Bookmarks (plans/cmux-next/bookmarks.md): the client of the home
+        // daemon's routed `bookmarks.*` ops, which hold the only tree and its
+        // rules (cmux-bookmarks-core, cmux-bookmarks-ops), and the native
+        // hosts of the React pages: the cmux://bookmarks manager, the
+        // bookmarks bar and the omnibar star's edit bubble.
         .target(
             name: "CmuxNextBookmarks",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py

@@ -4,159 +4,140 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
-/// The home daemon side (`bookmarks-v1`): fetches on demand, refetches on
-/// `bookmarks-changed`, writes each operation as its command, and copies an
-/// older build's local file into the daemon once it serves the capability.
+/// The home daemon side: the read-only status the stars and bars read in the same frame, the
+/// omnibar's bookmark index, and the one-time copy of an older build's file.
 extension BookmarkService {
-    /// Follows the home daemon's capability: when it appears, copy an older
-    /// build's file over and read every tree from the daemon. When it goes,
-    /// the trees stay as they were and edits are refused until it is back.
+    /// Follows the home daemon's capability: when it appears, copy an older build's file over,
+    /// read the status of the pages on screen and run the legacy import pass. When it goes, the
+    /// stars and bars keep what they show and edits are refused until it is back.
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            // A trigger: a daemon restart that still serves bookmarks resets and fetches again.
+            // A trigger: a daemon restart that still serves bookmarks reads everything again.
             for await serves in ObservationStream({ [weak self] in ObservationTrigger(self?.usesDaemon ?? false) }) {
-                let serves = serves.value
-                guard let self else { return }
-                fetched.removeAll()
-                loadedFromDaemon.removeAll()
-                homeSettled = false
-                if serves {
-                    await migrateFileToDaemon()
-                    homeSettled = true
-                    // A read started during the copy saw part of it: read again.
-                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) {
-                        await fetching[profile]?.value
-                        fetch(profile)
-                    }
-                    // Earlier browser imports become bookmarks once, on the daemon's
-                    // trees (a replace finds its folder there); it writes its marker
-                    // after, so it must not run before the daemon takes the writes.
-                    for task in Array(fetching.values) { await task.value }
-                    await migrateLegacyImports()
-                }
+                guard let self, serves.value else { continue }
+                await migrateFileToDaemon()
+                for profile in shownProfiles() { daemonChanged(profile) }
+                // Earlier browser imports become bookmarks once, after the daemon takes the writes.
+                await migrateLegacyImports()
             }
         }
     }
 
-    /// Reads `profile`'s tree from the daemon (one request in flight per profile).
-    func fetch(_ profile: String) {
-        guard fetching[profile] == nil, let connection = services.machines.local.connection else { return }
-        fetched.insert(profile)
-        let complete = homeSettled
-        // task-owner: one list-bookmarks read; ends with its reply
-        fetching[profile] = Task { [weak self] in
-            defer { self?.fetching[profile] = nil }
-            do {
-                let list = try await connection.listBookmarks(browserProfileID: profile)
-                guard let self else { return }
-                trees[profile] = BookmarkTree(ordered: list.bookmarks.map(Self.node(from:)))
-                if complete { loadedFromDaemon.insert(profile) }
-                changed(profiles: [profile])
-            } catch {
-                self?.fetched.remove(profile)
-                self?.logger.error("list-bookmarks \(profile, privacy: .public): \(String(describing: error), privacy: .public)")
-            }
-        }
+    /// The profiles of the live chromes and suggestion engines, and the default one.
+    func shownProfiles() -> Set<String> {
+        var profiles: Set<String> = [BrowserProfileRecord.defaultID]
+        for chrome in chromes.values { if let entry = chrome.entry { profiles.insert(profile(of: entry.tab.profileID)) } }
+        return profiles.union(feeds.keys)
     }
 
-    func daemonChanged(_ profile: String) {
+    // MARK: Status
+
+    /// The ids of the links to the page `url`, nil while its status is unknown.
+    func bookmarkIDs(for url: URL, profile: String) -> [String]? {
+        statuses.ids(for: url, profile: profile)
+    }
+
+    /// The pages `profile`'s live tabs show that can be bookmarked (one per page).
+    func shownURLs(_ profile: String) -> [String] {
+        var urls: [String] = []
+        var seen: Set<String> = []
+        for chrome in chromes.values {
+            guard let entry = chrome.entry, self.profile(of: entry.tab.profileID) == profile,
+                  let url = entry.tab.state.url, Self.canBookmark(url), seen.insert(url.absoluteString).inserted else { continue }
+            urls.append(url.absoluteString)
+        }
+        return urls
+    }
+
+    /// Reads `profile`'s status for the pages on screen: one read in flight per profile; a call
+    /// while one runs reads once more after it, so the last change always lands.
+    func refreshStatus(_ profile: String) {
         guard usesDaemon else { return }
-        fetching[profile]?.cancel()
-        fetching[profile] = nil
-        fetch(profile)
+        guard statusReads[profile] == nil else { statusStale.insert(profile); return }
+        let urls = shownURLs(profile)
+        let routed = routed
+        // task-owner: one bookmarks.status read; ends with its reply (a follow-up read is its own task)
+        statusReads[profile] = Task { [weak self] in
+            let status = try? await routed.status(profile: profile, urls: urls)
+            guard let self, !Task.isCancelled else { return }
+            statusReads[profile] = nil
+            if let status { applyStatus(status, profile: profile) }
+            if statusStale.remove(profile) != nil { refreshStatus(profile) }
+        }
     }
 
-    /// Writes one operation to the daemon. The local tree already shows it;
-    /// the daemon's `bookmarks-changed` replaces it with the stored truth,
-    /// and a refused write refetches. One mutation key per logical write
-    /// (the daemon's exactly-once ledger replays a retried key).
-    func send(_ operation: BookmarkOperation, profile: String) {
-        let home = services.machines.local
-        let mutationID = UUID().uuidString.lowercased()
-        // task-owner: one bookmark command; a failure refetches the profile
+    /// A status the daemon answered (``BookmarkStatusCache/apply(_:profile:shown:)``).
+    func applyStatus(_ status: BookmarkRoutedClient.Status, profile: String) {
+        if statuses.apply(status, profile: profile, shown: Set(shownURLs(profile))) { refreshChromes(profiles: [profile]) }
+    }
+
+    /// The star's own edit shows in the same frame; the daemon's change event then confirms it.
+    func noteBookmarks(_ ids: [String], url: URL, profile: String, barFilled: Bool? = nil) {
+        statuses.note(ids, url: url, profile: profile, barFilled: barFilled)
+        refreshChromes(profiles: [profile])
+    }
+
+    // MARK: Omnibar index
+
+    /// Bookmark rows in a browser profile's omnibar (star icon): the profile's links go to its
+    /// suggestion engine, read again on every change (plans/cmux-next/omnibar-suggestions.md).
+    func feed(_ engine: OmniboxSuggestionEngine, profile: String) {
+        feeds[profile, default: []].append { [weak engine] in engine }
+        refreshFeeds(profile)
+    }
+
+    /// Reads `profile`'s links for its engines; an engine that is gone leaves the list.
+    func refreshFeeds(_ profile: String) {
+        feeds[profile]?.removeAll { $0() == nil }
+        guard let engines = feeds[profile], !engines.isEmpty, usesDaemon else {
+            if feeds[profile]?.isEmpty == true { feeds[profile] = nil }
+            return
+        }
+        let routed = routed
+        // task-owner: one bookmarks.list read; ends with its reply
         Task { [weak self] in
-            let ok = await home.run("bookmark") { connection in
-                try await Self.perform(operation, profile: profile, mutationID: mutationID, on: connection)
-            }
-            if !ok { self?.daemonChanged(profile) }
+            guard let nodes = try? await routed.list(profile: profile) else { return }
+            let rows = Self.rows(nodes)
+            for engine in self?.feeds[profile] ?? [] { engine()?.setBookmarks(rows) }
         }
     }
 
-    /// Sends `operation` with the exactly-once key `mutationID` (a create
-    /// that also sets last use sends a second write keyed `<id>.used`).
-    nonisolated static func perform(_ operation: BookmarkOperation, profile: String, mutationID: String,
-                                    on connection: DaemonConnection) async throws {
-        let key = MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID)
-        switch operation {
-        case .create(let node, let index):
-            try await connection.createBookmark(CreateBookmarkRequest(
-                bookmark: node.id, browserProfileID: profile, parent: node.parent, index: index, kind: node.kind.rawValue,
-                title: node.title, url: node.url?.absoluteString, faviconKey: node.faviconKey, sourceKey: node.sourceKey,
-                createdMs: BookmarkTime.ms(node.created), mutation: key))
-            if let lastUsed = node.lastUsed {
-                try await connection.updateBookmark(UpdateBookmarkRequest(
-                    bookmark: node.id, lastUsedMs: .set(BookmarkTime.ms(lastUsed)),
-                    mutation: MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID + ".used")))
-            }
-        case .update(let id, let title, let url, let favicon, let lastUsed, let icon):
-            try await connection.updateBookmark(UpdateBookmarkRequest(
-                bookmark: id, title: title, url: url?.absoluteString, faviconKey: fieldUpdate(favicon) { $0 },
-                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, icon: fieldUpdate(icon) { $0 }, mutation: key))
-        case .move(let id, let parent, let index):
-            try await connection.moveBookmark(id, parent: parent, index: index, mutation: key)
-        case .delete(let id):
-            try await connection.deleteBookmark(id, mutation: key)
-        case .importDrafts(let parent, let index, let sourceKey, let replace, let drafts):
-            try await connection.importBookmarks(ImportBookmarksRequest(
-                browserProfileID: profile, parent: parent, index: index, sourceKey: sourceKey, replace: replace ? true : nil,
-                nodes: drafts.map(importNode), mutation: key))
+    /// Pure: bookmark nodes as index rows (last use, else creation, is the visit time).
+    nonisolated static func rows(_ nodes: [BookmarkNode]) -> [OmniboxHistoryRow] {
+        nodes.compactMap { node in
+            guard let url = node.url else { return nil }
+            return OmniboxHistoryRow(url: url, title: node.title.isEmpty ? nil : node.title, visitCount: 1, typedCount: 1,
+                                     lastVisit: node.lastUsed ?? node.created)
         }
     }
 
-    nonisolated static func importNode(_ draft: BookmarkDraft) -> BookmarkImportNode {
-        BookmarkImportNode(kind: draft.kind.rawValue, title: draft.title, url: draft.url?.absoluteString,
-                           createdMs: draft.created.map(BookmarkTime.ms),
-                           children: draft.kind == .folder ? draft.children.map(importNode) : nil)
-    }
+    // MARK: An older build's file
 
-    nonisolated static func fieldUpdate<V, W>(_ change: BookmarkFieldChange<V>, _ map: (V) -> W) -> FieldUpdate<W> {
-        switch change {
-        case .unchanged: .unchanged
-        case .clear: .clear
-        case .set(let value): .set(map(value))
-        }
-    }
-
-    nonisolated static func node(from record: BookmarkRecord) -> BookmarkNode {
-        BookmarkNode(id: record.id, parent: record.parent, kind: BookmarkNode.Kind(rawValue: record.kind) ?? .url, title: record.title,
-                     url: record.url.flatMap(URL.init(string:)), faviconKey: record.faviconKey, sourceKey: record.sourceKey,
-                     created: BookmarkTime.date(ms: record.createdMs), lastUsed: record.lastUsedMs.map(BookmarkTime.date(ms:)),
-                     icon: record.icon)
-    }
-
-    /// Copies this Mac's file into the daemon, node by node in tree order
-    /// (parents first) with the same ids: a create with an existing id is a
-    /// no-op there, so an interrupted copy resumes. Deletes the file after.
+    /// Copies this Mac's `bookmarks.json` (an older build's store) into the daemon, which keeps its
+    /// ids and resumes a copy that stopped; deletes the file after.
     func migrateFileToDaemon() async {
-        guard !migrating, let file, await file.exists, let connection = services.machines.local.connection else { return }
+        guard !migrating, let directory else { return }
+        let file = directory.appending(path: "bookmarks.json")
+        guard let document = await Self.read(file) else { return }
         migrating = true
         defer { migrating = false }
         do {
-            for (profile, nodes) in await file.load() {
-                var indexes: [String: Int] = [:]
-                for node in nodes {
-                    let index = indexes[node.parent, default: 0]
-                    indexes[node.parent] = index + 1
-                    // A stable key per node: a copy interrupted at relaunch replays, never duplicates.
-                    try await Self.perform(.create(node, index: index), profile: profile, mutationID: "migrate-file-" + node.id,
-                                           on: connection)
-                }
-            }
-            try await file.remove()
+            try await routed.importLegacyFile(document)
+            await Self.remove(file)
             logger.info("bookmarks moved into the home daemon")
         } catch {
             logger.error("copy bookmarks to the daemon: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The file's text, off the main actor; nil when there is none.
+    @concurrent nonisolated private static func read(_ file: URL) async -> String? {
+        guard let data = try? Data(blockingContentsOf: file) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    @concurrent nonisolated private static func remove(_ file: URL) async {
+        try? FileManager.checked.removeItem(at: file)
     }
 }

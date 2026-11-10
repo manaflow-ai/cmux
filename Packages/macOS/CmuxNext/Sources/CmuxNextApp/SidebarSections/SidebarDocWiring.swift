@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -54,7 +55,7 @@ extension SidebarDocument {
         let openTabs = OpenTabFavicons()
         openTabs.start(workspaces: { local.store.workspaces }, favicons: { [weak services] workspace in services?.openTabFavicons(of: workspace) ?? [] })
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
-                                          byOrigin: { openTabs.byOrigin }, faviconKey: BookmarkURL.faviconKey(for:))
+                                          byOrigin: { openTabs.byOrigin }, faviconKey: PageInfoSite.origin(of:))
         docMachines.follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
             Set(machines.remoteDaemons.filter { $0.connection != nil }.compactMap(\.store.registryID))
         }, shown: { if layout.docLayout != $0 { layout.docLayout = $0 } })

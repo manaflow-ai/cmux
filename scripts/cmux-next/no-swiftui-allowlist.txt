@@ -18,9 +18,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkPageColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChangeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryLineRow.swift

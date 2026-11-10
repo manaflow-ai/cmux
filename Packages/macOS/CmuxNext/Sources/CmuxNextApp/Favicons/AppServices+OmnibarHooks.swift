@@ -25,7 +25,7 @@ extension AppServices {
         // The icon an open tab of the site shows, else the site's /favicon.ico, fetched as this tab
         // fetches icons (its profile; a Chromium tab through its own request context).
         entry.state.rowFavicon = { [weak self, weak tab = entry.tab] url in
-            guard let self, let tab, let origin = BookmarkURL.faviconKey(for: url),
+            guard let self, let tab, let origin = PageInfoSite.origin(of: url),
                   let address = URL(string: siteFaviconAddress(origin: origin)) else { return nil }
             return await tab.fetchFavicon(address)
         }

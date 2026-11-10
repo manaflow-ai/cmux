@@ -6,3 +6,6 @@ mod bookmark_codec;
 
 #[path = "bookmarks/search.rs"]
 mod bookmark_search;
+
+#[path = "bookmarks/lookup.rs"]
+mod bookmark_lookup;

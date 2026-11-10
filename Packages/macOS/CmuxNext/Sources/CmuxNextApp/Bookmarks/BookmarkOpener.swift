@@ -32,10 +32,19 @@ struct BookmarkOpener {
         pane.newBrowserTab(url: url, background: disposition == .backgroundTab, profile: profile)
     }
 
-    /// Every bookmark directly in `folder`, each in a new tab (Open All).
-    func openAll(in folder: String, profile: String, fromTab key: String? = nil) {
-        let nodes = services.bookmarks.tree(profile).children(of: folder).filter { !$0.isFolder }
-        for (index, node) in nodes.enumerated() {
+    /// Every bookmark directly in `folder`, each in a new tab (Open All), as the daemon has them now.
+    func openAll(in folder: String, profile: String, fromTab key: String? = nil) async throws {
+        open(try await links(in: folder, profile: profile), profile: profile, fromTab: key)
+    }
+
+    /// The links directly in `folder`, read from the home daemon.
+    func links(in folder: String, profile: String) async throws -> [BookmarkNode] {
+        try await services.bookmarks.routed.children(of: folder, profile: profile, limit: 20_000).filter { !$0.isFolder }
+    }
+
+    /// `links` each in a new tab: the first in front, the rest behind it.
+    func open(_ links: [BookmarkNode], profile: String, fromTab key: String? = nil) {
+        for (index, node) in links.enumerated() {
             open(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: key)
         }
     }

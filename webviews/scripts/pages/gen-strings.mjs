@@ -257,6 +257,27 @@ export const PAGES = {
       },
     ],
   },
+  // The omnibar star's edit bubble (cmux-page://cmux.bookmark-edit/): its words from the same catalog.
+  "browser-chrome-bookmark-edit": {
+    out: "webviews/src/browser-chrome/bookmark-edit/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
+        keys: () => [
+          "bubble.added",
+          "bubble.edit",
+          "bubble.done",
+          "bubble.more",
+          "bubble.remove",
+          "field.name",
+          "field.folder",
+          "bubble.searchFolders",
+          "bubble.moreFolders",
+          "page.noMatches",
+        ],
+      },
+    ],
+  },
   // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
   "sidebar-chats": {
     out: "webviews/src/pages/sidebar-chats/generated/strings.json",

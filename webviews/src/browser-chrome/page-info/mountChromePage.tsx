@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { setDocumentLanguage, type Strings } from "../../pages/shared/i18n";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import type { PopupHost } from "../../ui/popupHost";
 import { pageInfoStrings } from "./strings";
 
 export type ChromePageOptions<State, Command> = {
@@ -17,6 +18,10 @@ export type ChromePageOptions<State, Command> = {
   onState?: (state: State) => void;
   /** The element that keeps the keys while the page shows. */
   focus?: string;
+  /** The page's words; Page Info's table when none. */
+  strings?: Strings;
+  /** Where a menu with no room in the card shows (the app's popup host, past the card's edge). */
+  popupHost?: PopupHost | null;
 };
 
 /** A state the host numbered: a size report names the push it measured. */
@@ -25,7 +30,7 @@ type Numbered = { revision?: number };
 export function mountChromePage<State, Command>(
   root: HTMLElement,
   client: PageClient,
-  { page, render, onState, focus }: ChromePageOptions<State, Command>,
+  { page, render, onState, focus, strings = pageInfoStrings(), popupHost = null }: ChromePageOptions<State, Command>,
 ): () => void {
   let state: State | null = null;
   const listeners = new Set<() => void>();
@@ -53,7 +58,6 @@ export function mountChromePage<State, Command>(
   const sizes = new ResizeObserver(report);
   sizes.observe(root);
 
-  const strings = pageInfoStrings();
   setDocumentLanguage(strings.language);
   function Page() {
     const current = useSyncExternalStore(store.subscribe, store.get);
@@ -68,7 +72,7 @@ export function mountChromePage<State, Command>(
   }
   const react = createRoot(root);
   react.render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={popupHost} dir={languageDirection(strings.language)}>
       <Page />
     </UiProvider>,
   );

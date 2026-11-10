@@ -9,12 +9,13 @@ import Foundation
 /// menus, its refusal toast, and the app's own bookmark write.
 @MainActor
 public protocol BookmarksBarHost: BookmarkPageHost {
-    /// The registry's Bookmark menu for `bookmark` (nil: the Bookmarks Bar menu of the bar's empty area).
-    func bookmarkBarContextMenu(bookmark: String?) -> NSMenu?
-    /// Applies a drop or a move on the bar through the app's bookmark write, as every other
-    /// bookmark edit in the app does (its copy of the tree and the last folder follow at once).
-    /// Throws a ``PageError`` whose message says why it was refused.
-    func bookmarkBarApply(_ operation: BookmarkOperation, profile: String) throws
+    /// The registry's Bookmark menu for `bookmark` of `profile` (nil: the Bookmarks Bar menu of the
+    /// bar's empty area). `isFolder` and `icon` are the row the bar drew, which the menu's rows follow.
+    func bookmarkBarContextMenu(bookmark: String?, profile: String, isFolder: Bool, icon: String?) -> NSMenu?
+    /// Applies a drop or a move on the bar through the app's bookmark write (the home daemon's
+    /// `bookmarks.apply`), as every other bookmark edit in the app does; the star of a page the
+    /// drop bookmarked turns on at once. Throws a ``PageError`` whose message says why it was refused.
+    func bookmarkBarApply(_ op: BookmarkRoutedClient.Op, profile: String) async throws
     /// The owner refused a drop or a move on the bar: say why.
     func bookmarkBarRefused(_ message: String)
 }
@@ -230,8 +231,8 @@ public final class BookmarksBarHostView: NSView {
 ///   short) shows what was read and asks the page for its rows as it opens (`folderRows`, host to
 ///   page, `{profile, lend, folder}` → `{rows}`). A picked row opens from the tab the bar is in (a
 ///   native menu choice is the person's own act).
-/// - `contextMenu {bookmark?, point: {x, y}}`: the registry's Bookmark menu, or the Bookmarks
-///   Bar menu for the bar's empty area.
+/// - `contextMenu {bookmark?, kind?, icon?, point: {x, y}}`: the registry's Bookmark menu (its rows
+///   follow the drawn row's kind and icon), or the Bookmarks Bar menu for the bar's empty area.
 /// - `layout {profile, visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows
 ///   for `profile`; the bar view drops a report for a profile it does not show.
 /// - `apply {op}`: a link dropped on the bar (`{op: "create", parent: "bar", index, title, url}`)
@@ -279,8 +280,9 @@ public final class BookmarksBarProvider: PageProvider {
         self.pageHost = pageHost
     }
 
-    /// The bar's write `op` (a create or a move on the bar root), or nil for anything else.
-    static func operation(_ op: JSONValue) -> BookmarkOperation? {
+    /// The bar's write `op` (a create or a move on the bar root) as the daemon's op, or nil for
+    /// anything else.
+    static func operation(_ op: JSONValue, profile: String) -> BookmarkRoutedClient.Op? {
         let bar = BookmarkRoot.bar.rawValue
         guard op["parent"]?.stringValue == bar, let index = op["index"]?.intValue, index >= 0 else { return nil }
         switch op["op"]?.stringValue {
@@ -289,22 +291,26 @@ public final class BookmarksBarProvider: PageProvider {
             return .move(id: id, parent: bar, index: index)
         case "create":
             guard let text = op["url"]?.stringValue, let url = URL(string: text) else { return nil }
-            return .create(.bookmark(op["title"]?.stringValue ?? "", url: url, in: bar), index: index)
+            return .create(id: BookmarkID.make(), profile: profile, parent: bar, index: index, folder: false,
+                           title: op["title"]?.stringValue ?? "", url: url)
         default:
             return nil
         }
     }
 
-    /// Whether `operation` keeps to the bar whose items are `bar` (the profile's own, read by the app,
+    /// Whether `operation` keeps to the bar whose items are `bar` (the profile's own, read from the daemon,
     /// never the page's word): a create at a slot of it, or a move of one of its items to another.
-    static func staysOnBar(_ operation: BookmarkOperation, bar: [BookmarkNode]) -> Bool {
-        switch operation {
-        case .create(_, let index?):
-            index <= bar.count
-        case .move(let id, _, let index):
-            bar.contains { $0.id == id } && index < bar.count
+    static func staysOnBar(_ operation: BookmarkRoutedClient.Op, bar: [BookmarkNode]) -> Bool {
+        let op = operation.json
+        guard op["parent"]?.stringValue == BookmarkRoot.bar.rawValue, let index = op["index"]?.intValue else { return false }
+        switch op["op"]?.stringValue {
+        case "create":
+            return index <= bar.count
+        case "move":
+            guard let id = op["bookmark"]?.stringValue else { return false }
+            return bar.contains { $0.id == id } && index < bar.count
         default:
-            false
+            return false
         }
     }
 
@@ -345,7 +351,9 @@ public final class BookmarksBarProvider: PageProvider {
         case Self.prefix + "contextMenu":
             guard let page, let point = params["point"] else { return .object([:]) }
             let bookmark = params["bookmark"]?.stringValue
-            guard let menu = host.bookmarkBarContextMenu(bookmark: bookmark)?.themeRows(in: page.themeScope.fullStrength) else {
+            let made = host.bookmarkBarContextMenu(bookmark: bookmark, profile: pageHost.profile,
+                                                   isFolder: params["kind"]?.stringValue == "folder", icon: params["icon"]?.stringValue)
+            guard let menu = made?.themeRows(in: page.themeScope.fullStrength) else {
                 return .object([:])
             }
             await page.presentMenu(menu, atPagePoint: CGPoint(x: point["x"]?.doubleValue ?? 0, y: point["y"]?.doubleValue ?? 0))
@@ -367,14 +375,17 @@ public final class BookmarksBarProvider: PageProvider {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
             }
             let lease = pageHost.lease()
-            guard let operation = params["op"].flatMap(Self.operation),
-                  Self.staysOnBar(operation, bar: host.bookmarkTree(lease.profile).children(of: BookmarkRoot.bar.rawValue)) else {
+            guard let operation = params["op"].flatMap({ Self.operation($0, profile: lease.profile) }) else {
                 throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
             }
             spentGesture = event
-            // The write awaits nothing; the lease check keeps it to the tab it was accepted for if one is added.
+            // The bar's own row, read from the daemon (never the page's word), bounds the write.
+            let bar = try await host.bookmarkChildren(of: BookmarkRoot.bar.rawValue, profile: lease.profile)
             try pageHost.requireCurrent(lease, op)
-            try host.bookmarkBarApply(operation, profile: lease.profile)
+            guard Self.staysOnBar(operation, bar: bar) else {
+                throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
+            }
+            try await host.bookmarkBarApply(operation, profile: lease.profile)
             return .object([:])
         case Self.prefix + "refused":
             host.bookmarkBarRefused(params["message"]?.stringValue ?? "")

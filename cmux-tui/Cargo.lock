@@ -1078,6 +1078,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-bookmarks-core",
  "serde",
+ "serde_json",
  "unicode-normalization",
 ]
 
