@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42740223091",
+  "recorded_at": "2026-11-10T02:14:20Z",
+  "reason": "cmux-tui 36251d3bd196 changes the image's cmux-tui (pinned 15e6186b148f)",
+  "dry_run": false,
+  "cmux_tui": "36251d3bd196e82d12e02dc060ff24459a9b3cdb",
+  "fixes": [
+    {
+      "sha": "36251d3bd196e82d12e02dc060ff24459a9b3cdb",
+      "mergedAt": "2026-11-09T17:40:33-08:00",
+      "subject": "Cloud start: the start answers its machine-side phase times (harness session/new vs the rest), logged beside the app's start steps (#40003)"
+    },
+    {
+      "sha": "8c9f2f46fc608787b9baf5e7ed8acd805c5c8b9e",
+      "mergedAt": "2026-11-10T01:39:44Z",
+      "subject": "chore(next): base autofix at 06713be41ff2"
+    },
+    {
+      "sha": "06713be41ff2a254f9de56a3d25fefbe260ed9aa",
+      "mergedAt": "2026-11-10T01:38:16Z",
+      "subject": "cmux-cloud-handlers: a missing --link-id names the machine and port; a share link's port is never empty (#37534)"
+    },
+    {
+      "sha": "1818fd1731269b1894ea061dc92c6d8e452ea538",
+      "mergedAt": "2026-11-10T01:37:43Z",
+      "subject": "Icons: fork is the fork mark on every surface (#39854)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T02:14:20Z",
+    "snapshot_id": "sh-8a0606506240470480841972c53f64cf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42740223091): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "94ac2da5bb61fd05b548f45b1e0443f9b4daa128",
+    "image": "cloud-native-auto-36251d3b-42740223091-1",
+    "revision": "ci-42740223091-1",
+    "at": "2026-11-10T02:14:20Z"
+  },
+  "rolled_back": false
+}
