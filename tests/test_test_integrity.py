@@ -172,6 +172,40 @@ class TestIntegrity(unittest.TestCase):
         self.assertIn("--no-ext-diff", calls[0])
         self.assertIn("--no-textconv", calls[0])
 
+    def test_a_binary_file_in_the_diff_does_not_crash_the_check(self):
+        """#40110 added .webp images to main; `git diff --text` printed their raw bytes and the strict UTF-8
+        decode raised UnicodeDecodeError, so the guard failed on every pull request whose base predated it
+        (run 42752938602, 2026-11-10). The check must still run, and still see a weakened test beside it."""
+        import os
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as repo:
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(*args):
+                subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                               check=True, capture_output=True, env=env)
+
+            git("init", "-q")
+            Path(repo, "tests").mkdir()
+            Path(repo, "tests/test_math.py").write_text("    self.assertEqual(result, 1)\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base")
+            base = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True, env=env).strip()
+            Path(repo, "image.webp").write_bytes(b"RIFF\x00\x00WEBPVP8 \xee\xff\xfe\x80\x00binary")
+            Path(repo, "tests/test_math.py").write_text("    pass\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "head")
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}):
+                    findings = module.run(base)
+            finally:
+                os.chdir(cwd)
+        self.assertEqual([f.kind for f in findings], ["weakened-assertions"])
+
     def test_skip_reason_update_is_not_new_skip(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
 --- a/tests/test_x.py

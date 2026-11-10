@@ -145,7 +145,10 @@ def analyze(name_status: str, diff: str) -> list[Finding]:
 
 
 def _git(*args: str) -> str:
-    return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT)
+    # `diff --text` prints a binary file's raw bytes (#40110's .webp images); replace what is not UTF-8 so the
+    # check still reads every text line instead of crashing (run 42752938602).
+    output = subprocess.check_output(["git", *args], stderr=subprocess.STDOUT)
+    return output.decode("utf-8", errors="replace")
 
 
 def resolve_base(explicit: str | None) -> str:

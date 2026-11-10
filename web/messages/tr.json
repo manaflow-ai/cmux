@@ -3518,11 +3518,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Yeni cmux uygulamasının önizleme sürümleri",
-    "metaTitle": "cmux NEXT NIGHTLY — Önizleme sürümleri",
-    "metaDescription": "Son commit'ten otomatik derlenen yeni cmux uygulamasının önizlemesi cmux NEXT NIGHTLY'yi indirin. Kendi otomatik güncellemeleriyle cmux ile yan yana çalışır.",
+    "metaTitle": "cmux NEXT — Chief ve kodlama ajanlarınız, tek bir Mac uygulamasında",
+    "metaDescription": "cmux NEXT, Mac için yeni cmux'tır. Chief'e ne yapılmasını istediğinizi söyleyin: Kodlama ajanlarını kendi çalışma alanlarında başlatır ve size bilgi verir.",
     "description": "cmux NEXT NIGHTLY, son commit'ten otomatik olarak derlenen bir sonraki cmux sürümünün önizlemesidir. cmux NIGHTLY olarak yüklenir (bundle ID com.cmuxterm.app.nightly); bu yüzden cmux NIGHTLY'nin yerini alır ve cmux ile yan yana çalışır. Apple çipli bir Mac gerektirir.",
     "download": "Mac için NEXT NIGHTLY'yi indir",
-    "warning": "NEXT NIGHTLY sürümleri hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun olursa <githubLink>GitHub</githubLink> üzerinden veya <discordLink>Discord'daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geri dönün."
+    "warning": "NEXT NIGHTLY sürümleri hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun olursa <githubLink>GitHub</githubLink> üzerinden veya <discordLink>Discord'daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geri dönün.",
+    "landing": {
+      "tagline": "Chief'e ne yapılmasını istediğinizi söyleyin. Ajanları o yönetir.",
+      "subtitle": "cmux NEXT, cmux'ın yeni sürümüdür: Ghostty üzerine kurulu yerel bir Mac uygulaması. Yerleşik asistanı Chief, kodlama ajanlarını kendi çalışma alanlarında başlatır, onları izler ve biri size ihtiyaç duyduğunda haber verir. Her ajanın yanında bir terminal, gerçek bir tarayıcı ve diff'ler bulunur.",
+      "requirements": "Apple silicon · macOS 14 veya üzeri · cmux ile yan yana çalışır",
+      "featuresTitle": "Özellikler",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Ne yapılmasını istediğinizi söyleyin. Ajanları başlatır, büyük işleri alt ajanlara verir ve size bilgi verir."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Chief ve tüm ajanlar için tek bir sohbet listesi. Biri size ihtiyaç duyduğunda okunmamış noktası görünür."
+        },
+        "agents": {
+          "title": "Her kodlama ajanı",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi ve daha fazlası, düzenlemeleri ve diff'leri görünen gerçek sohbetler olarak."
+        },
+        "floating": {
+          "title": "Yüzen Chief",
+          "body": "⌘I, Chief'i bulunduğunuz çalışma alanının üzerine getirir. ⌥⇧Space, onu herhangi bir uygulamadan çağırır."
+        },
+        "search": {
+          "title": "Her şeyi arayın",
+          "body": "⌘⇧A; çalışma alanlarını, sekmeleri, ajan sohbetlerini, tarayıcı geçmişini ve eski komutları bulur."
+        },
+        "spaces": {
+          "title": "Alanlar (Spaces)",
+          "body": "Ayrı işler için ayrı pencere kümeleri. ⌃⌥⌘← ve → ile geçiş yapın."
+        },
+        "browser": {
+          "title": "Gerçek bir tarayıcı",
+          "body": "Bir sekmede Chromium; uzantılar, DevTools ve profiller, ajanlarınızın yanında."
+        },
+        "machines": {
+          "title": "Makineleriniz",
+          "body": "Çalışma alanlarını SSH üzerinden ya da boştayken duraklayan cmux Cloud makinelerinde çalıştırın (cmux Pro)."
+        },
+        "history": {
+          "title": "Geçmişinizi getirin",
+          "body": "Claude Code ve Codex geçmişini aranabilir sohbetler olarak içe aktarın ve kaldığınız yerden devam edin."
+        },
+        "terminal": {
+          "title": "Ghostty terminali",
+          "body": "GPU ile çizilir ve Ghostty yapılandırmanızı okur."
+        },
+        "sidebar": {
+          "title": "Kendi kenar çubuğunuz",
+          "body": "Kenar çubuğuna liste veya ızgara olarak bölümler ekleyin; küçük JavaScript uygulamaları olarak yazılır."
+        },
+        "phone": {
+          "title": "iPhone, beta sürümünde",
+          "body": "Bir ajanın izin isteğini telefonunuzdan yanıtlayın."
+        }
+      },
+      "heroAlt": "cmux NEXT: solda Chief'in olduğu Home, sağda düzenlenen dosyalarıyla bir Claude Code ajanı",
+      "demosTitle": "Görün",
+      "demos": {
+        "docked": {
+          "caption": "Chief, bir çalışma alanının yanına sabitlenmiş.",
+          "alt": "Chief, bir terminal çalışma alanının sağına sabitlenmiş"
+        },
+        "floating": {
+          "caption": "⌘I, Chief'i yaptığınız işin üzerinde yüzdürür.",
+          "alt": "Bir terminal çalışma alanının üzerinde yüzen Chief"
+        },
+        "agents": {
+          "caption": "Bir ajanın sohbeti, Chief'inkinin yanında.",
+          "alt": "Chief ile bir sohbetin yanında bir ajan konuşması"
+        },
+        "palette": {
+          "caption": "⌘⇧P, herhangi bir eylemi adıyla çalıştırır.",
+          "alt": "Bir konuşmanın üzerinde açık komut paleti"
+        },
+        "history": {
+          "caption": "Claude Code ve Codex geçmişini getirin.",
+          "alt": "Claude Code, Codex ve diğer kaynakları listeleyen içe aktarma ekranı"
+        },
+        "machines": {
+          "caption": "Bir çalışma alanı grubunun çalışacağı makineyi seçin.",
+          "alt": "Bir çalışma alanı grubunun çalışacağı makineyi seçme"
+        }
+      },
+      "nightlyTitle": "NEXT NIGHTLY hakkında",
+      "nightlyBody": "En son commit'ten her gece yeni bir derleme çıkar ve uygulama kendini günceller.",
+      "iconAlt": "cmux NEXT NIGHTLY simgesi"
+    }
   },
   "languageSwitcher": {
     "label": "Dil"
