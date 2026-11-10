@@ -77,10 +77,10 @@ pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static)
     });
 }
 
-/// Runs once on this thread, in the next snapshot read, after the read loaded its route tables and before it
-/// walks them: a test changes the session under a read that already holds its routes.
 #[cfg(test)]
 thread_local! {
+    /// Runs once on this thread, in the next snapshot read, after the read loaded its route tables and before
+    /// it walks them: a test changes the session under a read that already holds its routes.
     static SNAPSHOT_AFTER_ROUTES_HOOK: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
 }
 
