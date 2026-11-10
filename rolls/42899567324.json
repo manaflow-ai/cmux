@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42899567324",
+  "recorded_at": "2026-11-10T20:56:04Z",
+  "reason": "cmux-tui ba8e4f2e48f3 changes the image's cmux-tui (pinned a7a376e766bb)",
+  "dry_run": false,
+  "cmux_tui": "ba8e4f2e48f37138a7e59f1075125b579551c1e0",
+  "fixes": [
+    {
+      "sha": "8cefd82cf77ad0f76ea7931acfe5ef8e79539aa7",
+      "mergedAt": "2026-11-10T20:30:28Z",
+      "subject": "Every kept terminal starts again after a relaunch: restarts take turns and a failed launch is tried again (#40646)"
+    },
+    {
+      "sha": "c9d49942e90700c7154c89c3e4f6dbcc91e9be1b",
+      "mergedAt": "2026-11-10T20:17:14Z",
+      "subject": "chore(next): base autofix at 00d620a0a2b2"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T20:56:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
