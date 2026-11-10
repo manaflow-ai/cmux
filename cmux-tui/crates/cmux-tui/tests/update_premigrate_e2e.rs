@@ -479,7 +479,9 @@ fn legacy_point(settings: &Settings, site: &Site, label: &str) {
     if settings.legacy_segments {
         let rows = segment_index_rows(&site.registry());
         let removed = strip_segment_indexes(&site.registry());
-        eprintln!("e2e: legacy segments before {label}: had {rows:?} index rows, removed {removed}");
+        eprintln!(
+            "e2e: legacy segments before {label}: had {rows:?} index rows, removed {removed}"
+        );
     }
 }
 
