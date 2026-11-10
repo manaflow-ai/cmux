@@ -37,7 +37,7 @@ fn flush_terminal_lane(mux: &Mux) {
 
 /// Every `terminal.resized` and `terminal.output.gap` record, in journal
 /// order: (kind, payload).
-fn geometry_and_gap_records(mux: &Mux) -> Vec<(String, serde_json::Value)> {
+fn geometry_and_gap_records(mux: &Mux) -> Vec<(String, Value)> {
     let mut found = Vec::new();
     let mut after = 0;
     loop {

@@ -135,9 +135,9 @@ impl JournalIngressSender {
             owed.0.clear();
             return 0;
         }
-        owed.0.retain(|stream, reason| {
+        owed.0.retain(|stream, &mut reason| {
             matches!(
-                self.try_enqueue_terminal(sender, gap_marker(stream, *reason)),
+                self.try_enqueue_terminal(sender, gap_marker(stream, reason)),
                 LaneAnswer::Full
             )
         });
