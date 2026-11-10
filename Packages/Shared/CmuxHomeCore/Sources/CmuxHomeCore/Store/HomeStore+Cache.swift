@@ -65,10 +65,30 @@ extension HomeStore {
                 localFiles[attachment.ref.hash] = attachment.files
                 for url in cached.urls { AttachmentMedia.touch(url.deletingLastPathComponent()) }
             }
-            for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
+            for send in snapshot.sends { restore(send) }
             rebuildRows()
             for id in Set(snapshot.windows.keys).union(snapshot.sends.map(\.conversation)) { bumpTranscript(id) }
         }
+    }
+
+    /// Logs a cached send again. One with attachments gets its upload job back from its files
+    /// (which the prune then keeps), so Retry can upload what is missing, or upload everything
+    /// again under a new key after the owner swept its uploads (`uploadAgainAfterSweep`).
+    private func restore(_ send: HomeCachedSend) {
+        let reached = send.reachedOwner ?? true
+        log.restore(send.intent, failed: send.failed, mayHaveBeenDelivered: send.files == nil ? nil : reached)
+        guard let files = send.files, !files.isEmpty else { return }
+        var attachments: [LocalAttachment] = []
+        for cached in files {
+            guard let attachment = cached.local else { continue }
+            attachments.append(attachment)
+            localFiles[attachment.ref.hash] = attachment.files
+            for url in cached.urls { AttachmentMedia.touch(url.deletingLastPathComponent()) }
+        }
+        guard !attachments.isEmpty else { return }
+        var job = UploadJob(conversation: send.conversation, attachments: attachments)
+        job.reachedOwner = reached
+        uploads[send.key] = job
     }
 
     /// Called on every write to the mirror or the log: schedules a cache write only when what the
@@ -90,7 +110,7 @@ extension HomeStore {
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
         state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
-        state.sends = log.entries.compactMap(HomeCachedSend.init)
+        state.sends = log.entries.compactMap { HomeCachedSend($0, upload: uploads[$0.intent.key]) }
         return state
     }
 

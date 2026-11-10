@@ -65,10 +65,11 @@ public struct IntentLog: Hashable, Sendable {
     /// A send the client's cache kept across a relaunch: unconfirmed (resent
     /// under its key at the first connection), or Not Delivered when it had
     /// failed (the owner may have committed it, so a retry keeps the key).
-    mutating func restore(_ intent: HomeIntent, failed: Bool) {
+    /// `mayHaveBeenDelivered` nil: a failed send may have been (a text send's cache keeps no more).
+    mutating func restore(_ intent: HomeIntent, failed: Bool, mayHaveBeenDelivered: Bool? = nil) {
         guard !entries.contains(where: { $0.intent.key == intent.key }) else { return }
         var entry = PendingIntent(intent: intent, state: failed ? .failed(.indeterminate) : .unconfirmed)
-        entry.mayHaveBeenDelivered = failed
+        entry.mayHaveBeenDelivered = mayHaveBeenDelivered ?? failed
         entries.append(entry)
     }
 

@@ -148,7 +148,7 @@ public final class HomeSidebarSource {
 
     /// The store's rows (plus DEBUG fixture rows).
     private func listed() -> [InboxRow] {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         return debugRows.isEmpty ? rows() : rows() + debugRows
         #else
         return rows()
@@ -159,7 +159,7 @@ public final class HomeSidebarSource {
 
     /// The people the list offers (plus DEBUG fixture teammates).
     private func people() -> [HomeContact] {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         return debugTeam.isEmpty ? contacts() : debugTeam + contacts()
         #else
         return contacts()

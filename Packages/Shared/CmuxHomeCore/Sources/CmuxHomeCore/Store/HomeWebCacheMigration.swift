@@ -7,9 +7,11 @@ import Foundation
 /// write (which never writes those fields) loses them for good.
 ///
 /// - Each pending send becomes a native send with its idempotency key, every part it had (text,
-///   then its files, previews included), thread and reply (``HomeCachedSend``), as a send that may
-///   have been delivered: Retry sends the same message under the same key, never a different one,
-///   and a send of a file alone keeps its row too. Its files' bytes go into the blob cache.
+///   then its files), thread and reply (``HomeCachedSend``), Not Delivered: Retry sends the same
+///   message under the same key, never a different one, and a send of a file alone keeps its row
+///   too. Its files' bytes go into the blob cache and the send keeps them (`files`), so its upload
+///   job comes back and Retry uploads them again when the owner swept its uploads. The page kept
+///   no poster or preview bytes, so the parts carry none (the owner's stored ref is adopted).
 /// - Each staged part becomes a native draft attachment, in the page's tray order. Its kept bytes
 ///   (`<blob cache>-drafts/<hash>`) are copied into the blob cache as `<hash>/data.<ext>`, where the
 ///   prune keeps a draft's files. The same bytes under two names (`photo.jpg`, `photo.jpeg`) get a
@@ -54,23 +56,29 @@ enum HomeWebCacheMigration {
                 let key = IdempotencyKey((row["key"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? entryKey)
                 let text = (row["text"] as? String) ?? ""
                 var parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
+                var local: [HomeCachedDraftAttachment] = []
                 for part in (row["attachments"] as? [[String: Any]]) ?? [] {
-                    guard let ref = attachmentRef(part) else { continue }
-                    _ = files.place(ref)
+                    guard var ref = attachmentRef(part) else { continue }
+                    ref.poster = nil
+                    ref.preview = nil
+                    let url = files.place(ref)
                     parts.append(.attachment(ref))
+                    if !local.contains(where: { $0.ref.hash == ref.hash }) {
+                        local.append(HomeCachedDraftAttachment(LocalAttachment(ref: ref, fileURL: url)))
+                    }
                 }
                 guard !parts.isEmpty, !keys.contains(key) else { continue }
                 keys.insert(key)
                 let createdAt = number(row["createdAt"])
-                let hasFiles = parts.contains { if case .attachment = $0 { true } else { false } }
                 out.sends.append(HomeCachedSend(
                     key: key, conversation: id, parts: parts,
                     issuedAt: createdAt > 0 ? Date(timeIntervalSince1970: createdAt / 1000) : Date(),
-                    // A send with files comes back as one that may have been delivered, so the
-                    // cache keeps it and Retry resends it under its key (the owner holds its uploads).
-                    failed: hasFiles || ((row["failed"] as? Bool) ?? true),
+                    // A send with files comes back Not Delivered; Retry resends it under its key
+                    // (the page uploaded its files), and uploads them again if the owner swept them.
+                    failed: !local.isEmpty || ((row["failed"] as? Bool) ?? true),
                     threadRoot: (row["threadRoot"] as? String).map(MessageID.init(rawValue:)),
-                    parent: (row["replyTo"] as? String).map(MessageID.init(rawValue:))))
+                    parent: (row["replyTo"] as? String).map(MessageID.init(rawValue:)),
+                    files: local.isEmpty ? nil : local, reachedOwner: local.isEmpty ? nil : true))
             }
         }
         files.removeCopiedSources()

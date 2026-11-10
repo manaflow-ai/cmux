@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
@@ -79,8 +80,8 @@ import CmuxHomeCoreTestSupport
         #expect(threadRoot == MessageID("msg_root") && parent == MessageID("msg_parent"))
         #expect(reply.intent.issuedAt == Date(timeIntervalSince1970: 1_700_000_100))
         if case .failed = reply.state {} else { Issue.record("k1 comes back as not sent") }
-        // The file-only send keeps its file as a part of the same message (preview included), so
-        // Retry resends it, not a different one, and none of it lands in the composer.
+        // The file-only send keeps its file as a part of the same message, so Retry resends it,
+        // not a different one, and none of it lands in the composer. Its upload job comes back.
         let fileOnly = try #require(store.log.entries.first { $0.intent.key.rawValue == "k2" })
         guard case .sendMessage(_, let fileParts, let fileThread, let fileParent) = fileOnly.intent.op else {
             Issue.record("k2 is not a send")
@@ -91,7 +92,9 @@ import CmuxHomeCoreTestSupport
             Issue.record("k2 lost its file")
             return
         }
-        #expect(file.hash == Self.sent && file.name == "log.txt" && file.preview?.hash == Self.gone)
+        #expect(file.hash == Self.sent && file.name == "log.txt" && file.preview == nil, "the page kept no preview bytes")
+        #expect(store.uploads[IdempotencyKey("k2")]?.attachments.map(\.ref.hash) == [Self.sent])
+        #expect(store.uploads[IdempotencyKey("k2")]?.reachedOwner == true)
         #expect(fileThread == MessageID("msg_root") && fileParent == MessageID("msg_parent"))
         if case .failed = fileOnly.state {} else { Issue.record("k2 comes back as not sent") }
         #expect(fileOnly.mayHaveBeenDelivered, "Retry resends it under the same key")
@@ -179,15 +182,104 @@ import CmuxHomeCoreTestSupport
         #expect(!FileManager.default.fileExists(atPath: kept.path), "the kept file goes after both copies")
     }
 
-    /// A native send with a file that reached its owner and got no answer survives a relaunch; one
-    /// whose upload failed (it never reached the owner) is still not cached.
-    @Test func aDeliveredSendWithAFileIsCachedAndAFailedUploadIsNot() {
+    /// A send with a file is cached in every state its upload job is in (uploading, sent and
+    /// unanswered, failed), with the job's files, as Not Delivered (Codex review of #40611 at
+    /// d35406d, F1). Without a job it is kept only when it may have reached the owner.
+    @Test func aSendWithAFileIsCachedWithItsJobInEveryState() {
         let ref = AttachmentRef(hash: Self.sent, name: "log.txt", mimeType: "text/plain", byteCount: 9)
-        let op = HomeOp.sendMessage(conversation: Self.austin, parts: [.attachment(ref)], threadRoot: nil, parent: nil)
+        let op = HomeOp.sendMessage(conversation: Self.austin, parts: [.text("hi"), .attachment(ref)], threadRoot: nil, parent: nil)
+        let file = LocalAttachment(ref: ref, fileURL: URL(fileURLWithPath: "/tmp/blobs/\(Self.sent)/data.txt"))
+        let job = HomeStore.UploadJob(conversation: Self.austin, attachments: [file])
+        for state in [PendingIntent.State.sending, .unconfirmed, .failed(.ownerUnreachable)] {
+            var entry = PendingIntent(intent: HomeIntent(key: IdempotencyKey("s"), op: op), state: state)
+            entry.isUploading = state == .sending
+            let cached = HomeCachedSend(entry, upload: job)
+            #expect(cached?.parts == [.text("hi"), .attachment(ref)])
+            #expect(cached?.files == [HomeCachedDraftAttachment(file)] && cached?.reachedOwner == false && cached?.failed == true)
+        }
         var delivered = PendingIntent(intent: HomeIntent(key: IdempotencyKey("d"), op: op), state: .failed(.indeterminate))
         delivered.mayHaveBeenDelivered = true
-        #expect(HomeCachedSend(delivered)?.parts == [.attachment(ref)])
-        let uploadFailed = PendingIntent(intent: HomeIntent(key: IdempotencyKey("u"), op: op), state: .failed(.ownerUnreachable))
-        #expect(HomeCachedSend(uploadFailed) == nil)
+        #expect(HomeCachedSend(delivered)?.parts == [.text("hi"), .attachment(ref)])
+        let lost = PendingIntent(intent: HomeIntent(key: IdempotencyKey("u"), op: op), state: .failed(.ownerUnreachable))
+        #expect(HomeCachedSend(lost) == nil, "no files and never sent: nothing to resend")
+    }
+
+    /// Quitting while a send with a file waits for its answer keeps the whole message: the next
+    /// launch shows it Not Delivered with its upload job, and Retry delivers it once (F1).
+    @Test func aSendWithAFileWaitingForItsAnswerSurvivesAQuit() async throws {
+        let root = try temporaryDirectory()
+        let clock = ManualClock()
+        let source = MockHomeSource(options: .immediate)
+        let cacheURL = root.appendingPathComponent("home.json")
+        let store = HomeStore(source: source, blobCacheDirectory: root.appendingPathComponent("blobs"), clock: clock,
+                              cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        await store.open(Self.austin)
+        let a = try await store.prepareAttachment(data: Data("quit while sending".utf8), typeIdentifier: UTType.plainText.identifier)
+        let key = IdempotencyKey("quit-pending")
+        await source.failNextSubmits(of: key, times: 1_000)
+        _ = try? await store.send(conversation: Self.austin, text: "with a file", attachments: [a], key: key)
+        await store.flushCache()
+        store.stop()
+
+        let written = try #require(HomeCache(url: cacheURL).load())
+        let cached = try #require(written.sends.first { $0.key == key })
+        #expect(cached.parts.contains(.text("with a file")) && cached.files?.map(\.ref.hash) == [a.ref.hash])
+
+        await source.failNextSubmits(of: key, times: 0)
+        let next = HomeStore(source: source, blobCacheDirectory: root.appendingPathComponent("blobs"),
+                             cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        next.primeFromCache()
+        defer { next.stop() }
+        let restored = try #require(next.log.entries.first { $0.intent.key == key })
+        if case .failed = restored.state {} else { Issue.record("it comes back Not Delivered") }
+        #expect(next.uploads[key]?.attachments.map(\.ref.hash) == [a.ref.hash])
+        next.start()
+        await waitUntil { next.isOnline && !next.rows.isEmpty }
+        await next.open(Self.austin)
+        _ = try? await next.retry(key)
+        await waitUntil { next.log.isEmpty }
+        #expect(next.log.isEmpty, "Retry delivered it")
+    }
+
+    /// A migrated send whose uploads the owner swept: Retry under its key gets
+    /// `unknown_attachment`, uploads the copied bytes again and delivers it once (F2).
+    @Test func aMigratedSendWithAFileUploadsAgainAfterTheOwnerSweptIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-web-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blobs = root.appendingPathComponent("blobs")
+        let kept = HomeWebCacheMigration.keptDirectory(beside: blobs)
+        try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: true)
+        let bytes = Data("swept file".utf8)
+        let hash = sha256Hex(bytes)
+        try bytes.write(to: kept.appendingPathComponent(hash))
+        var snapshot = HomeCacheSnapshot()
+        snapshot.pendingWebSends = [Self.austin: [
+            "k4": try Self.json(["key": "k4", "text": "",
+                                 "attachments": [["hash": hash, "name": "swept.txt", "mimeType": "text/plain",
+                                                  "byteCount": bytes.count]],
+                                 "createdAt": 1_700_000_400_000, "failed": true]),
+        ]]
+        try JSONEncoder().encode(snapshot).write(to: root.appendingPathComponent("home.json"))
+
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source, blobCacheDirectory: blobs,
+                              cache: HomeCache(url: root.appendingPathComponent("home.json")), cacheWriteDelay: .zero)
+        defer { store.stop() }
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        await store.open(Self.austin)
+        let before = await source.hasBlob(hash)
+        #expect(!before, "the owner swept the page's upload")
+        let key = IdempotencyKey("k4")
+        _ = try? await store.retry(key)
+        await waitUntil { store.log.isEmpty }
+        let after = await source.hasBlob(hash)
+        #expect(after, "the copied bytes went up again")
+        let messages = try await source.snapshot(of: Self.austin, tail: 50).messages.filter { message in
+            message.parts.contains { if case .attachment(let ref) = $0 { ref.hash == hash } else { false } }
+        }
+        #expect(messages.count == 1)
     }
 }
