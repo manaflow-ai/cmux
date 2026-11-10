@@ -60,6 +60,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
     # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
     "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. It writes a fixture .github/workflows/nightly.yml into a throwaway
+    # repository and pushes it through the real pre-push hook (the workflow YAML layer of prepush-gate.py); it
+    # reads no real workflow. Run it by hand when that layer changes. Exit: as above.
+    "tests/test_cmux_next_prepush_workflow_yaml.py",
     # lane = "manual" for the same rule. They check the cmux-next swift test job's shard plan and its
     # main-thread-heavy split; run them by hand after changing scripts/cmux-next/swift-test-shards.py,
     # main-thread-heavy-suites.py or that job.
@@ -74,10 +78,34 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that generate-nightly-deltas checks out only scripts/ of the
     # build ref and that the reel's apt install retries; run it by hand after changing either.
     "tests/test_nightly_deltas_sparse_checkout.py",
+    # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml in
+    # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
+    # changing that step or a sparse checkout in a job that shares the builder's workspace.
+    "tests/test_nightly_warm_checkout_sparse.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
     "tests/test_nightly_next_artifact_check.py",
+    # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
+    # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
+    "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group held through the
+    # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
+    # changing decide, retry-nightly-next or dispatch-published-in.
+    "tests/test_nightly_next_single_loop.py",
+    # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
+    # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
+    # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
+    "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
+    # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
+    "tests/test_nightly_artifact_uploads_retry.py",
+    # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
+    # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
+    "tests/test_nightly_deltas_keyless_prebuild.py",
+    # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
+    # checks the outputs the build and publish jobs read; run it by hand after changing that block.
+    "tests/test_nightly_next_notary_full_import.py",
     # lane = "manual" for the same rule (their tests/test-execution.toml entries say so: wiring them as
     # linux-guard reddened tooling-tests on every pull request). Run each by hand after changing what it reads:
     # .github/runners.json linux_sizes or a Blacksmith Linux runs-on (#30360);
@@ -87,6 +115,14 @@ UNWIRED: set[str] = {
     # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
     # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
     "tests/test_ci_cloud_probe_rescue.py",
+    # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
+    # its call into nightly-next-rollback.yml; run it by hand after changing either or
+    # scripts/ci/nightly_next_rollback_drill.py.
+    "tests/test_nightly_next_rollback_drill.py",
+    # lane = "manual" for the same rule. It reads every workflow as data: a job in a secrets-only environment says
+    # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
+    # environment to a job.
+    "tests/test_ci_secrets_only_environments_log_no_deployment.py",
 }
 
 

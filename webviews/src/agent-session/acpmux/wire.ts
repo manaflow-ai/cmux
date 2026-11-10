@@ -40,12 +40,18 @@ export type WireEntry = {
 export type WireStats = {
   entries: number;
   dropped: number;
+  /// Characters of message text the log holds (at most MAX_TEXT_CHARS).
+  textChars: number;
+  /// The `seq` of the oldest entry kept: everything before it was dropped.
+  oldestSeq?: number;
   requests: number;
   errors: number;
   inFlight: number;
   connects: number;
   closes: number;
   reconnects: number;
+  /// Full transcript replaces of the chat on screen (direct.ts `noteReplace`).
+  transcriptReplaces: number;
   lastError?: string;
   latencyP50Ms?: number;
   latencyMaxMs?: number;
@@ -79,6 +85,14 @@ const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
 };
 const AGENT_LOGIN_START = "_acpmux/agent_login/start";
 
+/// A copy of `text` that holds its own characters. An engine's slice of a long string can point into the
+/// string it came from (a V8 sliced string), so a log entry of a message's first MAX_PAYLOAD_CHARS kept the whole
+/// message alive: a god chat's MB pages stayed in memory, uncounted by MAX_TEXT_CHARS. A JSON round trip builds a
+/// new flat string (a cut surrogate pair survives it as the same lone code unit).
+export function ownCopy(text: string): string {
+  return JSON.parse(JSON.stringify(text)) as string;
+}
+
 /// `text` with `fields` of its `params` (or `result`) replaced, for the log.
 function withoutFields(text: string, part: "params" | "result", fields: readonly string[]): string {
   try {
@@ -110,7 +124,7 @@ export class AcpWireLog {
   private droppedCount = 0;
   private pending = new Map<number, Pending>();
   private latencies: number[] = [];
-  private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0 };
+  private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0, transcriptReplaces: 0 };
   private lastError?: string;
   private listeners = new Set<Listener>();
   private readonly now: () => number;
@@ -187,6 +201,7 @@ export class AcpWireLog {
     if (event === "connected") this.counters.connects += 1;
     if (event === "close") this.counters.closes += 1;
     if (event === "reconnect scheduled") this.counters.reconnects += 1;
+    if (event === "transcript replaced") this.counters.transcriptReplaces += 1;
     if (event === "error" || event === "connect failed")
       this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
     if (event === "close") {
@@ -207,6 +222,8 @@ export class AcpWireLog {
     return {
       entries: this.log.length,
       dropped: this.droppedCount,
+      textChars: this.bytes,
+      oldestSeq: this.log[0]?.seq,
       ...this.counters,
       inFlight: this.pending.size,
       lastError: this.lastError,
@@ -246,7 +263,7 @@ export class AcpWireLog {
     const truncated = text.length > MAX_PAYLOAD_CHARS;
     return {
       size: text.length,
-      text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text,
+      text: truncated ? ownCopy(text.slice(0, MAX_PAYLOAD_CHARS)) : text,
       truncated: truncated || undefined,
     };
   }

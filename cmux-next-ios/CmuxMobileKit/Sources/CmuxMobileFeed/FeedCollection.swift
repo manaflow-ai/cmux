@@ -15,6 +15,8 @@ final class FeedListControl {
     var atTop = true
     /// Events that arrived above the reader while they read below the top (the "N new" pill).
     var newAbove = 0
+    /// A jump to the top (the pill's) is under way: the pill stays until it lands.
+    var jumpingToTop = false
     @ObservationIgnored fileprivate weak var controller: FeedListController?
 
     func scrollToTop(animated: Bool = true) { controller?.scrollToTop(animated: animated) }
@@ -196,6 +198,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
         }, for: .valueChanged)
         view.refreshControl = refresh
+        let catcher = FeedJumpTouchCatcher(target: self, action: #selector(touchDuringJump(_:)))
+        catcher.isArmed = { [weak self] in self?.jumpingToTop ?? false }
+        view.addGestureRecognizer(catcher)
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
 
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
@@ -415,7 +420,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
-        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor()
+        let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
         let previousOrder = shownOrder
         let previousSet = shownSet
         shownOrder = next.map(\.id)
@@ -618,23 +623,36 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     // MARK: Row state
 
-    private func mutateState(_ id: String, animated: Bool = true, _ change: (inout FeedRowState) -> Void) {
+    /// `keepsTop`: the person toggled this row (Show more, Show less, a quote, a code block): its top
+    /// stays where it is on screen and only what is below it moves.
+    private func mutateState(_ id: String, animated: Bool = true, keepsTop: Bool = false, _ change: (inout FeedRowState) -> Void) {
         var state = states[id] ?? FeedRowState()
         change(&state)
         states[id] = state
-        refreshRows([id], animated: animated)
+        refreshRows([id], animated: animated, keepingTopOf: keepsTop ? id : nil)
     }
 
     /// Lays out `ids` again at once (a row's own state changed) and reconfigures them.
-    private func refreshRows(_ ids: [String], animated: Bool) {
+    private func refreshRows(_ ids: [String], animated: Bool, keepingTopOf kept: String? = nil) {
         guard let dataSource, let collectionView else { return }
         let present = ids.filter { shownKeys[$0] != nil && items[$0] != nil }
         guard !present.isEmpty else { return }
-        let anchor = control.atTop || jumpingToTop ? nil : visibleAnchor(excluding: Set(present))
+        // The new layouts first: a toggled row's anchor depends on whether it grows.
+        var keys: [String: FeedRowKey] = [:]
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
             if layouts.cached(key) == nil { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
+            keys[id] = key
+        }
+        // A row the person toggled keeps its top where it is, so what they read does not move: anchoring
+        // the row after it (as for a row that resized on its own) pushed a growing row's top, and
+        // everything above it, up whenever that top was under the bars. A shrinking row whose top is
+        // above the screen (Show less at the end of a long body) keeps the row after it instead, so
+        // its end stays where the person tapped and its start is not left far above the screen.
+        let anchor = jumpingToTop ? nil
+            : kept.flatMap { toggledRowAnchor($0) } ?? (syncAtTop() ? nil : visibleAnchor(excluding: Set(present)))
+        for (id, key) in keys {
             shownKeys[id] = key
             shownHeights[id] = layouts.cached(key)?.height ?? 1
         }
@@ -674,6 +692,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return nil
     }
 
+    /// The anchor for a row the person toggled (its state already changed): its own top, unless it
+    /// shrinks with its top above the screen (then nil: the row after it is kept).
+    private func toggledRowAnchor(_ id: String) -> Anchor? {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: id), let item = items[id] else { return nil }
+        let frame = collectionView.rectForRow(at: indexPath)
+        let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let visibleBottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+        guard frame.maxY > visibleTop, frame.minY < visibleBottom else { return nil }
+        let newHeight = layouts.cached(key(for: item))?.height ?? frame.height
+        if newHeight < frame.height - 0.5, frame.minY < visibleTop - 0.5 { return nil }
+        return Anchor(id: id, delta: frame.minY - collectionView.contentOffset.y)
+    }
+
     private func restore(_ anchor: Anchor) {
         guard let collectionView, let indexPath = dataSource?.indexPath(for: anchor.id) else { return }
         collectionView.layoutIfNeeded()
@@ -681,31 +712,90 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let minY = -collectionView.adjustedContentInset.top
         let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
         let y = min(max(frame.minY - anchor.delta, minY), maxY)
-        if abs(y - collectionView.contentOffset.y) > 0.25 { collectionView.contentOffset.y = y }
+        if abs(y - collectionView.contentOffset.y) > 0.25 {
+            trace("restore \(Int(collectionView.contentOffset.y))->\(Int(y)) top=\(control.atTop)")
+            collectionView.contentOffset.y = y
+        }
     }
 
     // MARK: Commands
 
+    /// DEBUG: what moved the list around a jump to the top, newest last, as the list's
+    /// accessibility value (the pill UI tests attach it). Release: nothing.
+    private func trace(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        jumpTrace.append(String(format: "%.2f ", CACurrentMediaTime()) + line())
+        if jumpTrace.count > 40 { jumpTrace.removeFirst(jumpTrace.count - 40) }
+        collectionView?.accessibilityValue = jumpTrace.joined(separator: "\n")
+        #endif
+    }
+
+    #if DEBUG
+    private var jumpTrace: [String] = []
+    private var lastTracedOffset: CGFloat = 0
+    #endif
+
     /// A jump to the top (the "N new" pill) is under way until it lands or the person drags.
-    private var jumpingToTop = false
+    private var jumpingToTop = false {
+        didSet { if control.jumpingToTop != jumpingToTop { control.jumpingToTop = jumpingToTop } }
+    }
 
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
         jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        trace("jump from \(Int(collectionView.contentOffset.y)) to \(Int(top.y)) animated=\(jumpingToTop)")
         collectionView.setContentOffset(top, animated: jumpingToTop)
-        if !jumpingToTop, collectionView.contentOffset != top { collectionView.contentOffset = top }
-        control.newAbove = 0
+        if !jumpingToTop {
+            if collectionView.contentOffset != top { collectionView.contentOffset = top }
+            reachedTop()
+        }
+        // A jump clears the count when it reaches the top (scrollViewDidScroll), so the pill keeps
+        // it until then and keeps it when a touch stops the jump on the way.
+    }
+
+    /// Whether the list shows its top (within 60 pt), read from the live offset and published to
+    /// the screen. Read where it decides something, never from the last scroll callback: a jump's
+    /// landing can reach the top with no `scrollViewDidScroll` at the final offset, and a stale
+    /// "not at top" made every new event keep the reader's row in place, pushing the list back down
+    /// by each event's height right after the pill landed it at the top.
+    @discardableResult
+    private func syncAtTop() -> Bool {
+        guard let collectionView else { return control.atTop }
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top < 60
+        if top != control.atTop { control.atTop = top }
+        if top { reachedTop() }
+        return top
+    }
+
+    /// The events above have been seen: the pill's count clears.
+    private func reachedTop() {
+        if control.newAbove != 0 { control.newAbove = 0 }
+        store.clearUnseen()
+    }
+
+    /// A touch on the list while a jump to the top moves it: the jump stops where it is (as a touch
+    /// stops a fling), and the touch is the list's, never the row's that moved under the finger.
+    @objc private func touchDuringJump(_ catcher: FeedJumpTouchCatcher) {
+        guard catcher.state == .began, let collectionView else { return }
+        trace("touch during jump at \(Int(collectionView.contentOffset.y))")
+        jumpingToTop = false
+        // Within the last stretch (the pill already gone) the jump finishes: it lands at the top.
+        let here = control.atTop ? CGPoint(x: 0, y: -collectionView.adjustedContentInset.top) : collectionView.contentOffset
+        collectionView.setContentOffset(here, animated: false)
     }
 
     /// A snapshot applied during a jump to the top can move or stop the animated offset: aim at
     /// the top again so the jump still lands there.
     private func continueJumpToTop() {
         guard jumpingToTop, let collectionView else { return }
+        trace("re-aim at \(Int(collectionView.contentOffset.y))")
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: true)
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop) top=\(control.atTop)")
+        defer { syncAtTop() }
         guard jumpingToTop else { return }
         jumpingToTop = false
         // Land exactly at the top, whatever changed while the list moved.
@@ -751,18 +841,25 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let top = scrollView.contentOffset.y + scrollView.adjustedContentInset.top < 60
-        if top != control.atTop { control.atTop = top }
-        if top {
-            if control.newAbove != 0 { control.newAbove = 0 }
-            store.clearUnseen()
-            // Back at the top: what scrolling brought back from disk goes back there.
-            if !scrollView.isTracking { store.restoreWindow() }
+        // Back at the top: what scrolling brought back from disk goes back there.
+        if syncAtTop(), !scrollView.isTracking { store.restoreWindow() }
+        #if DEBUG
+        // A jump moves only toward the top: a step away from it is something else moving the list.
+        if jumpingToTop, scrollView.contentOffset.y > lastTracedOffset + 0.5 {
+            trace("moved away \(Int(lastTracedOffset))->\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height))")
+        }
+        lastTracedOffset = scrollView.contentOffset.y
+        #endif
+        // At the top exactly: the jump is over, whether or not its animation reported its end.
+        if jumpingToTop, abs(scrollView.contentOffset.y + scrollView.adjustedContentInset.top) <= 0.25 {
+            trace("reached top")
+            jumpingToTop = false
         }
         markMoving()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        trace("drag at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop)")
         // The person took over: a jump to the top in flight ends where they caught it.
         jumpingToTop = false
         #if DEBUG
@@ -870,11 +967,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func rowToggleExpanded(_ id: String) {
-        mutateState(id) { $0.expanded.toggle() }
+        mutateState(id, keepsTop: true) { $0.expanded.toggle() }
     }
 
     func rowToggleQuote(_ id: String) {
-        mutateState(id) { $0.quoteExpanded.toggle() }
+        mutateState(id, keepsTop: true) { $0.quoteExpanded.toggle() }
     }
 
     func rowToggleReply(_ id: String) {
@@ -1004,7 +1101,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func rowCodeExpand(_ id: String) {
-        mutateState(id) { $0.codeExpanded = true }
+        mutateState(id, keepsTop: true) { $0.codeExpanded = true }
     }
 
     func rowWebHeight(_ id: String, _ height: CGFloat) {

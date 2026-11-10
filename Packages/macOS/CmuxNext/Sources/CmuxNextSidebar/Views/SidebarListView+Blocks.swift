@@ -94,11 +94,14 @@ final class SidebarBlockRowView: SidebarRowView {
     func springShow(_ content: SidebarRegionView.Content, width: CGFloat) {
         region.springShow(content, width: width)
         region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
+        region.realizeItems()
     }
 
     func show(_ content: SidebarRegionView.Content, width: CGFloat, animated: Bool) {
         region.show(content, width: width, animated: animated)
         region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
+        // The same content at a new slot (a recycled block, the rows above it changed) shows the items now in reach.
+        region.realizeItems()
     }
 
     override func updateLayer() {}
@@ -231,7 +234,9 @@ extension SidebarListViewComponents {
             drag.docAcceptance = keepingFixed(doc.begin([id.rawValue]))
             self.drag = drag
             setHovered(nil)
+            SidebarEmptyZones.keepPinned(self, drag)
             showDragLayout() // the tile's slot closes on the drag's spring
+            SidebarEmptyZones.begin(self, drag)
         }
         updateDrag(windowPoint: event.locationInWindow)
         return true

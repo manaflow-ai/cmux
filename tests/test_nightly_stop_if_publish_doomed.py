@@ -134,7 +134,8 @@ class StepsAreWired(unittest.TestCase):
         first = self.steps[self.index("Upload unsigned nightly app")]
         retry = self.steps[self.index("Upload unsigned nightly app (retry)")]
         self.assertEqual((first["timeout-minutes"], first["continue-on-error"], first["id"]), (10, True, "upload-unsigned"))
-        self.assertEqual(retry["if"], "steps.upload-unsigned.outcome == 'failure'")
+        # A doomed run's stop step fails before the first try, which is then skipped, so the retry never runs.
+        self.assertEqual(retry["if"], f"!cancelled() && steps.upload-unsigned.outcome == 'failure' && ({first['if']})")
         self.assertEqual(retry["timeout-minutes"], 10)
         self.assertEqual(retry["with"]["overwrite"], True)
         self.assertEqual({k: v for k, v in retry["with"].items() if k != "overwrite"},

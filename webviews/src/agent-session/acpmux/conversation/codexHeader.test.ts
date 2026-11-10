@@ -2,7 +2,7 @@
 // A finished Codex turn's header, as Codex's own (Leo, 2026-11-02: "i assume the x previous messages
 // are when there's a mix and the worked for is if it's one contiguous thing ... let's follow those"):
 // work with the agent's messages between it reads "N previous messages", work alone "Worked for".
-// A Claude turn draws no header by default; only its opt-in (turnFoldStyle.ts) folds it under "Worked for".
+// A Claude turn folds under "Worked for" with no message count (ChatGPT's header, turnFoldStyle.ts).
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { WORKED, turnView, workedLabel } from "./turns";
@@ -62,7 +62,7 @@ test("work with the agent's messages between it reads N previous messages", () =
   expect(workedLabel(t, row!)).toBe("6 previous messages");
 });
 
-test("a Claude turn keeps its per-run folding and draws no header", () => {
+test("a Claude turn reads Worked for, never a message count", () => {
   const rows = [
     prompt,
     work("w1", 1_000, 2),
@@ -71,7 +71,9 @@ test("a Claude turn keeps its per-run folding and draws no header", () => {
     say("a", 50_000, "Done."),
     end,
   ];
-  expect(header(rows, "claude")).toBeUndefined();
+  const row = header(rows, "claude");
+  expect(row?.previous).toBeUndefined();
+  expect(workedLabel(t, row!)).toBe("Worked for 1m");
 });
 
 test("a message joining the fold redraws the header: its count is part of the row's version", () => {

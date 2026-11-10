@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -61,6 +62,191 @@ struct AgentPaneCloudStartTests {
         #expect(!model.transport.replacements.beginSandbox())
     }
 
+    private static func code(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
+
+    private static let cancel = AgentPaneRequest(body: ["method": "cloud.signInCancel"])
+
+    /// The card's Sign in for start `key` (`cloud.signIn {key}`); the page owns the wait (cloudSignIn.ts).
+    private static func signIn(_ key: String) -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": "cloud.signIn", "params": ["key": key]])
+    }
+
+    /// The page's send again of start `key` once its `cloud.signIn` signed in.
+    private static func signedIn(_ key: String) -> AgentPaneRequest {
+        start(["task": "preserved prompt", "key": key, "home": true, "signedIn": true])
+    }
+
+    @Test func aSignInOnAClickKeepsThatClickForItsStartOnce() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            // The click is spent on the sign-in; nothing starts while the browser is open.
+            #expect(!model.transport.gestures.isAvailable)
+            #expect(starts.seen.isEmpty)
+            return true
+        }
+        let key = UUID().uuidString
+        // A scripted request opens no browser.
+        #expect(Self.code(await model.respond(to: Self.signIn(key))) == "transport.gesture_required")
+        #expect(signIns == 0)
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.signIn(key))
+        #expect(reply["ok"] as? Bool == true)
+        #expect((reply["value"] as? [String: Any])?["signedIn"] as? Bool == true)
+        #expect(signIns == 1)
+        #expect(starts.seen.isEmpty)
+        // The send again needs no gesture: the sign-in kept its click for this start, once.
+        #expect(await model.respond(to: Self.signedIn(key))["ok"] as? Bool == true)
+        #expect(starts.seen.map(\.task) == ["preserved prompt"])
+        model.transport.replacements.endSandbox()
+        #expect(Self.code(await model.respond(to: Self.signedIn(key))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.count == 1)
+    }
+
+    /// The race the kept click closes: the browser returns, then the page leaves Cloud before it
+    /// sends again. Its cancel drops the click, so a send that still arrives starts nothing.
+    @Test func leavingCloudAfterAuthCompletesSendsNothing() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { true }
+        model.transport.gestures.record()
+        let key = UUID().uuidString
+        #expect(await model.respond(to: Self.signIn(key))["ok"] as? Bool == true)
+        #expect(await model.respond(to: Self.cancel)["ok"] as? Bool == true)
+        // A fresh click does not stand in for the dropped one.
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.signedIn(key))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+    }
+
+    /// The kept click authorizes only the start it was kept for: another key, or a send again
+    /// with no sign-in before it, starts nothing, and does not spend the person's click.
+    @Test func aSignedInSendStartsOnlyTheStartItsSignInKept() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { true }
+        let other = Self.signedIn(UUID().uuidString)
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: other)) == "cloud_sign_in_cancelled")
+        #expect(model.transport.gestures.isAvailable)
+        let key = UUID().uuidString
+        #expect(await model.respond(to: Self.signIn(key))["ok"] as? Bool == true)
+        #expect(Self.code(await model.respond(to: other)) == "cloud_sign_in_cancelled")
+        // That try spent the kept click: the right key comes too late.
+        #expect(Self.code(await model.respond(to: Self.signedIn(key))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+    }
+
+    @Test func aSignInThatEndsSignedOutKeepsNoClick() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { false }
+        model.transport.gestures.record()
+        let key = UUID().uuidString
+        #expect(Self.code(await model.respond(to: Self.signIn(key))) == "not_signed_in")
+        #expect(Self.code(await model.respond(to: Self.signedIn(key))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+    }
+
+    /// The page left Cloud while the browser was open: the sign-in stands, but it keeps no click.
+    @Test func leavingCloudDuringSignInKeepsNoClick() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = {
+            #expect(await model.respond(to: Self.cancel)["ok"] as? Bool == true)
+            return true
+        }
+        model.transport.gestures.record()
+        let key = UUID().uuidString
+        #expect(Self.code(await model.respond(to: Self.signIn(key))) == "cloud_sign_in_cancelled")
+        #expect(Self.code(await model.respond(to: Self.signedIn(key))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+    }
+
+    /// Signed in meanwhile (Settings, another pane or window): the click resumes without the browser.
+    @Test func anAccountAlreadySignedInSignsInWithoutTheBrowser() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            return true
+        }
+        model.onCloudSignedIn = { true }
+        model.transport.gestures.record()
+        let key = UUID().uuidString
+        #expect(await model.respond(to: Self.signIn(key))["ok"] as? Bool == true)
+        #expect(signIns == 0)
+        #expect(await model.respond(to: Self.signedIn(key))["ok"] as? Bool == true)
+        #expect(starts.seen.count == 1)
+    }
+
+    /// The page's deadline passed (`cloud.signInCancel {expired: true}`): the browser sign-in it waited
+    /// on is cancelled, so its Sign in again opens a fresh one instead of waiting on the abandoned one.
+    @Test func anExpiredSignInEndsItsBrowserSignIn() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = {
+            try? await Task.sleep(for: .seconds(600))
+            return !Task.isCancelled
+        }
+        model.transport.gestures.record()
+        let key = UUID().uuidString
+        let reply = Task { Self.code(await model.respond(to: Self.signIn(key))) }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while model.cloudSignInBrowser == nil, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(model.cloudSignInBrowser != nil)
+        let expired = AgentPaneRequest(body: ["method": "cloud.signInCancel", "params": ["expired": true]])
+        #expect(await model.respond(to: expired)["ok"] as? Bool == true)
+        #expect(model.cloudSignInBrowser == nil)
+        #expect(await reply.value == "not_signed_in")
+        #expect(starts.seen.isEmpty)
+    }
+
+    /// Left Cloud and came back while the browser is still open: the new click waits on that same
+    /// browser sign-in, and opens no second one.
+    @Test func aClickAfterACancelWaitsOnTheSameBrowserSignIn() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        let opened = AsyncStream<Void>.makeStream()
+        let browser = AsyncStream<Bool>.makeStream()
+        model.onCloudSignIn = {
+            signIns += 1
+            opened.continuation.yield()
+            for await signedIn in browser.stream { return signedIn }
+            return false
+        }
+        let first = UUID().uuidString, second = UUID().uuidString
+        model.transport.gestures.record()
+        let left = Task { Self.code(await model.respond(to: Self.signIn(first))) }
+        for await _ in opened.stream { break }
+        #expect(await model.respond(to: Self.cancel)["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        let back = Task { Self.code(await model.respond(to: Self.signIn(second))) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(signIns == 1)
+        browser.continuation.yield(true)
+        browser.continuation.finish()
+        #expect(await left.value == "cloud_sign_in_cancelled")
+        #expect(await back.value == nil)
+        #expect(signIns == 1)
+        #expect(model.cloudSignInBrowser == nil)
+        #expect(await model.respond(to: Self.signedIn(second))["ok"] as? Bool == true)
+        #expect(starts.seen.count == 1)
+    }
+
+    /// A chat opened in this pane: its Cloud start card's sign-in is gone with it.
+    @Test func aPaneWithAChatSignsNothingIn() async {
+        let starts = Starts()
+        let model = Self.pane(starts, sessionId: "chat-1")
+        model.onCloudSignIn = { true }
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.signIn(UUID().uuidString))) == "unsupported")
+    }
+
     @Test func theMachinesChatStartsWithThePromptAgentAndModelThePagePicked() throws {
         let start = try #require(AgentPaneCloudStart(params: Self.good))
         let seed = start.seed(cwd: "/home/cmux/work/paint-1a2b3c")
@@ -73,6 +259,21 @@ struct AgentPaneCloudStartTests {
         let unnamed = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         #expect(unnamed.seed(cwd: "/w").model == nil)
         #expect(unnamed.seed(cwd: "/w").harness == nil)
+    }
+
+    /// What the sending tab's composer held while the start ran (its unsent text) is the started chat's
+    /// draft, shown and never sent, beside the prompt that goes by itself; an attachment-only start too.
+    @Test func theStartedChatsDraftIsWhatTheSendingTabTypedMeanwhile() throws {
+        let start = try #require(AgentPaneCloudStart(params: Self.good))
+        let seed = start.seed(cwd: "/w", draft: "and the nightly")
+        #expect(seed.draft == "and the nightly")
+        #expect(seed.prompt == "fix the build")
+        #expect(start.seed(cwd: "/w").draft == nil)
+        let image = JSONValue.object(["id": .string("shot"), "kind": .string("image"), "name": .string("shot.png")])
+        let chipsOnly = try #require(AgentPaneCloudStart(params: ["task": "", "key": UUID().uuidString, "attachments": [image.foundationObject]]))
+        let attached = chipsOnly.seed(cwd: nil, draft: "and the nightly")
+        #expect(attached.draft == "and the nightly")
+        #expect(attached.promptAttachments == [image])
     }
 
     @Test func aChatWithNoProjectStartsInTheMachinesOwnFolder() throws {
@@ -395,6 +596,29 @@ struct AgentPaneCloudReservationTests {
         #expect(requests.first?.params["composeKey"]?.stringValue == key)
         model.remoteChat = true
         _ = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": key]]))
+        #expect(requests.count == 2)
+    }
+
+    /// A Send that stopped waiting for a slow reserve (cloudComposeReservation.ts) goes without it: the
+    /// pane releases the reserve as it answers, so no machine stays reserved after the tab closes.
+    @Test func aReserveThatAnswersAfterTheSendWentWithoutItIsReleasedHere() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        var requests: [AgentPaneCloudReservationRequest] = []
+        model.onCloudReservation = { [weak model] request in
+            requests.append(request)
+            // The Send arrives while the reserve is out, and goes without it.
+            if !request.release { model?.dropCloudReservation() }
+            return ["ok": true, "machine": "vm-late"]
+        }
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        let answer = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": key]]))
+        #expect(answer["ok"] as? Bool == false)
+        #expect(requests.map(\.release) == [false, true])
+        #expect(requests.last?.params["composeKey"]?.stringValue == key)
+        #expect(!model.ownsCloudReservation(key))
+        // The page's own release after it settles finds nothing left to release.
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.releaseReservation", "params": ["composeKey": key]]))
         #expect(requests.count == 2)
     }
 

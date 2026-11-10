@@ -678,18 +678,13 @@ fn encoded(words: &[String]) -> Value {
 }
 
 /// The requests the CLI's encoder builds, which the app's `ArgumentActionContractTests` validate against
-/// its catalog: `cmux cloud start-chat`'s relay request as `cloud_start_chat` builds it, and, for each
-/// action the CLI offers, its CLI name with every argument given as its `--flag`.
+/// its catalog: for each action the CLI offers, its CLI name with every argument given as its `--flag`.
 fn cli_requests() -> Value {
     let path = repo_root().join("plans/cmux-next/action-surfaces.json");
     let root: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("action-surfaces.json"))
             .unwrap();
     let mut requests = Vec::new();
-    let relay = super::super::cloud_start_chat::tests::contract_relay_words();
-    requests.push(
-        serde_json::json!({"source": "cmux cloud start-chat (relay)", "params": encoded(&relay)}),
-    );
     for action in root["actions"].as_array().expect("actions") {
         let Some(cli_name) = action["cli_name"].as_str().filter(|_| action["cli"] == "offered")
         else {
@@ -834,6 +829,13 @@ fn open_remote_focus_reaches_the_action() {
         assert_eq!(params["args"]["focus"], serde_json::json!(want), "{tail:?}: {params}");
         assert_eq!(params["focus"], serde_json::json!(want), "{tail:?}: {params}");
     }
+    // `--focus=no` is refused, never read as true.
+    let refused = super::super::app::run_action(
+        "open-remote",
+        &["--host".to_owned(), "h".to_owned(), "--focus=no".to_owned()],
+        super::super::app::ActionName::Cli,
+    );
+    assert!(refused.is_err(), "--focus=no must be a usage error");
     // An action without a `focus` argument keeps `--focus` as the run's focus only.
     let params = encoded(&[
         "workspace".to_owned(),
@@ -844,4 +846,30 @@ fn open_remote_focus_reaches_the_action() {
     ]);
     assert_eq!(params["focus"], serde_json::json!(true));
     assert!(params["args"].get("focus").is_none(), "{params}");
+}
+
+/// `cmux share chat --view-only` makes a link where nobody sends: `role: view` (the daemon's link
+/// role, which lifts the uses cap) and `signedInRole: view` (signed-in link guests watch too; the
+/// daemon's `signed_in_role`, cmux#38102). Both are `agent.share` arguments, so the app takes the
+/// run instead of refusing it with "agent.share has no argument 'role'".
+#[test]
+fn share_chat_view_only_sends_only_arguments_the_action_takes() {
+    let words = ["share", "chat", "--surface", "3", "--view-only"].map(str::to_owned);
+    let Some(Ok((name, args))) = super::super::share_cli::action(&words) else {
+        panic!("share chat --view-only is rewritten")
+    };
+    let mut rewritten = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    rewritten.extend(args);
+    let params = encoded(&rewritten);
+    assert_eq!(params["args"]["role"], "view", "{params}");
+    assert_eq!(params["args"]["signedInRole"], "view", "{params}");
+    let actions = actions();
+    let share = actions.iter().find(|action| action.id == "agent.share").expect("agent.share");
+    for key in params["args"].as_object().expect("args").keys() {
+        assert!(
+            share.args.contains(key),
+            "agent.share has no argument '{key}' (it takes {:?})",
+            share.args
+        );
+    }
 }

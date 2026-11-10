@@ -49,9 +49,9 @@ enum WindowHandlers {
                 showMainWindow(context)
             }
         })
-        registry.bind("minimizeWindow", run: { _ in
-            // Show Main Window (showMainWindow) restores it.
-            context.activeWindow?.window?.miniaturize(nil)
+        registry.bind("minimizeWindow", run: { invocation in
+            // The window the target names (an agent's `window:<id>`), else the active one; Show Main Window restores it.
+            try context.window(invocation).window?.miniaturize(nil)
         })
         registry.bind("closeAllWindows", run: { _ in
             // Each window's own close check (an incognito window asks), then close.

@@ -55,6 +55,21 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed workspace's old id (its link, #25659).
         (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
+        (
+            vec![
+                "git",
+                "diff",
+                "--path",
+                "/repo",
+                "--scope",
+                "commits",
+                "--base",
+                "0123456789abcdef0123456789abcdef01234567",
+                "--head",
+                "89abcdef0123456789abcdef0123456789abcdef",
+            ],
+            "git.diff",
+        ),
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
             vec![
@@ -69,10 +84,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
+        // The guarded end `worktree close` sends (#39092).
+        (vec!["terminal", TERMINAL, "close", "--if-unplaced"], "terminal.close"),
         (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
         (vec!["pane", "create", "--", "make", "watch"], "pane.create"),
         (vec!["screen", "create", "--shell", "make watch"], "screen.create"),
         (vec!["screen", "create", "--", "make", "watch"], "screen.create"),
+        (vec!["screen", "create", "--focus"], "screen.create"),
         (vec!["tab", "create", "terminal", "--shell", "make watch"], "tab.create_terminal"),
         (vec!["tab", "create", "terminal", "--", "make", "watch"], "tab.create_terminal"),
         (
@@ -82,6 +100,27 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
         (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
         (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        // W5-P: pane.move's other destinations and the parents of a named one.
+        (
+            vec![
+                "pane",
+                PANE,
+                "move",
+                "--to-tab",
+                TAB,
+                "--to-workspace",
+                WORKSPACE,
+                "--to-screen",
+                "screen_00000000000000000000000000000005",
+                "--index",
+                "1",
+                "--focus",
+            ],
+            "pane.move",
+        ),
+        (vec!["pane", PANE, "move", "--new-screen", "--name", "logs"], "pane.move"),
+        // W5-P: agent list --terminal takes any terminal selector.
+        (vec!["agent", "list", "--terminal", "alpha"], "agent.list"),
         (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
         (
             vec![
@@ -293,6 +332,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.import"
                         | "palette_usage.hide"
                         | "palette_usage.forget"
+                        // A page's palette ranks its rows with it; the
+                        // CLI has no palette.
+                        | "palette.rank"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"
@@ -300,10 +342,54 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "stash.restore"
                         | "stash.delete"
                         | "stash.import"
+                        // The move from classic cmux is the app's: it reads
+                        // the plan and records what it made.
+                        | "classic_import.plan"
+                        | "classic_import.record"
                         // Import from Conductor is the app's: it reads the
                         // plan and records what it made.
                         | "conductor_import.plan"
                         | "conductor_import.record"
+                        // Cloud API calls carry the caller's access token;
+                        // `cmux cloud` reaches them through its own stdin
+                        // request, not a CLI verb per op.
+                        | "cloud.machine.io"
+                        | "cloud.owner.acpmux_keyed_start"
+                        | "cloud.owner.acpmux_person_holds"
+                        | "cloud.owner.fork_run"
+                        | "cloud.owner.github_app"
+                        | "cloud.owner.handoff_begin_turn"
+                        | "cloud.owner.handoff_open"
+                        | "cloud.owner.handoff_wait"
+                        | "cloud.owner.handoffs"
+                        | "cloud.owner.harness_login_copy"
+                        | "cloud.owner.turn_checkpoint"
+                        | "cloud.owner.turn_rewind"
+                        | "cloud.owner.turns"
+                        | "cloud.previews.create_link"
+                        | "cloud.previews.refresh"
+                        | "cloud.previews.revoke_link"
+                        | "cloud.runs.cancel"
+                        | "cloud.runs.create"
+                        | "cloud.runs.sandbox"
+                        | "cloud.runs.start"
+                        | "cloud.runs.wait"
+                        | "cloud.vm.domains"
+                        | "cloud.vm.firewall_create"
+                        | "cloud.vm.firewall_delete"
+                        | "cloud.vm.firewall_get"
+                        | "cloud.vm.firewall_list"
+                        | "cloud.vm.networks"
+                        | "cloud.vm.provision_api"
+                        | "cloud.vm.publication_api_keys"
+                        | "cloud.vm.publications"
+                        | "cloud.vm.revoke_publication_api_key"
+                        | "cloud.vm.scp_endpoint"
+                        | "cloud.vm.tunnel_attach"
+                        | "cloud.vm.tunnel_detach"
+                        | "cloud.vm.tunnel_enroll"
+                        | "cloud.vm.tunnel_revoke"
+                        | "cloud.vm.tunnel_rotate_key"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
                         // too; the CLI sets only a section's scroll and row
@@ -432,6 +518,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // keeps the unconditional clear (docs/protocol.md, #27497).
         ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
+        // workspace.create's place hint comes from the terminal the CLI runs
+        // in (CMUX_WORKSPACE_ID, command/workspace.rs), never from a flag.
+        ("workspace.create", "created_by"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),

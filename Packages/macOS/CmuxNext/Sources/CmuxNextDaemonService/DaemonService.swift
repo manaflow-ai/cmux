@@ -45,6 +45,8 @@ public final class DaemonService {
     #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
+    /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
+    public let reads = TabReads()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
@@ -95,14 +97,15 @@ public final class DaemonService {
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
-    ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
+    ///   - echoesPlacementShift: The App passes true (it orders sidebar rows from the document); tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
-        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
+        // Each batch is a recorded frame task of `daemon.store.drain` (main-thread-scheduling.md G4).
+        drainScheduler = FrameBatcher(owner: "daemon.store.drain", frameOn: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -112,12 +115,14 @@ public final class DaemonService {
     /// `daemon_version_handoff`) for every service. The App sets it to its launch
     /// timing log (`DebugTimings.markLaunch`) before the first service starts.
     public nonisolated static var launchMark: @Sendable (String) -> Void {
-        get { launchMarkSink.withLock { $0 } }
-        set { launchMarkSink.withLock { $0 = newValue } }
+        get { launchMarkSink.load() }
+        set { launchMarkSink.store(newValue) }
     }
     /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
     /// `debug.daemon_requests` reads it off the main actor.
     nonisolated let requestLatency = RequestLatencySlot()
+    /// App health's sink for this service's launcher and connections (``DaemonHealthSink``); the App binds it.
+    public nonisolated let health = DaemonHealthSink()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -155,6 +160,12 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    /// Explicit reconnects (``reconnectNow()``): a link-following service retries an incompatible
+    /// daemon only after one of these, never on an automatic wake.
+    @ObservationIgnored private let reconnectRequests = ReconnectRequests()
+    /// Link wakes since the last connection or explicit reconnect (``linkWake()``), and the store's
+    /// connection count they were counted from.
+    @ObservationIgnored private var linkWakes = (count: 0, connects: 0)
 
     /// Starts a fresh daemon connection attempt. This is deliberately synchronous: callers
     /// stamp their transport attempt and clear its failure before waking the asynchronous loop.
@@ -178,20 +189,24 @@ public final class DaemonService {
     /// the daemon process and to every terminal it creates for this app.
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here.
+    /// `launchSnapshot` is the session's launch snapshot, read off the main thread (`LaunchSnapshot.saved`):
+    /// it shows before the first connection. This start reads no file for it.
     public func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil) {
+               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshot? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         if let prestart {
             launcher = prestart.launcher
             retryWake = prestart.wake
+            prestart.health?.forward(to: health)
         } else {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
+                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
+                                                health: health)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
@@ -208,7 +223,10 @@ public final class DaemonService {
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        // The slow request log (always on): the prestart's connection records into its own; the store records rollbacks.
+        let slowLog = prestart?.slowRequestLog ?? SlowRequestLog()
+        store.slowRequestLog = slowLog
+        showLaunchSnapshot(launchSnapshot, session: launcher.configuration.session)
         // The prestart's connection records into its probe; later connections record into the same one.
         let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
         requestLatency.set(latency)
@@ -217,7 +235,7 @@ public final class DaemonService {
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-            requestLatency: latency))
+            requestLatency: latency, slowRequestLog: slowLog, health: health))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -310,27 +328,37 @@ public final class DaemonService {
         }
     }
 
-    /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
-    /// socket). The first connect is retried with capped backoff
-    /// (`DaemonStartup`); afterwards the connection reconnects by itself,
-    /// re-asking `endpoint` (which restarts a dead link). A connection that
-    /// ends for good is replaced the same way, spaced by one backoff across
-    /// such ends. Retries past their budget wait for a network path change,
-    /// app activation or the link socket changing, never a fixed period.
-    /// An incompatible daemon (`compatibility` says so) is retried only on
-    /// such an event: the machine's daemon can be updated in place behind
-    /// the same link, and the next event then connects to the new build.
+    /// Connects to a remote daemon through `endpoint` (a machine's link
+    /// socket). The connection reconnects by itself, re-asking `endpoint`
+    /// (which restarts a link whose process exited). A connection that ends
+    /// for good (an incompatible daemon) is tried again only on an event:
+    /// the machine's daemon can be updated in place behind the same link, and
+    /// the next event then connects to the new build.
+    /// `followsLink`: the link redials by itself (`cmux-tui remote connect`,
+    /// cmuxterm-hq#7766), so this side makes no timed attempts: one attempt
+    /// per drop (``RetryPolicy/linkReconnect``), then it waits for the link's
+    /// state (its owner fires ``retryWake`` when the link reports connected or
+    /// its process exits), app activation or a person's Reconnect. The link
+    /// process starts at the first attempt and owns everything up to ready (the
+    /// SSH probe, each dial, the network watch), so this side has no timer and
+    /// no network monitor of its own. Otherwise the
+    /// first connect and each reconnect are retried with capped backoff
+    /// (`DaemonStartup`), and past their budget wait for a network path
+    /// change, app activation or the link socket changing.
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
     /// `bridge`: each connection runs this child instead of connecting to the
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
     /// `stream`: the route for every other connection to that daemon (``remoteEndpoint``), when
     /// asking `endpoint` again means this connection dropped (a Cloud app link's ticket); nil uses `endpoint`.
+    /// `handshake`: a longer deadline for each handshake and for the first connection (a Cloud carrier's
+    /// dial of a cold machine); nil keeps the request deadline and ``startupDeadline``.
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil) {
+               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
+        if let handshake { startupDeadline = max(startupDeadline, handshake) }
         let streamEndpoint = stream ?? endpoint
         remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint()) }
         let store = store
@@ -339,27 +367,44 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { path in
-            if path.status == .satisfied { wake.fire() }
+        // A link that redials by itself watches the network itself, from its first dial on. Any other
+        // route (a server's socket or bridge, a Cloud ticket) is woken here when the network comes back.
+        if !followsLink {
+            let monitor = NWPathMonitor()
+            // The first update reports the path as it is at start: no change, so no wake.
+            let reported = Mutex(false)
+            monitor.pathUpdateHandler = { path in
+                let first = reported.withLock { seen in
+                    defer { seen = true }
+                    return !seen
+                }
+                if !first, path.status == .satisfied { wake.fire() }
+            }
+            monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+            pathMonitor = monitor
         }
-        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
-        pathMonitor = monitor
         let clock = startupClock
+        let firstConnect: RetryPolicy = followsLink ? .linkFirstConnect : .firstConnect
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
+                                                           retry: followsLink ? .linkReconnect : .reconnect,
                                                            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.handshakeTimeout = handshake
+        let requests = reconnectRequests
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
-            var ends = RetryPacer(.firstConnect)
-            // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
+            // wakeup-allow: each iteration runs a connection to its end, then waits for an event only
             while !Task.isCancelled {
-                let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
+                let startupFailure = Mutex<DaemonError?>(nil)
+                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
-                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
+                        // Each attempt, first or reconnect, consumes the explicit reconnects made before it.
+                        requests.consume()
+                        return DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
+                    startupFailure.withLock { $0 = error }
                     // Before the failure is published: an event from then on
                     // (the machine updated, app activation) wakes the wait below.
                     if DaemonStartup.shared.isPermanent(error) { wake.rebaseline() }
@@ -370,8 +415,11 @@ public final class DaemonService {
                     return
                 }
                 guard let (connection, identity) = connected else {
-                    // Incompatible daemon: wait for an event only, then try again.
-                    guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
+                    // A permanent failure: wait for an event only, then try again. An incompatible daemon
+                    // waits for an explicit reconnect when following a link; a blocked endpoint (SSH
+                    // auth, host key, install) keeps waking on events (activation, the link's state).
+                    let explicit = followsLink && Self.needsExplicitReconnect(startupFailure.withLock { $0 })
+                    guard await Self.awaitRetry(wake, clock: clock, explicit: explicit, requests: requests) else { return }
                     continue
                 }
                 guard let self, !Task.isCancelled else {
@@ -396,9 +444,77 @@ public final class DaemonService {
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.closeAndWait()
                 if Task.isCancelled { return }
-                guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
+                // Ended for good: only an event can change that (an explicit reconnect for an
+                // incompatible daemon when following a link; the link's own wakes would retry it forever).
+                let endedBy = await connection.endedBy
+                let explicit = followsLink && Self.needsExplicitReconnect(endedBy)
+                wake.rebaseline()
+                guard await Self.awaitRetry(wake, clock: clock, explicit: explicit, requests: requests) else { return }
             }
         }
+    }
+
+    /// A person's Reconnect: refills the connection's drop budget, then wakes the retry wait. For a
+    /// link-following service (``start(remote:followsLink:)``) this is also the only wake that retries
+    /// an incompatible daemon (the connection ended with `unsupportedProtocol` or `missingCapabilities`).
+    public func reconnectNow() {
+        linkWakes.count = 0
+        reconnectRequests.note()
+        let wake = retryWake
+        guard let connection else {
+            wake.fire()
+            return
+        }
+        // task-owner: one actor hop; the wake fires after the budget is full
+        Task {
+            await connection.refillRetryBudget()
+            wake.fire()
+        }
+    }
+
+    /// The failures that only an explicit reconnect retries for a link-following service: an
+    /// incompatible daemon answers the same until someone updates it.
+    nonisolated static func needsExplicitReconnect(_ failure: DaemonError?) -> Bool {
+        switch failure {
+        case .unsupportedProtocol?, .missingCapabilities?: true
+        default: false
+        }
+    }
+
+    /// The link reported connected again or its process exited: wakes the waiting attempt, at most
+    /// ``linkWakeLimit`` times until a connection comes up or a person reconnects.
+    /// A link process that keeps coming up and exiting before the daemon's handshake would otherwise
+    /// wake an attempt each time with no bound. App activation, the network and Reconnect still wake it.
+    public func linkWake() {
+        if linkWakes.connects != store.connects { linkWakes = (0, store.connects) }
+        guard linkWakes.count < Self.linkWakeLimit else {
+            logger.info("\(self.machineID, privacy: .public): link wakes spent; waiting for activation or a reconnect")
+            return
+        }
+        linkWakes.count += 1
+        retryWake.fire()
+    }
+
+    /// The most link wakes (``linkWake()``) until a connection comes up or a person reconnects.
+    public static let linkWakeLimit = 10
+
+    /// Waits for the next retry of an ended or incompatible connection: any event, or when `explicit`
+    /// only an explicit reconnect that no attempt consumed yet (``ReconnectRequests``). False when cancelled.
+    private nonisolated static func awaitRetry(_ wake: RetryWake, clock: any Clock<Duration>, explicit: Bool,
+                                               requests: ReconnectRequests) async -> Bool {
+        guard explicit else { return await wake.awaitWake(delay: nil, clock: clock) != .cancelled }
+        while !requests.pending {
+            guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return false }
+        }
+        return !Task.isCancelled
+    }
+
+    /// Whether a network path change wakes this service's waiting attempt (``start(remote:followsLink:)``).
+    var watchesNetwork: Bool { pathMonitor != nil }
+
+    private func stopWatchingNetwork() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
     }
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
@@ -458,6 +574,7 @@ public final class DaemonService {
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if self.recovery.isRestoring { return self.armStartupDeadline() } // a restore that reports progress has not failed
             if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
@@ -635,8 +752,7 @@ public final class DaemonService {
         recovery.detach()
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
-        pathMonitor?.cancel()
-        pathMonitor = nil
+        stopWatchingNetwork()
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
         activationObserver = nil
         runTask?.cancel()
@@ -645,6 +761,19 @@ public final class DaemonService {
         keptLayoutRelaunch = nil
         let connected = connection
         connection = nil
+        // No first connection follows a teardown: whoever waits for one goes on without it.
+        resumeConnectionWaiters()
         return connected
     }
+}
+
+/// ``DaemonService/reconnectNow()`` calls for a link-following service's waits: each attempt consumes
+/// the ones made before it, so a Reconnect that recovered an earlier drop doesn't also retry a later
+/// incompatible daemon.
+nonisolated final class ReconnectRequests: Sendable {
+    private let counts = Mutex((made: UInt64(0), consumed: UInt64(0)))
+    /// A request no attempt has consumed yet.
+    var pending: Bool { counts.withLock { $0.made != $0.consumed } }
+    func note() { counts.withLock { $0.made &+= 1 } }
+    func consume() { counts.withLock { $0.consumed = $0.made } }
 }

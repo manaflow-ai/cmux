@@ -8,6 +8,9 @@
 
 import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
+import { installSwipeNavigation } from "../../swipeNavigation/install";
+import { installPageHealth } from "./pageHealth";
+import { installBusyWatchdog } from "./busyWatchdog";
 
 export interface PageError extends Error {
   code: string;
@@ -132,6 +135,11 @@ export class BridgePageClient implements PageClient {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     this.parked = target[PARKED_NAME] === true;
     this.location = target.location as ClaimLocation | undefined;
+  }
+
+  /** True while the document is parked and holds its calls until the claim. */
+  get holding(): boolean {
+    return this.parked;
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -347,6 +355,12 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
+    // Two-finger Back / Forward over the page, when its host forwards trackpad gestures.
+    if (typeof document !== "undefined") installSwipeNavigation(client);
+    // App health: the heartbeat, input count and kept scroll and draft (pageHealth.ts).
+    if (typeof document !== "undefined") installPageHealth(client);
+    // A main thread busy for 30 s names its scripts in `cmux errors` (busyWatchdog.ts).
+    if (typeof window !== "undefined") installBusyWatchdog(window);
     return client;
   }
   return fallback ? fallback() : null;

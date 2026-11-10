@@ -12,7 +12,10 @@
 // One ResizeObserver on the panel and the transcript's scroller (the panel's foot follows the
 // composer; the chat narrows as a pushed panel slides in), set up while the panel shows and
 // disconnected when it goes, plus a re-measure where its enter slide ends. It writes one shell
-// property only when the cut changes.
+// property only when the cut changes. A section added or removed in the panel (Show more, a fold)
+// re-measures at once too: WebKit told the ResizeObserver a frame or two late, and in those frames
+// the chat showed through the panel's grown part (Lucas, 2026-11-06: "when first opening the show
+// more, there is a weird animation glitch, as the window expands").
 import { useLayoutEffect, type RefObject } from "react";
 
 /// The shell property the transcript's scroller clips by (conversation.css `.acpmux-scroll`).
@@ -67,9 +70,13 @@ export function useChatCut(frame: RefObject<HTMLElement | null>, on: boolean, la
     observer.observe(panel);
     const scroller = shell.querySelector<HTMLElement>(SCROLLER);
     if (scroller) observer.observe(scroller);
+    // Nodes added or removed in the panel: measured in the same task as the change, before it paints.
+    const content = typeof MutationObserver === "function" ? new MutationObserver(measure) : undefined;
+    content?.observe(panel, { childList: true, subtree: true });
     return () => {
       panel.removeEventListener("transitionend", measure);
       observer.disconnect();
+      content?.disconnect();
       write(undefined);
     };
   }, [frame, on, layout]);

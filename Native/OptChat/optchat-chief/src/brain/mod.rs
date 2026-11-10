@@ -179,6 +179,8 @@ pub enum Input {
         policy: Option<String>,
         /// The harness its session runs on.
         harness: Option<String>,
+        /// Its lifetime (action_lifetime.rs), decided as it starts.
+        made: Option<crate::action_lifetime::Made>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -199,7 +201,7 @@ pub enum Input {
         ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    /// start whether or not it opens then (sidebar_choice.rs).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -488,6 +490,13 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {all: true} ("Stop all agents"): the running turn and
     /// every subagent at work or queued; answers `{"stopped": bool,
     /// "subagents": [ids]}`.
@@ -538,6 +547,10 @@ pub struct ReactionFields {
     pub classifier_prompt: Option<String>,
     /// `true`, `false` or `default`.
     pub reactions_can_wake: Option<String>,
+    /// The Chief turns' permission mode (`engine::parse_mode_flag`: a mode,
+    /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
+    /// this box so `EngineRequest` stays small (clippy large_enum_variant).
+    pub permission_mode: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -934,9 +947,6 @@ pub struct Brain {
     /// Each running subagent's folded events (sub_watch.rs), by id: kept
     /// between ticks so each tick reads only the new events.
     watches: HashMap<String, crate::sub_watch::Watch>,
-    /// The user's cmux settings document for tests (`set_user_settings`);
-    /// None: read the user's file at each use (subagent_settings.rs).
-    user_settings: Option<Option<serde_json::Value>>,
     /// The last `subagents.showWorkspaces` value and its source seen, so a
     /// change is traced once (`setting.changed`).
     last_show_workspaces: Option<(bool, &'static str)>,
@@ -1180,7 +1190,6 @@ impl Brain {
             max_live: None,
             clock: Arc::new(now_ms),
             watches: HashMap::new(),
-            user_settings: None,
             last_show_workspaces: None,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
             reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
@@ -1328,12 +1337,6 @@ impl Brain {
     /// The dedupe keys of the sign-in requests open in the Feed.
     pub fn open_sign_ins(&self) -> Vec<String> {
         self.sign_ins.open_keys()
-    }
-
-    /// The user's cmux settings document the subagent settings read
-    /// (tests); None: no file. Without this call the user's file is read.
-    pub fn set_user_settings(&mut self, doc: Option<serde_json::Value>) {
-        self.user_settings = Some(doc);
     }
 
     /// Moves subagent `id`'s run start back by `by` (tests of how long a run
@@ -1622,7 +1625,8 @@ impl Brain {
                 session_id,
                 policy,
                 harness,
-            } => self.sub_started(&id, session_id, policy, harness),
+                made,
+            } => self.sub_started(&id, session_id, policy, harness, made),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1835,6 +1839,9 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
             }
             Input::StopAll { reply } => {
                 let _ = reply.send(self.stop_all());

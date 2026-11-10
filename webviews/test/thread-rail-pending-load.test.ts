@@ -127,6 +127,19 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   }
   const settle = (page: Page) =>
     page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  /// The reader wheels the rail up to the oldest prompts. Sixty prompts overflow the rail's one height
+  /// (#34666), which opens on the latest ones and draws only the ticks in its view (tickWindow.ts), so
+  /// an old prompt's tick is there only once the list is scrolled to it. The wheel marks the rail as
+  /// the reader's (`railBrowsing`), so it stays where they put it (as threadMinimapUnheld.gallery.ts).
+  async function showOldest(page: Page) {
+    await page.evaluate(() => {
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      list.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
+      list.scrollTop = 0;
+    });
+    await page.waitForSelector('[data-tick="0"]');
+    await settle(page);
+  }
   const tickAt = (page: Page, index: number) =>
     page.evaluate((at) => {
       const rect = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
@@ -145,6 +158,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
     const page = await open();
     try {
       // Prompt 3's tick: the chat holds prompts 49 to 60, and the count names the rest.
+      await showOldest(page);
       const at = await tickAt(page, 2);
       await page.mouse.move(at.x, at.y);
       await page.waitForSelector(".acpmux-minimap__card");
@@ -168,6 +182,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   test("clicking a far pending tick lands on its prompt in one read, and no tick moves", async () => {
     const page = await open();
     try {
+      await showOldest(page);
       const before = await tops(page);
       const at = await tickAt(page, 4);
       await page.mouse.click(at.x, at.y);

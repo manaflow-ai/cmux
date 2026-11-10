@@ -6,8 +6,10 @@ tests/test_webviews_tests_per_file.py was named only by web-validation.yml's
 main-push job and the nightly car guards, so a2d6b35 broke it on feat-cmux-next
 and every pull request stayed green until #23430. `--pr-lanes BRANCH` reads the
 workflows as a pull request into BRANCH runs them (scripts/ci/pr_test_lanes.py)
-and fails on a test none of its jobs executes, unless tests/pr-lane-exemptions.json
-lists it with a reason.
+and warns on a test none of its jobs executes, unless tests/pr-lane-exemptions.json
+lists it with a reason. It warns rather than fails: an unrun test breaks nothing
+(Leo, 2026-11-05: "the notion of not adding tests should block CI ... they
+should just warn").
 
     python3 tests/test_pr_lane_coverage.py
 
@@ -241,8 +243,10 @@ class PullRequestLanes(unittest.TestCase):
 
 
 class OnlyWhatThePullRequestAdds(unittest.TestCase):
-    """feat-cmux-next takes direct-pushed main syncs (18, 10 and 2 new tests in the last three) that skip pull
-    request checks. A test the base already leaves unrun is a warning; only one this change leaves unrun fails."""
+    """A test no pull request runs only warns, whoever added it (Leo, 2026-11-05: "There is no way that, like,
+    the notion of not adding tests should block CI."). feat-cmux-next takes direct-pushed main syncs that skip
+    pull request checks, so a broken exemption list the base already has warns; only one this change breaks
+    fails."""
 
     def git(self, root: Path, *args: str) -> str:
         return subprocess.run(
@@ -250,7 +254,7 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
             cwd=root, check=True, text=True, capture_output=True,
         ).stdout.strip()
 
-    def test_a_base_gap_warns_and_a_new_one_fails(self):
+    def test_a_base_gap_and_a_new_one_both_warn(self):
         tree = Tree(["tests/test_old.py"], {"next.yml": FEAT_PULL_REQUEST + "jobs:\n" + job("true")})
         self.addCleanup(tree.close)
         root = tree.root
@@ -265,16 +269,60 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
         self.git(root, "commit", "--quiet", "-m", "head")
 
         errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
-        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_new.py"], errors)
+        self.assertEqual(errors, [])
         self.assertTrue(any(warning.startswith("tests/test_old.py:") for warning in warnings), warnings)
-        self.assertFalse(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
+        self.assertTrue(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
 
-    def test_without_a_base_every_gap_fails(self):
-        tree = Tree(["tests/test_old.py"], {})
+    def test_a_stale_exemption_this_change_adds_fails(self):
+        tree = Tree(["tests/test_old.py"], {"next.yml": FEAT_PULL_REQUEST + "jobs:\n" + job("python3 tests/test_old.py")})
+        self.addCleanup(tree.close)
+        root = tree.root
+        self.git(root, "init", "--quiet", "-b", "feat-cmux-next")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "base")
+        base = self.git(root, "rev-parse", "HEAD")
+        (root / "tests" / "pr-lane-exemptions.json").write_text(
+            json.dumps({"exemptions": [{"reason": "gone", "tests": ["tests/test_gone.py"]}]}), encoding="utf-8")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "head")
+
+        errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("tests/test_gone.py does not exist", errors[0])
+        self.assertEqual(warnings, [])
+
+    def test_a_base_workflow_that_does_not_parse_only_warns(self):
+        # feat-cmux-next dd8b867f7 left nightly.yml with a colon-space in a plain scalar; the
+        # pull request fixing it crashed here reading the base, so the fix could not go green.
+        broken = FEAT_PULL_REQUEST + "jobs:\n" + job("echo a: b").replace("- run: echo a: b", "- name: a b: c")
+        tree = Tree(["tests/test_old.py"], {"next.yml": broken})
+        self.addCleanup(tree.close)
+        root = tree.root
+        self.git(root, "init", "--quiet", "-b", "feat-cmux-next")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "base")
+        base = self.git(root, "rev-parse", "HEAD")
+        (root / ".github" / "workflows" / "next.yml").write_text(
+            FEAT_PULL_REQUEST + "jobs:\n" + job("true"), encoding="utf-8")
+        # A finding that is judged against the base, so the base is read.
+        (root / "tests" / "pr-lane-exemptions.json").write_text(
+            json.dumps({"exemptions": [{"reason": "gone", "tests": ["tests/test_gone.py"]}]}), encoding="utf-8")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "head")
+
+        errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
+        self.assertEqual(errors, [])
+        self.assertTrue(any(warning.startswith("could not judge the pull request lanes") for warning in warnings),
+                        warnings)
+
+    def test_without_a_base_a_gap_warns_and_a_broken_exemption_fails(self):
+        tree = Tree(["tests/test_old.py"], {},
+                    exemptions=[{"reason": "gone", "tests": ["tests/test_gone.py"]}])
         self.addCleanup(tree.close)
         errors, warnings = validator.pr_lane_findings(tree.root, BRANCH, "")
-        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_old.py"], errors)
-        self.assertEqual(warnings, [])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("tests/test_gone.py does not exist", errors[0])
+        self.assertEqual([warning.split(":", 1)[0] for warning in warnings], ["tests/test_old.py"], warnings)
 
 
 class ThisTree(unittest.TestCase):

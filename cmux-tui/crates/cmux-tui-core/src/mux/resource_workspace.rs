@@ -103,6 +103,9 @@ impl Mux {
         Self::insert_optional_string(fields, CLIENT_PANE_ID_FIELD, spawn.pane_id);
         Self::insert_optional_string(fields, CLIENT_TAB_ID_FIELD, spawn.tab_id);
         Self::insert_optional_string(fields, CLIENT_SPLIT_ID_FIELD, spawn.split_id);
+        if let Some(around) = spawn.around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
@@ -172,6 +175,17 @@ impl Mux {
         let (mut plan, before, tabs) = prepared?;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
+                // After the result took its public value from the full deltas.
+                if plan.prunes_stated
+                    && let Some(deltas) = registry.prune_stated_projection_deltas(&plan.deltas)?
+                {
+                    plan.deltas = deltas;
+                    // Pruned deltas no longer restate every resource.
+                    plan.restates_all = false;
+                }
+                anyhow::Ok(())
+            })
+            .and_then(|()| {
                 #[cfg(test)]
                 {
                     *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
@@ -204,6 +218,9 @@ impl Mux {
             }
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
+        }
+        if plan.restates_all && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &plan.deltas);
         }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan

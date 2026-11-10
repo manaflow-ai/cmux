@@ -1,6 +1,798 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.noPaneForDock": {
+      "comment": "Move Pane to Dock with no pane focused or named.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pane is focused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد جزء مركّز عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan panel nije fokusiran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen rude har fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Teilfenster ist fokussiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún panel enfocado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun volet n’est actif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun pannello attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたペインがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 분할 창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen rute er fokusert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden panel nie jest aktywny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum painel está focado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет активной панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odakta bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає активної панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có khung nào đang được tập trung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有聚焦的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有聚焦的窗格。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.windowHasNoDock": {
+      "comment": "Refusal: a window-dock action in a window with no dock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This window has no dock. Press Cmd-I to dock the Chief, or move a pane to the dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي هذا النافذة على رصيف. اضغط Cmd-I لإرساء Chief، أو انقل لوحة إلى الرصيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj prozor nema dok. Pritisnite Cmd-I da usidrite Chief ili premjestite okno u dok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vindue har ingen dock. Tryk Cmd-I for at docke Chief, eller flyt en rude til docken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Fenster hat kein Dock. Drücke Cmd-I, um den Chief anzudocken, oder verschiebe einen Bereich ins Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ventana no tiene dock. Pulsa Cmd-I para anclar el Chief o mueve un panel al dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette fenêtre n’a pas de dock. Appuyez sur Cmd-I pour ancrer le Chief, ou déplacez un panneau dans le dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa finestra non ha un dock. Premi Cmd-I per agganciare il Chief o sposta un riquadro nel dock."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウにはドックがありません。Cmd-IでChiefをドックに置くか、ペインをドックへ移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចនេះគ្មានចតទេ។ ចុច Cmd-I ដើម្បីចត Chief ឬផ្លាស់ផ្ទាំងទៅចត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 윈도우에는 도크가 없습니다. Cmd-I를 눌러 Chief를 도크에 두거나 패인을 도크로 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vinduet har ingen dokk. Trykk Cmd-I for å dokke Chief, eller flytt en rute til dokken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To okno nie ma doku. Naciśnij Cmd-I, aby zadokować Chief, lub przenieś panel do doku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta janela não tem dock. Pressione Cmd-I para fixar o Chief ou mova um painel para o dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом окне нет дока. Нажмите Cmd-I, чтобы закрепить Chief, или переместите панель в док."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างนี้ไม่มีด็อก กด Cmd-I เพื่อวาง Chief ในด็อก หรือย้ายแผงไปที่ด็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu pencerede yuva yok. Chief'i yuvaya almak için Cmd-I'ya basın veya bir bölmeyi yuvaya taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому вікні немає дока. Натисніть Cmd-I, щоб закріпити Chief, або перемістіть панель у док."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ này không có dock. Nhấn Cmd-I để đặt Chief vào dock hoặc chuyển một khung vào dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗口没有停靠栏。按 Cmd-I 停靠 Chief，或将窗格移到停靠栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此視窗沒有停駐區。按 Cmd-I 停駐 Chief，或將窗格移到停駐區。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneAlreadyInDock": {
+      "comment": "Refusal: Move Pane to Dock on a pane that is in the dock already.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane is already in the dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه اللوحة موجودة بالفعل في الرصيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo okno je već u doku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne rude er allerede i docken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich ist bereits im Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este panel ya está en el dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce panneau est déjà dans le dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo riquadro è già nel dock."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインはすでにドックにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះនៅក្នុងចតរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 패인은 이미 도크에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne ruten er allerede i dokken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel jest już w doku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este painel já está no dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта панель уже в доке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงนี้อยู่ในด็อกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu bölme zaten yuvada."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця панель уже в доці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khung này đã ở trong dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格已在停靠栏中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格已在停駐區中。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.dockWorkspaceGone": {
+      "comment": "Refusal: the window dock's workspace closed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dock's workspace is gone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تعد مساحة عمل الرصيف موجودة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostor doka više ne postoji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dockens arbejdsområde findes ikke længere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Workspace des Docks ist nicht mehr da."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El espacio de trabajo del dock ya no existe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’espace de travail du dock n’existe plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’area di lavoro del dock non c’è più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドックのワークスペースはもうありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការរបស់ចតបានបាត់ហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도크의 워크스페이스가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokkens arbeidsområde finnes ikke lenger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszar roboczy doku już nie istnieje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O espaço de trabalho do dock não existe mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочая область дока больше не существует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซของด็อกไม่มีแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yuvanın çalışma alanı artık yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочого простору дока більше немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc của dock không còn nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停靠栏的工作区已不存在。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停駐區的工作區已不存在。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.chiefDockUnavailable": {
+      "comment": "Refusal: Open Chief Dock while the window has no Home to dock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief can't dock yet. Open Home first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إرساء Chief بعد. افتح الصفحة الرئيسية أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief se još ne može usidriti. Prvo otvorite Početnu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kan ikke dockes endnu. Åbn Hjem først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief kann noch nicht andocken. Öffne zuerst Home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Chief aún no se puede anclar. Abre Inicio primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Chief ne peut pas encore être ancré. Ouvrez d’abord l’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief non può ancora essere agganciato. Apri prima Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefはまだドックに置けません。先にホームを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនទាន់អាចចតបានទេ។ សូមបើកទំព័រដើមជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 Chief를 도크에 둘 수 없습니다. 먼저 홈을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kan ikke dokkes ennå. Åpne Hjem først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nie może jeszcze zostać zadokowany. Najpierw otwórz Start."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief ainda não pode ser fixado. Abra o Início primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief пока нельзя закрепить. Сначала откройте «Главную»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังวาง Chief ในด็อกไม่ได้ เปิดหน้าหลักก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief henüz yuvaya alınamaz. Önce Ana Sayfa'yı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief поки не можна закріпити. Спершу відкрийте «Головну»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể đặt Chief vào dock. Hãy mở Trang chủ trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 暂时无法停靠。请先打开主页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 暫時無法停駐。請先打開首頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.chiefNotDocked": {
+      "comment": "Refusal: Undock Chief while this window's Chief panel is not docked.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief is not docked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief غير مُرسى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nije usidren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke docket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ist nicht angedockt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief no está acoplado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief n’est pas ancré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief non è agganciato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief はドッキングされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនបានចតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief가 도킹되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke festet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nie jest przypięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief não está encaixado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закреплён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ไม่ได้ยึดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief yerleştirilmiş değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закріплено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chưa được neo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        }
+      }
+    },
     "handlers.refusal.noNewMessage": {
       "comment": "Refusal of Close New Message when no New Message draft is open.",
       "extractionState": "manual",
@@ -7993,6 +8785,268 @@
         }
       }
     },
+    "handlers.refusal.noDivider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "that divider is no longer on the screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その区切り線は画面にもうありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد هذا الفاصل على الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "taj razdjelnik više nije na ekranu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den skillelinje er ikke længere på skærmen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diese Trennlinie ist nicht mehr auf dem Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ese divisor ya no está en la pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ce séparateur n’est plus à l’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "quel divisore non è più sullo schermo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់ខណ្ឌនោះលែងនៅលើអេក្រង់ទៀតហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그 구분선은 더 이상 화면에 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den skillelinjen er ikke lenger på skjermen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten separator nie jest już na ekranie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esse divisor não está mais na tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этого разделителя больше нет на экране"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นแบ่งนั้นไม่อยู่บนหน้าจอแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu ayırıcı artık ekranda değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цього роздільника більше немає на екрані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đường chia đó không còn trên màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该分隔线已不在屏幕上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該分隔線已不在螢幕上"
+          }
+        }
+      }
+    },
+    "handlers.refusal.dividerBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a browser can’t open between these panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインの間にブラウザを開けません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن فتح متصفح بين هذين الجزأين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "preglednik se ne može otvoriti između ovih okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en browser kan ikke åbne mellem disse ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zwischen diesen Bereichen kann kein Browser geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no se puede abrir un navegador entre estos paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "impossible d’ouvrir un navigateur entre ces panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "impossibile aprire un browser tra questi riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបើកកម្មវិធីរុករកនៅចន្លោះផ្ទាំងទាំងនេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창 사이에 브라우저를 열 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en nettleser kan ikke åpnes mellom disse rutene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie można otworzyć przeglądarki między tymi panelami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não é possível abrir um navegador entre estes painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "между этими панелями нельзя открыть браузер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเปิดเบราว์เซอร์ระหว่างบานหน้าต่างเหล่านี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu bölmeler arasında tarayıcı açılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "між цими панелями не можна відкрити браузер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không thể mở trình duyệt giữa các ngăn này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在这些窗格之间打开浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在這些窗格之間開啟瀏覽器"
+          }
+        }
+      }
+    },
     "handlers.refusal.screenHasOnePane": {
       "extractionState": "manual",
       "localizations": {
@@ -14677,6 +15731,268 @@
         }
       }
     },
+    "handlers.misc.failed.noLastCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal has no finished command to run again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルには、もう一度実行できる完了済みのコマンドがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي هذا الطرفية على أمر مكتمل لتشغيله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj terminal nema završenu naredbu za ponovno pokretanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminal har ingen afsluttet kommando at køre igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal hat keinen abgeschlossenen Befehl, der erneut ausgeführt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal no tiene ningún comando terminado para volver a ejecutar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n'a aucune commande terminée à relancer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo terminale non ha comandi completati da eseguire di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានីយនេះមិនមានពាក្យបញ្ជាដែលបានបញ្ចប់ដើម្បីដំណើរការម្ដងទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에는 다시 실행할 완료된 명령이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalen har ingen fullført kommando å kjøre på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten terminal nie ma zakończonego polecenia do ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal não tem nenhum comando concluído para executar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом терминале нет завершённой команды для повтора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลนี้ไม่มีคำสั่งที่เสร็จแล้วให้เรียกใช้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminalde yeniden çalıştırılacak tamamlanmış bir komut yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому терміналі немає завершеної команди для повтору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal này không có lệnh đã hoàn tất nào để chạy lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端没有可再次运行的已完成命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機沒有可再次執行的已完成指令。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.programRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program is running in this terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルではプログラムが実行中です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل برنامج في هذه الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom terminalu radi program."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program kører i denne terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Terminal läuft ein Programm."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay un programa en ejecución en este terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme est en cours d'exécution dans ce terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo terminale è in esecuzione un programma."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានកម្មវិធីកំពុងដំណើរការក្នុងស្ថានីយនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에서 프로그램이 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program kjører i denne terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym terminalu działa program."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há um programa em execução neste terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом терминале работает программа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีโปรแกรมกำลังทำงานอยู่ในเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminalde bir program çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому терміналі працює програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có một chương trình đang chạy trong terminal này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端中有程序正在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機中有程式正在執行。"
+          }
+        }
+      }
+    },
     "handlers.refusal.addSecondColumnFirst": {
       "extractionState": "manual",
       "localizations": {
@@ -20964,137 +22280,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "該窗格已關閉。再按一次即可關閉此窗格中的分頁。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.pinnedTabKept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ピン留めしたタブは開いたままになります。閉じるには、タブを右クリックして「タブを閉じる」を選択してください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبقى علامات التبويب المثبتة مفتوحة. انقر بزر الماوس الأيمن على علامة التبويب واختر إغلاق علامة التبويب لإغلاقها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikačene kartice ostaju otvorene. Desnom tipkom kliknite karticu i odaberite Zatvori karticu da je zatvorite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fastgjorte faner forbliver åbne. Højreklik på fanen, og vælg Luk fane for at lukke den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angeheftete Tabs bleiben offen. Klicke mit der rechten Maustaste auf den Tab und wähle „Tab schließen“, um ihn zu schließen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las pestañas fijadas permanecen abiertas. Haz clic derecho en la pestaña y elige Cerrar pestaña para cerrarla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les onglets épinglés restent ouverts. Cliquez avec le bouton droit sur l’onglet et choisissez Fermer l’onglet pour le fermer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede fissate restano aperte. Fai clic con il tasto destro sulla scheda e scegli Chiudi scheda per chiuderla."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងដែលបានខ្ទាស់នៅតែបើក។ ចុចខាងស្តាំលើផ្ទាំង ហើយជ្រើសរើស បិទផ្ទាំង ដើម្បីបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "고정된 탭은 열린 상태로 유지됩니다. 닫으려면 탭을 마우스 오른쪽 버튼으로 클릭하고 탭 닫기를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Festede faner forblir åpne. Høyreklikk på fanen og velg Lukk fane for å lukke den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przypięte karty pozostają otwarte. Kliknij kartę prawym przyciskiem i wybierz Zamknij kartę, aby ją zamknąć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abas fixadas permanecem abertas. Clique com o botão direito na aba e escolha Fechar aba para fechá-la."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закреплённые вкладки остаются открытыми. Чтобы закрыть вкладку, щёлкните её правой кнопкой и выберите «Закрыть вкладку»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บที่ปักหมุดจะยังคงเปิดอยู่ คลิกขวาที่แท็บแล้วเลือก ปิดแท็บ เพื่อปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sabitlenmiş sekmeler açık kalır. Kapatmak için sekmeye sağ tıklayıp Sekmeyi Kapat'ı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закріплені вкладки залишаються відкритими. Щоб закрити вкладку, клацніть її правою кнопкою і виберіть «Закрити вкладку»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thẻ đã ghim vẫn mở. Nhấp chuột phải vào thẻ và chọn Đóng thẻ để đóng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "固定的标签页会保持打开。要关闭它，请右键点按标签页并选择“关闭标签页”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已固定的分頁會保持開啟。若要關閉，請在分頁上按右鍵並選擇「關閉分頁」。"
           }
         }
       }
@@ -32897,6 +34082,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法撤銷存取權限：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noTabGroupToJoin": {
+      "comment": "Add Tab to Group… on a tab whose machine has no other open tab group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no other tab group to add this tab to."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブを追加できるほかのタブグループがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مجموعة علامات تبويب أخرى لإضافة علامة التبويب هذه إليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema druge grupe tabova u koju bi se ovaj tab mogao dodati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen anden fanegruppe at føje denne fane til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es gibt keine andere Tab-Gruppe, zu der dieser Tab hinzugefügt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay otro grupo de pestañas al que añadir esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il n’y a aucun autre groupe d’onglets auquel ajouter cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non c’è un altro gruppo di schede a cui aggiungere questa scheda."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានក្រុមថេបផ្សេងទៀតសម្រាប់បន្ថែមថេបនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭을 추가할 다른 탭 그룹이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det finnes ingen annen fanegruppe å legge denne fanen til i."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma innej grupy kart, do której można dodać tę kartę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não há outro grupo de abas ao qual adicionar esta aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет другой группы вкладок, в которую можно добавить эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีกลุ่มแท็บอื่นให้เพิ่มแท็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmenin ekleneceği başka bir sekme grubu yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає іншої групи вкладок, до якої можна додати цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có nhóm tab nào khác để thêm tab này vào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有其他可添加此标签页的标签页组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有其他可加入此標籤頁的標籤頁群組。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.restoringSessions": {
+      "comment": "The session owner is restoring while the app waits for it (launch window, sidebar). %@ is how long so far, such as 4m 12s.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring sessions… %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ استعادة الجلسات… %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vraćanje sesija… %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gendanner sessioner… %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzungen werden wiederhergestellt … %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restaurando sesiones… %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restauration des sessions… %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripristino delle sessioni… %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションを復元中… %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងស្ដារវគ្គ… %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 복원 중… %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenoppretter økter … %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przywracanie sesji… %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restaurando sessões… %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Восстановление сеансов… %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังกู้คืนเซสชัน… %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumlar geri yükleniyor… %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновлення сеансів… %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khôi phục phiên… %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在恢复会话… %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在還原工作階段… %@"
+          }
+        }
+      }
+    },
+    "refusal.daemon.pendingOpenWaits": {
+      "comment": "Toast after a chat was clicked while the sessions restore: it opens once they are ready.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens when your sessions are restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションの復元が終わると開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيُفتح عند استعادة جلساتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvara se kada se vaše sesije vrate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbner, når dine sessioner er gendannet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird geöffnet, sobald deine Sitzungen wiederhergestellt sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se abrirá cuando se restauren tus sesiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "S’ouvrira une fois vos sessions restaurées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si aprirà quando le sessioni saranno ripristinate."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹងបើកនៅពេលវគ្គរបស់អ្នកត្រូវបានស្ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션이 복원되면 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpnes når øktene dine er gjenopprettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otworzy się po przywróceniu sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre quando suas sessões forem restauradas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откроется, когда сеансы будут восстановлены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะเปิดเมื่อกู้คืนเซสชันของคุณเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumlarınız geri yüklendiğinde açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкриється, коли сеанси буде відновлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sẽ mở khi các phiên của bạn được khôi phục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话恢复后将打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段還原後將開啟。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.pendingOpenDropped": {
+      "comment": "Toast when a chat clicked during a restore no longer waits to open (its window closed, or 10 minutes passed).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped waiting to open the chat you clicked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クリックしたチャットを開く待機を中止しました。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقّف انتظار فتح الدردشة التي نقرت عليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prestalo je čekanje na otvaranje razgovora koji ste kliknuli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter ikke længere på at åbne den chat, du klikkede på."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Warten auf den angeklickten Chat wurde beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se dejó de esperar para abrir el chat en el que hiciste clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’attente de l’ouverture de la discussion cliquée a été arrêtée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non si attende più di aprire la chat su cui hai fatto clic."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានឈប់រង់ចាំបើកការជជែកដែលអ្នកបានចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클릭한 채팅 열기 대기를 중단했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sluttet å vente på å åpne chatten du klikket på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestano czekać na otwarcie klikniętego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parou de esperar para abrir o chat em que você clicou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание открытия выбранного чата прекращено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดรอเปิดแชทที่คุณคลิกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tıkladığınız sohbeti açmak için beklemek durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування відкриття вибраного чату припинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã ngừng chờ mở cuộc trò chuyện bạn đã nhấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止等待打开你点击的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止等待開啟你點選的聊天。"
           }
         }
       }

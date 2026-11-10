@@ -4,7 +4,7 @@
 // and everything else as its own row.
 import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
-import { isBareShellName } from "../toolPaths";
+import { editedPaths, isBareShellName } from "../toolPaths";
 import { toolKind } from "../toolNames";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
@@ -17,6 +17,7 @@ import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
+import { commandGroupSaid } from "./commandActions";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -387,11 +388,26 @@ export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
 }
 
 /// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
-/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+/// sight, never folded under a run's summary line, so the change it asks about can be seen. One
+/// with nothing to ask about yet is not waiting on anyone: Claude Code names a Write or an Edit as
+/// its block starts, pending with no input (acpmux claude_stdio/early_calls.rs), while the model
+/// still writes it. That call is in flight, on the live line like any other, never a row of its own
+/// as well (Leo, 2026-11-07, on "Writing a file" over "Write 12s": "sometimes you can just combine
+/// the, like, whatever command or action you're doing sooner than you do").
 export function awaitsPermission(tool: Tool | undefined): boolean {
-  return (
-    tool?.status === "pending" &&
-    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  return tool?.status === "pending" && isFileChange(tool) && namesChange(tool);
+}
+
+const isFileChange = (tool: Tool) =>
+  tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange";
+
+/// Whether a file call says what it changes yet: a file, a diff, or any input.
+function namesChange(tool: Tool): boolean {
+  return Boolean(
+    tool.diffs?.length ||
+    tool.locations?.length ||
+    editedPaths(tool).length ||
+    /[^\s{}[\]]/.test(tool.inputSummary ?? ""),
   );
 }
 
@@ -399,18 +415,33 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
+/// Whether a call's output shapes a row of its own that the loop in `toolGroups` makes from it, not
+/// a command row: a who-else answer, a dispatch card, or a sent-message row per recipient (a single
+/// `acpmux send`, a batch, the acpmux MCP send), each reading its state or answer out of the call's
+/// output. The same readers in the same order as `toolGroups`; liveToolOutput.ts keeps such a
+/// call's output updates on the pane, so those rows take each one.
+export function outputShapesRows(item: AcpmuxActivity): boolean {
+  const tool = item.tool;
+  if (!tool) return false;
+  return Boolean(whoElseCall(item) || dispatchCall(item) || acpmuxSendCalls(tool) || acpmuxMcpSends(tool));
+}
+
 /// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
 /// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
 /// never gets any. Its row would only say "Running a command", so the transcript draws none
 /// (conversation/turns.ts `withoutDrafts`): the live line names it ("Writing a command"), and its
-/// row comes with its input. Only a shell call: another tool may take no input at all (`{}`), and
-/// its row is the only record that it ran.
+/// row comes with its input. A file change named before its input is one too ("Writing a file"):
+/// it changes nothing until its file comes, so a turn stopped before then draws no row and no
+/// edited-files card for it. Only those: another tool may take no input at all (`{}`), and its row
+/// is the only record that it ran.
 export function isDraftCall(tool: Tool): boolean {
+  if (isRunning(tool) && isFileChange(tool) && !namesChange(tool)) return true;
   return (
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    !tool.description &&
+    // A description alone is still nothing to show: a running row reads as its command, never as
+    // Bash's description (commandActions.ts commandSaid).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -456,11 +487,19 @@ export function toolGroupLabel(
   switch (kind) {
     case "commands": {
       // A finished run whose background tasks ended leads with them, as Claude Code desktop's
-      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
+      // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
-      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      // Commands that all did one thing say it, "Searched memory twice" (commandActions.ts).
+      if (!finished)
+        return (
+          commandGroupSaid(
+            t,
+            calls.map((item) => item.tool!),
+          ) ?? t(running ? "tools.running" : "tools.ran", { n: calls.length })
+        );
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
-      const text = [finished, ran].join(t("toolRun.separator"));
+      const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);
     }
     case "reads": {
@@ -502,9 +541,10 @@ export function fileName(path: string): string {
 /// more than one entry, so one card never leaves the whole run spread out as a list
 /// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+/// An aside between runs (`isAside`) splits them the same way a card does.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
 
-export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly ToolGroup[]): RunStretch[] {
   const stretches: RunStretch[] = [];
   let current: RunStretch | undefined;
   const close = () => {
@@ -513,7 +553,7 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   };
   groups.forEach((group, at) => {
     const items = "items" in group ? group.items : [group.item];
-    if (row.foldRun === true && staysInSight(group)) {
+    if (row.foldRun === true && (staysInSight(group) || isAside(group))) {
       close();
       stretches.push({ from: at, groups: [group], items, fold: false });
       return;
@@ -525,6 +565,27 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   close();
   if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
   return stretches;
+}
+
+/// The agent's short aside between two runs of calls (turns.ts mergeShortNotes): it ends the
+/// stretch before it and starts another, so each run of calls between asides folds under its own
+/// line and counts only its own calls, and a later run never joins an earlier one's line across the
+/// aside (Leo, 2026-11-07: "this is counting the total amount of tool calls across both these things,
+/// and, like, including your little chatter in between"). The whole turn's count is the "Worked for"
+/// line's (turns.ts `workedCalls`).
+export function isAside(group: ToolGroup): boolean {
+  return group.type === "item" && group.item.kind === "note" && !group.item.tool;
+}
+
+/// How a run's stretch starts, one answer for ToolRows (TurnRows.tsx) to draw and for model.ts to
+/// estimate, so the two never drift apart. `lineOpen`: a folding stretch's summary line starts open
+/// (`runOpen`, a steered turn's opened Worked for). `groupsClosed`: the groups of a stretch a folded
+/// run keeps on their own lines start closed (ToolGroupRow `folded`), unless `runOpen` opens them too.
+export function stretchStart(row: AcpmuxRow, stretch: RunStretch): { lineOpen: boolean; groupsClosed: boolean } {
+  return {
+    lineOpen: stretch.fold && row.runOpen === true,
+    groupsClosed: row.foldRun === true && !stretch.fold && row.runOpen !== true,
+  };
 }
 
 /// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else

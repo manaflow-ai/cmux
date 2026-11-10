@@ -2,6 +2,7 @@
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import Observation
 import SwiftUI
 
@@ -205,7 +206,7 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            ProgressView("Loading chats…")
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -238,7 +239,7 @@ struct AgentChatsScreen: View {
                         HStack {
                             Text("Show Older Chats")
                             Spacer()
-                            if model.loadingMore { ProgressView() }
+                            if model.loadingMore { CmuxSpinner() }
                         }
                     }
                     .disabled(model.loadingMore)
@@ -345,7 +346,7 @@ struct AgentChatRow: View {
             }
             Spacer(minLength: 8)
             if busy {
-                ProgressView()
+                CmuxSpinner()
             } else if let updated = chat.updatedAt {
                 Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
                     .font(.footnote)

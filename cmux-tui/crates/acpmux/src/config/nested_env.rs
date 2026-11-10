@@ -42,7 +42,7 @@ pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
-pub(crate) fn is_nested_claude_key(key: &str) -> bool {
+pub fn is_nested_claude_key(key: &str) -> bool {
     key.starts_with("CLAUDE")
         || key.starts_with("ANTHROPIC_")
         || key.starts_with("CMUX_CLAUDE_")
@@ -91,8 +91,8 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the
-/// prompt-cache switches ([`is_prompt_cache_key`]) and [`TURN_SCOPED_ENV`].
-pub(crate) fn is_caller_scoped_key(key: &str) -> bool {
+/// prompt-cache switches (`is_prompt_cache_key`) and `TURN_SCOPED_ENV`.
+pub fn is_caller_scoped_key(key: &str) -> bool {
     is_prompt_cache_key(key) || TURN_SCOPED_ENV.contains(&key)
 }
 

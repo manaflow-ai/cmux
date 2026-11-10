@@ -177,6 +177,7 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
+                tail_pin: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -305,5 +306,44 @@ impl Surface {
                 resource_identity: Some(identity),
             },
         )
+    }
+
+    /// Finish `command` with `exit_code` on this terminal's tracker, as the
+    /// shell's OSC 133 marks do.
+    #[cfg(test)]
+    pub(crate) fn finish_command_for_test(&self, command: &str, exit_code: i32) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let mut tracker = pty.command_tracker.lock().unwrap();
+        let start = crate::shell_history::ShellMark::CommandStart;
+        tracker.apply(start, 1_000, &mut Line(command));
+        let end = crate::shell_history::ShellMark::CommandEnd { exit_code: Some(exit_code) };
+        tracker.apply(end, 3_000, &mut Line(""));
+    }
+
+    /// Start `command` on this terminal's tracker (OSC 133 C) without
+    /// finishing it, as a dev server that still runs.
+    #[cfg(test)]
+    pub(crate) fn start_command_for_test(&self, command: &str) {
+        struct Line<'a>(&'a str);
+        impl crate::shell_history::CommandScreen for Line<'_> {
+            fn input_text(&mut self) -> Option<String> {
+                Some(self.0.to_owned())
+            }
+            fn cwd(&mut self) -> Option<String> {
+                None
+            }
+        }
+        let pty = self.as_pty().expect("a PTY surface");
+        let start = crate::shell_history::ShellMark::CommandStart;
+        pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
     }
 }

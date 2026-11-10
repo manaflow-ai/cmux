@@ -309,6 +309,15 @@ public final class TerminalHostView: NSView {
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
+        // Beside the surface the host shows the program's own background when it set one (``programBackgroundDidChange(_:)``).
+        if surfaceView.session?.model.backgroundOverride != nil || old?.session?.model.backgroundOverride != nil { paintBackground() }
+    }
+
+    /// The current surface's program set its background (OSC 11, ``TerminalSurfaceModel/backgroundOverride``): what the
+    /// host shows beside its surface (a held frame's grow strip, RESIZE P0 15) is the colour of the program's empty cells.
+    func programBackgroundDidChange(_ surfaceView: TerminalSurfaceView) {
+        guard current === surfaceView else { return }
+        paintBackground()
     }
 
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
@@ -369,14 +378,15 @@ public final class TerminalHostView: NSView {
         max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
-    /// The surface's frame and the edge it rides while its frame differs from the area's (a hold, or a size Ghostty has
-    /// not shown yet): the host, less a legacy scroller's strip (none: the scroller is overlay), on the top. While a
-    /// pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``), pinned to
-    /// the hold's edge of the area; the host clips it and paints the terminal background beside it. While the host
-    /// follows its pane, ``followedSurfaceFrame(_:in:)`` gives both, from one decision.
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While a split's,
+    /// a close's or a zoom's layout spring runs, the surface keeps the size it will rest at
+    /// (``holdSurface(size:anchor:)``), pinned to the hold's edge of the area; the host clips it and paints the terminal
+    /// background beside it. While the host follows its pane through a key resize, the surface takes the area in every
+    /// frame (``followedSurfaceFrame(in:)``, cmux-ad m18).
+    /// The edge is the one a frame kept while its new size is drawn rides (``TerminalSurfaceView/place(_:anchor:)``).
     private var surfacePlacement: (frame: CGRect, anchor: PaneMotionAnchor) {
         let area = terminalBounds
-        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
+        if surfaceFollowsArea { return (followedSurfaceFrame(in: area), .top) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
             return (CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height), hold.anchor)
@@ -394,6 +404,23 @@ public final class TerminalHostView: NSView {
     private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
     /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``) and its size then; nil at rest.
     var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
+    /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
+    /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
+    var dropsAheadAtRest = false
+    /// The size drawn ahead at rest is a key resize's (a key press's first size, or a followed key hold's end), not a
+    /// snapped split's, close's or zoom's: its grid goes to the program with it (``TerminalSurfaceView``
+    /// `followsKeyResize`, RESIZE P0 11). Cleared with ``dropsAheadAtRest``.
+    var aheadOfKeyResize = false
+    /// The host's size when its size was drawn ahead of a follow or a snap (``drawAheadOfFollow(nextHostSize:keyPress:)``):
+    /// a layout at this size is not the placement the size waits for, so it does not drop it (RESIZE P0 14: a layout in
+    /// a Reduce Motion key press's own turn dropped the size drawn ahead and sent the old grid back). The placement at a
+    /// new size takes it or drops it; a snap that showed at this size drops it (``aheadOfFollowShown()``). Nil: the
+    /// next layout is the placement at rest (a followed hold ended).
+    var aheadRestBasis: CGSize?
+    /// A key press's held snap shows in this turn (``aheadOfFollowWillShow()``, RESIZE P0 21): the surface's placement
+    /// does not hold for its program's redraw again (``TerminalSurfaceView/programHoldTicks``). Cleared at the placement
+    /// and when the snap showed.
+    var showsKeySnap = false
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -405,18 +432,26 @@ public final class TerminalHostView: NSView {
         placeSurface()
     }
 
-    /// The hold ends (the spring landed, a drag caught it, a followed key press: `restAt`): the surface takes the area again.
+    /// The hold ends (the spring landed, a drag caught it, or a key press whose terminal follows its pane: `restAt`): the surface takes the area again.
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
         placeSurface()
     }
 
-    /// The current surface takes its frame and its anchor (``surfacePlacement``).
+    /// The current surface takes its frame (``surfacePlacement``).
     private func placeSurface() { // perf-hot: 4ms motion-frame
         guard let current else { return }
         let placement = surfacePlacement
         current.place(placement.frame, anchor: placement.anchor)
+        showsKeySnap = false
+        // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
+        // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
+        // placement took it if it is the final size; else Ghostty goes back to the view's size.
+        if dropsAheadAtRest, !surfaceFollowsArea, aheadRestBasis != bounds.size {
+            (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (false, false, nil)
+            current.dropAhead()
+        }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
@@ -536,16 +571,20 @@ public final class TerminalHostView: NSView {
             return
         }
         guard !backdrop.panesPaintBackground else {
-            guard let rgb = theme?.colors?.background else {
-                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-                return
-            }
-            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+            // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
+            // the colour of its empty cells.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
             return
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }
 

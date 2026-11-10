@@ -5,8 +5,8 @@ import CmuxNextMobile
 import CmuxNextTestSupport
 import Testing
 
-/// Fleet capture of the real dialog with synthetic device/account data. Run this test by name;
-/// the before images have no prompt, matching the base behavior. No admission is granted.
+/// Fleet capture of the Mac before the phone prompt, with synthetic device/account data. Run this test
+/// by name; the before images have no prompt, matching the base behavior. No admission is granted.
 @MainActor @Suite(.closesItsWindows) struct PhoneAdmissionCaptureTests {
     @Test
     func capturesAllowPrompt() throws {
@@ -43,14 +43,9 @@ import Testing
                 try png.write(to: directory.appendingPathComponent("\(image)-\(suffix).png"))
             }
             try capture("before-no-prompt")
-            let dialog = CmuxDialogView(spec: PhoneAdmission.spec(phone, user: "Demo account"))
-            root.addSubview(dialog)
-            NSLayoutConstraint.activate([
-                dialog.centerXAnchor.constraint(equalTo: root.centerXAnchor),
-                dialog.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            ])
-            #expect(dialog.spec.title.contains("use this Mac"))
-            try capture("after-allow-prompt")
+            // The prompt itself is the overlay page's dialog: its pictures come from the webviews gallery
+            // (pages.overlay.dialog), so only its spec is checked here.
+            #expect(PhoneAdmission.spec(phone, user: "Demo account").title.contains("use this Mac"))
         }
     }
 }

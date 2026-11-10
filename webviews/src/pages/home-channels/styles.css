@@ -293,8 +293,14 @@ body,
   justify-content: center;
   padding-top: var(--grid-half-step);
 }
+/* Shown only on the row's hover and focus, and over the message's top right in the ledger layout
+   (ledger.css): it takes no clicks or selection from the text under it (CMUX-325). */
 .hc-msg-hover-time {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: var(--cmux-hover-reveal-out-transition);
   font-size: var(--text-caption);
   line-height: 22px;
   color: var(--page-text-3);
@@ -303,7 +309,12 @@ body,
 }
 .hc-msg:hover .hc-msg-hover-time,
 .hc-msg:focus-within .hc-msg-hover-time {
-  visibility: visible;
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.hc-msg:has(:focus-visible) .hc-msg-hover-time {
+  transition: none;
 }
 .hc-msg-head {
   display: flex;
@@ -511,7 +522,7 @@ body,
   background: var(--hc-fill);
   transition: border-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.hc-composer:focus-within {
+.hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
@@ -614,8 +625,8 @@ body,
   font: inherit;
   outline: none;
 }
-.hc-emoji-search:focus,
-.hc-link-field:focus {
+.hc-emoji-search:focus-visible,
+.hc-link-field:focus-visible {
   border-color: var(--hc-line-strong);
 }
 .hc-emoji-grid {
@@ -739,51 +750,6 @@ body,
 .hc-links > * {
   flex: 1;
   min-height: 0;
-}
-.hc-gate {
-  max-width: 420px;
-  margin: 15vh auto 0;
-  padding: var(--ds-space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-3);
-}
-.hc-gate h1 {
-  font-size: var(--text-heading);
-  margin: 0;
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-.hc-gate label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-}
-.hc-gate-actions {
-  display: flex;
-  gap: var(--ds-space-2);
-  margin-top: var(--ds-space-2);
-}
-.hc-gate-endpoint {
-  opacity: 0.7;
-  font-family: ui-monospace, monospace;
-  font-size: var(--text-detail);
-}
-.hc-gate-code {
-  font-size: var(--text-heading);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-.hc-gate-error {
-  color: var(--hc-danger);
-}
-/* A connect that lasted past the grace (DaemonGate.tsx): one quiet muted line, no title. */
-.hc-gate-line {
-  display: block;
-  margin: 0;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  overflow-wrap: anywhere;
 }
 /* The field's right-click menu host adds no box of its own. */
 .hc-composer-field-menu {

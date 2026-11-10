@@ -129,7 +129,7 @@ impl Mux {
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
         for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
+            self.emit(MuxEvent::terminal_title(placement, title.clone()));
         }
     }
 
@@ -229,6 +229,8 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {

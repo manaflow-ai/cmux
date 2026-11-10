@@ -39,8 +39,8 @@ use crate::Mux;
 use crate::resource::TerminalPublicId;
 use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
-const MAGIC: &[u8] = b"CMUXSNAP1\n";
-const SUFFIX: &str = "snap";
+pub(super) const MAGIC: &[u8] = b"CMUXSNAP1\n";
+pub(super) const SUFFIX: &str = "snap";
 /// The largest uncompressed replay one snapshot holds.
 pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 4 * 1024 * 1024;
 /// The smallest replay budget, so a narrow terminal still keeps its lines.
@@ -56,6 +56,8 @@ struct WriterState {
     /// pass when the total is over the trigger) is due now
     /// (`memory_budget.rs`), apart from `due`.
     memory_due: bool,
+    /// When the parked snapshots' trim (`parked_trim.rs`) last ran with a pass; `None`: not yet.
+    last_trim: Option<Instant>,
     stop: bool,
 }
 
@@ -69,6 +71,9 @@ pub(super) struct Writer {
 
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
+        // The store's prune at start trims the parked snapshots: the day of the next trim starts now.
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).last_trim =
+            Some(Instant::now());
         let state = self.state.clone();
         let thread = std::thread::Builder::new()
             .name("mux-output-store-writer".into())
@@ -120,29 +125,35 @@ impl Writer {
 fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
     let (lock, changed) = state;
     loop {
-        let memory_only = {
+        let turn = {
             let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if guard.stop {
                     return;
                 }
-                // A due snapshot pass goes first (it measures too), so a
-                // stream of measurement requests never starves snapshots.
-                if guard.due.is_some_and(|due| Instant::now() >= due) {
-                    guard.due = None;
-                    guard.memory_due = false;
-                    break false;
-                }
-                if std::mem::take(&mut guard.memory_due) {
-                    break true;
+                if let Some(turn) = take_turn(&mut guard, Instant::now()) {
+                    break turn;
                 }
                 match guard.due {
-                    None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
+                    // An idle session wakes once a day, for the parked snapshots' trim.
+                    None => {
+                        let wait = guard.last_trim.map_or(super::parked_trim::PASS_EVERY, |last| {
+                            (last + super::parked_trim::PASS_EVERY)
+                                .saturating_duration_since(Instant::now())
+                        });
+                        let (next, waited) = changed
+                            .wait_timeout(guard, wait)
+                            .unwrap_or_else(PoisonError::into_inner);
+                        guard = next;
+                        if waited.timed_out() {
+                            guard.due = Some(Instant::now());
+                        }
+                    }
                     Some(due) => {
                         let now = Instant::now();
                         if now >= due {
-                            guard.due = None;
-                            break false;
+                            // Due between the look above and this one: the next turn takes it.
+                            continue;
                         }
                         guard = changed
                             .wait_timeout(guard, due - now)
@@ -153,11 +164,59 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         };
         let Some(mux) = mux.upgrade() else { return };
-        if memory_only {
+        // The measurement first: it is short, and a write pass can wait for the disk.
+        if turn.memory {
             memory_pass(&mux, &mux.output_store);
-        } else {
+        }
+        if turn.write {
+            if turn.trim {
+                mux.output_store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
+            }
             write_pass(&mux, &mux.output_store);
         }
+    }
+}
+
+/// What one turn of the writer runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Turn {
+    /// Measure the terminals whose history grew, then the budget pass when the total is over its trigger.
+    memory: bool,
+    /// The snapshot and tail pass.
+    write: bool,
+    /// With the write pass: the parked snapshots' trim.
+    trim: bool,
+}
+
+/// The turn to run at `now`, taken out of `state`; `None`: wait. A due write pass and a request for a
+/// measurement go into the same turn, so a stream of requests never starves snapshots, and a write pass never
+/// takes a request away: the write pass runs the budget only once per interval (`OutputStore::enforce_due`),
+/// and a terminal whose request is open does not ask again (`LogState::measure_due`), so a request dropped
+/// here left the budget to that interval.
+fn take_turn(state: &mut WriterState, now: Instant) -> Option<Turn> {
+    let memory = std::mem::take(&mut state.memory_due);
+    if state.due.is_some_and(|due| now >= due) {
+        state.due = None;
+        return Some(Turn { memory, write: true, trim: take_trim(state) });
+    }
+    memory.then_some(Turn { memory: true, write: false, trim: false })
+}
+
+/// Whether this pass runs the parked snapshots' trim: once a day, however busy the session is. The store's prune
+/// at start runs it too, so the first day starts then.
+fn take_trim(state: &mut WriterState) -> bool {
+    let now = Instant::now();
+    match state.last_trim {
+        // The store's prune at start ran the first one: the day starts at the first pass.
+        None => {
+            state.last_trim = Some(now);
+            false
+        }
+        Some(last) if now.duration_since(last) >= super::parked_trim::PASS_EVERY => {
+            state.last_trim = Some(now);
+            true
+        }
+        Some(_) => false,
     }
 }
 
@@ -785,7 +844,7 @@ pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
     let _ = fs::remove_file(path(directory, terminal_id));
 }
 
-fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
+pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
@@ -827,7 +886,7 @@ fn write(
 }
 
 /// The header line of a snapshot file (it is short; the replay follows).
-fn read_header(file: &Path) -> Option<serde_json::Value> {
+pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
     let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
@@ -934,6 +993,16 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
     }
+    // Parked: a kept tab and no running shell (after a daemon restart too).
+    let parked = mux.parked_terminal_ids(live);
+    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+    super::parked_trim::run(
+        directory,
+        &parked,
+        now_ms,
+        policy.parked_max_total_bytes,
+        policy.min_free_disk_bytes,
+    );
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.

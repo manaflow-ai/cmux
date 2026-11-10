@@ -100,6 +100,10 @@ public actor AgentSessionAttachClient {
         var trustVMKind = false
         /// `agent-session-children-v1`.
         var children = false
+        /// `agent-session-fork-v1`.
+        var fork = false
+        /// `agent-session-side-v1`.
+        var side = false
         /// `agent-session-presence-v1`.
         var presence = false
         /// `agent-session-folders-v1`.
@@ -110,6 +114,10 @@ public actor AgentSessionAttachClient {
         var login = false
         /// `agent-session-content-v1`.
         var content = false
+        /// `agent-session-context-v1`.
+        var context = false
+        /// `agent-session-btw-v1`.
+        var btw = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -196,12 +204,43 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
-        let data = try await call("agent-session-start", params, on: transport)
+        let data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
         }
+        if let timings = Self.machineTimings(object["timings_ms"]) { Self.startLogger.info("cloud start machine: \(timings, privacy: .public)") }
+        startPhases = Self.machinePhases(object["timings_ms"])
         return session
+    }
+
+    /// The machine-side phases of this client's last start (``machinePhases(_:)``), for the run that started it
+    /// (`cloud start-session`'s `stages_ms`); nil when its daemon sent none.
+    public private(set) var startPhases: [String: Int]?
+
+    /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` as 0 or 1.
+    static func machinePhases(_ value: Any?) -> [String: Int]? {
+        guard let timings = value as? [String: Any] else { return nil }
+        var phases: [String: Int] = [:]
+        for name in machinePhaseNames {
+            if let ms = timings.first(where: { $0.key == name })?.value as? NSNumber { phases[name] = max(0, ms.intValue) }
+        }
+        if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { phases["acpmux_started"] = started ? 1 : 0 }
+        return phases.isEmpty ? nil : phases
+    }
+    static let machinePhaseNames = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
+
+    /// The `cloud` category the Cloud probe's log stream reads (cmuxterm-hq cloud_chat_app_probe.py APP_LOG_PREDICATE).
+    private static let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.start")
+
+    /// The start's machine-side phases (`timings_ms`, cmux-tui-core agent_session_start.rs `StartTimings`) as one
+    /// line, `session_new 1800 ms, ...`, in the daemon's phase order; nil when the daemon sent none. Durations only.
+    static func machineTimings(_ value: Any?) -> String? {
+        guard let timings = value as? [String: Any] else { return nil }
+        var parts = machinePhaseNames.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
+        guard !parts.isEmpty else { return nil }
+        if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
+        return parts.joined(separator: ", ")
     }
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
@@ -304,6 +343,7 @@ public actor AgentSessionAttachClient {
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
     public static let startUnsupported = "agent_session.start_unsupported"
+    public static let forkUnsupported = "agent_session.fork_unsupported"
 
     public func prompt(id: String, text: String) async throws -> Data {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
@@ -377,6 +417,65 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-children", [:])
     }
 
+    /// `agent-session-fork` (`agent-session-fork-v1`): fork this attached chat through its
+    /// latest completed turn. The daemon pins the source session from the attachment and the
+    /// acpmux fork copies its transcript without changing the parent.
+    public func fork(throughSeq: Int, name: String? = nil) async throws -> (session: String, data: Data) {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot fork a chat")
+        }
+        guard throughSeq > 0 else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "throughSeq must be positive")
+        }
+        _ = try await liveTransport()
+        guard served.fork else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "the daemon does not serve agent session fork")
+        }
+        var params: [String: any Sendable] = ["through_seq": throughSeq]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { params["name"] = name }
+        let data = try await call("agent-session-fork", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["sessionId"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-fork answered no session")
+        }
+        return (session, data)
+    }
+
+    /// Whether the daemon opens a side chat of this attached chat on its machine
+    /// (`agent-session-side-v1`); an observation never does.
+    public func servesSide() async -> Bool {
+        guard mode == .attach else { return false }
+        return (try? await liveConnection())?.1.side ?? false
+    }
+
+    /// `agent-session-side` (`agent-session-side-v1`): New side chat and `/side [prompt]` of this
+    /// attached chat. That machine's acpmux forks the tab's own session (`throughSeq` nil: as it is
+    /// now, its turn going on), tags the fork the chat's side chat and sends it `prompt`; answers
+    /// the daemon's `{sessionId, prompted, notSent?}` (`notSent`: why acpmux did not take `prompt`).
+    public func side(throughSeq: Int?, prompt: String? = nil, promptID: String = UUID().uuidString.lowercased()) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot open a side chat")
+        }
+        if let throughSeq, throughSeq <= 0 {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "throughSeq must be positive")
+        }
+        _ = try await liveTransport()
+        guard served.side else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "Update cmux on that machine to open a side chat there.")
+        }
+        var params: [String: any Sendable] = throughSeq.map { ["through_seq": $0] } ?? ["live": true]
+        if let prompt {
+            params["prompt"] = prompt
+            params["prompt_id"] = promptID
+        }
+        let data = try await call("agent-session-side", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["sessionId"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-side answered no session")
+        }
+        return data
+    }
+
     /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
     /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
     public func typing(_ on: Bool) async throws {
@@ -413,6 +512,29 @@ public actor AgentSessionAttachClient {
         try await setting("agent-session-set-config", ["config_id": configId, "value": value])
     }
 
+    /// The attached session's effective context inventory, from its own machine.
+    public func context() async throws -> Data {
+        try await context(["op": "get"])
+    }
+
+    /// Saves or resets a cmux-added context override on that machine. A project scope uses
+    /// the attached session's directory; nil resets the saved override.
+    public func setContextOverride(scope: String, text: String?, partId: String? = nil) async throws -> Data {
+        var params: [String: any Sendable] = ["op": "set", "scope": scope]
+        if let text { params["text"] = text }
+        if let partId { params["partId"] = partId }
+        return try await context(params)
+    }
+
+    private func context(_ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.context else {
+            throw AgentSessionAttachError(code: "agent_session.context_unsupported",
+                                          message: "Update cmux on that machine to view or edit this chat's context.")
+        }
+        return try await call("agent-session-context", params)
+    }
+
     private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
         _ = try await liveTransport()
         guard served.settings else {
@@ -426,6 +548,13 @@ public actor AgentSessionAttachClient {
     public func servesLogin() async -> Bool {
         (try? await liveConnection())?.1.login ?? false
     }
+
+    /// How long a chat start may wait for its machine: the daemon there waits on acpmux as long as acpmux
+    /// still answers, up to 15 minutes (`START_PATIENCE`, agent_session_start.rs), and answers
+    /// `agent_session.timeout` itself when acpmux goes silent; this is that ceiling plus the carrier. A
+    /// link that drops fails the start at once, as before. Was the client's 75 s, which a harness starting in
+    /// a big folder on a busy machine passed (cmux#40385's matrix).
+    static let startTimeout: Duration = .seconds(16 * 60)
 
     /// How long each login step may wait, past the daemon's own wait for it: start waits for the
     /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's
@@ -453,10 +582,37 @@ public actor AgentSessionAttachClient {
                               timeout: Self.loginTimeout(op) ?? requestTimeout)
     }
 
+    /// The code ``btw(_:)`` throws for a daemon without `agent-session-btw-v1`.
+    public static let btwUnsupported = "agent_session.btw_unsupported"
+
+    /// `agent-session-btw` (`agent-session-btw-v1`): the composer's `/btw <question>`, as acpmux's
+    /// inline `_acpmux/btw` on the tab's own session: `{text}`, or `{refused: {reason}}`. acpmux
+    /// gives it 110 seconds.
+    public func btw(_ question: String) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.btwUnsupported, message: "a read-only agent session asks no side question")
+        }
+        _ = try await liveTransport()
+        guard served.btw else {
+            throw AgentSessionAttachError(code: Self.btwUnsupported, message: "Update cmux on that machine to ask a side question here.")
+        }
+        return try await call("agent-session-btw", ["question": question], timeout: .seconds(125))
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
         return try await call("agent-session-media", ["path": path])
+    }
+
+    /// Reads one byte range of a video of the attached session's host (`agent-session-media` with
+    /// an `offset`): `{offset, size, identity, data, mimeType?, handle?}`, base64 bytes. `handle`,
+    /// from the previous answer, reads the same open file; nil opens it again.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        _ = try await liveTransport()
+        var params: [String: any Sendable] = ["path": path, "offset": offset, "length": length]
+        if let handle { params["handle"] = handle }
+        return try await call("agent-session-media", params)
     }
 
     /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
@@ -621,11 +777,15 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
+                            fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
+                            side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
-                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue))
+                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
+                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
+                            btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

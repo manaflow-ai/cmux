@@ -34,7 +34,7 @@ impl Hub {
         // every pane hears is the marks kept; and a move begins before the change or after it.
         let moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
         if moving.is_some() {
-            return Err(queue::moving_error());
+            return Err(queue::moving_error(session));
         }
         let (marks, before) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -66,6 +66,14 @@ impl Hub {
                 meta.updated_at = before;
             }
         }
+        // `append` notes the record before the timestamp rewind above. Note again after the
+        // direct metadata write so a closed snapshot that raced the append cannot publish the
+        // forward timestamp as this chat's newest continuation.
+        self.chat_activity_cache.note(
+            &session.id,
+            "bookmarks",
+            session.status() == crate::store::SessionStatus::Closed,
+        );
         let saved = self.save_meta_answered(session);
         drop(moving);
         saved.map(|()| marks)

@@ -47,11 +47,24 @@ mod cloud_handoff;
 mod cloud_activity;
 mod handover;
 mod home_watch;
+mod managed_unit;
+use managed_unit::managed_unit_connect_with;
 mod notify;
 pub(crate) mod owner_exit;
 /// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
 pub use owner_exit::process_start;
 mod persist_retry;
+mod person_key;
+#[cfg(unix)]
+use person_key::KEY_READY;
+#[cfg(unix)]
+pub(crate) use person_key::not_dumpable;
+// Only the Linux provisioning exec (provision::enroll_running) reads a key line from here.
+#[cfg(target_os = "linux")]
+pub(crate) use person_key::read_key_line;
+use person_key::read_person_key;
+#[cfg(unix)]
+pub use person_key::start_keyed;
 // The provisioning exec's person key for the running daemon (Cloud machines).
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -122,15 +135,30 @@ fn install_panic_log() {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
-    #[allow(
-        clippy::panic,
-        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
-    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
-            // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
+            .spawn(|| test_panic("acpmux test panic"));
+    }
+}
+
+/// Debug builds only: the one panic the test triggers below raise.
+#[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+)]
+fn test_panic(message: &str) -> ! {
+    // crash-allow: debug-only test trigger for the acpmux panic log
+    panic!("{message}");
+}
+
+/// Debug builds only: `ACPMUX_TEST_PANIC=<task>` makes that task of the daemon panic
+/// (tests/panic_log.rs).
+#[cfg(debug_assertions)]
+fn test_panic_in(task: &str) {
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok(task) {
+        test_panic(&format!("acpmux test panic in {task}"));
     }
 }
 
@@ -404,7 +432,21 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         None => None,
     };
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
-    let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
+    let bound_addr = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+    // The cmux link carries paired peers' `acpmux` streams only to the listener this record
+    // names while this daemon runs (`listener_record.rs`), never to config.json's port.
+    // The guard removes it on every way out: a startup error after this returns through `?`,
+    // and the shutdown drops it first, while the listener is still bound.
+    let listener_record = match bound_addr.map(|addr| crate::listener_record::write(&home(), addr))
+    {
+        Some(Ok(written)) => Some(written),
+        Some(Err(e)) => {
+            tracing::warn!("could not record the web listener for the cmux link: {e}");
+            None
+        }
+        None => None,
+    };
+    let bound = bound_addr.map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
         let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
@@ -487,10 +529,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // outbox is set aside (kept for a look, never read again) and this one starts empty.
         if cloned {
             let path = home().join("outbox.json");
-            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
-                && e.kind() != std::io::ErrorKind::NotFound
+            let journal = crate::hub::outbox::journal_path(&path);
+            // The journal first: a start cut short between the two never reads the copied
+            // journal over an empty snapshot.
+            for (from, to) in
+                [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                tracing::warn!("copied machine's outbox not set aside: {e}");
+                if let Err(e) = std::fs::rename(&from, home().join(to))
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!("copied machine's outbox not set aside: {e}");
+                }
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
@@ -504,6 +553,24 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
+    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
+    #[cfg(feature = "hub-carrier")]
+    let _hub_carrier = if clone_unsettled {
+        None
+    } else {
+        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
+        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
+        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
+        // key with the key file and registers again, rather than reading it as replaced.
+        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
+            let carrier = carrier.clone();
+            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
+        }
+        serving
+    };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -524,7 +591,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+        let catalog = hub.catalog.clone();
+        crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -608,8 +676,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
-    // A new peer token at every launch (`server/peer_auth.rs`): the only
-    // proof of a peer daemon, read by it over ssh, never over an RPC.
+    // A new peer token at every launch (`server/peer_auth.rs`), read by a peer over ssh only.
     let peer = if ws_listener.is_some() {
         match crate::server::peer_auth::PeerAuth::create(&home()) {
             Ok(auth) => Some(std::sync::Arc::new(auth)),
@@ -624,6 +691,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let carrier_file = crate::server::carrier::start(&hub, &home()).await;
     let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
@@ -718,14 +786,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_watch();
     // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
     let metadata = {
-        let hub = hub.clone();
-        tokio::spawn(async move { hub.load_store_async().await })
+        let loading = hub.clone();
+        crate::supervise::once("store load", &hub.fatal, async move {
+            loading.load_store_async().await;
+        })
     };
     hub.begin_startup_work();
     let startup = {
-        let hub = hub.clone();
-        tokio::spawn(async move {
+        let (hub, fatal) = (hub.clone(), hub.fatal.clone());
+        // A startup that panicked can never finish: the daemon stops for a restart.
+        crate::supervise::once("startup", &fatal, async move {
             hub.wait_store().await;
+            #[cfg(debug_assertions)]
+            test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.
@@ -767,9 +840,23 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.run_after_startup().await;
         })
     };
-    tokio::spawn(notify::notify_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("notify", &hub.fatal.clone(), move || {
+            notify::notify_loop(hub.clone())
+        });
+    }
+    let weak = Arc::downgrade(&hub);
     // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
-    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
+    }
+    // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
+    // (`hub/desktop_bridge.rs`).
+    crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
+        Hub::desktop_bridge_loop(weak.clone())
+    });
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
@@ -885,6 +972,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // First: the cmux link stops sending peers here before admission closes or the listener is
+    // freed, so no process that binds the freed port can be taken for this daemon.
+    drop(listener_record);
     // A home loss must request forced agent cleanup before the shutdown fence refuses changes
     // to the plan. A restart handoff keeps durable provider retries for the next daemon.
     recheck_home();
@@ -995,7 +1085,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     recheck_home();
     if !crate::config::home_lost() {
         let _ = std::fs::remove_file(home().join("daemon.pid"));
-        for file in [local_app_file, peer_file].into_iter().flatten() {
+        for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
         }
     }
@@ -1009,187 +1099,6 @@ fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
     }
-}
-
-/// Read the person key (one line, at most 128 bytes) from an inherited
-/// descriptor and close it. The key is never logged.
-#[cfg(unix)]
-fn read_person_key(fd: i32) -> Option<String> {
-    use std::io::Read;
-    use std::os::fd::FromRawFd;
-    if fd <= 2 {
-        tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
-        return None;
-    }
-    // Close the descriptor at exec too, so that no agent inherits it even
-    // if a spawn starts before the read below returns.
-    // SAFETY: fcntl on a descriptor number only sets its flags.
-    unsafe {
-        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-    }
-    if let Err(e) = not_dumpable() {
-        // An agent this daemon starts (same uid) could read the key from
-        // its memory: no key, so no allow, rather than a readable key.
-        tracing::warn!(
-            "--person-key-fd {fd}: refused, the daemon cannot be made not dumpable: {e}"
-        );
-        // SAFETY: the launcher passed this descriptor for us to close.
-        drop(unsafe { std::fs::File::from_raw_fd(fd) });
-        return None;
-    }
-    // SAFETY: the launcher passed this descriptor for us to read and close;
-    // `File` owns and closes it here.
-    let f = unsafe { std::fs::File::from_raw_fd(fd) };
-    // A socket (`daemon start --person-key-fd`): say that this process is
-    // not dumpable now; the launcher writes the key only after that, so a
-    // same-uid reader of /proc/<pid>/fd before this point finds no key.
-    if is_socket(&f) {
-        use std::io::Write;
-        if let Err(e) = (&f).write_all(KEY_READY) {
-            tracing::warn!("--person-key-fd {fd}: {e}");
-            return None;
-        }
-    }
-    let mut buf = zeroize::Zeroizing::new(Vec::with_capacity(80));
-    if let Err(e) = f.take(128).read_to_end(&mut buf) {
-        tracing::warn!("--person-key-fd {fd}: {e}");
-        return None;
-    }
-    let key = std::str::from_utf8(&buf).ok()?.trim().to_owned();
-    if crate::hub::person::valid_key(&key) {
-        Some(key)
-    } else {
-        tracing::warn!("--person-key-fd {fd}: not a person key");
-        None
-    }
-}
-
-/// What a daemon writes on a socket key descriptor once it is not dumpable.
-const KEY_READY: &[u8] = b"nodump\n";
-
-/// Whether `f` is a socket.
-#[cfg(unix)]
-fn is_socket(f: &std::fs::File) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    f.metadata().is_ok_and(|m| m.file_type().is_socket())
-}
-
-/// `acpmux daemon start --person-key-fd <fd>` (cx-0q7o slice 2a, D2): the
-/// app's own ssh exec (or the VM provisioning exec) passes this launch's
-/// person key on `fd` (stdin: 0). This process makes itself not dumpable,
-/// reads one line, starts the daemon with a socket pair as its key
-/// descriptor, and writes the key only after the daemon said it is not
-/// dumpable. A daemon that already runs holds another key or none: this
-/// refuses then (a keyed restart stops it first with `daemon shutdown
-/// --keep-agents`). Returns the daemon's readiness line.
-#[cfg(unix)]
-pub async fn start_keyed(fd: i32) -> Result<String> {
-    not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
-    exe_path::check_start()?;
-    let path = socket_path();
-    if Client::connect(&path).await.is_ok() {
-        return Err(anyhow!(
-            "a daemon already runs at {}: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
-            path.display()
-        ));
-    }
-    let key = read_key_line(fd)?;
-    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
-    // never leaving the caller to start an unkeyed one.
-    loop {
-        let ready = start_daemon_with(Some(key.clone())).await?;
-        if !lock_held(&ready) {
-            // A keyed daemon that exited before it was ready fails this start: the caller must
-            // not go on to start an unkeyed daemon in its place.
-            anyhow::ensure!(
-                !ready.trim().is_empty(),
-                "the keyed daemon exited before it was ready; see {}",
-                home().join("daemon.log").display()
-            );
-            return Ok(ready);
-        }
-        tokio::time::sleep(HANDOVER_RETRY).await;
-        if Client::connect(&path).await.is_ok() {
-            return Err(anyhow!(
-                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
-                path.display()
-            ));
-        }
-    }
-}
-
-/// One person key line (64 lowercase hex characters and a newline) from `fd`, which stays open
-/// (stdin), read straight into one fixed buffer that is zeroed on drop: no reader buffer keeps
-/// another copy. The caller made itself not dumpable first.
-#[cfg(unix)]
-pub(crate) fn read_key_line(fd: i32) -> Result<zeroize::Zeroizing<String>> {
-    use std::io::Read;
-    use std::os::fd::FromRawFd;
-    // SAFETY: the caller passed this descriptor for this process to read;
-    // ManuallyDrop: stdin stays open for the process.
-    let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
-    let mut line = zeroize::Zeroizing::new([0u8; 129]);
-    let mut filled = 0;
-    while filled < line.len() && !line.get(..filled).unwrap_or_default().contains(&b'\n') {
-        let Some(rest) = line.get_mut(filled..) else { break };
-        match (&*input).read(rest) {
-            Ok(0) => break,
-            Ok(n) => filled += n,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e).context("read the person key"),
-        }
-    }
-    let read = line.get(..filled).unwrap_or_default();
-    let end = read.iter().position(|b| *b == b'\n').unwrap_or(filled);
-    let key = zeroize::Zeroizing::new(
-        std::str::from_utf8(read.get(..end).unwrap_or_default())
-            .unwrap_or_default()
-            .trim()
-            .to_owned(),
-    );
-    if !crate::hub::person::valid_key(&key) {
-        return Err(anyhow!(
-            "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
-        ));
-    }
-    Ok(key)
-}
-
-/// Makes this process not dumpable before it holds a person key (cx-0q7o):
-/// on Linux, a same-uid process (an agent the daemon starts) can then not
-/// ptrace it or read its memory through /proc, and the kernel owns its
-/// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
-#[cfg(target_os = "linux")]
-pub(crate) fn not_dumpable() -> std::io::Result<()> {
-    // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
-    // process's dumpable flag.
-    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: PR_GET_DUMPABLE reads this process's flag.
-    if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } != 0 {
-        return Err(std::io::Error::other("PR_GET_DUMPABLE is not 0 after PR_SET_DUMPABLE 0"));
-    }
-    match std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope") {
-        Ok(scope) => tracing::info!("person key: not dumpable; yama ptrace_scope {}", scope.trim()),
-        Err(_) => tracing::info!("person key: not dumpable; yama is not active"),
-    }
-    Ok(())
-}
-
-/// macOS and other Unix: no dumpable flag. A DEV daemon is unsigned and
-/// takes the key at spawn; a Release daemon is hardened-runtime signed,
-/// which refuses a debugger without the get-task-allow entitlement, and
-/// ignores the key descriptor (it enrolls the signed app instead).
-#[cfg(all(unix, not(target_os = "linux")))]
-pub(crate) fn not_dumpable() -> std::io::Result<()> {
-    Ok(())
-}
-
-/// Windows: an inherited handle (`daemon/windows.rs`).
-#[cfg(windows)]
-fn read_person_key(fd: i32) -> Option<String> {
-    windows::read_person_key(fd)
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
@@ -1479,201 +1388,6 @@ where
 
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
-// timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
-#[cfg(target_os = "linux")]
-const PROBE_BUDGET: Duration = Duration::from_secs(1);
-
-/// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
-/// from a session shell) while its daemon is owned by the user systemd unit.
-/// In that case never call [`spawn_detached`]: the unit may use a supervised
-/// state directory while the default home is a symlink, and the private-state
-/// guard must continue to reject that symlink. Ask systemd to start its unit
-/// and wait for the socket instead.
-#[cfg(target_os = "linux")]
-async fn managed_unit_connect_with<S, T, F, Fut>(
-    systemctl: S,
-    current_home: &std::path::Path,
-    path: &std::path::Path,
-    connect: &F,
-) -> Result<Option<T>>
-where
-    S: AsRef<std::ffi::OsStr> + Clone,
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
-{
-    let show = tokio::process::Command::new(systemctl.clone())
-        .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
-        .output();
-    let loaded = match tokio::time::timeout(PROBE_BUDGET, show).await {
-        Ok(Ok(output)) if output.status.success() => output.stdout.trim_ascii() == b"loaded",
-        Ok(Ok(_)) => false,
-        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Ok(Err(error)) => return Err(error.into()),
-        // Health discovery is advisory. A slow systemd must not prevent the
-        // normal detached launch path below from serving the real request.
-        Err(_) => return Ok(None),
-    };
-    if !loaded {
-        return Ok(None);
-    }
-
-    let env = tokio::process::Command::new(systemctl.clone())
-        .args(["--user", "show", "acpmux.service", "-p", "Environment", "--value"])
-        .output();
-    let env = match tokio::time::timeout(PROBE_BUDGET, env).await {
-        Ok(Ok(output)) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        }
-        Ok(Ok(output)) => {
-            return Err(anyhow!(
-                "systemd could not read acpmux.service environment: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        Ok(Err(error)) => return Err(error.into()),
-        Err(_) => return Ok(None),
-    };
-    let unit_home =
-        unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
-    if !equivalent_path(current_home, &unit_home) {
-        return Ok(None);
-    }
-    let unit_socket = unit_environment_path(&env, "ACPMUX_SOCKET");
-    let expected_socket = crate::config::socket_path_for(
-        &unit_home,
-        unit_socket.as_deref().and_then(|path| path.to_str()),
-    );
-    if !equivalent_path(path, &expected_socket) {
-        return Ok(None);
-    }
-
-    // A unit start can overlap the old daemon's graceful handover. The socket
-    // is the authoritative liveness signal; a slow start command is retried.
-    let mut next_start = tokio::time::Instant::now();
-    loop {
-        if tokio::time::Instant::now() >= next_start {
-            let _ = run_systemctl(systemctl.clone(), &["--user", "start", "acpmux.service"]).await;
-            next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
-        }
-        if let Ok(value) = connect().await {
-            return Ok(Some(value));
-        }
-        // If systemd has already marked the unit inactive, its socket peer is
-        // gone; let the ordinary detached launch path recover it. A live unit
-        // keeps this wait open regardless of how long its request takes.
-        match run_systemctl(systemctl.clone(), &["--user", "is-active", "acpmux.service"]).await {
-            Ok(Some(status)) if status.success() => {}
-            _ => return Ok(None),
-        }
-        tokio::time::sleep(HANDOVER_RETRY).await;
-    }
-}
-
-/// Run a systemd probe without leaving a timed-out child behind. The timeout is
-/// only for this advisory health probe; the daemon request itself waits on its
-/// socket and lock liveness.
-// timeout: cleanup for a wedged systemctl probe before retrying it.
-#[cfg(target_os = "linux")]
-async fn run_systemctl<S>(
-    systemctl: S,
-    args: &[&str],
-) -> std::io::Result<Option<std::process::ExitStatus>>
-where
-    S: AsRef<std::ffi::OsStr>,
-{
-    let mut child = tokio::process::Command::new(systemctl).args(args).spawn()?;
-    match tokio::time::timeout(PROBE_BUDGET, child.wait()).await {
-        Ok(status) => status.map(Some),
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            Ok(None)
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-async fn managed_unit_connect_with<S, T, F, Fut>(
-    _systemctl: S,
-    _current_home: &std::path::Path,
-    _path: &std::path::Path,
-    _connect: &F,
-) -> Result<Option<T>>
-where
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
-{
-    Ok(None)
-}
-
-#[cfg(target_os = "linux")]
-fn unit_environment_path(environment: &str, key: &str) -> Option<std::path::PathBuf> {
-    unit_environment_words(environment).into_iter().find_map(|entry| {
-        entry
-            .strip_prefix(key)
-            .and_then(|value| value.strip_prefix('='))
-            .map(std::path::PathBuf::from)
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn unit_environment_words(environment: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut word = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    let mut has_word = false;
-    for ch in environment.chars() {
-        if escaped {
-            word.push(ch);
-            escaped = false;
-            has_word = true;
-            continue;
-        }
-        match quote {
-            Some('"') if ch == '\\' => escaped = true,
-            Some(q) if ch == q => quote = None,
-            Some(_) => {
-                word.push(ch);
-                has_word = true;
-            }
-            None if ch == '\\' => escaped = true,
-            None if ch == '\'' || ch == '"' => {
-                quote = Some(ch);
-                has_word = true;
-            }
-            None if ch.is_ascii_whitespace() => {
-                if has_word {
-                    words.push(std::mem::take(&mut word));
-                    has_word = false;
-                }
-            }
-            None => {
-                word.push(ch);
-                has_word = true;
-            }
-        }
-    }
-    if escaped {
-        word.push('\\');
-        has_word = true;
-    }
-    if has_word {
-        words.push(word);
-    }
-    words
-}
-
-#[cfg(target_os = "linux")]
-fn equivalent_path(left: &std::path::Path, right: &std::path::Path) -> bool {
-    fn normalized(path: &std::path::Path) -> Option<std::path::PathBuf> {
-        std::fs::canonicalize(path).ok().or_else(|| {
-            let parent = path.parent()?;
-            Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
-        })
-    }
-    left == right || normalized(left).zip(normalized(right)).is_some_and(|(l, r)| l == r)
-}
 
 /// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
 /// line says `lockHeld`), another daemon is stopping or starting: the command connects once that
@@ -2154,32 +1868,7 @@ fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
 }
 
 #[cfg(test)]
-mod keeps_chats_tests {
-    use super::*;
-    use crate::config::StoreMode;
-
-    fn hub(mode: StoreMode, dir: &std::path::Path) -> std::sync::Arc<Hub> {
-        let mut cfg = crate::config::Config::default();
-        cfg.store.mode = mode;
-        let store = crate::store::open(&cfg.store, dir).unwrap();
-        let hub = Hub::new(cfg, store);
-        // What `run` does with the default environment (no `ACPMUX_AGENT_HOSTS=0`).
-        hub.enable_agent_hosts();
-        hub
-    }
-
-    #[test]
-    fn a_memory_daemon_with_the_default_env_keeps_no_chats_across_a_stop() {
-        let dir = tempfile::tempdir().unwrap();
-        // `--memory`, default env: agent hosts asked for, but a memory store never runs them,
-        // so the app-orphan watch must never stop it (its chats would be lost).
-        let memory = hub(StoreMode::Memory, dir.path());
-        assert!(!memory.agent_hosts_enabled());
-        assert!(!keeps_chats_across_stop(&memory, true));
-        let local = hub(StoreMode::Local, dir.path());
-        assert!(keeps_chats_across_stop(&local, false));
-    }
-}
+mod keeps_chats_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod scope_tests {

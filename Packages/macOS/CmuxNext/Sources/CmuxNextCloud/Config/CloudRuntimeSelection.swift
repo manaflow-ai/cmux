@@ -1,8 +1,9 @@
 public import Foundation
 
 /// Rust's validated, non-secret client-config selection returned by the bundled CLI.
-/// Swift decodes this value; backend discovery, allowlisting and cached fallback belong to Rust.
-public struct CloudRuntimeSelection: Decodable, Sendable, Equatable {
+/// Swift decodes this value and hands it back to Rust (camelCase) for the configuration it makes;
+/// backend discovery, allowlisting and cached fallback belong to Rust.
+public struct CloudRuntimeSelection: Codable, Sendable, Equatable {
     public var name: String
     public var apiOrigin: URL
     public var authWebOrigin: URL

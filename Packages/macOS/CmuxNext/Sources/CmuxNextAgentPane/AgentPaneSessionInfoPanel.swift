@@ -67,6 +67,9 @@ final class AgentPaneSessionInfoPanel: NSView {
         let overChat = Self.liesOverChat(store.info)
         if overChat, backing == nil {
             let glass = Glass.makeOverlayPanel()
+            // Denser than a popover's glass: at the popover level the transcript under the list
+            // washed its text out (Lucas, 2026-11-10: "a bit too washed out").
+            glass.tintLevel = .chip
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             glass.frame = bounds
@@ -78,17 +81,17 @@ final class AgentPaneSessionInfoPanel: NSView {
         }
     }
 
-    /// The panel's edge: a hairline in the theme's separator color on the panel's rounded corners, over
-    /// the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's ok...?
-    /// to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better").
-    /// A layer's border draws over its sublayers, so it shows over the glass under the content too.
+    /// The panel's edge: a hairline in ``AgentPaneSessionInfoColors/edge`` on the panel's rounded corners,
+    /// over the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's
+    /// ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be
+    /// better"). A layer's border draws over its sublayers, so it shows over the glass under the content too.
     private func applyEdge() {
         wantsLayer = true
         guard let layer else { return }
         layer.backgroundColor = nil
         layer.cornerRadius = Metrics.panelCornerRadius
         layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
-        layer.borderColor = store.colors.separator.cgColor
+        layer.borderColor = store.colors.edge.cgColor
     }
 
     override func viewDidChangeBackingProperties() {
@@ -265,6 +268,10 @@ struct AgentPaneSessionInfoColors: Equatable {
     var tertiary = ThemeTokens.unresolved.textTertiary.nsColor
     var hover = ThemeTokens.unresolved.hoverFill.nsColor
     var separator = ThemeTokens.unresolved.separator.nsColor
+    /// The panel's own edge: the text at 22%, as the web panel's (sessionInfo.css), not the separator,
+    /// whose 7 to 8% read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too
+    /// faint"); the full text under Increase Contrast. Clear when appearance.borders is none.
+    var edge = Self.edge(text: ThemeTokens.unresolved.textPrimary.nsColor, increaseContrast: false)
     var danger = ThemeTokens.unresolved.danger.nsColor
     var success = ThemeTokens.unresolved.success.nsColor
     var attention = ThemeTokens.unresolved.attention.nsColor
@@ -279,11 +286,19 @@ struct AgentPaneSessionInfoColors: Equatable {
         tertiary = tokens.textTertiary.nsColor
         hover = tokens.hoverFill.nsColor
         separator = Borders.color(tokens.separator.nsColor)
+        edge = Borders.color(Self.edge(text: primary, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast))
         danger = tokens.danger.nsColor
         success = tokens.success.nsColor
         attention = tokens.attention.nsColor
         accent = tokens.litGlyph.nsColor
         identities = (0..<5).compactMap { AgentIdentityTone.rgb($0, tokens: tokens)?.nsColor }
+    }
+
+    /// The edge's share of the text color.
+    static let edgeShare: CGFloat = 0.22
+
+    static func edge(text: NSColor, increaseContrast: Bool) -> NSColor {
+        increaseContrast ? text : text.withAlphaComponent(text.alphaComponent * edgeShare)
     }
 
     func identity(_ tone: Int?) -> NSColor? {

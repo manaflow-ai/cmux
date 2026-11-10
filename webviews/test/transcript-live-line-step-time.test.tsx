@@ -41,8 +41,7 @@ const run = (...items: AcpmuxActivity[]): AcpmuxRow => ({
   at: prompt.at,
   items,
 });
-const line = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).find((row) => row.kind === THINKING)!;
+const line = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).find((row) => row.kind === THINKING)!;
 const words = (node: ReactNode) =>
   renderMarkup(
     <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
@@ -69,10 +68,12 @@ test("the fixture's calls carry the times Claude's events gave them", () => {
   expect(agent!.tool!.endedAt! - agent!.tool!.startedAt!).toBe(411);
 });
 
-test("a step that ran under a second says its time, never a floored 0s", () => {
+test("a step that ran under a second gives the line back to Thinking, never a floored 0s", () => {
+  // The line reads Thinking the moment the call completes (Leo, 2026-11-07: "Why don't we just
+  // immediately switch to the thinking?"), never the finished step with its frozen time.
   const live = line([prompt, run(bash!)]);
-  expect(live).toMatchObject({ doing: "Print ready", doingDone: true, doingForMs: 856 });
-  expect(drawn(live, prompt.at + 32_000)).toBe("Print ready 856ms · 32s");
+  expect(live.doing).toBeUndefined();
+  expect(drawn(live, prompt.at + 32_000)).toBe("Thinking 32s");
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -90,7 +91,7 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   const instant = { ...bash!, tool: { ...bash!.tool!, endedAt: bash!.tool!.startedAt } };
   const live = line([prompt, run(instant)]);
   expect(live.doingForMs).toBeUndefined();
-  expect(drawn(live, prompt.at + 32_000)).toBe("Print ready 32s");
+  expect(drawn(live, prompt.at + 32_000)).toBe("Thinking 32s");
 });
 
 test("thinking that streamed under a second says its time; one dated chunk has none", () => {
@@ -103,7 +104,7 @@ test("thinking that streamed under a second says its time; one dated chunk has n
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
   expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · 32s");
+  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
   const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
   expect(single.thoughtMs).toBeUndefined();
   expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");
@@ -117,4 +118,26 @@ test("every finished row's own time: milliseconds under a second, none for one s
   expect(spanDuration(t, 32_000)).toBe("32s");
   expect(spanDuration(t, 0)).toBeUndefined();
   expect(spanDuration(t, -5)).toBeUndefined();
+});
+
+test("no finished span is drawn with formatDuration, which floors under a second to 0s", async () => {
+  // The detector for the class: a finished call, command or scheduled run's end minus its start
+  // goes through spanDuration ("856ms", or no time for a span stamped at one moment). A live clock
+  // ticking from its start may read "0s" for its first second; a finished one never does.
+  const { readdirSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = new URL("../src", import.meta.url).pathname;
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? files(path) : /\.tsx?$/.test(name) ? [path] : [];
+    });
+  const offenders = files(root).flatMap((path) =>
+    readFileSync(path, "utf8")
+      .split("\n")
+      .flatMap((text, index) =>
+        /formatDuration\(.*\bendedAt\b/.test(text) ? [`${path.slice(root.length + 1)}:${index + 1}`] : [],
+      ),
+  );
+  expect(offenders).toEqual([]);
 });

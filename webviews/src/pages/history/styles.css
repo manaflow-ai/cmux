@@ -72,7 +72,7 @@
   user-select: text;
 }
 
-.history-search:focus {
+.history-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -196,4 +196,122 @@
   color: var(--page-text-3);
   padding: 24px;
   text-align: center;
+}
+
+/* Cookie Backups: a panel over the page, so the timeline under it never moves. */
+.history-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--page-text) 12%, transparent);
+}
+
+/* A modal dialog (`showModal`) sits in the top layer over the scrim, centered in the window. */
+.history-sheet {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  /* One height whatever the list holds: a delete never moves the sheet or its buttons. */
+  height: 100%;
+  border: 0;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(480px, calc(100% - 48px));
+  max-width: none;
+  max-height: min(440px, calc(100% - 48px));
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--glass-tint);
+  box-shadow: var(--glass-rim-shadow), var(--elevation-2);
+}
+
+.history-sheet-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.history-sheet:not([open]) {
+  display: none;
+}
+
+/* The scrim under the dialog draws the dim; the top layer's own backdrop stays clear. */
+.history-sheet::backdrop {
+  background: transparent;
+}
+
+.history-sheet-row:focus-visible {
+  outline: 2px solid var(--cmux-focus-ring-color, var(--page-selection));
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.history-sheet-row[data-popup-open] {
+  background: var(--page-hover);
+  border-radius: 6px;
+}
+
+.history-sheet-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis);
+}
+
+.history-sheet-text {
+  margin: 0;
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
+
+.history-sheet-empty {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--page-text-3);
+}
+
+.history-sheet-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.history-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.history-row-title.unreadable {
+  color: var(--page-text-2);
+}
+
+.history-sheet-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-menu-button.destructive:not(:disabled) {
+  color: var(--cmux-app-danger, var(--page-text-2));
+}
+
+.history-sheet-done {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 12px;
+  background: var(--page-selection);
+  color: var(--page-text);
+  font-weight: var(--weight-emphasis);
+  cursor: default;
 }

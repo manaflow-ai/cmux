@@ -20,9 +20,12 @@
   --lg-sheet: 520px;
 }
 
+/* The list's track: --lg-list until its edge is dragged (SplitEdge sets --home-channels-list-width
+   here); it reads invalid while that is unset, and the conversation keeps 360px. */
 .lg-page {
+  --lg-list-track: clamp(200px, var(--home-channels-list-width), 100% - 360px);
   display: grid;
-  grid-template-columns: var(--lg-list) minmax(0, 1fr);
+  grid-template-columns: var(--lg-list-track, var(--lg-list)) minmax(0, 1fr);
   height: 100%;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -46,6 +49,7 @@
 /* ---------- List ---------- */
 /* Transparent: the window's material shows through, as the native sidebar. */
 .lg-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -93,6 +97,37 @@
 .lg-search:hover {
   color: var(--page-text-2);
   border-color: var(--page-hover);
+}
+/* New Cloud Machine (ConversationList's cloud entry): a quiet labeled row on the search field's
+   grid, its icon over the search glyph, so it reads as a place to go rather than a call to action. */
+.lg-nav-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  margin: 0 var(--ds-space-2) var(--ds-space-2);
+  padding: 0 var(--ds-space-2);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-align: start;
+  cursor: default;
+}
+.lg-nav-row:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.lg-nav-row:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: -2px;
+}
+.lg-nav-row[data-look="footer"] {
+  margin-top: var(--ds-space-1);
 }
 .lg-list-rows {
   flex: 1;
@@ -728,7 +763,7 @@
   background: var(--lg-fill);
   box-shadow: none;
 }
-.lg-page .hc-composer:focus-within {
+.lg-page .hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--page-text-3);
 }
 .lg-page .hc-composer-bar .hc-tool {
@@ -1560,6 +1595,7 @@
 }
 .hc-att-image:focus-visible,
 .hc-att-download:focus-visible,
+.hc-att-expand:focus-visible,
 .hc-tray-remove:focus-visible {
   outline: 2px solid var(--page-text-2);
   outline-offset: 1px;
@@ -1661,6 +1697,23 @@
 .hc-att-download:hover {
   background: var(--lg-fill-strong);
 }
+/* Expand: always shown, it opens the video large in the lightbox (Leo 2026-11-04: "i can neither
+   preview a vid in place nor have it pop up anymore"). */
+.hc-att-expand {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--page-text-2);
+}
+.hc-att-expand:hover {
+  background: var(--lg-fill-strong);
+}
 
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
@@ -1693,6 +1746,43 @@
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--ds-radius-popup);
+}
+/* A video large: the agent chat's player (chips.css .cv-media__frame, its Play and length) in the
+   page's own colors, as large as the stage lets it be. */
+.hc-lightbox {
+  --cv-text: var(--page-text);
+  --agent-accent-soft: var(--page-text-2);
+  --cv-media-radius: var(--ds-radius-popup);
+}
+.hc-lightbox-video {
+  display: grid;
+  place-items: center;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+.hc-lightbox-video .cv-media__frame,
+.hc-lightbox-video video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.hc-lightbox-video video {
+  display: block;
+  border-radius: var(--ds-radius-popup);
+  background: var(--lg-fill-strong);
+}
+/* A video before its link arrives, or whose link cannot be had: its poster, and then why. */
+.hc-lightbox-unread {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+.hc-lightbox-unread img {
+  min-height: 0;
 }
 .hc-lightbox-step {
   position: absolute;
@@ -1833,7 +1923,8 @@
 }
 
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
-/* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
+/* A dimmed page and the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass): its veil, radius
+   and depth, never the solid popup surface. */
 .lg-form.ui-dialog,
 .lg-form {
   position: fixed;
@@ -1846,9 +1937,6 @@
   max-height: 80vh;
   padding: 0;
   border: 0;
-  border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
   overflow: hidden;
   z-index: var(--layer-overlay);
 }
@@ -2094,6 +2182,10 @@
   .lg-page > .lg-list {
     border-inline-end: 0;
   }
+  /* One pane at a time: nothing to split. */
+  .lg-list > .ui-split-edge {
+    display: none;
+  }
   .lg-back {
     display: inline-flex;
     flex: none;
@@ -2127,4 +2219,82 @@
 .lg-run-transcript {
   margin: var(--ds-space-2) 0;
   min-height: var(--ds-control-compact);
+}
+/* The composer hat's background tasks (ChiefTaskHat.tsx): quiet rows over the composer, the goal
+   strip's surface, one row per task. A row that expires leaves with no transform, so the composer
+   below moves once, with the rows above it. */
+.lg-task-hat {
+  display: grid;
+  gap: 0;
+  /* A 24-task spawn never pushes the composer out of view: about four rows show, the rest
+     scroll inside the hat. */
+  flex: none;
+  max-height: calc(var(--ds-control-row) * 4.5 + var(--ds-space-2));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 var(--lg-pad) var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+  list-style: none;
+  border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+}
+.lg-task-hat.chips {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1);
+  border: none;
+  background: none;
+}
+.lg-task-hat.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-3);
+  width: fit-content;
+}
+.lg-task-hat__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
+  font-size: var(--text-detail);
+}
+.lg-task-hat.chips .lg-task-hat__row {
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 10%, transparent);
+}
+.lg-task-hat__title {
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--page-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__result {
+  overflow: hidden;
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--page-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__meta {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.lg-task-hat__row[data-state="done"] .lg-task-hat__title,
+.lg-task-hat__row[data-state="stopped"] .lg-task-hat__title {
+  color: var(--page-text-2);
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b. */
+/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
 
 
 import type * as T from "./types.js";
@@ -277,6 +277,7 @@ export type ConversationTypingEvent = { event: "conversation-typing" } & {
 
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+  "restart"?: boolean;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -290,6 +291,17 @@ export type DetachedEvent = { event: "detached" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type EmptyEvent = { event: "empty" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedReportsChangedEvent = { event: "feed-reports-changed" } & {
+  "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type FeedViewChangedEvent = { event: "feed-view-changed" } & {
+  "changed": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -524,6 +536,11 @@ export type SizeStateEvent = { event: "size-state" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type StashChangedEvent = { event: "stash-changed" } & {
+  "revision": bigint;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -634,7 +651,9 @@ export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" 
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TitleChangedEvent = { event: "title-changed" } & {
+  "activity"?: (string) | null;
   "surface": T.Id;
+  "text"?: string;
   "title"?: string;
 };
 
@@ -775,6 +794,8 @@ export type KnownCmuxEvent =
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -803,6 +824,7 @@ export type KnownCmuxEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -864,6 +886,8 @@ export type KnownSubscribeEvent =
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
+  | FeedReportsChangedEvent
+  | FeedViewChangedEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
@@ -887,6 +911,7 @@ export type KnownSubscribeEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent

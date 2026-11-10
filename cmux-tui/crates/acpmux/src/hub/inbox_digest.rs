@@ -362,7 +362,7 @@ impl Hub {
             return Err(super::super::queue::closing_error());
         }
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
@@ -442,7 +442,7 @@ impl Hub {
                 prompt_id: digest_id.clone(),
                 turn_id: turn_id.clone(),
                 client: client.to_owned(),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: now_ms(),
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(run),

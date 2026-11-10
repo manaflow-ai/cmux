@@ -350,6 +350,10 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
+    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
+    # GitHub's side, so waiting and trying it again never starts a second run.
+    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
@@ -357,14 +361,22 @@ INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh -
 ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\}")
 
 
+# One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
+# (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
+ONE_MINI_THEN = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+) \}\}")
+
+
 def mode_off_timeout(value: object) -> str:
     """A timeout-minutes value with one-mini mode off."""
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
-    return one_mini.group(1) if one_mini else str(value)
+    if one_mini:
+        return one_mini.group(1)
+    then = ONE_MINI_THEN.fullmatch(str(value))
+    return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
-NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.(?:decide|published-build)\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
 # Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
 # deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
 NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
@@ -395,6 +407,11 @@ class WorkflowTests(unittest.TestCase):
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
+    def test_every_dispatch_is_on_the_publish_path(self) -> None:
+        for name, job in self.jobs.items():
+            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+                self.assertIn(name, PUBLISH_PATH, name)
+
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
             timeout = mode_off_timeout(self.jobs[name].get("timeout-minutes", 360))
@@ -418,7 +435,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
         self.assertNotIn("blacksmith", job["runs-on"])
         self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

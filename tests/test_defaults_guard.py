@@ -424,6 +424,16 @@ struct Flags: TunableFactory {
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
 
+    def test_a_default_that_steps_aside_in_the_rust_catalog_fails(self):
+        rust = "pub static YIELDS_TO_TERMINAL: &[&str] = &[\n    \"focusHistoryBack\",\n];\n"
+        self.repo.write("cmux-tui/crates/cmux-action-catalog/src/bindings.rs", rust)
+        self.base = self.repo.commit("steps aside in Rust")
+        head = self.head(extra={"cmux-tui/crates/cmux-action-catalog/src/bindings.rs":
+                                rust.replace("];", '    "splitRight",\n];')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
+
     def test_a_newline_in_a_default_cannot_start_a_workflow_command(self):
         settings = [*BASE_SETTINGS, {"key": "x\n::error::forged @someone", "default": True}]
         result = self.check(self.head(settings=settings))
@@ -727,6 +737,43 @@ struct Flags: TunableFactory {
                                kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
         result = self.check(head, comments=[receipt])
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_needs_a_review_ends_with_the_one_review_request_command(self):
+        # #38430: the author lane's own router-review receipt (`started by` its Author-agent) was refused, and the
+        # comment named no way to get one it could run. The plain form now ends with that command.
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex, router-review, started by claude-author): SHIP at {head}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Needs a review", result.summary)
+        self.assertEqual(result.summary.strip().splitlines()[-1], "next: router-review OWNER/REPO N --request")
+        self.assertIn("next: router-review OWNER/REPO N --request", result.stdout)
+        # The service's receipt, which cmux-bot posts, passes the same head and prints no next line.
+        service = self.receipt(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        passed = self.check(head, body="Author-agent: claude-author", comments=[service])
+        self.assertEqual(passed.returncode, 0, passed.stdout)
+        self.assertNotIn("next:", passed.summary)
+
+    def test_a_cmux_bot_approval_body_never_counts_but_its_plain_review_does(self):
+        head = self.changed_head()
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}"
+        for state, code in (("APPROVED", 1), ("COMMENTED", 0)):
+            pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                    "merged": False, "comments": {"nodes": []},
+                    "reviews": {"nodes": [{"author": {"login": "cmux-bot", "__typename": "Bot", "id": "BOT_kgDOFMYsLQ"},
+                                           "authorAssociation": "NONE", "state": state,
+                                           "submittedAt": "2026-10-21T10:00:00Z", "body": line,
+                                           "commit": {"oid": head}}]}}
+            path = self.repo.root.parent / f"{self.repo.root.name}-bot-review-{state}.json"
+            path.write_text(json.dumps(pull), encoding="utf-8")
+            result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+            self.assertEqual(result.returncode, code, (state, result.stdout))
+
+    def test_a_block_says_push_a_fix_before_a_new_request(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): BLOCK at {head}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertTrue(result.summary.strip().splitlines()[-1].startswith("next: none (address the BLOCK and push"))
 
     def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
         head = self.changed_head()

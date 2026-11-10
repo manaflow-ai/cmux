@@ -154,6 +154,7 @@ impl Mux {
         if let Some(database) = registry.session_journal_database_path() {
             crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
         }
+        test_restore_delay();
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -177,6 +178,9 @@ impl Mux {
         let agent_roster_restore::RestoredAgentRoster {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
+            replay: agent_roster_replay,
+            rebuild: agent_roster_rebuild,
+            unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
@@ -280,6 +284,8 @@ impl Mux {
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
             #[cfg(test)]
+            topology_effect_before_execute: Mutex::new(None),
+            #[cfg(test)]
             resource_mutation_metrics: Mutex::new(None),
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
@@ -315,6 +321,8 @@ impl Mux {
                     .unwrap_or(0),
             ),
             #[cfg(test)]
+            host_frames_spawn_failures: AtomicU64::new(0),
+            #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             next_cell_pixel_generation: AtomicU64::new(1),
@@ -339,19 +347,26 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_projection: Mutex::new(()),
+            agent_hooks_at_rest: Default::default(),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
-            agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
+            agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
+                agent_roster.roster.hook_sessions(),
+            )),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
+            #[cfg(unix)]
+            project_chats: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
+            terminal_last_command: AtomicBool::new(false),
             command_history_worker: Mutex::new(None),
             terminal_publisher: Default::default(),
+            terminal_tail_pins: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -365,6 +380,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            disk_usage: Mutex::default(),
             output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
@@ -377,6 +393,7 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            journal_seal: Mutex::new(()),
             #[cfg(test)]
             screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -435,7 +452,7 @@ impl Mux {
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
-            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
@@ -444,6 +461,8 @@ impl Mux {
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            #[cfg(unix)]
+            shell_runs: crate::shell_runs::ShellRuns::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::new(lane_on),
@@ -454,8 +473,31 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        if let Some(from_version) = agent_roster_unmarked_from {
+            mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
+        }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
+        // A long tail (a lost snapshot, a start long after the last save)
+        // that the start's budget did not finish goes on in the owner while
+        // the daemon serves.
+        if let Some(replay) = agent_roster_replay {
+            #[cfg(test)]
+            {
+                *mux.agent_roster_worker
+                    .replay_gate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) =
+                    agent_roster_restore::REPLAY_GATE_FOR_TEST
+                        .with(|gate| gate.borrow_mut().take());
+            }
+            mux.continue_agent_roster_replay(replay);
+        }
+        // A stale roster (a reducer version bump) is served now and rebuilt
+        // from the whole journal in the owner while the daemon serves.
+        if agent_roster_rebuild {
+            mux.start_agent_roster_rebuild();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
@@ -594,4 +636,18 @@ fn copy_authority(
     authority: &ProviderWorkspaceAuthority,
 ) -> anyhow::Result<ProviderWorkspaceAuthority> {
     ProviderWorkspaceAuthority::new(String::from_utf8(authority.expose().to_vec())?)
+}
+
+/// Debug seam (`CMUX_TUI_TEST_RESTORE_DELAY_MS=N`, debug builds only): the
+/// restore waits N ms after the registry opened and before it reads the saved
+/// session, so a fault test can act on an owner that is still restoring.
+fn test_restore_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_RESTORE_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+    {
+        std::thread::sleep(Duration::from_millis(delay));
+    }
 }

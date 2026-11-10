@@ -138,7 +138,7 @@ import Testing
         let before = plus.position.x
         let last = try #require(strip.placed[tabs[1].id])
         strip.placed[tabs[1].id] = TabPlace(x: last.x, width: last.width - 60)
-        let move = TabStripMove(generation: 100, motion: motion)
+        let move = TabStripMove(generation: 100, motion: motion, closing: nil)
         strip.applyFrames(move: move)
         try #require(abs(plus.position.x - before) > 1, "the fixture must move the controls")
         for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
@@ -151,7 +151,7 @@ import Testing
         TabStripMove.cancel(chooser)
         let mapping = strip.scrollMapping
         strip.scrollOffset += 20
-        let scroll = TabStripMove(generation: 101, motion: motion, isScroll: true)
+        let scroll = TabStripMove(generation: 101, motion: motion, closing: nil, isScroll: true)
         strip.applyFrames(move: scroll, scrollFrom: mapping)
         let start = MotionPath(plus, "position").value(at: scroll.begin).x
         let end = MotionPath(plus, "position").value(at: scroll.begin + motion.duration).x

@@ -124,6 +124,9 @@ final class WorkspaceTabHoverCardRow: NSView {
         needsLayout = true
     }
 
+    /// The row shows a detail line under (or after) its title; a two-line row without one is one row tall.
+    var hasDetail: Bool { !detail.isHidden }
+
     /// The title's font and the icon's frame, as drawn (tests).
     var titleFont: NSFont? { title.font }
     var iconFrame: CGRect { icon.frame }

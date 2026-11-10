@@ -198,7 +198,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 startOwner: (@Sendable () async -> Bool)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
-        self.offersSessionTools = { environment?.offersSessionTools ?? false }
+        // The setting, as the resolving initializer reads it: an environment never carries it.
+        self.offersSessionTools = { AgentPaneSuggestedTasks.forNextDaemon.isOn }
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
         self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }
@@ -529,6 +530,28 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                               executable: environment.executable.path)
     }
 
+    /// How long each of the lookup's status calls waits before it asks again on a new connection;
+    /// the last one waits for its answer however long it takes.
+    static let lookupStatusAttempts: [Duration] = [.seconds(5), .seconds(10), .seconds(20)]
+
+    /// The lookup's `_acpmux/status`. A call that hears nothing in a few seconds is asked again on
+    /// a new connection: one made just before the daemon restarted waited on a socket nothing would
+    /// answer, and the pane said "Waiting for the agent service" for minutes after the new daemon
+    /// was up (Leo, 2026-11-06). A late answer still decides nothing (#28083, rule R5): a call
+    /// that missed its time is only asked again, never read as a daemon to stop or start, and the
+    /// last call waits as long as the daemon takes.
+    static func lookupStatus(socketPath: String, attempts: [Duration] = lookupStatusAttempts) async throws -> AcpmuxStatus {
+        for attempt in attempts {
+            do {
+                return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: attempt)
+            } catch is AgentPaneDeadlineExceeded {
+                try Task.checkCancellation()
+                logger.info("acpmux status unanswered after \(attempt.components.seconds, privacy: .public)s; asking again")
+            }
+        }
+        return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: nil)
+    }
+
     /// `_acpmux/status` of a daemon that just started, or won the start: waits up to 3 s while
     /// its socket is still being bound, as ``verifiedEndpoint(_:)`` does, then for its answer
     /// however long it takes. Nil when none answers.
@@ -580,7 +603,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         var handedOff = false
         defer { if handedOff { daemons.mark(home: environment.home, restarting: false) } }
         do {
-            let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: nil)
+            let status = try await Self.lookupStatus(socketPath: environment.socketPath)
             Self.markLookup("status_answered", owned: owned)
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.

@@ -178,6 +178,12 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "diff.comments.delete")]
+    DiffCommentsDelete,
+    #[serde(rename = "diff.comments.list")]
+    DiffCommentsList,
+    #[serde(rename = "diff.comments.save")]
+    DiffCommentsSave,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -198,6 +204,8 @@ pub enum ResourceOperation {
     GitWorktreeApply,
     #[serde(rename = "git.worktree.remove")]
     GitWorktreeRemove,
+    #[serde(rename = "git.worktree.setup")]
+    GitWorktreeSetup,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]
@@ -278,6 +286,8 @@ pub enum ResourceOperation {
     PaneNeighborGet,
     #[serde(rename = "pane.swap")]
     PaneSwap,
+    #[serde(rename = "pane.move")]
+    PaneMove,
     #[serde(rename = "pane.zoom")]
     PaneZoom,
     #[serde(rename = "pane.split_ratio.set")]
@@ -536,6 +546,8 @@ pub enum ResourceOperation {
     PaletteUsageHide,
     #[serde(rename = "palette_usage.forget")]
     PaletteUsageForget,
+    #[serde(rename = "palette.rank")]
+    PaletteRank,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]
@@ -546,10 +558,88 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "classic_import.plan")]
+    ClassicImportPlan,
+    #[serde(rename = "classic_import.record")]
+    ClassicImportRecord,
     #[serde(rename = "conductor_import.plan")]
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
+    #[serde(rename = "cloud.vm.scp_endpoint")]
+    CloudVmScpEndpoint,
+    #[serde(rename = "cloud.vm.tunnel_enroll")]
+    CloudVmTunnelEnroll,
+    #[serde(rename = "cloud.vm.tunnel_revoke")]
+    CloudVmTunnelRevoke,
+    #[serde(rename = "cloud.vm.tunnel_attach")]
+    CloudVmTunnelAttach,
+    #[serde(rename = "cloud.vm.tunnel_detach")]
+    CloudVmTunnelDetach,
+    #[serde(rename = "cloud.vm.tunnel_rotate_key")]
+    CloudVmTunnelRotateKey,
+    #[serde(rename = "cloud.vm.firewall_list")]
+    CloudVmFirewallList,
+    #[serde(rename = "cloud.vm.firewall_get")]
+    CloudVmFirewallGet,
+    #[serde(rename = "cloud.vm.firewall_create")]
+    CloudVmFirewallCreate,
+    #[serde(rename = "cloud.vm.firewall_delete")]
+    CloudVmFirewallDelete,
+    #[serde(rename = "cloud.vm.networks")]
+    CloudVmNetworks,
+    #[serde(rename = "cloud.vm.domains")]
+    CloudVmDomains,
+    #[serde(rename = "cloud.vm.publications")]
+    CloudVmPublications,
+    #[serde(rename = "cloud.vm.provision_api")]
+    CloudVmProvisionApi,
+    #[serde(rename = "cloud.vm.publication_api_keys")]
+    CloudVmPublicationApiKeys,
+    #[serde(rename = "cloud.vm.revoke_publication_api_key")]
+    CloudVmRevokePublicationApiKey,
+    #[serde(rename = "cloud.runs.create")]
+    CloudRunsCreate,
+    #[serde(rename = "cloud.runs.start")]
+    CloudRunsStart,
+    #[serde(rename = "cloud.runs.wait")]
+    CloudRunsWait,
+    #[serde(rename = "cloud.runs.cancel")]
+    CloudRunsCancel,
+    #[serde(rename = "cloud.runs.sandbox")]
+    CloudRunsSandbox,
+    #[serde(rename = "cloud.owner.acpmux_person_holds")]
+    CloudOwnerAcpmuxPersonHolds,
+    #[serde(rename = "cloud.owner.acpmux_keyed_start")]
+    CloudOwnerAcpmuxKeyedStart,
+    #[serde(rename = "cloud.owner.fork_run")]
+    CloudOwnerForkRun,
+    #[serde(rename = "cloud.owner.handoff_wait")]
+    CloudOwnerHandoffWait,
+    #[serde(rename = "cloud.owner.handoffs")]
+    CloudOwnerHandoffs,
+    #[serde(rename = "cloud.owner.handoff_open")]
+    CloudOwnerHandoffOpen,
+    #[serde(rename = "cloud.owner.handoff_begin_turn")]
+    CloudOwnerHandoffBeginTurn,
+    #[serde(rename = "cloud.owner.harness_login_copy")]
+    CloudOwnerHarnessLoginCopy,
+    #[serde(rename = "cloud.owner.github_app")]
+    CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.turn_checkpoint")]
+    CloudOwnerTurnCheckpoint,
+    #[serde(rename = "cloud.owner.turn_rewind")]
+    CloudOwnerTurnRewind,
+    #[serde(rename = "cloud.owner.turns")]
+    CloudOwnerTurns,
+    #[serde(rename = "cloud.previews.refresh")]
+    CloudPreviewsRefresh,
+    #[serde(rename = "cloud.previews.create_link")]
+    CloudPreviewsCreateLink,
+    #[serde(rename = "cloud.previews.revoke_link")]
+    CloudPreviewsRevokeLink,
+    #[serde(rename = "cloud.machine.io")]
+    CloudMachineIo,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -857,6 +947,17 @@ pub enum Selector {
 }
 
 impl Selector {
+    /// Parses one selector word. `current` is the session's focused object
+    /// (the daemon has no caller; the CLI puts the caller's ids in place of
+    /// `current` itself). A full public id and a unique id prefix of at
+    /// least [`MIN_ID_PREFIX_DIGITS`] hex digits (`pane_3f0a`, which was
+    /// never a name) are ids: the resolver expands a
+    /// prefix to the full id ([`id_prefix_parts`]). `focused`, a bare id
+    /// (the 32 hex digits without the prefix, [`is_bare_id`]) and a
+    /// terminal's host id stay names, as they were: the resolver takes them
+    /// as `current` or as ids only when no object has that name, so a
+    /// request that selected a named object still selects it. `name:`
+    /// forces a name.
     pub fn parse(value: &str) -> Result<Self, ResourceError> {
         if let Some(name) = value.strip_prefix("name:") {
             return Ok(Self::Name(name.to_string()));
@@ -864,7 +965,7 @@ impl Selector {
         if value == "current" {
             return Ok(Self::Current);
         }
-        if is_registered_public_id(value) {
+        if is_registered_public_id(value) || id_prefix_parts(value).is_some() {
             return Ok(Self::Id(value.to_string()));
         }
         if let Some(reason) = mistyped_id_reason(value) {
@@ -873,7 +974,10 @@ impl Selector {
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
-                "reserved or ambiguous names must use the name: prefix",
+                format!(
+                    "{value} is not an id, and a name with _ or a command word needs the \
+                     name: prefix: pass name:{value}"
+                ),
             ));
         }
         Ok(Self::Name(value.to_string()))
@@ -901,6 +1005,60 @@ const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
     ("sidebar_plugin", None),
 ];
 
+/// The longest id payload: 32 lowercase hex digits.
+const ID_PAYLOAD_LEN: usize = 32;
+
+/// The fewest hex digits of an id prefix (`pane_3f0a`), as acpmux's chat
+/// ids: a shorter prefix could select another object once its own closes.
+pub const MIN_ID_PREFIX_DIGITS: usize = 4;
+
+/// The id prefixes whose ids the resolver expands from a unique prefix:
+/// the topology and content kinds. A session, machine, notification or
+/// agent id with digits missing stays a mistyped id.
+pub const EXPANDED_ID_PREFIXES: &[&str] = &["ws", "screen", "pane", "tab", "term", "browser"];
+
+fn is_lower_hex(payload: &str) -> bool {
+    payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// `(prefix, payload)` of a unique-prefix selector: one of
+/// [`EXPANDED_ID_PREFIXES`] and [`MIN_ID_PREFIX_DIGITS`] to 31 lowercase
+/// hex digits (`pane_3f0a`). `None` for a full id, a shorter or longer
+/// payload, another prefix, or other characters.
+pub fn id_prefix_parts(value: &str) -> Option<(&str, &str)> {
+    let (prefix, payload) = value.rsplit_once('_')?;
+    (EXPANDED_ID_PREFIXES.contains(&prefix)
+        && (MIN_ID_PREFIX_DIGITS..ID_PAYLOAD_LEN).contains(&payload.len())
+        && is_lower_hex(payload))
+    .then_some((prefix, payload))
+}
+
+/// Whether `value` is a bare id: 32 lowercase hex digits with no prefix.
+/// It names the object whose public id has that payload (`pane_<value>`)
+/// or, for a terminal, the terminal whose host id it is (the raw protocol's
+/// `terminal_id`).
+pub fn is_bare_id(value: &str) -> bool {
+    value.len() == ID_PAYLOAD_LEN && is_lower_hex(value)
+}
+
+/// The message for a unique-prefix selector that no id starts with. A
+/// mistyped id (one digit dropped) reads as a prefix, so the message names
+/// the id shape and where such ids come from, as the old refusal did.
+pub fn unmatched_id_prefix_message(kind: &str, value: &str) -> String {
+    let (prefix, payload) = value.rsplit_once('_').unwrap_or((kind, value));
+    let source = PUBLIC_ID_PREFIXES
+        .iter()
+        .find(|(known, _)| *known == prefix)
+        .and_then(|(_, scope)| *scope)
+        .map(|scope| format!("; copy one from `cmux {scope} list --json`"))
+        .unwrap_or_default();
+    format!(
+        "no {kind} id starts with {value}: an id is {prefix}_ and 32 hex digits, and this \
+         one has {}{source}, or pass name:{value} for a name",
+        payload.len()
+    )
+}
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
@@ -910,17 +1068,26 @@ fn is_registered_public_id(value: &str) -> bool {
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Why `value` looks like a public id but is not one (a digit too few or
-/// many, uppercase), with where real ids come from; `None` when it does not
-/// look like an id. An agent that copies an id wrong gets this instead of
-/// the name rules.
+/// Why `value`, which starts with a public id prefix (`term_`, `ws_`, ...),
+/// is not an id (wrong length, uppercase or other characters), with where
+/// real ids come from; `None` for a value without such a prefix. An agent
+/// that copies an id wrong gets this instead of the name rules.
 fn mistyped_id_reason(value: &str) -> Option<String> {
     let (prefix, payload) = value.rsplit_once('_')?;
     let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
-    if payload.is_empty() || !payload.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    let shape = if payload.len() == 32 {
+    let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let short_prefix = EXPANDED_ID_PREFIXES.contains(&prefix)
+        && is_lower_hex(payload)
+        && (1..MIN_ID_PREFIX_DIGITS).contains(&payload.len());
+    let shape = if short_prefix {
+        format!(
+            "an id prefix needs at least {MIN_ID_PREFIX_DIGITS} hex digits of the id, and this \
+             one has {}",
+            payload.len()
+        )
+    } else if !hex || payload.is_empty() {
+        format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
+    } else if payload.len() == 32 {
         format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
     } else {
         format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())

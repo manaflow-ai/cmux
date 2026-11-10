@@ -133,6 +133,18 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
+/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
+const openFolderMenuWithExtraWords =
+  (words: string): Play =>
+  async (ctx) => {
+    await openFolderMenu(ctx);
+    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
+      (node) => node.textContent === "Add another folder…",
+    );
+    const label = row?.querySelector(".acpmux-menu-label");
+    if (label) label.textContent = words;
+  };
+
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -359,6 +371,13 @@ const openEnvironmentWithInsetArm =
 
 /// The environment control's machine list: Machines… on its right-click menu (its main list is This
 /// Mac and Cloud, Leo 2026-10-31: "it's just a cloud button").
+/// Opens the picker, then its Move to… list.
+const openMoveTo: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-action="moveTo"]'));
+  await ctx.click({ role: "option", name: /Move to…/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-moves [data-action="moveTarget"]'));
+};
 const openMachineList: Play = async (ctx) => {
   await ctx.contextMenu({ role: "button", name: /^Environment/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
@@ -380,6 +399,27 @@ const stripMachines = {
   cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
+// Leo, 2026-11-09, of the machine chip's list ending in four retired lanes, each "Reconnecting": "Those
+// are being retired; drop retired and unreachable machines from the list, or group them at the bottom."
+// The person's machines, a pool that is busy, and four lanes acpmux has not reached for an hour.
+const UNAVAILABLE_FOR = 60 * 60_000;
+const retiredLanes = ["lane-1", "lane-2", "lane-3", "lane-4"];
+const unavailableMachines = (() => {
+  const live = ["studio-mini", "gpu-box", "swarm-03", "swarm-07", "swarm-11"];
+  const all = [...live, ...retiredLanes];
+  const by = <T,>(value: (name: string) => T) => Object.fromEntries(all.map((name) => [name, value(name)]));
+  return {
+    ...stripMachines,
+    sessions: [],
+    peers: all,
+    peerKinds: by(() => "ssh" as const),
+    peerConnected: by((name) => live.includes(name)),
+    peerStates: by((name) => (live.includes(name) ? "connected" : "reconnecting")),
+    peerLinks: Object.fromEntries(
+      retiredLanes.map((name) => [name, { link: "reconnecting" as const, since: Date.now() - UNAVAILABLE_FOR }]),
+    ),
+  };
+})();
 const onMachine = (peer: string) => ({
   summary: { sessionId: "", harness: "claude", host: peer, peer },
 });
@@ -409,7 +449,7 @@ const openRunToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Where should this chat run/ });
   await waitRows("run")(ctx);
 };
-/// Where > Another machine: the first ready machine is the pick and the machine control opens.
+/// Where > Remote: the first ready machine is the pick and the machine control opens.
 const pickAnother: Play = async (ctx) => {
   await openWhere(ctx);
   await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
@@ -454,7 +494,7 @@ function stripVariants(arm: StripArm) {
       height: 320,
       note: note(
         arm === "where-machine"
-          ? "Another machine picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          ? "Remote picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
           : "Which machine, open.",
       ),
       props,
@@ -625,7 +665,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
+      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -704,7 +744,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-long-list": {
-      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -898,7 +938,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Remote, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Remote shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -955,7 +995,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: This Mac, Cloud and Another machine, as Codex's strip. A person with other machines sees the same three; with none, Another machine is Add Machine….",
+      note: "Leo's case: This Mac, Cloud and Remote, as Codex's strip. A person with other machines sees the same three; with none, Remote is Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -1017,6 +1057,36 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     ...stripVariants("where-machine"),
+    "machines-unavailable-collapsed": {
+      height: 460,
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      props: unavailableMachines,
+      play: pickAnother,
+    },
+    "machines-unavailable-open": {
+      height: 640,
+      note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
+      props: { ...unavailableMachines, unavailableExpanded: true },
+      play: pickAnother,
+    },
+    "machines-unavailable-after-add": {
+      height: 460,
+      note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
+      props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-hidden": {
+      height: 420,
+      note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
+      props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
+      play: pickAnother,
+    },
+    "machines-unavailable-inline": {
+      height: 640,
+      note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
+      props: { ...unavailableMachines, unavailableGroup: "inline" as const },
+      play: pickAnother,
+    },
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
@@ -1107,6 +1177,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    "environment-picker-cloud-team-row": {
+      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "environment-picker-cloud-team-closed": {
+      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "cmux", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-personal-closed": {
+      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Personal", personal: true },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
@@ -1135,7 +1239,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        // The four machines acpmux cannot reach wait under Unavailable (4), closed.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "computer-menu-fleet": {
@@ -1241,6 +1346,97 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
       },
     },
+    // Move to… (Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper \"move to other cloud\"
+    // ... and \"move to local\""): every place a started chat can go, one list. Four arms: a chat on
+    // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
+    // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
+    "started-move-to-menu": {
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-from-cloud": {
+      note: "Preview, a Cloud chat a move from this Mac put on dev-box: Move to… lists This Mac and the other machine.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        moveTargets: [
+          { id: "local", label: "", kind: "local" },
+          { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-cloud-only": {
+      note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        moveTargets: [{ id: "vm-gpu", label: "gpu-box", kind: "cloud" }],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-cloud-only",
+          harness: "claude",
+          cwd: "/home/cmux/work/project",
+          host: "dev-box",
+          hostKind: "cloud",
+        },
+      },
+      play: openMoveTo,
+    },
+    "started-move-to-refused": {
+      note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: [
+          { id: "vm-dev", label: "dev-box", kind: "cloud" },
+          { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+        ],
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-refused",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
+    },
     "started-branch": {
       note: "After a turn starts, location labels lock while the branch remains visible at the right.",
       props: {
@@ -1316,15 +1512,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolderMenu,
     },
     "extra-folders-adding": {
-      note: "Add folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Choose folder… opens this Mac's panel.",
+      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
       props: extraProps("local", ["/Users/you/src/relay"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add folder…" });
+        await ctx.click({ role: "option", name: "Add another folder…" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
       },
+    },
+    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
+    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
+    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
+    // in how the one row that is not about the chat's own folder reads.
+    "folder-one-concept": {
+      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "folder-one-concept-also-show": {
+      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Also show a folder…"),
+    },
+    "folder-one-concept-let-see": {
+      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Let it see another folder…"),
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",

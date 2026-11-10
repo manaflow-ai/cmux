@@ -488,28 +488,18 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
     "pages/chief-views/styles.css .cv-card",
     "a Chief view's in-page content card, on its own page, not floating (Chief area: its owners' call)",
   ],
-  [
-    "agent-session/acpmux/summary/summary.css .acpmux-chat-gallery",
-    "the chat's full-pane image gallery: the image viewer's blurred lightbox, not a floating card",
-  ],
 ]);
 // Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
   ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
-  ["pages/cloud/styles.css .cloud-create-sheet", "Cloud's create sheet paints the elevated surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
   [
     "pages/home-channels/ledger.css .lg-palette.ui-dialog, .lg-palette",
     "the ledger's palette dialog paints the solid popup surface",
   ],
-  [
-    "pages/home-channels/ledger.css .lg-form.ui-dialog, .lg-form",
-    "the ledger's form dialog paints the solid popup surface",
-  ],
   ["pages/markdown/styles.css .cmux-comment-card", "the Markdown viewer's comment card paints the elevated surface"],
   ["ui/ui.css .ui-sheet", "the shared sheet paints --ui-surface, not the glass"],
-  ["ui/findPill.css .find-pill", "the find pill paints the card material (--cmux-card-tint, at least 90%)"],
   [
     "pages/markdown/styles.css .md-link-bubble",
     "the Markdown link editor popover paints --cmux-md-popover-background (the solid popup surface) over its glass",

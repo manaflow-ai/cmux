@@ -640,7 +640,7 @@ impl Hub {
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         self.set_policy_answered(session, policy).await
     }
@@ -723,7 +723,7 @@ impl Hub {
             block.set("text", json!(text));
         }
         q.run = Arc::new(run);
-        q.preview = short_text(&text, 200);
+        q.preview = short_text(super::inbox::relay_body(&text), 200);
         let run = &q.run;
         let mut msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).

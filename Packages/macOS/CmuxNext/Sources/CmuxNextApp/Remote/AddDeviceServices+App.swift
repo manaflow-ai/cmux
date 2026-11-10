@@ -24,8 +24,7 @@ extension AddDeviceServices {
             addComputer: { [weak services] address, name in
                 guard let services else { return }
                 let card = services.addMachine
-                card.open(destination: address, name: name, over: NSApp.mainWindow)
-                card.model.perform(.add)
+                card.add(destination: address, name: name, over: NSApp.mainWindow)
                 // task-owner: ends with the enroll this click started
                 Task { @MainActor [weak services] in _ = await card.finished(); await services?.devices.refresh() }
             },
@@ -92,6 +91,13 @@ extension MachineJoinService {
             guard auth.isSignedIn else { return nil }
             return try? await auth.tokens().access
         }
+        // A signed-in hub command whose exit status is the whole answer (revoke, rotate, remove).
+        let succeeds: @Sendable ([String]) async -> Bool = { args in
+            guard let cli, let access = await token(),
+                  let run = await cli.run(args + ["--json", "--cloud-token-stdin"], secret: access, label: args.prefix(2).joined(separator: " "))
+            else { return false }
+            return run.status == 0
+        }
         let machines = services.machines
         // Every list read feeds the Machines section too, on the store's ticket (a read behind a newer one feeds nothing).
         let beginRead = { @MainActor [weak services] () -> Int? in services?.joinedMachines.beginRead() }
@@ -138,19 +144,10 @@ extension MachineJoinService {
                     continuation.onTermination = { _ in follow.cancel() }
                 }
             },
-            revoke: { id in
-                guard let cli, let access = await token(),
-                      let run = await cli.run(["machine", "revoke", id, "--yes", "--json", "--cloud-token-stdin"], secret: access,
-                                              label: "machine revoke") else { return false }
-                return run.status == 0
-            },
+            revoke: { id in await succeeds(["machine", "revoke", id, "--yes"]) },
             // Its output may carry the new credential: only the status is read.
-            rotate: { id in
-                guard let cli, let access = await token(),
-                      let run = await cli.run(["machine", "rotate", id, "--json", "--cloud-token-stdin"], secret: access,
-                                              label: "machine rotate") else { return false }
-                return run.status == 0
-            })
+            rotate: { id in await succeeds(["machine", "rotate", id]) },
+            remove: { id in await succeeds(["device", "remove", "joined:\(id)", "--yes"]) })
     }
 
     /// The platform does not serve the join here (404 `machine.not_found`), or this cmux has no

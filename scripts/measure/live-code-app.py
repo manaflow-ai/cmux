@@ -15,8 +15,12 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
 
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
+# Home's page fills the view (layout sets its frame to bounds) and covers the layer's color, so the
+# first patch also insets it: the color then shows as a border around the chat (a fleet still of
+# try-pr-live-code.sh at 71936c52 counted 0 red pixels without it).
+FILL, INSET = "page.frame = bounds\n", "page.frame = bounds.insetBy(dx: 80, dy: 80)\n"
 
 
 def pixels(png):
@@ -51,8 +55,9 @@ def main():
     live = tempfile.mkdtemp(prefix="cmux-live-code.")
     live_log = os.path.join(live, "live-code.log")
     source = open(VIEW).read()
-    if ORIGINAL not in source:
-        sys.exit(f"live-code-app: {VIEW} no longer has {ORIGINAL}")
+    for needed in (ORIGINAL, FILL):
+        if needed not in source:
+            sys.exit(f"live-code-app: {VIEW} no longer has {needed.strip()}")
     result = {"build_s": opts.build_seconds, "generations": []}
     app = BenchApp(opts.app, out=opts.out, env={"CMUX_LIVE_CODE_DIR": live})
 
@@ -75,10 +80,12 @@ def main():
             time.sleep(0.05)
         return None
 
-    def patch(generation, old, new):
+    def patch(generation, old, new, *more):
         current = open(VIEW).read()
+        for before, after in ((old, new),) + more:
+            current = current.replace(before, after)
         with open(VIEW, "w") as f:
-            f.write(current.replace(old, new))
+            f.write(current)
         edited = time.time()
         run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/live-code/patch.py"), "--log", opts.log,
                               "--module", "CmuxNextApp", "--live", live, VIEW], capture_output=True, text=True)
@@ -122,7 +129,7 @@ def main():
         time.sleep(3)
         result["generations"].append(snap(0))
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
-        result["generations"].append(patch(1, ORIGINAL, red))
+        result["generations"].append(patch(1, ORIGINAL, red, (FILL, INSET)))
         result["generations"].append(patch(2, red, blue))
         # A bad patch (red again, standing in for one a probe fails), then its rollback: blue again.
         result["generations"].append(patch(3, blue, red))

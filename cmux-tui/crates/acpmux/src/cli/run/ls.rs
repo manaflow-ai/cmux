@@ -303,6 +303,9 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         "{}",
         ls_table::render_paused(&sessions, peers.as_deref(), view, filtered, now, &pauses)
     );
+    for line in status.as_ref().map(crate::shadow_admission::ls_lines).unwrap_or_default() {
+        println!("{line}");
+    }
     if let Some(line) = status.as_ref().and_then(outbox_line) {
         println!("{line}");
     }

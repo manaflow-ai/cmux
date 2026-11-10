@@ -192,7 +192,10 @@ billing integration, operator reconciliation/cancellation of abandoned intents,
 and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
-(`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).
+(`TenantMayCreate`, 429). A production product tenant has no machine-count
+cap: its machines are metered and cmux-platform's team spending cap is the stop.
+Dev/test tenants (every tenant off production) keep 20 live VMs, paused ones
+too; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
@@ -362,6 +365,10 @@ and requires its canonical ID to match exactly; mutable aliases or unavailable
 images produce 503 without falling back to a base image. Prepare images without
 embedded credentials. Snapshot references and service approvals stay private;
 the catalog exposes only `id`, `revision` and `displayName`.
+The list keeps `VM_BOOT_IMAGES` order and says so with `order: "configured"`:
+the first entry is the image in use. A caller that follows the list (the cloud
+platform picks the first entry, or the last on an append-only list) must treat a
+response without `order` as unordered, since older servers sorted it by id.
 
 An image create returns `bootImage: { id, revision, displayName }`. Callers must
 check that receipt because an older API may ignore `image`. With the same retry
@@ -375,6 +382,54 @@ The CLI fails if a requested image or egress receipt is missing or mismatched,
 retaining the retry key and a validated public VM ID when available. Creation
 may have succeeded; inspect that VM or retry the same intent with the same key.
 The CLI never automatically deletes a VM after an unconfirmed receipt.
+
+### Rolling a new image (no hand PR)
+
+`.github/workflows/cloud-vm-image-roll.yml` replaces the hand pin PR
+(`images/cmux-vm/pin-cmux-tui.ts`) and the hand approval PR (an entry put first in
+production's `VM_BOOT_IMAGES`):
+
+1. Every feat-cmux-next cmux-tui build that `cmux-tui-artifacts.yml` publishes
+   dispatches it, and so does a push that changes the image inputs
+   (`images/cmux-vm/**`, `web/scripts/cmux-vm-image/**`).
+   `images/cmux-vm/auto-roll.ts plan` rolls only a build of the branch whose
+   binaries differ from the pinned ones, never an older one.
+2. `cloud-vm-image-bake.yml` (called with `roll: true`) pins that build and bakes
+   the Native receiver image with the agent tools. Its 5-clone smoke and agent
+   tools probe on the candidate snapshot are the gate: a red keeps nothing and
+   production stays on its image.
+3. A bot commit (`cmux-vm: image roll cloud-native-auto-<cmux-tui>-<run>-<attempt> ...`)
+   lands the pinned lock and the image, first in production and last in
+   staging. Only the newest 6 `cloud-native-auto-*` entries stay in each list;
+   hand-approved entries are never removed. Its push deploys production and
+   runs `smoke-production`, whose product create boots that first image.
+4. `image-roll-settle` in `cmux-vm.yml` (`auto-roll.ts settle` decides): a
+   deploy or product smoke that isn't green, or a create that booted another
+   image, lands `cmux-vm: image rollback <id> ...`, which takes the image out of
+   both lists, so the entry before it boots again. A failed, cancelled or timed
+   out deploy all roll back. The image leaves the lists even when a newer roll
+   already sits above it, so that roll's own rollback can never bring it back;
+   only an image already gone from both lists needs nothing.
+5. The rollback's own deploy is settled too: its product create must boot the
+   entry now first. If not, `image-roll-settle` dispatches `deploy-production`
+   again, at most 3 production deploys in all, then records `rollback_failed`
+   and comments on the `cloud-image-roll` issue. A rollback never lands another
+   rollback commit.
+
+`images/cmux-vm/auto-roll.json` switches it: `off`, `dry-run` (bake and gate,
+then upload the commit's diff without pushing) or `live`. One roll runs at a
+time and one waits; a newer request replaces the waiting one.
+
+Each roll's record (fix commits with merge times, gate, promotion commit and
+time, production smoke time, rollback) is `rolls/<run id>.json` on the
+`cloud-image-rolls` branch: `git fetch origin cloud-image-rolls` reads it with
+no API call. The roll and rollback commits carry `Image-Roll-Run` and
+`Image-Roll-Image` trailers. A red gate, promotion or rollback comments on the
+open `cloud-image-roll` issue.
+
+cmux-platform boots the image its `CLOUD_VM_API_IMAGE` and
+`CLOUD_VM_API_IMAGE_REVISION` name, so a rolled image reaches people's
+machines only when the platform names it too (or follows the first entry).
 
 ## Creation-time networking
 

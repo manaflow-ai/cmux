@@ -2,11 +2,13 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWindowRules
 import os
 
 /// The App's `ActionRegistry.confirmationPresenter`: the sheet a keyboard,
@@ -19,7 +21,7 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, Delete Chief, agent extension access,
+/// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access,
 /// remote install and Roll Back (it quits into the kept build) still ask.
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
@@ -39,15 +41,16 @@ enum DestructiveConfirmation {
         services.registry.confirmationPresenter = { id, invocation, proceed in
             // Close Workspace asks in its handler: its row stays put while the terminals answer and
             // while the question is up, and leaves at the press when nothing can ask (WorkspaceCloseFlow).
-            if id == "closeWorkspace" {
+            if WindowRules().confirmation(id.rawValue, stash: false) == .inHandler {
                 var run = invocation.confirmed()
                 run.asksIfRunning = true
                 services.registry.perform(id, invocation: run)
                 return
             }
+            let pinned = id == "git.worktree.remove" ? GitRepositoryActions.pinned(invocation, at: AgentHandlers.gitPlace(AppActionContext(services: services), invocation)) : nil // its question's tab and folder
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
+                guard let prompt = await prompt(for: id, pinned ?? invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { if let pinned { services.registry.perform(id, invocation: pinned.confirmed()) } else { proceed(true) } } }
             }
         }
     }
@@ -55,7 +58,7 @@ enum DestructiveConfirmation {
     /// The question for this invocation, or nil to run without asking.
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
         switch id {
         case "cloudKillMachine":
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
@@ -66,52 +69,63 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
-        case "workspaceGroup.closeWorkspaces":
+        case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
+        default:
+            return await question(for: id, invocation, context, warn: warn)
+        }
+    }
+
+    /// The non-Cloud questions: which one an action asks is Rust's (cmux-window-rules
+    /// `workspaces::confirmation`); each builds its question from its reads and strings here.
+    private static func question(for id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext, warn: Bool) async -> Prompt? {
+        let services = context.services
+        switch WindowRules().confirmation(id.rawValue, stash: StashHandlers.workspaceActions.contains(id)) {
+        case .groupWorkspaces?:
             // No question of its own (an undo toast offers the workspaces back):
             // only a foreground program in them asks, as for Close Workspace.
             guard let group = try? context.group(invocation) else { return nil }
             return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
                                                    title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
-        case let id where StashHandlers.workspaceActions.contains(id):
+        case .stash?:
             // Save and Close of workspaces asks as their close does: only while a program runs.
             return await StashHandlers.prompt(id, invocation, context, warn: warn)
-        case let id where WorkspaceBulkClose.ids.contains(id):
+        case .bulkClose?:
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
-        case "browserProfile.delete":
+        case .browserProfileDelete?:
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
-        case "browser.allowAgentWithExtensions":
+        case .agentExtensions?:
             return AgentExtensionHandlers.prompt(invocation, context)
-        case "space.delete":
+        case .spaceDelete?:
             return await RoomConfirmation.prompt(invocation, context)
-        case "space.clearDefaults":
+        case .spaceClearDefaults?:
             return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
-        case "remote.install":
+        case .remoteInstall?:
             return await RemoteConfirmation.prompt(for: id, invocation, context)
-        case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
+        case .updateRollback?: // palette, menu and the pulled-build banner's Roll Back
             return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
-        case "tabGroup.close":
+        case .tabGroupClose?:
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
-        case "taskManager.killProcess":
+        case .killProcess?:
             // A process Kill Process refuses is not asked about: the handler says why.
-            let key = services.taskManager.process(invocation["process"]?.stringValue)
-            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
-            let question = services.taskManager.prompt(for: key)
+            let key = services.taskManager.hub.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.hub.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.hub.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
-        case "home.deleteChief":
+        case .deleteChief?:
             // A Chief not listed (or the default one) is refused by the action with its reason.
             guard let id = invocation["chief"]?.stringValue, let chief = services.home.deletableChief(id: id) else { return nil }
             return Prompt(title: HomeStrings.deleteChiefTitle(chief.name), body: HomeStrings.deleteChiefBody,
                           button: HomeStrings.deleteChiefButton, returnConfirms: false)
-        case "home.leaveConversation":
+        case .leaveConversation?:
             // The group's name in the question; a conversation not listed is refused by the action.
-            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownConversation(services)
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
-        default:
+        case .inHandler?, .noQuestion?, nil:
             return nil
         }
     }
@@ -129,7 +143,7 @@ enum DestructiveConfirmation {
     /// The targeted (or focused tab's) open tab group's tabs and their
     /// daemon, looked up without refusing.
     private static func tabGroup(_ invocation: ActionInvocation, _ context: AppActionContext) -> ([TabModel], DaemonService)? {
-        let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .tabGroup }?.id
+        let explicit = AppActionContext.explicitTarget([invocation.target, invocation["group"]?.targetValue], kinds: [.tabGroup])?.id
         let id = explicit ?? context.scope(invocation).tabGroupID
         guard let id else { return nil }
         for daemon in context.services.machines.daemons {

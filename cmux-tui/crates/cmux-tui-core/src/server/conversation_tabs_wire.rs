@@ -116,6 +116,10 @@ pub(super) struct ConversationTabSplitParams {
     /// `split-client-split-id-v1`: caller-minted public id of the new split.
     #[serde(default)]
     split_id: Option<String>,
+    /// `split-around-v1`: the split (handle) the new split wraps whole;
+    /// `pane` must be its last leaf and `direction` `right` or `down`.
+    #[serde(default)]
+    around: Option<crate::SplitId>,
 }
 
 impl ConversationTabSplitParams {
@@ -141,7 +145,18 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
             })?;
         }
-        Ok(TabSplit { pane, direction, pane_id: self.pane_id, split_id: self.split_id })
+        anyhow::ensure!(
+            self.around.is_none() || matches!(direction, "right" | "down"),
+            "bad request: around needs direction \"right\" or \"down\""
+        );
+        Ok(TabSplit {
+            pane,
+            direction,
+            pane_id: self.pane_id,
+            split_id: self.split_id,
+            ratio: None,
+            around: self.around,
+        })
     }
 }
 

@@ -72,6 +72,9 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
+    /// lands later): the open palette reads its rows again. The palette installs it.
+    @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
@@ -117,6 +120,10 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument whose values are not read yet (a list the daemon has not answered):
+    /// the load that answers them, which the palette's step awaits under its loading state instead
+    /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
+    @ObservationIgnored public var argumentSuggestionsLoad: (@MainActor (String) -> (@MainActor () async -> [ActionEnumCase])?)?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
     @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
@@ -133,6 +140,9 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
+    /// whose host may reach no pasteboard, records it instead.
+    @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
     /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
@@ -183,6 +193,10 @@ public final class ActionRegistry {
         // A new hook drops the old one's queued work: ask again through the new one.
         didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
     }
+    /// The icon pack's drawing that stands in for an SF Symbol at a point size, or nil to draw the symbol: catalog
+    /// rows (``rowIcon(_:)``) then draw the glyph the palette and hand-built menus draw (Leo 2026-11-09, of the fork:
+    /// "and this fork symbol is so bad"). The App passes `NSImage.packOverride`; this core target cannot read the pack.
+    @ObservationIgnored public var symbolOverride: (@MainActor (String, CGFloat) -> NSImage?)?
     /// A warm is queued and has not run yet: further changes need no second one.
     @ObservationIgnored private var bindingTableWarmQueued = false
 

@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextAgentPane
 import CmuxNextControl
 
 /// `debug.new_tab` benches (R81): Cmd-W on a new tab page and `!` in its

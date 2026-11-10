@@ -3,30 +3,27 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextServer
 
-/// Hosts the Machines section (``MachineSectionView``, AppKit): follows the machine registry, each
-/// machine's last check and the section's layout tunable, opens a workspace on a machine through
-/// `workspace.newOnMachine` and Add Device through `device.add`. It also lists the person's machines
-/// that joined through the hub (`cmux machine list`), read when the section is made and each
-/// time it shows, with Check, Rotate and Revoke; on screen, its online rows age (``MachineSectionView/followAging(_:)``).
+/// Hosts the right sidebar's Machines section (a React page, `MachineSectionPageProvider.makeSection`), made the first
+/// time the section shows: its provider reads the machine registry, each machine's last check, the
+/// section's layout tunable and the person's machines joined through the hub (`cmux machine list`),
+/// read when the section is made and each time it shows. New Workspace and Add Machine… run
+/// `workspace.newOnMachine` and `device.add`; a row's menus are the registry's native ones.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
-    let section: MachineSectionView
-    private let machines: MachineRegistry
-    private let health: MachineHealthStore
+    let section: NSView  // a PageSectionHost; its page routes hold the provider
     private let joined: JoinedMachineStore
-    private var observation: Task<Void, Never>?
     /// The joined list's read in flight (a newer show replaces it).
     private var joinedRead: Task<Void, Never>?
 
     init(services: AppServices) {
-        machines = services.machines
-        health = services.machineHealth
-        joined = services.joinedMachines
-        let registry = services.registry
-        section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { id in
-            registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("device.add") }, newWorkspaceMenuItem: { id in
-            registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection, arguments: ["machine": .string(id)])
-        }, joinedMenu: { machine, row in Self.joinedMenu(machine, rowID: row.id, registry: registry) }))
+        let machines = services.machines, health = services.machineHealth, joined = services.joinedMachines, registry = services.registry
+        self.joined = joined
+        let provider = MachineSectionPageProvider(dependencies: .init(
+            rows: { MachineSectionRow.rows(machines, health: health, joined: joined) },
+            style: { ServerTunables.machinesStyle.value }, joined: { joined },
+            newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
+            addMachine: { registry.perform("device.add") }, present: { _, _ in },
+            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } }))
+        section = provider.makeSection(joined: joined)
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         section.translatesAutoresizingMaskIntoConstraints = false
         addSubview(section)
@@ -36,16 +33,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             section.topAnchor.constraint(equalTo: topAnchor),
             section.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        section.followAging(joined); refresh()
-        let machines = self.machines, health = self.health, joined = self.joined
-        observation = Task { [weak self] in
-            for await (rows, style, state) in ObservationStream({
-                (MachineSectionRow.rows(machines, health: health, joined: joined), ServerTunables.machinesStyle.value,
-                 MachineSectionView.JoinedRowState(joined))
-            }) {
-                self?.section.update(rows, style: style, joined: state)
-            }
-        }
+        refresh()
     }
 
     @available(*, unavailable)
@@ -54,17 +42,28 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        observation?.cancel()
         joinedRead?.cancel()
     }
 
     func refresh() {
-        section.update(MachineSectionRow.rows(machines, health: health, joined: joined), style: ServerTunables.machinesStyle.value,
-                       joined: MachineSectionView.JoinedRowState(joined))
         let joined = self.joined
         joinedRead?.cancel()
         // task-owner: one list read per show; the next show or deinit cancels it.
         joinedRead = Task { await joined.refresh() }
+    }
+
+    /// A row's native menu: New Workspace on This Machine (`row`, disabled while the link is down), or a
+    /// joined machine's Check, Rotate Credential and Revoke… (`joined`), run on the row it opened on.
+    static func menu(_ kind: String, row: MachineSectionRow, registry: ActionRegistry) -> NSMenu? {
+        if kind == "joined", let machine = row.joined { return joinedMenu(machine, rowID: row.id, registry: registry) }
+        guard kind == "row", let item = registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection,
+                                                                     arguments: ["machine": .string(row.id)]) else { return nil }
+        item.title = MachineSectionRow.newWorkspaceTitle
+        item.isEnabled = row.isConnected
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(item)
+        return menu
     }
 
     /// A joined machine's menu item. Revoke asks first; Rotate and Revoke read the list again after.

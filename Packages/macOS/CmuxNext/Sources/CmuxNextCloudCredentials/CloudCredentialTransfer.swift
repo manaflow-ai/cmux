@@ -43,11 +43,32 @@ public import Foundation
     /// The account's other teams (nil: its personal scope) whose cached login this transfer reuses when
     /// ``teamID`` holds none (``CloudCredentialLogin/loadAny(provider:teamID:otherTeams:userID:)``).
     public var otherTeams: [String?] = []
+    /// Where each step's time goes (``CloudStartSteps``): the guest check, the login read, the recheck, the write, the install.
+    public var steps: CloudStartSteps?
+    /// A login read within this long of the guest check that passed is delivered on that check: the second guest
+    /// check runs only after a sign-in, or a Keychain read slow enough (a prompt) for the target to have changed.
+    var recheckAfter: Duration = .seconds(2)
+    /// This transfer's own guest check (``CloudCredentialInstaller/preflight``), passed ahead of it beside the
+    /// start's machine reads (``guestCheck(on:machineID:teamID:)``). Taken as the first guest check, one exec
+    /// less, only for this machine and team and within ``recheckAfter``; otherwise, or for the creator
+    /// allowance (another program), the transfer checks again as before.
+    public var guestCheckedAt: GuestCheck?
+
+    /// A passed owner guest check: which machine, which team, when. Only ``guestCheck(on:machineID:teamID:)``
+    /// makes one, so a caller cannot hand the transfer a check that never ran or ran elsewhere.
+    public struct GuestCheck: Sendable, Equatable {
+        public let machineID: String
+        public let teamID: String?
+        public let at: ContinuousClock.Instant
+        init(machineID: String, teamID: String?, at: ContinuousClock.Instant = .now) { self.machineID = machineID; self.teamID = teamID; self.at = at }
+    }
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                otherTeams: [String?] = [], openTerminal: @escaping @MainActor (String) async -> Bool) {
+                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, guestCheckedAt: GuestCheck? = nil,
+                openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
-        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.openTerminal = openTerminal
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps
+        self.guestCheckedAt = guestCheckedAt; self.openTerminal = openTerminal
     }
 
     /// The guest check this transfer runs before and after the login.
@@ -121,18 +142,21 @@ public import Foundation
                 }))
     }
 
-    /// Writes the credential where the installer reads it. The file routes write as root. Where exec
-    /// runs as root too (`/api/vm`), the installer chowns a 0600 file before it drops to `cmux`. A
-    /// Worker machine's exec runs as `cmux` and can't read a root 0600 file, so its folder is first
-    /// made `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and
-    /// root can reach it, as `deliver-secrets` stages its receiver.
+    /// Writes the credential where the installer reads it. The file routes write as root, and a
+    /// machine's exec runs as `cmux`, which can't read a root 0600 file, so the file goes in 0644 into
+    /// `cmux`'s own 0700 folder: only `cmux` and root can reach it, as `deliver-secrets` stages its receiver.
+    /// The guest check that passed just before (``CloudCredentialInstaller/preflight``) made that folder and
+    /// checked it is no symlink and `cmux`'s: no exec of its own here, one round trip less on every copy.
     nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
-        guard api.execRunsAsWorkUser else { return try await api.writeFile(machineID, path: path, data: credential, mode: 0o600) }
-        let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
-        let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
-                                      timeoutMs: 20_000)
-        guard made.exitCode == 0 else { throw Failure.deliveryFailed }
         try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
+    }
+
+    /// Runs the owner guest check (``CloudCredentialInstaller/preflight``) once on `machineID` (`api` pinned to its
+    /// team): the instant it passed, else nil (failed, unbound, or the exec did not answer). A start runs it beside its
+    /// machine reads, after the owner check, and hands it to the transfer (``guestCheckedAt``).
+    public nonisolated static func guestCheck(on api: CloudAPIClient, machineID: String, teamID: String?) async -> GuestCheck? {
+        guard let result = try? await api.exec(machineID, command: CloudCredentialInstaller.preflight, timeoutMs: 20_000), result.exitCode == 0 else { return nil }
+        return GuestCheck(machineID: machineID, teamID: teamID)
     }
 
     /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
@@ -149,6 +173,14 @@ public import Foundation
             case .none: "no cached login: the chat's Sign in to Claude card"
             case .unreadable: "cached login unreadable (the Keychain did not answer): the chat's Sign in to Claude card"
             }
+        }
+
+        /// `check`'s ``startOutcome``. A check cancelled with its start throws ``CancellationError``: the Keychain
+        /// read the cancellation cut short is not a Keychain that did not answer.
+        public static func startOutcome(_ check: () async -> Self) async throws -> String? {
+            let cached = await check()
+            try Task.checkCancellation()
+            return cached.startOutcome
         }
     }
 
@@ -202,7 +234,15 @@ public import Foundation
         // No credential is acquired or read until the platform says the caller owns the machine and
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
+        let checked: ContinuousClock.Instant
+        if !allowsCreatorTeamGuest, let earlier = guestCheckedAt, earlier.machineID == machineID, earlier.teamID == teamID,
+           earlier.at.duration(to: .now) <= recheckAfter {
+            checked = earlier.at // the same check, passed just now beside the machine reads
+        } else {
+            try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
+            checked = .now
+        }
+        steps?.done("transfer.guest")
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -210,20 +250,27 @@ public import Foundation
         try checkScope()
         try Self.validate(credential, provider: provider)
         if cached == nil { try await effects.store(credential) }
+        steps?.done("transfer.load")
         try checkScope()
-        // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
+        // Recheck after a browser sign-in or a slow Keychain read; the target may have changed meanwhile. A login
+        // read at once is delivered on the guest check just made (one exec, about a second, less on every start).
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        if cached == nil || checked.duration(to: .now) > recheckAfter {
+            guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        }
         guard await effects.stillAllowed() else { throw Failure.copyTurnedOff }
+        steps?.done("transfer.recheck")
         try checkScope()
         let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
         do {
             try checkScope()
             try await effects.write(path, credential)
+            steps?.done("transfer.write")
             try checkScope()
             guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
                 throw Failure.deliveryFailed
             }
+            steps?.done("transfer.install")
         } catch {
             // A failed/cancelled delivery must not leave a second readable copy on the target.
             // A cancelled caller cannot start an API request. An unstructured task has independent

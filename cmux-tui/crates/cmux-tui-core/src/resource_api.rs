@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 mod machines;
+mod terminal_extra;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
 
@@ -238,6 +239,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -255,7 +257,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -278,6 +285,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
@@ -484,31 +496,7 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal.set("cwd", json!(cwd));
     }
-    let running = durable.lifecycle == TerminalLifecycle::Running;
-    let mut extra = Map::new();
-    if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
-        extra.insert("progress".into(), progress.to_json());
-    }
-    if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
-        extra.insert("program_status".into(), status);
-    }
-    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D), quiet
-    // `running` or interactive `in_use`; the older `busy` names a `running`
-    // one only. An exited terminal publishes none.
-    if running
-        && let Some((state, since)) = surface.and_then(crate::Surface::terminal_command_activity)
-    {
-        extra.insert("activity".into(), crate::terminal_activity::activity_json(state, since));
-        if state == crate::terminal_activity::CommandActivity::Running {
-            extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
-        }
-    }
-    if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
-        extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
-    }
-    if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
-        extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
-    }
+    let extra = terminal_extra::extra(surface, durable.lifecycle == TerminalLifecycle::Running);
     if !extra.is_empty() {
         terminal.set("extra", Value::Object(extra));
     }
@@ -527,7 +515,7 @@ pub(crate) fn public_terminal_snapshot(
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
-    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+    session_snapshot_with_journal_head(mux, true).map(|(snapshot, _)| snapshot)
 }
 
 /// Returns the public session snapshot together with the session journal head
@@ -536,8 +524,22 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 /// reflected in the snapshot, and every later record is not. Checkpoint
 /// capture keys its consistency fence to this cut so a journal write that
 /// merely precedes the cut cannot spuriously abort the capture.
+///
+/// A checkpoint is written to disk, so this snapshot leaves out what the daemon
+/// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
+/// (`extra.last_reply`) and a terminal's last harness session
+/// (`extra.agent_session_id`).
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
+    session_snapshot_with_journal_head(mux, false)
+}
+
+/// The snapshot of [`public_session_snapshot_with_journal_head`]; `memory_only`
+/// adds the values the daemon keeps in memory only, for a read that is not stored.
+fn session_snapshot_with_journal_head(
+    mux: &Mux,
+    memory_only: bool,
 ) -> Result<(Value, u64), ResourceError> {
     // No pending terminal directory is published here: a read runs no
     // write. Terminal output, resize, reconnect and every committed graph
@@ -549,6 +551,12 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let (last_replies, last_sessions) = if memory_only {
+        (mux.agent_last_replies(), mux.agent_last_sessions())
+    } else {
+        (HashMap::new(), HashMap::new())
+    };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -590,18 +598,6 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .iter()
             .map(|screen| (&screen.public_id, screen))
             .collect::<HashMap<_, _>>();
-        let terminals_by_id = terminal_registry
-            .terminals
-            .iter()
-            .map(|terminal| (terminal.terminal_id.as_str(), terminal))
-            .collect::<HashMap<_, _>>();
-        let terminal_resources_by_host =
-            terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
-        let terminal_hosts_by_resource = terminal_resource_ids
-            .into_iter()
-            .map(|(host_id, terminal_id)| (terminal_id, host_id))
-            .collect::<HashMap<_, _>>();
-
         let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
 
         let screens = topology
@@ -612,81 +608,14 @@ pub(crate) fn public_session_snapshot_with_journal_head(
 
         let (panes, tabs) = public_pane_and_tab_values(&topology, &screens_by_id, &panes_by_id)?;
 
-        let mut terminal_order = Vec::new();
-        let mut seen_terminals = HashSet::new();
-        for tab in &topology.tabs {
-            if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
-                if seen_terminals.insert(terminal_id.clone()) {
-                    terminal_order.push(terminal_id.clone());
-                }
-                let host_id = terminal_hosts_by_resource.get(terminal_id).with_context(|| {
-                    format!("terminal {terminal_id} omitted its durable identity")
-                })?;
-                if let Some(tab_host_id) = &tab.terminal_id {
-                    anyhow::ensure!(
-                        tab_host_id == host_id,
-                        "terminal {terminal_id} references a mismatched durable host"
-                    );
-                }
-            }
-        }
-        let mut tab_ids_by_terminal =
-            terminal_tab_ids_in_canonical_order(topology.tabs.iter().filter_map(|tab| {
-                match &tab.content_id {
-                    ContentPublicId::Terminal(terminal_id) => Some((
-                        terminal_id.clone(),
-                        tab.pane_id.clone(),
-                        tab.position,
-                        tab.public_id.clone(),
-                    )),
-                    ContentPublicId::Browser(_) => None,
-                }
-            }));
-        for durable in &terminal_registry.terminals {
-            if let Some(terminal_id) = terminal_resources_by_host.get(&durable.terminal_id)
-                && seen_terminals.insert(terminal_id.clone())
-            {
-                terminal_order.push(terminal_id.clone());
-            }
-        }
-        for (host_id, terminal_id) in &terminal_resources_by_host {
-            if !terminals_by_id.contains_key(host_id.as_str()) {
-                // A resource row whose durable host vanished (a close that
-                // tombstoned the registry but not the resource row, or a crash
-                // between the two writes) must not fail the whole snapshot:
-                // every client renders a failed snapshot as "machine
-                // unreachable". Skip the dangling row; the close path owns the
-                // repair.
-                eprintln!(
-                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
-                );
-            }
-        }
-
-        let terminals = terminal_order
-            .into_iter()
-            .map(|terminal_id| {
-                let surface = state.terminal_catalog.get(&terminal_id);
-                let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
-                    format!("terminal {terminal_id} omitted its durable identity")
-                })?;
-                if let Some(surface) = surface {
-                    let runtime_host =
-                        mux.resource_terminal_host_identity(surface).with_context(|| {
-                            format!("terminal {terminal_id} runtime omitted its durable identity")
-                        })?;
-                    anyhow::ensure!(
-                        runtime_host.terminal_id == *host_id,
-                        "terminal {terminal_id} runtime references a mismatched durable host"
-                    );
-                }
-                let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
-                    format!("terminal {terminal_id} references missing {host_id}")
-                })?;
-                let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let terminals = public_terminal_values(
+            mux,
+            &terminal_registry.terminals,
+            terminal_resource_ids,
+            &topology.tabs,
+            |terminal_id| state.terminal_catalog.get(terminal_id).cloned(),
+            &last_sessions,
+        )?;
 
         let browsers_by_id = topology
             .browsers
@@ -755,6 +684,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 agent
             })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
+            .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
+            .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
@@ -790,9 +721,12 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         });
         registry.read_state(|connection| {
             crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
-            snapshot.set("extra", json!({
-                "state": crate::state::store::state_snapshot(connection)?,
-            }));
+            snapshot.set(
+                "extra",
+                json!({
+                    "state": crate::state::store::state_snapshot(connection)?,
+                }),
+            );
             Ok(())
         })?;
         Ok((snapshot, journal_head))
@@ -824,6 +758,217 @@ fn public_workspace_values(
             }))
         })
         .collect()
+}
+
+/// The session snapshot's `terminals`, in its order: each terminal that a
+/// tab shows, in the tabs' order, then each other live terminal in creation
+/// order. `tabs` are the session's tabs in the full load's order (a tab of
+/// other content is skipped); `surface_of` gives a terminal's live surface.
+/// One builder for the session snapshot and the terminal list.
+fn public_terminal_values(
+    mux: &Mux,
+    durable_terminals: &[RegistryTerminal],
+    terminal_resource_ids: Vec<(String, TerminalPublicId)>,
+    tabs: &[RegistryTab],
+    surface_of: impl Fn(&TerminalPublicId) -> Option<Arc<crate::Surface>>,
+    last_sessions: &HashMap<String, (String, Option<String>)>,
+) -> anyhow::Result<Vec<Value>> {
+    let terminals_by_id = durable_terminals
+        .iter()
+        .map(|terminal| (terminal.terminal_id.as_str(), terminal))
+        .collect::<HashMap<_, _>>();
+    let terminal_resources_by_host =
+        terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
+    let terminal_hosts_by_resource = terminal_resource_ids
+        .into_iter()
+        .map(|(host_id, terminal_id)| (terminal_id, host_id))
+        .collect::<HashMap<_, _>>();
+
+    let mut terminal_order = Vec::new();
+    let mut seen_terminals = HashSet::new();
+    for tab in tabs {
+        if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
+            if seen_terminals.insert(terminal_id.clone()) {
+                terminal_order.push(terminal_id.clone());
+            }
+            let host_id = terminal_hosts_by_resource
+                .get(terminal_id)
+                .with_context(|| format!("terminal {terminal_id} omitted its durable identity"))?;
+            if let Some(tab_host_id) = &tab.terminal_id {
+                anyhow::ensure!(
+                    tab_host_id == host_id,
+                    "terminal {terminal_id} references a mismatched durable host"
+                );
+            }
+        }
+    }
+    let mut tab_ids_by_terminal =
+        terminal_tab_ids_in_canonical_order(tabs.iter().filter_map(|tab| match &tab.content_id {
+            ContentPublicId::Terminal(terminal_id) => Some((
+                terminal_id.clone(),
+                tab.pane_id.clone(),
+                tab.position,
+                tab.public_id.clone(),
+            )),
+            ContentPublicId::Browser(_) => None,
+        }));
+    for durable in durable_terminals {
+        if let Some(terminal_id) = terminal_resources_by_host.get(&durable.terminal_id)
+            && seen_terminals.insert(terminal_id.clone())
+        {
+            terminal_order.push(terminal_id.clone());
+        }
+    }
+    for (host_id, terminal_id) in &terminal_resources_by_host {
+        if !terminals_by_id.contains_key(host_id.as_str()) {
+            // A resource row whose durable host vanished (a close that
+            // tombstoned the registry but not the resource row, or a crash
+            // between the two writes) must not fail the whole snapshot:
+            // every client renders a failed snapshot as "machine
+            // unreachable". Skip the dangling row; the close path owns the
+            // repair.
+            eprintln!(
+                "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+            );
+        }
+    }
+
+    terminal_order
+        .into_iter()
+        .map(|terminal_id| {
+            let surface = surface_of(&terminal_id);
+            let host_id = terminal_hosts_by_resource
+                .get(&terminal_id)
+                .with_context(|| format!("terminal {terminal_id} omitted its durable identity"))?;
+            if let Some(surface) = &surface {
+                let runtime_host =
+                    mux.resource_terminal_host_identity(surface).with_context(|| {
+                        format!("terminal {terminal_id} runtime omitted its durable identity")
+                    })?;
+                anyhow::ensure!(
+                    runtime_host.terminal_id == *host_id,
+                    "terminal {terminal_id} runtime references a mismatched durable host"
+                );
+            }
+            let durable = terminals_by_id
+                .get(host_id.as_str())
+                .with_context(|| format!("terminal {terminal_id} references missing {host_id}"))?;
+            let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
+            public_terminal_snapshot(&terminal_id, durable, surface.as_deref(), tab_ids)
+                .map(|terminal| crate::mux::with_agent_session(terminal, last_sessions))
+        })
+        .collect()
+}
+
+/// The stored rows a terminal list is built from: the terminal rows, each
+/// live terminal resource with its host, and the terminal tabs.
+type TerminalListRows = (Vec<RegistryTerminal>, Vec<(String, TerminalPublicId)>, Vec<RegistryTab>);
+
+fn load_terminal_list_rows(connection: &rusqlite::Connection) -> anyhow::Result<TerminalListRows> {
+    Ok((
+        crate::workspace_registry::load_terminal_rows(connection)?,
+        crate::workspace_registry::load_live_terminal_resource_ids(connection)?,
+        crate::workspace_registry::load_terminal_tabs(connection)?,
+    ))
+}
+
+/// The session snapshot's `terminals`, built alone (`terminal.list` with no
+/// scope): the same values in the same order. At 826 workspaces the whole
+/// snapshot held the registry lock and the state lock for each `terminal
+/// list` of a script or an agent. This reads the stored rows as one
+/// committed read (no registry lock on a file registry), takes the state
+/// lock one time to copy each terminal's live surface handle, and builds the
+/// values with no lock held. A surface that changes after the read gives its
+/// newer live fields (title, size, directory), as it does to a list that
+/// runs a moment later.
+pub(crate) fn public_terminals(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    // Memory only, as in the snapshot: not under a session lock.
+    let last_sessions = mux.agent_last_sessions();
+    let (durable_terminals, terminal_resource_ids, tabs) =
+        read_committed_registry(mux, |connection, _| load_terminal_list_rows(connection))
+            .map_err(operation_failed)?;
+    let surfaces = mux.with_state(|state| {
+        terminal_resource_ids
+            .iter()
+            .filter_map(|(_, terminal_id)| {
+                let surface = state.terminal_catalog.get(terminal_id)?;
+                Some((terminal_id.clone(), surface.clone()))
+            })
+            .collect::<HashMap<_, _>>()
+    });
+    if let Ok(terminals) = public_terminal_values(
+        mux,
+        &durable_terminals,
+        terminal_resource_ids,
+        &tabs,
+        |terminal_id| surfaces.get(terminal_id).cloned(),
+        &last_sessions,
+    ) {
+        return Ok(terminals);
+    }
+    // The rows and the surfaces are two cuts. A terminal that ended between
+    // them (its runtime gave up its durable identity while this list held
+    // its handle) fails the identity checks of the builder. Read the two as
+    // one cut, under the registry and state locks, as the snapshot does: a
+    // real mismatch gives the snapshot's error.
+    mux.with_resource_projection(|registry, state| {
+        let (durable_terminals, terminal_resource_ids, tabs) =
+            registry.read_state(load_terminal_list_rows)?;
+        public_terminal_values(
+            mux,
+            &durable_terminals,
+            terminal_resource_ids,
+            &tabs,
+            |terminal_id| state.terminal_catalog.get(terminal_id).cloned(),
+            &last_sessions,
+        )
+    })
+    .map_err(operation_failed)
+}
+
+/// The session snapshot's `panes`, built alone (`pane.list` with no scope):
+/// the same values in the same order, from the stored screens and panes as
+/// one committed read. It reads no tabs, terminals, browsers, notifications,
+/// agents or live state, and takes no registry lock (on a file registry) and
+/// no state lock.
+pub(crate) fn public_panes(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    read_committed_registry(mux, |connection, ids| {
+        let topology = crate::workspace_registry::load_session_panes(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )?;
+        let screens_by_id = topology
+            .screens
+            .iter()
+            .map(|screen| (&screen.public_id, screen))
+            .collect::<HashMap<_, _>>();
+        public_pane_values(&topology, &screens_by_id)
+    })
+    .map_err(operation_failed)
+}
+
+/// The session snapshot's `tabs`, built alone (`tab.list` with no scope):
+/// the same decorated values in the same order, from the stored panes and
+/// tabs as one committed read. It reads no screens, terminal hosts,
+/// notifications, agents or live state, and takes no registry lock (on a
+/// file registry) and no state lock.
+pub(crate) fn public_tabs(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    read_committed_registry(mux, |connection, ids| {
+        let topology = crate::workspace_registry::load_session_tabs(
+            connection,
+            ids.session_id.clone(),
+            ids.generation.clone(),
+        )?;
+        let panes_by_id =
+            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        let mut tabs = public_tab_values(&topology, &panes_by_id)?;
+        for tab in &mut tabs {
+            crate::state::values::decorate_value(connection, "tab", tab)?;
+        }
+        Ok(tabs)
+    })
+    .map_err(operation_failed)
 }
 
 /// The session snapshot's `workspaces`, built alone (`workspace.list`, the
@@ -897,14 +1042,22 @@ pub(crate) fn read_committed_registry<T>(
 }
 
 /// The public panes and tabs of `topology`, in its order: one builder for
-/// the session snapshot and the scoped lists.
+/// the session snapshot and the lists.
 fn public_pane_and_tab_values(
     topology: &crate::workspace_registry::ResourceTopologySnapshot,
     screens_by_id: &HashMap<&ScreenPublicId, &crate::workspace_registry::RegistryScreen>,
     panes_by_id: &HashMap<&PanePublicId, &crate::workspace_registry::RegistryPane>,
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    Ok((public_pane_values(topology, screens_by_id)?, public_tab_values(topology, panes_by_id)?))
+}
+
+/// The public panes of `topology`, in its order.
+fn public_pane_values(
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+    screens_by_id: &HashMap<&ScreenPublicId, &crate::workspace_registry::RegistryScreen>,
+) -> anyhow::Result<Vec<Value>> {
     let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
-    let panes = topology
+    topology
         .panes
         .iter()
         .map(|pane| {
@@ -922,8 +1075,15 @@ fn public_pane_and_tab_values(
                 "zoomed": screen.zoomed_pane.as_ref() == Some(&pane.public_id),
             }))
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let tabs = topology
+        .collect()
+}
+
+/// The public tabs of `topology` before decoration, in its order.
+fn public_tab_values(
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+    panes_by_id: &HashMap<&PanePublicId, &crate::workspace_registry::RegistryPane>,
+) -> anyhow::Result<Vec<Value>> {
+    topology
         .tabs
         .iter()
         .map(|tab| {
@@ -933,8 +1093,7 @@ fn public_pane_and_tab_values(
             checked_index(tab.position)?;
             Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
         })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok((panes, tabs))
+        .collect()
 }
 
 /// The session snapshot's `screens` (id and workspace only), `panes` and
@@ -1068,6 +1227,57 @@ mod tests {
         assert_eq!(
             machine_capabilities(),
             serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        use super::ResourceMachineService as _;
+
+        let mux = crate::Mux::new_for_test("dev", crate::SurfaceOptions::default());
+        let diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(std::sync::Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = super::LocalResourceMachineService::new(std::sync::Arc::downgrade(&mux));
+        let request = super::ResourceMachineRequest {
+            operation: crate::resource::ResourceOperation::SessionOpen,
+            selectors: crate::ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: serde_json::Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+            actor: crate::Actor::local_user(),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
         );
     }
 }

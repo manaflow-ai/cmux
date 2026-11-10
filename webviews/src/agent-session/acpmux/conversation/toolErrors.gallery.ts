@@ -271,7 +271,9 @@ const openRun = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
 };
 
-/// Opens the traceback's call, to show its raw output under it.
+/// Opens the traceback's call, to show its raw output under it. The call failed, so its row never
+/// reads as what it would have done; it reads as the fixture's own description (commandActions.ts
+/// commandSaid), which no label rule rewrites.
 const openTraceback = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: /Check the retry schedule/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
@@ -304,16 +306,16 @@ export default agentPaneEntry({
       snapshot: mcp,
     },
     "failed-step": {
-      note: 'A run of four commands with one failure, opened: the group says "1 failed", the failed step is one plain line with "failed" at its edge, and its error output ("(eval):1: ==== not found") waits behind its own chevron. A lone command still says Exit 1 and the cause.',
+      note: 'A run of four commands with one failure, opened: for Codex parity the failure draws no word, count or tint (a screen reader still hears "1 failed" and "failed"), and the step\'s error output ("(eval):1: ==== not found") waits behind its own chevron.',
       snapshot: failedStep,
       play: openRun,
     },
     "long-label": {
-      note: "Failed calls whose labels run past the line: each label takes the ellipsis and its failure word (Failed, Denied) stays whole after it.",
+      note: "Failed calls whose labels run past the line: each label takes the ellipsis to the line's end; the failure word (Failed, Denied) is for screen readers only (Codex parity).",
       snapshot: longLabels,
     },
     "failed-step-mixed": {
-      note: 'A run where a Read and a command failed, opened: both steps say "Failed", capitalised alike, right after their titles.',
+      note: 'A run where a Read and a command failed, opened: both steps say "Failed" to a screen reader and draw no word (Codex parity).',
       snapshot: mixedFailedStep,
       play: openAnyRun,
     },

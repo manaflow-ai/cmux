@@ -53,9 +53,9 @@ import Testing
         func chroma(_ c: ThemeRGB) -> Double { max(c.red, c.green, c.blue) - min(c.red, c.green, c.blue) }
         for color in GroupColor.allCases where color != .grey {
             let tint = GroupTint.palette(color)
-            #expect(chroma(tint.glassRGB(themed: false)) >= chroma(tint.lineRGB(themed: false)), "\(color)")
+            #expect(chroma(tint.glassRGB(palette: .vibrant)) >= chroma(tint.lineRGB(palette: .vibrant)), "\(color)")
         }
-        #expect(GroupTint.none.glassRGB(themed: false) == (ThemeContext.active ?? ThemeScope.app.tokens).textPrimary.withAlpha(1),
+        #expect(GroupTint.none.glassRGB(palette: .vibrant) == (ThemeContext.active ?? ThemeScope.app.tokens).textPrimary.withAlpha(1),
                 "no color is untinted glass")
     }
 
@@ -70,7 +70,7 @@ import Testing
             sidebar.layoutSubtreeIfNeeded()
             let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { !$0.isBlock })
             line.updateLayer()
-            let want = GroupTint.palette(.purple).glassRGB(themed: false)
+            let want = GroupTint.palette(.purple).glassRGB(palette: .vibrant)
             #expect(GroupPaletteDefaultTests.same(try GroupPaletteDefaultTests.rgb(line.railShape.fillColor), want))
         }
     }
@@ -100,12 +100,12 @@ import Testing
         }
     }
 
-    @Test func theNameIsTheRowsSizeSemibold() {
+    @Test func theNameIsTheRowsSizeAndWeight() {
         for bar in [CGFloat(20), 26, 30] {
             let font = SidebarStyle.groupHeaderFont(barHeight: bar)
             #expect(font.pointSize == SidebarStyle.titleFont.pointSize)
             let weight = (font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat
-            #expect((weight ?? 0) >= NSFont.Weight.semibold.rawValue - 0.01)
+            #expect(abs((weight ?? 0) - NSFont.Weight.regular.rawValue) < 0.01)
         }
     }
 }

@@ -32,5 +32,9 @@ extension SettingsSchema {
         "labs.classicHome": "Home is the workspace with the Chief docked on the left",
         // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
         "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
+        "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
+        // No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour.
+        "ui.animations.bounce": "no animation passes its place; every spring stops exactly on it",
     ]
 }

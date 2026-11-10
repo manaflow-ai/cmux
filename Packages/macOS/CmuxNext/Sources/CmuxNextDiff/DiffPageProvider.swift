@@ -61,6 +61,10 @@ public final class DiffPageProvider: PageProvider {
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
     /// The bench's open timeline (``DiffOpenTimeline``); nil outside the app.
     public var timeline: DiffOpenTimeline?
+    /// The chat that takes the tab's review comments now (``DiffTabChat``); nil offers no send.
+    public var chat: () -> DiffTabChat? = { nil }
+    /// Who writes the tab's hunk sentences (DiffPageProvider+Summaries.swift); nil serves none.
+    public var summarizer: () -> DiffHunkSummarizer? = { nil }
     /// The tab's first session, opened by the host while the page boots (DiffPageProvider+Preopen.swift).
     var preopen: Task<DiffPreopened, Never>?
     private var discards: [Task<Void, Never>] = []
@@ -124,6 +128,9 @@ public final class DiffPageProvider: PageProvider {
             return try await open(folder: URL(fileURLWithPath: path, isDirectory: true), source: DiffOpenSource(page: params["source"]))
         default:
             if let value = try await storeCall(op, params: params) { return value }
+            if let value = try await commentsCall(op, params: params, context: context) { return value }
+            if let value = try await briefCall(op, params: params) { return value }
+            if let value = try await summariesCall(op, params: params) { return value }
             if let value = try await gitCall(op, params: params, context: context) { return value }
             if let value = try await revertCall(op, params: params, context: context) { return value }
             if let value = try await openFileCall(op, params: params, context: context) { return value }
@@ -161,7 +168,7 @@ public final class DiffPageProvider: PageProvider {
             // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
             let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
                 ? DiffPageConfig.offeringTurn(tab.config) : tab.config
-            var served = withOpenFile(withGit(await withStores(config)))
+            var served = withSummaries(withBrief(withComments(withOpenFile(withGit(await withStores(config))))))
             if remote { served = Self.withoutRemoteWhitespace(served) }
             return served
         } catch let failure as DiffTabFailure {
@@ -273,7 +280,8 @@ public final class DiffPageProvider: PageProvider {
         }
         opening = (id, task)
         defer { if opening?.session == id { opening = nil } }
-        let result = try await task.value
+        // A cancelled caller (a page call, a cancelled preopen) stops the open, as stopOpening does.
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         // A patch session (Last turn) gets the sidecar's own id, which the page then closes.
         if let opened = Self.openedSession(result) { sessions.insert(opened) }
         return result

@@ -4,7 +4,7 @@
   --cmux-diff-fg: var(--agent-text);
   --cmux-diff-viewer-bg: var(--agent-page-bg);
   --cmux-diff-header-bg: color-mix(in srgb, var(--agent-text) 5%, transparent);
-  --cmux-diff-glass-filter: blur(20px);
+  --cmux-diff-glass-filter: blur(var(--ds-glass-chrome-radius)); /* the chrome level's radius, without its saturation */
   --cmux-diff-rim: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --cmux-diff-pill-bg: color-mix(in lab, var(--agent-text) 7%, transparent);
   --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);

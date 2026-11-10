@@ -1,68 +1,68 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
-// output (under its input's labeled fields, ToolDetail.tsx), Shell block or diff below once opened.
+// output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
+// read or file search found (FileResultCard.tsx) below once opened.
 import { useFindReveal } from "./chatFind";
-import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
-import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
+import { ReplyMedia } from "../chips/ReplyMedia";
+import { mediaKind } from "../chips/replyMediaModel";
 import { pathName } from "../chips/paths";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
+import { commandSaid } from "./commandActions";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { PreviewChip } from "./PreviewChip";
+import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useRowDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
+import { FileResultCard } from "./FileResultCard";
+import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
-import { WriteLabel, writeCall } from "./WriteLabel";
+import { WriteLabel } from "./WriteLabel";
+import { writeCall } from "./writeLabelModel";
+import { WebSources } from "./WebSources";
+import { fetchedPage, webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
-import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
-
-/// ACP tool kinds (`ToolKind`) to row glyphs.
-export function toolIcon(kind?: string): ReactNode {
-  switch (kind) {
-    case "read":
-      return <OpenBook />;
-    case "edit":
-    case "delete":
-    case "move":
-    case "fileChange":
-      return <Pencil size={16} />;
-    case "search":
-      return <Magnifier />;
-    case "execute":
-      return <TerminalSquare />;
-    case "fetch":
-      return <Globe size={16} />;
-    default:
-      return <ToolGroup size={16} />;
-  }
-}
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, useInStep } from "./toolFailureCauseModel";
+import { Check, ChevronRight } from "./icons";
+import { toolIcon } from "./toolRowModel";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
+export const ToolRow = memo(function ToolRow({
+  item,
+  asRun = false,
+}: {
+  item: AcpmuxActivity;
+  /// The call as it was made (a sent message's Raw, SentMessageLine.tsx): a shell reads as its
+  /// command line, never as what it did or its description, since Raw is where the line is shown.
+  asRun?: boolean;
+}) {
   const t = useT();
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
@@ -92,6 +92,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    !asRun,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -107,15 +108,26 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   const duration = foreground ? undefined : toolDuration(t, tool);
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
+  // Find counts a shell's whole line: a shortened line is skipped.
+  // A label that names what the command did draws no command at all (commandActions.ts), even when
+  // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
+  const drawsCommand =
+    shell &&
+    (asRun || !commandSaid(t, tool)) &&
+    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() &&
+    label.includes(tool.command?.trim() ?? "");
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
   // rendered result so the disclosure and its body agree, including image-only envelopes.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
   // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
-  const source = callOutput(tool, failure);
+  // A web search's links show in its sources chip (WebSources.tsx), not again in its body.
+  const sources = useMemo(() => webSources(tool), [tool]);
+  // A fetch read one page: its card names that page instead of a sources list.
+  const fetched = useMemo(() => fetchedPage(tool), [tool]);
+  const output = callOutput(tool, failure);
+  const source = output && withoutLinks(tool, output);
   const result = useMemo(() => {
     if (shell || !source) return undefined;
     return toolResult(source, cleanText, strip, {
@@ -125,6 +137,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     });
   }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
+  // A finished read or file search draws what it found as a card (fileResults.ts, FileResultCard.tsx)
+  // in place of its input fields and raw output; a result the card cannot read whole keeps those.
+  const card = useMemo(
+    () => (shell || failed || !fold.present ? undefined : fileCard(tool, result?.text, cwd)),
+    [shell, failed, fold.present, tool, result, cwd],
+  );
   // A call whose input opens as fields has details even before (or without) any output (ToolDetail.tsx).
   const hasInput = useMemo(
     () => !shell && opensToFields(tool, failure) && Boolean(inputFields(tool.inputSummary)),
@@ -174,14 +192,44 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       )}
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
+          {shell && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+            />
+          )}
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
+      ) : foreground && shell && !tool.approved ? (
+        // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
+        <span className="cv-command__meta cv-tool__meta">
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+          />
+        </span>
       ) : (
         (!foreground || tool.approved) && (
           <span className="cv-command__meta">
+            {shell && running && (
+              <RunElsewhereChip
+                toolCallId={tool.id}
+                kind={tool.kind}
+                command={tool.command}
+                startedAt={tool.startedAt}
+                running={running}
+              />
+            )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
             {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
@@ -216,8 +264,10 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
         )}
       </ToolVisualRow>
       <WrittenArtifactButtons tools={[tool]} />
+      <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
+      {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body || fields) && (
         <div {...fold.bodyProps}>
@@ -236,12 +286,13 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
+          ) : card ? (
+            <FileResultCard id={detailsId} card={card} reveal={reveal} />
           ) : fields ? (
             <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

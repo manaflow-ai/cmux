@@ -30,8 +30,8 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     ["agent-pane.file-picker-loading", "mentions-overflow", ".acpmux-mention-menu", 420, 1000],
     ["agent-pane.new-tab", "suggestions-overflow", ".nt-rows", 320, 1000],
     ["agent-pane.cloud-repository-picker", "overflowing", ".acpmux-cloud-repository-list", 420, 1000],
-    ["agent-pane.session-info-list-overflow", "tasks", '[data-section="tasks"]', 420, 1000],
-    ["agent-pane.session-info-list-overflow", "servers", '[data-section="servers"]', 420, 1000],
+    // Background tasks and their servers no longer scroll inside their section: the panel's body scrolls
+    // (TasksSection.tsx; Lucas, 2026-11-05, Session Info lab). Only the ended subagents keep a list of their own.
     ["agent-pane.session-info-list-overflow", "subagents", ".acpmux-session-info-subagents__list", 420, 1000],
     ["agent-pane.changes-git-actions", "new-files-overflow", ".acpmux-git-new-files ul", 640, 1000],
     ["pages.home-channels", "emoji", ".hc-emoji-grid", 640, 1000],

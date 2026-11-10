@@ -20,6 +20,8 @@
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+# blaze_home_path: a BLAZE_HOME whose daemon socket fits a Unix socket address (macOS: 104 bytes).
+source "$root/scripts/measure/blaze-home.sh"
 variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out="" timings=0 custom=()
 for kv in "$@"; do
   case "$kv" in
@@ -53,12 +55,15 @@ for old in "${scratch%/*}"/run-*; do
     stopped=1
     for old_home in "$old"/cmux-rust-dev-loop-blaze-home-*; do
       if [[ -n "$old_blaze" && -d "$old_home" ]] \
-        && ! BLAZE_HOME="$old_home" "$root/scripts/blacksmith-bounded-command.sh" 30 "$old_blaze" stop; then
+        && ! BLAZE_HOME="$(blaze_home_path "$old_home")" "$root/scripts/blacksmith-bounded-command.sh" 30 "$old_blaze" stop; then
         stopped=0
       fi
     done
     # A daemon that would not stop keeps its home: removing it under a live daemon is the bug.
-    if (( stopped )); then rm -rf "$old"; else echo "warning: kept $old: its blaze daemon did not stop"; fi
+    if (( stopped )); then
+      for old_home in "$old"/cmux-rust-dev-loop-blaze-home-*; do blaze_home_unlink "$old_home"; done
+      rm -rf "$old"
+    else echo "warning: kept $old: its blaze daemon did not stop"; fi
   fi
 done
 mkdir -p "$scratch"
@@ -70,7 +75,7 @@ if (( free_gb < ${CMUX_DEVLOOP_MIN_FREE_GB:-60} )); then
   echo "warning: $free_gb GB free at $scratch, under ${CMUX_DEVLOOP_MIN_FREE_GB:-60} GB; a variant may run out of disk"
 fi
 # This run's own scratch (blaze home included) only, named by this shell's pid.
-trap 'rm -rf "$scratch"' EXIT
+trap 'blaze_home_unlink "$scratch/cmux-rust-dev-loop-blaze-home-$$"; rm -rf "$scratch"' EXIT
 # Ghostty's zig packages download once, with retries, before any clock starts; every variant's
 # cold zig cache links to them (rust-dev-loop.py --zig-packages).
 zig_packages="$scratch/zig"
@@ -89,6 +94,29 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
     echo "notice: mold download failed; the mold variants are skipped"
   fi
 fi
+# cargo-nextest, when tests are asked for and it is missing: its pinned release, checked against the
+# sha256 GitHub publishes.
+if [[ -n "$tests" ]] && ! command -v cargo-nextest >/dev/null; then
+  nextest_version=0.9.151
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) nextest_target=x86_64-unknown-linux-gnu nextest_sha=1d4ce302b820c41f4b89c5fb9bce45f0f0c94882c1cf08fc360caf08be6e7df4 ;;
+    Linux-aarch64) nextest_target=aarch64-unknown-linux-gnu nextest_sha=3e35e8f6913af92558ba09d7155f74e35dd1f0024ef3cd891637433ae4eacbdd ;;
+    Darwin-*) nextest_target=universal-apple-darwin nextest_sha=d1d7d025d4bfc9fb154cd76aea3949bd78534829a0589abefa6e5dd4edb135dd ;;
+    *) nextest_target="" ;;
+  esac
+  nextest_dir="$scratch/nextest"
+  nextest_tgz="$nextest_dir/cargo-nextest.tar.gz"
+  mkdir -p "$nextest_dir/bin"
+  if [[ -n "$nextest_target" ]] \
+    && curl -fsSL --retry 3 -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
+    && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$nextest_tgz" "$nextest_sha"; then
+    tar -xzf "$nextest_tgz" -C "$nextest_dir/bin"
+    export PATH="$nextest_dir/bin:$PATH"
+    cargo-nextest nextest --version || true
+  else
+    echo "notice: cargo-nextest download failed; test-nextest is skipped"
+  fi
+fi
 # blaze, when asked for: its pinned release, checked against the sha256 GitHub publishes, with its
 # home (daemon state, build directory) outside the checkout; the toolchain download
 # happens here, before any clock starts.
@@ -104,8 +132,9 @@ if [[ ",$variants," == *,blaze,* ]]; then
   # Outside the checkout: blaze's daemon watches the checkout and reads every file in it, its own
   # socket included ("v2.sock changed and can't be read", 0.20261105.1). In the scratch, on disk:
   # its build directory is as large as a cargo target, too large for a tmpfs /tmp.
-  export BLAZE_HOME="$scratch/cmux-rust-dev-loop-blaze-home-$$"
-  mkdir -p "$blaze_dir/bin" "$BLAZE_HOME"
+  # A fleet Mac's step home is long: BLAZE_HOME is then a /tmp link to this directory (blaze-home.sh).
+  mkdir -p "$blaze_dir/bin" "$scratch/cmux-rust-dev-loop-blaze-home-$$"
+  export BLAZE_HOME="$(blaze_home_path "$scratch/cmux-rust-dev-loop-blaze-home-$$")"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \
     && curl -fsSL --retry 3 -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \

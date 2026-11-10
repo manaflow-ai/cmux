@@ -65,6 +65,9 @@ pub(crate) struct SeedBase {
     pub(crate) head: String,
     pub(crate) index: String,
     pub(crate) work: String,
+    pub(crate) stash: Option<String>,
+    /// Whether we know the previous stash ref (including an absent ref).
+    pub(crate) stash_known: bool,
 }
 
 /// What a pull did, or the paths that stopped it.
@@ -103,14 +106,21 @@ impl std::fmt::Display for NoSeedBase {
 impl std::error::Error for NoSeedBase {}
 
 /// The machine's state, as its export answered it.
-struct Exported {
-    head_ref: Option<String>,
-    head: String,
-    index: String,
-    work: String,
-    unchanged: bool,
-    bundle_bytes: u64,
+pub(crate) struct Exported {
+    pub(crate) head_ref: Option<String>,
+    pub(crate) head: String,
+    pub(crate) index: String,
+    pub(crate) work: String,
+    pub(crate) stash: Option<String>,
+    pub(crate) unchanged: bool,
+    pub(crate) bundle_bytes: u64,
     left_out: Value,
+}
+
+/// Compare-and-swap update of refs/stash, planned against the last accepted seed.
+struct StashUpdate {
+    before: Option<String>,
+    after: Option<String>,
 }
 
 /// One tree entry: mode and object id.
@@ -170,11 +180,30 @@ pub(crate) fn seed_pull(
         std::process::id()
     );
     let exported = export(&mut remote, remote_root, base, &remote_bundle)?;
-    let new_base = json!({ "head": exported.head, "index": exported.index, "work": exported.work });
+    let new_base = json!({
+        "head": exported.head, "index": exported.index, "work": exported.work,
+        "stash": exported.stash,
+    });
+    let stash = match plan_stash(&folder, base, &exported.stash)? {
+        Ok(change) => change,
+        Err(reason) => {
+            return Ok(SeedPulled::Conflict(
+                vec![".git/refs/stash".into()],
+                vec![format!(".git/refs/stash: {reason}")],
+            ));
+        }
+    };
     if exported.unchanged {
+        // An export may omit its bundle for a stash-only deletion. Apply the
+        // ref with the same compare-and-swap check as a full pull.
+        if let Some(change) = &stash {
+            let here_git = git_back::base_of(&folder)?;
+            move_git(&folder, &here_git, None, None, Some(change))?;
+        }
         return Ok(SeedPulled::Done(json!({
-            "ok": true, "unchanged": true, "written": 0, "deleted": 0, "bytes": 0,
+            "ok": true, "unchanged": stash.is_none(), "written": 0, "deleted": 0, "bytes": 0,
             "bundle_bytes": 0, "fast_forwarded": false, "staged": false,
+            "stash_changed": stash.is_some(),
             "head": exported.head, "base": new_base, "left_out": exported.left_out,
         })));
     }
@@ -331,7 +360,9 @@ pub(crate) fn seed_pull(
             return undone(transaction, &staging, error);
         }
     }
-    if let Err(error) = move_git(&folder, &here_git, fast_forward.as_deref(), staged.as_deref()) {
+    if let Err(error) =
+        move_git(&folder, &here_git, fast_forward.as_deref(), staged.as_deref(), stash.as_ref())
+    {
         return undone(transaction, &staging, error);
     }
     transaction.finish();
@@ -344,10 +375,40 @@ pub(crate) fn seed_pull(
         "bundle_bytes": exported.bundle_bytes,
         "fast_forwarded": fast_forward.is_some(),
         "staged": staged.is_some(),
+        "stash_changed": stash.is_some(),
         "head": exported.head,
         "base": new_base,
         "left_out": exported.left_out,
     })))
+}
+
+/// The machine at `socket`'s export of `remote_root` since `base`, its bundle streamed to `to`
+/// (a new private file on this Mac, never in a working copy). Move to another Cloud machine
+/// sends it on to the second machine (`seed_cli::hop`). None when nothing changed since `base`.
+pub(crate) fn export_to(
+    socket: &Path,
+    remote_root: &str,
+    base: &SeedBase,
+    to: &Path,
+) -> anyhow::Result<Option<Exported>> {
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = super::remote::split(remote_root)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let remote_bundle = format!(
+        "{}/.cmux-seed-move-{}-{nanos}.bundle",
+        parent.trim_end_matches('/'),
+        std::process::id()
+    );
+    let exported = export(&mut remote, remote_root, base, &remote_bundle)?;
+    if exported.unchanged {
+        return Ok(None);
+    }
+    let downloaded = download(&mut remote, &remote_bundle, to);
+    let _ = remote.delete(&[remote_bundle]);
+    downloaded?;
+    Ok(Some(exported))
 }
 
 /// Starts the export and waits (bounded) for it to end.
@@ -412,6 +473,11 @@ fn export(
         head: sha("head")?,
         index: sha("index")?,
         work: sha("work")?,
+        stash: match status.get("stash") {
+            Some(Value::Null) => None,
+            Some(Value::String(value)) if is_sha(value) => Some(value.clone()),
+            _ => bail!("the machine's export answered no valid stash state"),
+        },
         unchanged: status.get("unchanged").and_then(Value::as_bool) == Some(true),
         bundle_bytes: status.get("bundle_bytes").and_then(Value::as_u64).unwrap_or(0),
         left_out: status.get("left_out").cloned().unwrap_or_default(),
@@ -454,9 +520,12 @@ fn receive(quarantine: &Path, bundle: &Path, exported: &Exported) -> anyhow::Res
         quarantine_git(quarantine).args(["bundle", "list-heads"]).arg(bundle),
     )?)
     .into_owned();
-    for (name, sha) in
-        [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)]
-    {
+    let mut named =
+        vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+    if let Some(stash) = &exported.stash {
+        named.push(("stash", stash));
+    }
+    for (name, sha) in named {
         if q.text(&["rev-parse", "--verify", "--quiet", &format!("{sha}^{{commit}}")])
             .ok()
             .as_deref()
@@ -551,9 +620,12 @@ impl Quarantine<'_> {
     /// ref changes there.
     fn fetch_into(&self, folder: &Path, exported: &Exported) -> anyhow::Result<()> {
         let mut wanted = Vec::new();
-        for (name, sha) in
-            [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)]
-        {
+        let mut named =
+            vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+        if let Some(stash) = &exported.stash {
+            named.push(("stash", stash));
+        }
+        for (name, sha) in named {
             let reference = format!("refs/cmux-pull/{name}");
             checked(quarantine_git(self.0).args(["update-ref", &reference, sha]))?;
             wanted.push(reference);
@@ -602,18 +674,90 @@ fn disk_file(
 /// branch moves back if the index can't follow. The index is git's own
 /// `index.lock` from that check until the new index is in place, so nothing
 /// staged in between is lost.
+/// Read the ref itself, distinct from the stash's worktree contents.
+fn stash_ref(folder: &Path) -> anyhow::Result<Option<String>> {
+    let output = local(folder)
+        // `show-ref --verify` exits 128 for a missing ref; `rev-parse --quiet` exits 1.
+        .args(["rev-parse", "--verify", "--quiet", "refs/stash"])
+        .output()
+        .context("cannot read refs/stash")?;
+    if output.status.code() == Some(1) && output.stdout.is_empty() {
+        return Ok(None);
+    }
+    if !output.status.success() {
+        bail!("cannot read refs/stash: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    let id = std::str::from_utf8(&output.stdout)?.trim();
+    if !is_sha(id) {
+        bail!("refs/stash is not a commit id");
+    }
+    Ok(Some(id.to_owned()))
+}
+
+/// A Cloud stash change is safe when this Mac still has the accepted baseline.
+/// Legacy records and manual --base-* flags lack that baseline: refuse a
+/// differing ref instead of silently replacing someone's local stash.
+fn plan_stash(
+    folder: &Path,
+    base: &SeedBase,
+    machine: &Option<String>,
+) -> anyhow::Result<Result<Option<StashUpdate>, String>> {
+    let here = stash_ref(folder)?;
+    if !base.stash_known {
+        return Ok(if &here == machine {
+            Ok(None)
+        } else {
+            Err("the older seed record has no stash baseline; re-seed before pulling a changed stash".into())
+        });
+    }
+    if &base.stash == machine || &here == machine {
+        return Ok(Ok(None));
+    }
+    if here != base.stash {
+        return Ok(Err("refs/stash changed on both this Mac and the Cloud machine".into()));
+    }
+    Ok(Ok(Some(StashUpdate { before: here, after: machine.clone() })))
+}
+
+/// Apply or delete refs/stash only if it still has the value observed above.
+fn move_stash_ref(folder: &Path, old: Option<&str>, new: Option<&str>) -> anyhow::Result<()> {
+    if old == new {
+        return Ok(());
+    }
+    let zero = "0".repeat(old.or(new).map_or(40, str::len));
+    let mut command = local(folder);
+    command.args(["update-ref", "-m", "cmux seed pull: bring back stash"]);
+    if let Some(new) = new {
+        command.args(["--create-reflog", "refs/stash", new, old.unwrap_or(&zero)]);
+    } else if let Some(old) = old {
+        command.args(["-d", "refs/stash", old]);
+    }
+    checked(&mut command).context("refs/stash changed while bringing back the Cloud session")?;
+    Ok(())
+}
+
+/// Commit HEAD, index, and stash with compare-and-swap. Stash moves first and
+/// is reversed if a subsequent Git operation fails. The caller rolls back
+/// working-tree files if this operation fails.
 fn move_git(
     folder: &Path,
     planned: &GitBase,
     head: Option<&str>,
     staged: Option<&str>,
+    stash: Option<&StashUpdate>,
 ) -> anyhow::Result<()> {
-    if head.is_none() && staged.is_none() {
+    if head.is_none() && staged.is_none() && stash.is_none() {
         return Ok(());
     }
     let lock = staged.map(|_| IndexLock::take(folder)).transpose()?;
     if git_back::base_of(folder)? != *planned {
         bail!("this Mac's branch or staged changes changed during the pull");
+    }
+    if let Some(stash) = stash {
+        if stash_ref(folder)? != stash.before {
+            bail!("refs/stash changed during the pull");
+        }
+        move_stash_ref(folder, stash.before.as_deref(), stash.after.as_deref())?;
     }
     let move_ref = |new: &str, old: &str| {
         let mut command = local(folder);
@@ -625,16 +769,26 @@ fn move_git(
         checked(command.args([new, old])).map(drop)
     };
     let old = planned.head.clone().unwrap_or_default();
-    if let Some(head) = head {
-        move_ref(head, &old).context("cannot move the branch")?;
-    }
-    if let (Some(tree), Some(lock)) = (staged, &lock)
-        && let Err(error) = lock.replace(folder, tree)
-    {
+    let result = (|| -> anyhow::Result<()> {
         if let Some(head) = head {
-            let _ = move_ref(&old, head);
+            move_ref(head, &old).context("cannot move the branch")?;
         }
-        return Err(error.context("cannot stage the machine's changes"));
+        if let (Some(tree), Some(lock)) = (staged, &lock)
+            && let Err(error) = lock.replace(folder, tree)
+        {
+            if let Some(head) = head {
+                let _ = move_ref(&old, head);
+            }
+            return Err(error.context("cannot stage the machine's changes"));
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Some(stash) = stash {
+            move_stash_ref(folder, stash.after.as_deref(), stash.before.as_deref())
+                .context("could not restore refs/stash after a failed Git update")?;
+        }
+        return Err(error);
     }
     Ok(())
 }

@@ -237,46 +237,53 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     glides: number;
   };
   /// Reads every painted frame until `stop`.
-  const watch = (page: Page, text?: string) =>
-    page.evaluate((text) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const sample = () => {
-        const view = scroller.getBoundingClientRect();
-        // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
-        const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
-        const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
-        const thread = document.querySelector<HTMLElement>(".acpmux-thread");
-        const lines = [...scroller.querySelectorAll("p")];
-        const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
-        const row = text
-          ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
-            [...scroller.querySelectorAll(".acpmux-row")].find(holds))
-          : undefined;
-        return {
-          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          scrollTop: Math.round(scroller.scrollTop),
-          lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
-          top: row ? Math.round(row.getBoundingClientRect().top) : null,
-          glides: thread?.getAnimations().length ?? 0,
+  /// `selector`: watch the first node it names instead of the one that holds `text` (a thought's
+  /// button reads its words while closed and "Thought" while open).
+  const watch = (page: Page, text?: string, selector?: string) =>
+    page.evaluate(
+      ([text, selector]) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const sample = () => {
+          const view = scroller.getBoundingClientRect();
+          // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
+          const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+          const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+          const lines = [...scroller.querySelectorAll("p")];
+          const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
+          const row = selector
+            ? (scroller.querySelector(selector) ?? undefined)
+            : text
+              ? ([...scroller.querySelectorAll("button[aria-expanded]")].find(holds) ??
+                [...scroller.querySelectorAll(".acpmux-row")].find(holds))
+              : undefined;
+          return {
+            fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+            scrollTop: Math.round(scroller.scrollTop),
+            lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
+            top: row ? Math.round(row.getBoundingClientRect().top) : null,
+            glides: thread?.getAnimations().length ?? 0,
+          };
         };
-      };
-      const frames: unknown[] = [];
-      (window as any).__frames = frames;
-      // A frame paints at the viewport its animation frame saw: the rendering steps apply a
-      // resize before that callback, and no task runs between it and the paint. A resize that
-      // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
-      // not yet placed), so that read is not a frame.
-      let painted = "";
-      window.cmuxAfterPaint(
-        () => {
-          if ((window as any).__frames !== frames) return false;
-          if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
-        },
-        () => {
-          painted = `${innerWidth}x${innerHeight}`;
-        },
-      );
-    }, text);
+        const frames: unknown[] = [];
+        (window as any).__frames = frames;
+        // A frame paints at the viewport its animation frame saw: the rendering steps apply a
+        // resize before that callback, and no task runs between it and the paint. A resize that
+        // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
+        // not yet placed), so that read is not a frame.
+        let painted = "";
+        window.cmuxAfterPaint(
+          () => {
+            if ((window as any).__frames !== frames) return false;
+            if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
+          },
+          () => {
+            painted = `${innerWidth}x${innerHeight}`;
+          },
+        );
+      },
+      [text, selector] as const,
+    );
   const stop = async (page: Page): Promise<Frame[]> => {
     // The frames run on until the last animation has played out and the view holds still.
     await settle(page);
@@ -349,9 +356,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await settle(page);
   }
   /// The command's toggle, at the start of the turn.
-  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
+  // The `ls build` call's toggle, by its call id: its words say what it did (commandActions.ts).
+  const COMMAND = 'button[aria-expanded][data-tool-id="c1"]';
+  const commandToggle = (page: Page) => page.locator(COMMAND).first();
 
-  test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
+  test("the transcript and the composer share one column, inset by the page edge, Chat Text Width wide", async () => {
     const chat = newChat();
     const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
@@ -390,9 +399,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       expect({ viewport, composer }).toEqual({ viewport, composer: row });
     // A narrow pane leaves the page edge on each side.
     expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
-    // A wide pane gives the column more room, to a readable cap; it stays centered.
-    expect(column(1900)).toBeGreaterThan(column(900));
-    expect(column(1900)).toBeLessThanOrEqual(800);
+    // Every pane that fits it draws Chat Text Width's 800px (within the whole-pixel inset's 1px), not a
+    // share of the pane (https://github.com/manaflow-ai/cmux/issues/36299); it stays centered.
+    for (const viewport of [900, 1400, 1900]) {
+      expect(column(viewport)).toBeGreaterThanOrEqual(800);
+      expect(column(viewport)).toBeLessThanOrEqual(801);
+    }
     expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
   });
 
@@ -452,7 +464,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await toStart(page);
     const command = commandToggle(page);
     await command.waitFor();
-    await watch(page, "ls build");
+    await watch(page, undefined, COMMAND);
     await command.click();
     await page.getByText("build/step-13.o").waitFor();
     const tops = (await stop(page)).map((frame) => frame.top);
@@ -537,6 +549,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         top: Math.round(text.top - box.top),
         bottom: Math.round(box.bottom - text.bottom),
         right: Math.round(row.right - box.right),
+        height: box.height,
+        oneLine: text.bottom - text.top < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
       };
     });
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
@@ -546,8 +560,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
     expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
     expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
-    expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
-    expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
+    // The text sits centred in the bubble's height: one line is 44 tall, its block padding what the line
+    // leaves (design/transcript-spacing.md "Prompt bubble", BUBBLE.oneLine). The glyph box's top and
+    // bottom gaps are equal; how they compare with the 16 at the sides depends on the face's ascent
+    // (DejaVu's put them within 2 of it, Inter's taller ascent 3 off), which the spec
+    // does not fix.
+    expect(Math.abs(bubble.top - bubble.bottom)).toBeLessThanOrEqual(1);
+    if (bubble.oneLine) expect(Math.abs(bubble.height - BUBBLE.oneLine)).toBeLessThanOrEqual(0.5);
     expect(bubble.right).toBe(0);
     await page.close();
   });
@@ -557,20 +576,28 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // (Leo, 2026-10-20).
   test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
     const page = await open(newChat(), 900);
-    /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
-    const shown = (text: string) =>
-      page.evaluate((text) => {
-        const row = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
-          node.textContent?.includes(text),
-        )!;
-        return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
-          if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
-          for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
-            if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
-              return false;
-          return true;
-        }).length;
-      }, text);
+    /// The Copy buttons in the row holding `text` (or `selector`'s element) that show, by their own and
+    /// their parents' opacity.
+    const shown = (text: string | undefined, selector?: string) =>
+      page.evaluate(
+        ([text, selector]) => {
+          const row = (
+            selector
+              ? document.querySelector(selector)?.closest<HTMLElement>(".acpmux-row")
+              : [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
+                  node.textContent?.includes(text!),
+                )
+          )!;
+          return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
+            if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
+            for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
+              if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
+                return false;
+            return true;
+          }).length;
+        },
+        [text, selector] as const,
+      );
     /// Resolves once the pointer is over `selector` and the row holding it has no fade left to run.
     const hovered = (selector: string) =>
       page.waitForFunction((selector) => {
@@ -584,20 +611,20 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await hovered("button[aria-expanded]");
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
+    expect({ onPrompt, onTool: await shown(undefined, COMMAND) }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 
   // A long thought folds once done (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
-  const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
+  // Closed, a thought's button reads its words (Codex parity); open, "Thought".
+  const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
   test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900);
-    // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says one of the default
+    // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
     // The default status mode is Thinking only, with nothing to open.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
@@ -634,7 +661,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const toggle = thoughtToggle(page);
     await toggle.waitFor();
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-    await watch(page, "Thought");
+    await watch(page, undefined, "button.cv-thought");
     await toggle.click();
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
     await settle(page);
@@ -644,46 +671,6 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     expect(new Set(tops)).toEqual(new Set([tops[0]!]));
-    await page.close();
-  });
-
-  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view.
-  // Only a turn drawn without the Codex-style runs shows a thought while it streams (the test
-  // above), so this pushes agentPane.debug.codexToolRuns off with the theme, as the app sends it.
-  const liveThought = async () => {
-    const chat = newChat();
-    thinks(chat, THOUGHT);
-    const page = await open(chat, 900);
-    await page.evaluate(() => window.cmuxAcpmuxBridge!.applyTheme({ isDark: false, codexToolRuns: false }));
-    const text = page.locator(".cv-thought__text");
-    await text.waitFor({ state: "attached" });
-    await text.scrollIntoViewIfNeeded();
-    return { page, text };
-  };
-
-  test("a long live thought holds a 140px viewport with its newest line in view", async () => {
-    const { page, text } = await liveThought();
-    expect(await page.locator(".cv-thought.is-live .cv-thought__label").textContent()).toBe("Thinking");
-    const seen = await text.evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      // The text node itself: the text draws in its parts (ThoughtRow.tsx thoughtParts).
-      const node = element.querySelector(".cv-thought__part")!.firstChild!;
-      const at = (words: string) => {
-        const range = document.createRange();
-        const start = node.textContent!.indexOf(words);
-        range.setStart(node, start);
-        range.setEnd(node, start + words.length);
-        return range.getBoundingClientRect();
-      };
-      const last = at("Step 60: check the retry path.");
-      const first = at("Step 1: check the retry path.");
-      return {
-        height: Math.round(box.height),
-        lastInView: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
-        firstOut: first.bottom <= box.top + 1,
-      };
-    });
-    expect(seen).toEqual({ height: 140, lastInView: true, firstOut: true });
     await page.close();
   });
 });

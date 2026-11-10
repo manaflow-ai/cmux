@@ -11,12 +11,17 @@ import UIKit
 /// one line per message, each opening in place.
 struct AgentIncomingCard: View {
     let incoming: AgentIncoming
+    /// The images and files the prompt carried, as the person's bubble draws them.
+    var attachments: [AgentAttachment] = []
     let at: Date
     @State private var open: Set<Int> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            if !attachments.isEmpty {
+                SentAttachments(attachments: attachments)
+            }
             if incoming.messages.count == 1 {
                 MarkdownView(markdown: incoming.messages[0].text, margin: 0)
             } else {
@@ -37,6 +42,7 @@ struct AgentIncomingCard: View {
         .contextMenu {
             Section(AgentTurn.menuTimestamp(at)) {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(incoming.text) }
                 // The prompt the agent got, envelope and all.
                 Button("Copy as Sent", systemImage: "envelope") { UIPasteboard.general.string = incoming.raw }
                 if let id = incoming.messageID {
@@ -47,26 +53,63 @@ struct AgentIncomingCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var header: some View {
+    /// The harness a sender's icon draws: the card's, when one sender sent every message.
+    private func harness(for message: AgentIncoming.Message) -> String? {
+        incoming.oneSenderKey == message.toneKey ? incoming.harness : nil
+    }
+
+    /// A card of several messages opens and closes all of them from its header, so every message can
+    /// be read from the top line (Leo, 2026-11-05: "we don't seem to be able to click it at the top
+    /// level, which is no bueno. Like all of these things, we need to be able to see them here").
+    @ViewBuilder private var header: some View {
+        if incoming.messages.count > 1 {
+            let allOpen = open.count == incoming.messages.count
+            Button {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
+                    open = allOpen ? [] : Set(incoming.messages.indices)
+                }
+            } label: {
+                headerLine(chevron: allOpen).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
+        } else {
+            headerLine(chevron: nil)
+        }
+    }
+
+    private func headerLine(chevron open: Bool?) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages")
+            // One sender, however many messages: its family's mark and its own badge, in the tone of
+            // its session id (the Mac's), else its name.
+            let one = incoming.oneSenderKey.flatMap { _ in incoming.messages.first }
+            AgentSenderIcon(harness: one.flatMap(harness(for:)), identity: one?.toneKey ?? "messages", assignedTone: one?.tone, size: 16)
+            Group {
+                if incoming.messages.count != 1 {
+                    Text("\(incoming.messages.count) messages")
+                } else if incoming.unverified, incoming.senders.isEmpty {
+                    Text("Unverified sender")
+                } else {
+                    Text(incoming.senders)
+                }
+            }
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text("agent")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(.quaternary, in: .capsule)
+            // acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it
+            // were me?"): never the person's.
+            AgentIncomingChip(label: incoming.unverified ? "unverified" : "agent")
+            if incoming.edited { AgentIncomingChip(label: "edited") }
             Spacer(minLength: 4)
             Text(at, style: .time)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            if let open {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
         }
     }
 
@@ -74,11 +117,12 @@ struct AgentIncomingCard: View {
         let isOpen = open.contains(index)
         return VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                     if isOpen { open.remove(index) } else { open.insert(index) }
                 }
             } label: {
                 HStack(spacing: 6) {
+                    AgentSenderIcon(harness: harness(for: message), identity: message.toneKey, assignedTone: message.tone, size: 14)
                     Text(message.sender)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)
@@ -110,6 +154,24 @@ struct AgentIncomingCard: View {
         let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         return line.replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+)"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+    }
+}
+
+/// The header's small capsule ("agent", "unverified", "edited"). Its own view, never a helper
+/// method named like a `View` modifier: a `tag(_:)` helper here lost overload resolution to
+/// SwiftUI's `View.tag(_:)` (a `String` literal beats a `LocalizedStringKey` one), so the header
+/// drew the whole card again inside itself, without end, and the transcript crashed with a stack
+/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09).
+struct AgentIncomingChip: View {
+    let label: LocalizedStringKey
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: .capsule)
     }
 }
 #endif

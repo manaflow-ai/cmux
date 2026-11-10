@@ -8,11 +8,10 @@ import Observation
 import CmuxNextWakeups
 
 /// One Cloud machine: its record, its link, and the daemon connection over
-/// the link socket. The link is the Cloud app server's (`appLink`, through
-/// ``CloudLinkSession``, contract 2.3), whose socket serves one connection per connect: after a
-///   drop, a `cloud.link.changed` down or revoked, or a failed connect the
-///   machine shows "disconnected, click to connect" (`linkEnded`), once a drop
-///   was dialed again a few times (``CloudAppLinkRedial``).
+/// the link socket. The link is the session's `carrier serve` (`appLink`, through
+/// ``CloudLinkSession``), which dials the machine once per connection: after a
+///   refused dial, a `cloud.link.changed` down or revoked, or a failed connect the
+///   machine shows "disconnected, click to connect" (`linkEnded`).
 @Observable
 final class CloudMachineSession {
     let machineID: String
@@ -20,14 +19,14 @@ final class CloudMachineSession {
     /// Its create's auto-size pick, which a list read's ``machine`` lacks: a hand-off's `size`.
     var sizePick: CloudSizePick?
     let daemon: DaemonService
-    @ObservationIgnored let appLink: CloudLinkSession?
+    @ObservationIgnored let appLink: CloudLinkSession
     /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
     @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
     /// This Mac's own daemon identity: an app link socket that leads back to
     /// it is refused after the handshake (`DaemonIdentity.checkNotLocal(local:)`, CmuxNextCloud).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
     /// Why the app link ended (localized), until the next connect. Nil
-    /// while connected or connecting, and always nil for the legacy link.
+    /// while connected or connecting.
     private(set) var linkEnded: String?
     /// The last ended link's error as the link gave it (``CloudAppLinks/endedMessage(_:)`` shows less), for `cloud.machines`.
     @ObservationIgnored private(set) var linkEndedDetail: String?
@@ -36,7 +35,6 @@ final class CloudMachineSession {
     /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
     /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
     @ObservationIgnored let linkEndRead = CloudLinkEndRead()
-    @ObservationIgnored var dropRedial = CloudAppLinkRedial()
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -58,7 +56,7 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var connects = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     /// The app-link connect hop in flight: a pause or a disconnect cancels
-    /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
+    /// it instead of waiting for its link.
     @ObservationIgnored private var connectHop: Task<Void, Never>?
     /// A transition overtook a connect after its carrier answered. If that transition
     /// rolls back, reconnect the interrupted live session unless another change replaced it.
@@ -97,7 +95,7 @@ final class CloudMachineSession {
         sizePick = machine.sizePick
         self.appLink = appLink
         self.localIdentity = localIdentity
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: true, mainWork: mainWork)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 
@@ -128,7 +126,7 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard let appLink, !disconnected, !machine.holdsConnect(origin: origin, appLink: true) else { return }
+        guard !disconnected, !machine.holdsConnect(origin: origin, appLink: true) else { return }
         guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
         appConnecting = true
         connects += 1
@@ -149,23 +147,19 @@ final class CloudMachineSession {
         connectHop = linkTransition
     }
 
+    /// ``connect(origin:)``, then that connect's hop (or the one in flight) ends: whether the app link is up now.
+    func linkHop(origin: CloudLinkOrigin) async -> Bool { connect(origin: origin); await linkTransition?.value; return linkPhase == .up && linkEnded == nil }
+
     /// Attaching to this machine (opening a workspace or a terminal, ssh,
     /// moving a chat here, a terminal's Connect): a paused machine resumes
     /// first through the Resume Machine path, since cmux Cloud's idle
     /// auto-pause parks idle machines, and its link connects once the record
-    /// is live (`CloudService.reconcile`). An app link connects as before
-    /// (its connect starts a paused machine for a click); a live legacy link
-    /// reconnects by itself, so nothing else changes. A paused app-link machine resumes the same way for any origin: the
+    /// is live (`CloudService.reconcile`). A live machine's link connects (its connect starts a paused
+    /// machine for a click when nothing resumes). A paused machine resumes the same way for any origin: the
     /// platform refuses a link to a paused machine (`cloud.machine.paused`), so a connect there, a person's too, failed at once.
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
-        if appLink != nil, machine.shownStatus != .paused || resumer == nil { return connect(origin: origin) }
-        // A live legacy machine with no connection: its link may be waiting out a backoff after a
-        // failed start (or never started); the attach retries it now instead of doing nothing.
-        if machine.shownStatus != .paused {
-            if machine.status.isLive, daemon.connection == nil, !disconnected { retryNow() }
-            return
-        }
+        if machine.shownStatus != .paused || resumer == nil { return connect(origin: origin) }
         guard !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
@@ -248,22 +242,21 @@ final class CloudMachineSession {
             do {
                 return try await appLink.endpoint(ticket)
             } catch {
-                // The connection asked again: it dropped (`showEnded` may redial it).
+                // The link ended: a refused carrier dial, the serve child gone, or a superseded ticket.
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
         }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
                 try identity.checkNotLocal(local: localIdentity())
-                self?.dropRedial.up()
             } catch {
                 self?.endAppLink(error, ticket: ticket.id)
                 throw error
             }
         }, stream: {
-            // An agent chat's attach and the history reader dial the same carrier: never the drop signal above.
+            // An agent chat's attach and the history reader dial the same carrier: never ends the link.
             try await appLink.streamEndpoint(ticket)
-        })
+        }, handshake: CloudCarrierDial.handshakeDeadline)
     }
 
     private func noteMutationInterruption() {
@@ -310,10 +303,8 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        dropRedial.ended(error, live: !disconnected && machine.status == .running, read: refresher) { [weak self] in // as a script: never starts a parked machine
-            if self?.linkEnded != nil, self?.machine.status == .running { self?.connect() } }
         guard let refresher else { return }
-        linkEndRead.ended(dropped: appLink != nil && linkDropped, paused: machine.status == .paused, connects: connects,
+        linkEndRead.ended(dropped: linkDropped, paused: machine.status == .paused, connects: connects,
                           connectsNow: { [weak self] in self?.connects }, read: refresher)
     }
 
@@ -340,7 +331,7 @@ final class CloudMachineSession {
     /// Reads the record again before an attach decides, when it may be
     /// stale: a machine with no daemon connection that does not read
     /// paused (the idle auto-pause may have parked it while the app's copy
-    /// still says running), an app link's as much as a legacy one's.
+    /// still says running).
     func refreshIfMaybePaused() async {
         guard daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
         await refresher(true)
@@ -380,10 +371,9 @@ final class CloudMachineSession {
     }
 
     /// Retry after a failure (the progress view's Retry or Resume, a user gesture): the record is read first (the idle
-    /// auto-pause may have parked the machine behind it), then a paused machine resumes (``attach(origin:)``), an ended
-    /// app link connects again, and a legacy link's daemon retries now instead of waiting for its next wake.
+    /// auto-pause may have parked the machine behind it), then a paused machine resumes (``attach(origin:)``) or an ended
+    /// app link connects again.
     func retry() {
-        dropRedial.cancel()
         guard daemon.connection == nil, machine.status != .paused, refresher != nil else { return retryNow() }
         // task-owner: one list read before the retry; the retry itself is synchronous
         Task {
@@ -392,13 +382,11 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers or a resume failed; a dropped
-    /// or not-yet-up link is dialed again with a capped backoff until `limit` (a new machine's receiver may answer 30 s after it runs).
+    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
-        var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
+        let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
-            let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-            if appEnd { retryNow() } else if appLink != nil, machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
+            beats.beat(ended: linkEnded != nil && !appConnecting, status: machine.status, resume: { attach(origin: .script) }, connect: { connect() })
         }) { [daemon] in
             self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
@@ -410,7 +398,7 @@ final class CloudMachineSession {
     /// Retry on the record as it stands (the caller just read it): connect the link again, or resume a paused app-link machine first (``attach(origin:)``; the platform refuses its link).
     func retryNow() {
         if case .failed = linkPhase { linkPhase = .starting }
-        if appLink != nil, machine.shownStatus == .paused, resumer != nil { attach() } else { connect(origin: .user) }
+        if machine.shownStatus == .paused, resumer != nil { attach() } else { connect(origin: .user) }
     }
 
     /// After `cmux link machine update` ran here (``CloudMachineUpdates``): connect to the daemon
@@ -427,9 +415,8 @@ final class CloudMachineSession {
         }
     }
 
-    /// A `cloud.link.changed` for this machine (app link only).
+    /// A `cloud.link.changed` for this machine.
     func linkChanged(_ change: CloudLinkChange) {
-        guard let appLink else { return }
         // task-owner: one actor hop; a link that already ended ignores it
         Task {
             guard let ended = await appLink.apply(change) else { return }
@@ -441,7 +428,6 @@ final class CloudMachineSession {
 
     func disconnect() {
         disconnected = true
-        dropRedial.cancel()
         linkPhase = .idle
         connectHop?.cancel()
         daemon.shutdownConnection()
@@ -450,7 +436,7 @@ final class CloudMachineSession {
         // task-owner: terminal teardown after earlier lifecycle hops
         linkTransition = Task {
             await previous?.value
-            await appLink?.close()
+            await appLink.close()
         }
     }
 
@@ -466,7 +452,6 @@ final class CloudMachineSession {
     /// provider pause/resume transition.
     func suspend() {
         suspends += 1
-        dropRedial.cancel()
         // A new pause: an earlier resume's failure no longer applies.
         resumeFailure = nil
         connectHop?.cancel()
@@ -478,7 +463,7 @@ final class CloudMachineSession {
         // task-owner: reversible teardown; resume waits for this hop
         linkTransition = Task {
             await previous?.value
-            await appLink?.end(reason: "paused")
+            await appLink.end(reason: "paused")
         }
     }
 }

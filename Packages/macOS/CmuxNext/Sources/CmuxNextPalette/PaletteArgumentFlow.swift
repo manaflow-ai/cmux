@@ -1,7 +1,8 @@
 import CmuxNextActions
 import Foundation
 
-/// Collects an action's required arguments inline, one page per argument,
+/// Collects an action's required arguments, and the optional ones it asks for
+/// (`ActionArgument.isAskedInPalette`), inline, one page per argument,
 /// straight from its schema: text entry for strings and numbers, a list for
 /// booleans, enumerations, and targets. The last step runs the action with
 /// the full invocation.
@@ -18,6 +19,8 @@ struct PaletteArgumentFlow {
     /// An argument a handler asks for although the schema makes it optional (a menu Rename with
     /// no name, ``ActionRegistry/ask(_:_:_:)``): it is collected like a required one.
     var ask: ActionArgumentAsk?
+    /// Makes a target from the typed name when the target list has none matching it.
+    var creators: [ActionTargetKind: PaletteTargetCreator] = [:]
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
@@ -39,10 +42,10 @@ struct PaletteArgumentFlow {
         case .string, .int:
             return .textInput(textSpec(for: argument, collected: collected))
         case .bool:
-            return .push(listPage(for: argument, options: [
-                PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle"),
-                PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle"),
-            ], collected: collected))
+            let on = PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle")
+            let off = PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle")
+            // An optional one the palette asks for opens on Off, its default: Return leaves it.
+            return .push(listPage(for: argument, options: argument.isAskedInPalette ? [off, on] : [on, off], collected: collected))
         case .enumeration(let cases):
             let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
@@ -75,12 +78,13 @@ struct PaletteArgumentFlow {
                     return await loaded.providers.first?.items() ?? []
                 }]
             }
+            page.noMatchItems = creationRows(for: argument, kind: kind, collected: collected)
             return .push(page)
         }
     }
 
     private func asks(for argument: ActionArgument) -> Bool {
-        argument.isRequired || argument.name == ask?.argument
+        argument.palettePrompts || argument.name == ask?.argument
     }
 
     /// Live preview of the highlighted option (theme pickers).
@@ -98,12 +102,31 @@ struct PaletteArgumentFlow {
     /// A free-text argument with known values: its pinned values, a row for
     /// other text (a light/dark pair), then every known value; typing
     /// searches them.
+    ///
+    /// Values not read yet (``ActionRegistry/argumentSuggestionsLoad``) are awaited under the
+    /// palette's loading state, so the step never opens on an empty list that fills in later.
     private func suggestionPage(for argument: ActionArgument, collected: ActionInvocation) -> PalettePageSpec {
         guard let suggestions = argument.suggestions else { return listPage(for: argument, options: [], collected: collected) }
+        guard let load = registry.argumentSuggestionsLoad?(suggestions.source) else {
+            return suggestionPage(for: argument, suggestions, known: registry.argumentSuggestions?(suggestions.source) ?? [], collected: collected)
+        }
+        var page = suggestionPage(for: argument, suggestions, known: [], collected: collected)
+        let flow = self
+        page.providers = [AsyncPaletteProvider(id: "argument") {
+            let known = await load()
+            guard !Task.isCancelled else { return [] }
+            return await flow.suggestionPage(for: argument, suggestions, known: known, collected: collected).providers.first?.items() ?? []
+        }]
+        return page
+    }
+
+    private func suggestionPage(for argument: ActionArgument, _ suggestions: ActionSuggestions, known: [ActionEnumCase],
+                                collected: ActionInvocation) -> PalettePageSpec {
         let pinned = Set(suggestions.pinned.map(\.value))
-        let known = (registry.argumentSuggestions?(suggestions.source) ?? []).filter { !pinned.contains($0.value) }
+        let known = known.filter { !pinned.contains($0.value) }
         let options = (suggestions.pinned + known).map { suggestion in
-            PaletteTargetOption(id: suggestion.value, title: suggestion.title, symbol: descriptor.symbol,
+            PaletteTargetOption(id: suggestion.value, title: suggestion.title, subtitle: suggestion.subtitle,
+                                symbol: suggestion.symbol ?? descriptor.symbol,
                                 swatches: swatches?(suggestions.source, suggestion.value) ?? [])
         }
         var extra: [PaletteItem] = []
@@ -140,13 +163,16 @@ struct PaletteArgumentFlow {
         return PaletteTextInputSpec(
             id: "argument:\(descriptor.id.rawValue):\(argument.name)",
             title: Self.stepTitle(descriptor, argument),
-            placeholder: argument.title,
+            placeholder: argument.isAskedInPalette ? PaletteStrings.optionalArgument(argument.title) : argument.title,
             symbol: descriptor.symbol,
             initialText: askedText(for: argument) ?? currentText(for: argument, of: collected.target) ?? "",
             skipsUnchangedText: argument.isTargetName || argument.isTargetDescription || askedText(for: argument) != nil,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
+            // Only an optional one the palette asks for (`isAskedInPalette`) may be left empty: the run
+            // carries "" and the handler's default applies (the session host names a new worktree).
+            // A handler's own ask (a Rename with no name) stays non-empty, or its run would ask again.
             isValid: { text in
-                !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
+                text.trimmingCharacters(in: .whitespaces).isEmpty ? argument.isAskedInPalette : argument.parse(text) != nil
             },
             next: { text in
                 guard let next = flow.adding(argument, text, to: collected) else { return .performKeepingOpen {} }
@@ -193,11 +219,12 @@ struct PaletteArgumentFlow {
             item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
-        // The value in effect (the current team or theme) reads "Current" and is the row the
-        // step opens on, as in the settings pickers.
+        // The value in effect (the current team or theme) carries the checkmark and is the row the
+        // step opens on, as in the settings pickers and the account menu (Leo, 2026-11-09, of a team
+        // list whose active row said only "Current": "what is this?").
         let current = currentValue(of: argument, collected: collected).map { "option:\($0)" }
         if let current, let index = items.firstIndex(where: { $0.id == current }) {
-            items[index].accessory = PaletteStrings.current
+            items[index].accessory = PaletteStrings.chosenMark
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
         var page = PalettePageSpec(
@@ -238,7 +265,7 @@ struct PaletteArgumentFlow {
     /// single-argument actions and "Title › Argument" otherwise.
     static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
         let base = baseTitle(descriptor.title)
-        let required = descriptor.arguments.filter(\.isRequired)
+        let required = descriptor.arguments.filter(\.palettePrompts)
         return required.count <= 1 ? base : "\(base) › \(argument.title)"
     }
 }

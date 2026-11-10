@@ -38,15 +38,27 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
         }
     }
 
-    public private(set) var entries: [String: Entry]
-    public var halfLife: TimeInterval
+    public private(set) var entries: [String: Entry] { didSet { revise() } }
+    public var halfLife: TimeInterval { didSet { revise() } }
     /// Oldest entries are dropped beyond this many keys.
-    public var capacity: Int
+    public var capacity: Int { didSet { revise() } }
     /// Learned picks, mirrored from the daemon's history (empty for a local history).
-    public private(set) var picks: [Pick] = []
-    public var pickHalfLife: TimeInterval = 7 * 24 * 60 * 60
+    public private(set) var picks: [Pick] = [] { didSet { revise() } }
+    public var pickHalfLife: TimeInterval = 7 * 24 * 60 * 60 { didSet { revise() } }
     /// Usage keys of rows the user hid (mirrored from the daemon's history).
-    public private(set) var hidden: Set<String> = []
+    public private(set) var hidden: Set<String> = [] { didSet { revise() } }
+    /// Names this content: it changes with every change, so two stores with the same revision hold
+    /// the same history. The palette ranker holds the history of one revision
+    /// (`cmux_palette_ranker_install_history`) and a keystroke names it instead of resending it.
+    /// Not saved, and not part of `==`; 0 is the empty default history.
+    public private(set) var revision: Int64 = 0
+
+    private mutating func revise() { revision = Int64.random(in: 1...Int64.max) }
+
+    public static func == (lhs: FrecencyStore, rhs: FrecencyStore) -> Bool {
+        lhs.entries == rhs.entries && lhs.halfLife == rhs.halfLife && lhs.capacity == rhs.capacity
+            && lhs.picks == rhs.picks && lhs.pickHalfLife == rhs.pickHalfLife && lhs.hidden == rhs.hidden
+    }
 
     private enum CodingKeys: String, CodingKey {
         case entries, halfLife, capacity, picks
@@ -65,6 +77,7 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
         capacity = try container.decode(Int.self, forKey: .capacity)
         // A history saved before local picks has none.
         picks = try container.decodeIfPresent([Pick].self, forKey: .picks) ?? []
+        revise()
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -79,6 +92,16 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
         self.entries = entries
         self.halfLife = halfLife
         self.capacity = capacity
+        if self != FrecencyStore.empty { revise() }
+    }
+
+    /// The default empty history, revision 0.
+    private static let empty = FrecencyStore(emptyDefault: ())
+
+    private init(emptyDefault: Void) {
+        entries = [:]
+        halfLife = 3 * 24 * 60 * 60
+        capacity = 500
     }
 
     /// The daemon's whole history replaces this mirror (`palette_usage.get`).

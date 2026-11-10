@@ -27,6 +27,18 @@ impl Surface {
         }
     }
 
+    /// The newest finished shell command this terminal's tracker kept
+    /// (`shell_history::Recording`), if any.
+    pub(crate) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.last_finished_command())
+    }
+
+    /// The command a park keeps for the freed shell: the one that runs now
+    /// (it ends with the shell), else the newest finished one.
+    pub(crate) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.kept_command())
+    }
+
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }

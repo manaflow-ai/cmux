@@ -1,0 +1,205 @@
+{
+  "$comment": "HAND-EDITED source of the Home section's Chief subagent sidebar rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "chiefSidebar",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefSubagents",
+        "text": "Subagents"
+      },
+      "note": "Which Chief subagents get a workspace in the sidebar (a1018, Lawrence 2026-11-05: \"the chief will make the decision if the workspace is visible in the sidebar or not\", with heuristics the user shapes). Under auto the host shows a task that mentions a show word, hides one that mentions a hide word, else shows a task of at least the minimum words; the words listed add to the built-in ones (optchat-chief sidebar_choice.rs). Read at each spawn.",
+      "rows": [
+        {
+          "key": "chief.subagentSidebar",
+          "name": "mode",
+          "title": {
+            "key": "settings.chief.subagentSidebar",
+            "text": "Subagents in the Sidebar"
+          },
+          "help": {
+            "key": "settings.chief.subagentSidebar.help",
+            "text": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.subagentSidebarAuto",
+                "text": "Chief Decides"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.subagentSidebarAlways",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.subagentSidebarNever",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "chief",
+            "subagent",
+            "sidebar",
+            "workspace",
+            "show",
+            "hide",
+            "hidden",
+            "visible"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarShowWords",
+          "name": "showWords",
+          "title": {
+            "key": "settings.chief.subagentSidebarShowWords",
+            "text": "Show Tasks That Mention"
+          },
+          "help": {
+            "key": "settings.chief.subagentSidebarShowWords.help",
+            "text": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": "settings.placeholder.wordOrPhrase",
+            "text": "Add a word or phrase"
+          },
+          "keywords": [
+            "chief",
+            "subagent",
+            "sidebar",
+            "workspace",
+            "show",
+            "hide",
+            "hidden",
+            "visible",
+            "words",
+            "rules"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarHideWords",
+          "name": "hideWords",
+          "title": {
+            "key": "settings.chief.subagentSidebarHideWords",
+            "text": "Hide Tasks That Mention"
+          },
+          "help": {
+            "key": "settings.chief.subagentSidebarHideWords.help",
+            "text": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": "settings.placeholder.wordOrPhrase",
+            "text": "Add a word or phrase"
+          },
+          "keywords": [
+            "chief",
+            "subagent",
+            "sidebar",
+            "workspace",
+            "show",
+            "hide",
+            "hidden",
+            "visible",
+            "words",
+            "rules"
+          ]
+        },
+        {
+          "key": "chief.subagentSidebarMinWords",
+          "name": "minWords",
+          "title": {
+            "key": "settings.chief.subagentSidebarMinWords",
+            "text": "Show Tasks Longer Than"
+          },
+          "help": {
+            "key": "settings.chief.subagentSidebarMinWords.help",
+            "text": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1000,
+            "step": 10,
+            "unit": "count"
+          },
+          "default": 50,
+          "keywords": [
+            "chief",
+            "subagent",
+            "sidebar",
+            "workspace",
+            "show",
+            "hide",
+            "hidden",
+            "visible",
+            "length",
+            "words"
+          ]
+        },
+        {
+          "key": "subagents.showWorkspaces",
+          "name": "showAll",
+          "note": "Every Chief subagent gets a sidebar workspace when it starts, whatever the Chief or the rules choose (the older Chief setting, read by the host from cmux-next.json at each spawn; unset there, the Chief's own optchat/settings.json value applies). Aziz 2026-11-05: the CLI wrote this key, but the host read only its own file, so it looked like it went back to false.",
+          "title": {
+            "key": "settings.chief.subagentsShowWorkspaces",
+            "text": "Show Each Subagent in the Sidebar"
+          },
+          "help": {
+            "key": "settings.chief.subagentsShowWorkspaces.help",
+            "text": "Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "subagent",
+            "workspace",
+            "sidebar",
+            "show",
+            "hidden",
+            "agent"
+          ]
+        },
+        {
+          "key": "subagents.closeFinishedWorkspaces",
+          "name": "closeFinished",
+          "note": "A finished subagent's workspace closes, for fewer workspaces in the sidebar. Off by default: only a tucked workspace (the collapsed Chief group) closes when its work ends; any other stays until the person closes it (Aziz 2026-11-05: \"why are your agents disappearing from sidebar?\"). Replaces OPTCHAT_SUBAGENT_ON_FINISH. Read by the host when a subagent finishes.",
+          "title": {
+            "key": "settings.chief.subagentsCloseFinished",
+            "text": "Close Finished Subagent Workspaces"
+          },
+          "help": {
+            "key": "settings.chief.subagentsCloseFinished.help",
+            "text": "When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "subagent",
+            "workspace",
+            "sidebar",
+            "close",
+            "finished",
+            "done",
+            "auto",
+            "agent"
+          ]
+        }
+      ]
+    }
+  ]
+}

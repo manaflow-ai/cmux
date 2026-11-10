@@ -1,34 +1,51 @@
 import CmuxNextAgentPane
 import CmuxNextBrowser
-import CryptoKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 
-/// The daemon history module as the owner (`history-v1`, react-pages.md H3). When the local daemon
-/// serves it, page visits, the location trail (cx-hnmbt.12), the merged read model and clearing go
-/// there; the app keeps only its Back/Forward cursor (view state). Without it (an older daemon) the
-/// app-local paths stay; they are deleted with the native History page (H4).
+/// The daemon history module as the owner (`history-v1`, react-pages.md H3): page visits, the
+/// location trail (cx-hnmbt.12), the merged read model and clearing go there; the app keeps only its
+/// Back/Forward cursor (view state). The bundled daemon always serves it; while the local daemon
+/// (re)connects, writes wait for it (`connectedDaemonHistory`).
 extension HistoryService {
-    /// The local daemon's history module when it serves `history-v1`, else nil.
+    /// The local daemon's history module while its link is up (the store's state: a connection outlives a drop) and serves `history-v1`.
     var daemonHistory: DaemonHistoryClient? {
         let daemon = services.machines.local
-        guard let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
+        guard case .connected = daemon.store.connectionState, let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// Entries from the daemon (every kind but commands) merged with every machine's command rows.
-    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
+    /// The local daemon's history module, once its link is up and it serves `history-v1` (``firstClient(_:)``).
+    func connectedDaemonHistory() async -> DaemonHistoryClient? {
+        await Self.firstClient { [weak self] in self?.daemonHistory }
+    }
+
+    /// The first client `read` gives: at once when it gives one already (an `ObservationStream`'s first `next()` evaluates
+    /// now), else on the change that gives one, woken by that change, never by polling. nil only when the wait is cancelled.
+    static func firstClient<Client: Sendable>(_ read: @escaping @MainActor @Sendable () -> Client?) async -> Client? {
+        for await client in ObservationStream(read) { if let client { return client } }
+        return nil
+    }
+
+    /// Entries from the local daemon (every kind but commands, closed items included; nil while its link is down: reported, not empty)
+    /// merged with every connected machine's command rows. A daemon read is retried a few times; one that never answers is reported.
+    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient?) async -> HistoryRead {
         let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
         // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
         // read by `commands`; the local daemon lists only its own.
         let appRead: Set<HistoryEntry.Kind> = [.command]
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         var all: [HistoryEntry] = []
+        var unavailable = false
         if !kinds.isEmpty {
             // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
-            let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all += rows.compactMap { daemonRow($0) }.map { reachable($0) }
+            var rows: [DaemonHistoryEntry]?
+            if let daemon { rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) } }
+            all += (rows ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
+            unavailable = rows == nil
         }
         if wantsCommands {
             await commands.refresh()
@@ -36,18 +53,18 @@ extension HistoryService {
         }
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
-        return all
+        return HistoryRead(entries: all, unavailable: unavailable)
     }
 
-    /// One entry by id: commands from every machine's rows, everything else from the daemon's newest
-    /// entries of the id's kind.
-    func daemonEntry(id: String, _ daemon: DaemonHistoryClient) async -> HistoryEntry? {
+    /// One entry by id: commands from every connected machine's rows, everything else from the local daemon's newest entries of the
+    /// id's kind (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone; nil while it is away).
+    func daemonEntry(id: String, _ daemon: DaemonHistoryClient?) async -> HistoryEntry? {
         if id.hasPrefix("command:") {
             await commands.refresh()
             return commands.entries().first { $0.id == id }
         }
-        guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
-        let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
+        guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
+        let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) } ?? []
         return rows.first(where: { $0.id == id }).flatMap { daemonRow($0) }.map { reachable($0) }
     }
 
@@ -61,135 +78,38 @@ extension HistoryService {
         entry.reachable { services.locationTrail.isAvailable($0) }
     }
 
-    /// Runs a daemon mutation off the caller, then tells open pages (they also hear history-changed).
-    func daemonMutation(_ body: @escaping @Sendable (DaemonHistoryClient) async throws -> Void) {
-        guard let daemon = daemonHistory else { return }
-        // task-owner: one history mutation; ends with its reply
-        Task { [weak self] in
-            try? await body(daemon)
-            self?.onChange?()
-        }
+    /// Queues a daemon mutation behind every earlier visit and mutation (``writes``; a clear made while it
+    /// reconnects still happens, after them), then tells open pages (they also hear history-changed).
+    func daemonMutation(_ body: @escaping HistoryWriteQueue<DaemonHistoryClient>.Write) {
+        writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
-    /// The local daemon usually connects after launch attached the profiles, so `attach` read the
-    /// app-local logs. On the first connection, a daemon that serves `history-v1` takes over every
-    /// attached profile: it imports the profile's old log and seeds the omnibox from its store.
-    func adoptDaemonHistoryOnFirstConnection() {
-        let local = services.machines.local
-        // task-owner: one wait for the local daemon's first connection; ends with it or a failed startup
-        Task { [weak self, weak local] in
-            if let local, local.connection == nil { await local.firstConnection() }
-            guard let self, let daemon = self.daemonHistory else { return }
-            let cache = self.services.cache
-            self.seedFromDaemon(cache.history, profile: .default, daemon)
-            for (profile, entry) in cache.profileHistories { self.seedFromDaemon(entry.history, profile: profile, daemon) }
-        }
+    /// Queues a clear from `since` to the click (`until`); one the local daemon cannot bound goes now or never (``HistoryWriteQueue/enqueueClear(live:_:_:done:)``).
+    func daemonClear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String? = nil) {
+        writes.enqueueClear(live: unboundedDaemonHistory, "history.clear", { try await $0.clear(kinds: kinds, since: since, until: until, profile: profile, unbounded: $2, key: $1) }) { [weak self] in self?.onChange?() }
     }
 
-    /// Seeds a profile's omnibox from the daemon's visit summaries, after the daemon took over the
-    /// profile's app-local log from before it owned page history (`legacyLog`).
-    func seedFromDaemon(_ history: InMemoryBrowserHistory, profile: BrowserProfileID, _ daemon: DaemonHistoryClient) {
+    /// The local daemon's history module while it is up and does not take a clear's click-time end (`history-clear-until-v1`).
+    var unboundedDaemonHistory: DaemonHistoryClient? { services.machines.local.supports(DaemonHistoryClient.clearUntilCapability) ? nil : daemonHistory }
+
+    /// Seeds a profile's omnibox from the daemon's visit summaries, after the daemon imported its older build's log (queued in
+    /// ``writes`` ahead of every waiting write, so a clear made while the daemon was away still clears it). The read waits in
+    /// ``writes`` behind every pending clear and remove, and reads again past one queued while it ran, so no cleared page comes back.
+    func seedWhenConnected(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
         let wireID = BrowserProfileRecord.wireID(for: profile)
-        let legacy = supportDirectory.map { BrowserVisitLog.fileURL(profile: wireID, supportDirectory: $0) }
-        let supportDirectory = supportDirectory
-        // task-owner: one-shot import and read of the profile's visit summaries
-        Task { [weak self, weak history] in
-            guard let self else { return }
-            let flushed = await self.flushLocalHistory(profile: profile)
-            if flushed, let legacy, let supportDirectory {
-                await Self.handOver(legacy, supportDirectory: supportDirectory, profile: wireID, to: daemon)
+        if let supportDirectory {
+            writes.enqueue(ahead: true) { daemon, _ in
+                try await daemon.importLegacyLog(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
+                                                 supportDirectory: supportDirectory, profile: wireID)
             }
-            let summaries = (try? await daemon.summaries(profile: wireID)) ?? []
-            let entries = summaries.compactMap { summary in
+        }
+        writes.read({ try await $0.summaries(profile: wireID) }, use: { [weak history] summaries in
+            history?.merge(summaries.compactMap { summary in
                 URL(string: summary.url).map {
                     BrowserHistoryEntry(url: $0, title: summary.title, visitCount: summary.visitCount,
                                         lastVisit: Date(timeIntervalSince1970: summary.lastVisitMS / 1_000))
                 }
-            }
-            history?.merge(entries)
-        }
-    }
-
-    /// Imports `log` (an app-local `History.sqlite`) into the daemon's store of `profile`, then
-    /// deletes it and its SQLite side files once the daemon confirms the import committed. A failed
-    /// import leaves the file for the next launch; the key (path, size, time) makes a retry of the
-    /// same file replay, and the daemon also records each imported file, so no session imports it
-    /// twice.
-    static func handOver(_ log: URL, supportDirectory: URL, profile: String, to daemon: DaemonHistoryClient) async {
-        guard let source = LegacyHistoryFile(url: log, supportDirectory: supportDirectory) else { return }
-        let sidecarURLs = ["-wal", "-shm"].map {
-            URL(fileURLWithPath: source.url.path + $0)
-        }
-        var sidecars: [LegacyHistoryFile] = []
-        var missing: [URL] = []
-        for url in sidecarURLs {
-            if LegacyHistoryFile.pathEntryExists(url) {
-                guard let file = LegacyHistoryFile(url: url, supportDirectory: supportDirectory) else { return }
-                sidecars.append(file)
-            } else {
-                missing.append(url)
-            }
-        }
-        let captured = [source] + sidecars
-        let identity = captured.map { "\($0.url.path)|\($0.fingerprint)" }
-            + missing.map { "\($0.path)|missing" }
-        let digest = SHA256.hash(data: Data(identity.joined(separator: "\n").utf8))
-            .prefix(8).map { String(format: "%02x", $0) }.joined()
-        let key = "cmux-next-history-import-\(digest)"
-        guard (try? await daemon.importVisits(profile: profile, path: source.url.path, key: key)) != nil else { return }
-        _ = LegacyHistoryFile.removeGenerationIfUnchanged(
-            Array(sidecars.reversed()) + [source],
-            missing: missing
-        )
-    }
-}
-
-/// A profile's omnibox history persistence: the daemon's visit store when it serves `history-v1`,
-/// else the app-local log (`BrowserVisitSink`). Decided per write, so a daemon that connects later
-/// takes over without a relaunch. Daemon writes go through one FIFO, so a title never overtakes the
-/// visit it names.
-final class RoutingVisitSink: BrowserHistoryPersistence {
-    let local: BrowserVisitSink
-    /// A page removed from the history (Remove from History, Shift-Delete in the omnibar): the
-    /// import store drops its imported copy too, so it does not come back at the next launch.
-    var onRemove: ((URL) -> Void)?
-    private let profile: String
-    private let daemon: () -> DaemonHistoryClient?
-    private let continuation: AsyncStream<@Sendable () async -> Void>.Continuation
-    private let drain: Task<Void, Never>
-
-    init(local: BrowserVisitSink, profile: String, daemon: @escaping () -> DaemonHistoryClient?) {
-        self.local = local
-        self.profile = profile
-        self.daemon = daemon
-        let (stream, continuation) = AsyncStream<@Sendable () async -> Void>.makeStream(bufferingPolicy: .bufferingNewest(4_096))
-        self.continuation = continuation
-        // task-owner: the sink's lifetime; ends when the stream finishes in deinit
-        drain = Task.detached {
-            for await write in stream { await write() }
-        }
-    }
-
-    nonisolated deinit {
-        continuation.finish()
-    }
-
-    func didRecordVisit(url: URL, title: String?, at date: Date) {
-        guard let daemon = daemon() else { return local.didRecordVisit(url: url, title: title, at: date) }
-        let profile = profile, text = url.absoluteString
-        continuation.yield { try? await daemon.recordVisit(profile: profile, url: text, title: title, tab: nil, at: date) }
-    }
-
-    func didUpdateTitle(_ title: String, for url: URL) {
-        guard let daemon = daemon() else { return local.didUpdateTitle(title, for: url) }
-        let profile = profile, text = url.absoluteString
-        continuation.yield { try? await daemon.updateTitle(profile: profile, url: text, title: title) }
-    }
-
-    func didRemoveEntry(for url: URL) {
-        onRemove?(url)
-        guard let daemon = daemon() else { return local.didRemoveEntry(for: url) }
-        let profile = profile, text = url.absoluteString
-        continuation.yield { try? await daemon.removeVisits(profile: profile, url: text) }
+            })
+        })
     }
 }

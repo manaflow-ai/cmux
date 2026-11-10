@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion and the agent pane policy"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client and the Chrome cookie sync"
 
 # Own workspace, like its members: built only for the app xcframework
 # (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
@@ -19,11 +19,27 @@ crate-type = ["staticlib"]
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
+# The action catalog (descriptors, titles in every app language, default bindings), read at launch.
+cmux-action-catalog = { path = "../cmux-action-catalog" }
 # The agent pane relay policy (src/ffi.rs: one check per page frame).
 cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
+# Predictive local echo for a terminal on another machine (cmux-terminal-prediction src/ffi.rs).
+cmux-terminal-prediction = { path = "../cmux-terminal-prediction" }
+# The control connection rules (cmux-daemon-conn-core src/ffi.rs: retry pacing,
+# the heartbeat, the request-latency probe, the command scope and JSON ops).
+cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
+# Which imported Chrome cookie domains changed (src/ffi.rs: a watching thread that calls the app back).
+cmux-cookie-sync = { path = "../cmux-cookie-sync" }
+# How the app starts and keeps its daemon (src/ffi.rs: JSON ops, the watch, stderr lines).
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
+cmux-health-core = { path = "../cmux-health-core" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
+# The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
+# the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
+cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

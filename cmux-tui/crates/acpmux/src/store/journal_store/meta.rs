@@ -10,7 +10,7 @@
 //! goes to `journal-unapplied/`. `session_dir` and `flush_session`, which hand the folder to such
 //! code or make it durable, first write the chat's image (`settle_meta`).
 //!
-//! A run without the journal (the switch off after a catch-up that failed, or an older build) can
+//! A run without the journal (an older build) can
 //! write `session.json` after the journal's records (review of #35483, F1). Every write of the
 //! store's own carries `journalLsn` and the journal's id (`journalId`): an LSN means something
 //! only in the journal that gave it, and a chat folder can come from another home's journal
@@ -252,10 +252,11 @@ fn decode_meta(payload: &[u8]) -> Option<Decoded<'_>> {
     Some(Decoded { chat, folder, saw, image })
 }
 
-/// `session.json` for `meta`, written as `LocalStore::save` writes it, with the image's LSN and
-/// its journal's id.
-fn session_json(meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<Vec<u8>> {
-    let mut text = serde_json::to_string_pretty(meta)?;
+/// `session.json` for `meta`, written as `LocalStore::save` writes it (its large fields in the
+/// parts file, `parts` their fingerprint: `store/meta_parts.rs`), with the image's LSN and its
+/// journal's id.
+fn session_json(meta: &SessionMeta, parts: &str, lsn: Lsn, journal: u64) -> Result<Vec<u8>> {
+    let mut text = meta_parts::to_string_pretty(meta, parts)?;
     // The struct's field order kept: the keys go before the closing brace of a non-empty object.
     let Some(close) = text.rfind('}') else { anyhow::bail!("a chat's metadata is not an object") };
     let body = text.get(..close).unwrap_or_default().trim_end().to_owned();
@@ -274,7 +275,13 @@ fn session_json(meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<Vec<u8>> {
 /// was to make durable may be lost, and a later sync of the same file may report success
 /// without it.
 #[cfg(unix)]
-fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<()> {
+fn write_session_json(
+    dir: &Path,
+    meta: &SessionMeta,
+    parts: &str,
+    lsn: Lsn,
+    journal: u64,
+) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
@@ -290,7 +297,7 @@ fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) ->
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
-        file.write_all(&session_json(meta, lsn, journal)?)
+        file.write_all(&session_json(meta, parts, lsn, journal)?)
             .with_context(|| format!("write {}", tmp.display()))?;
         log_sync::sync_segment_ordered(&file)
             .map_err(SyncFailed)
@@ -308,8 +315,17 @@ fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) ->
 /// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably (NTFS journals its
 /// folder changes).
 #[cfg(not(unix))]
-fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn, journal: u64) -> Result<()> {
-    crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn, journal)?)
+fn write_session_json(
+    dir: &Path,
+    meta: &SessionMeta,
+    parts: &str,
+    lsn: Lsn,
+    journal: u64,
+) -> Result<()> {
+    crate::config::write_atomic(
+        &dir.join("session.json"),
+        &session_json(meta, parts, lsn, journal)?,
+    )
 }
 
 impl super::repair::Replay {
@@ -348,10 +364,25 @@ impl super::repair::Replay {
 
 impl Inner {
     /// `Store::save` with the journal: the `meta` record and the overlay, no file written
-    /// ([module docs](self)).
-    pub(super) fn save_meta(&self, meta: &SessionMeta) -> Result<()> {
-        let image = serde_json::to_vec(meta)?;
+    /// ([module docs](self)). A kept change's record (`keep`, `super::durability`) is a `Stream`
+    /// record, except the save that makes the chat's folder: a new chat is shown only once
+    /// durable ([`super::new_folders`]).
+    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
         let dir = self.local.dir(&meta.id);
+        // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
+        // before the record: the record's image is the rest. A new chat's folder is made below,
+        // and its parts file after the record.
+        let parts = match std::fs::symlink_metadata(&dir) {
+            Ok(_) => {
+                let _open = self.local.writable()?;
+                Some(self.local.parts.write(&dir, meta)?)
+            }
+            Err(_) => None,
+        };
+        let image = match &parts {
+            Some(parts) => meta_parts::to_vec(meta, parts)?,
+            None => meta_parts::to_vec(meta, &meta_parts::fingerprint(meta))?,
+        };
         // The file there now, stamped before the appends' lock: only the store's own writes
         // change it meanwhile, and a stamp of a file the store wrote is harmless (the replay
         // compares such a file's `journalLsn`, never its stamp).
@@ -372,19 +403,35 @@ impl Inner {
         // A folder made now holds no `session.json`.
         let saw = if made { None } else { saw };
         let payload = encode_meta(&meta.id, folder, saw, &image);
+        meta_parts::note_written(payload.len());
+        let kept = keep == ShowAfter::Written && !made;
+        // A kept record is a `Stream` record synced in the journal's idle time, so the next acked
+        // change (a prompt) does not sync a burst of drafts in its own turn.
         let append = || {
-            self.journal
-                .append(KIND_META, Class::Ack, &payload)
-                .map_err(JournalStore::journal_error)
+            if kept {
+                self.journal.append_kept(KIND_META, &payload)
+            } else {
+                self.journal.append(KIND_META, Class::Ack, &payload)
+            }
+            .map_err(JournalStore::journal_error)
         };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        self.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        let shown = if kept { &self.kept } else { &self.acked };
+        shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
         drop(order);
+        if parts.is_none()
+            && let Err(error) = self.local.parts.write(&dir, meta)
+        {
+            // Its record holds no parts: the next save, or the checkpoint's write of this image
+            // (`ensure`), writes them.
+            self.local.parts.forget(&meta.id);
+            tracing::warn!(session = %meta.id, "write the chat's metadata parts: {error}");
+        }
         if full {
             self.want_checkpoint();
         }
@@ -466,10 +513,18 @@ impl Inner {
     /// #35483: a settle that read its image before a checkpoint wrote a newer one). A failed sync
     /// freezes the checkpoint, as a failed log sync does (F3).
     fn write_through(&self, id: &str, pending: &Pending) -> Result<()> {
-        // Against a delete's removal of the folder (`Store::delete` drops the entry first).
+        // Against a delete's removal of the folder (`Store::delete` drops the entry first), and
+        // against the seal (`Inner::last_checkpoint`).
         let _folder = self.folders.lock_or_recover();
+        let current = {
+            let order = self.order.lock_or_recover();
+            // Sealed: the home is the next daemon's, whose open applies the journaled image.
+            if order.sealed {
+                return Ok(());
+            }
+            order.metas.get(id).map(|now| now.folder)
+        };
         // Deleted since, or deleted and made again in another folder: nothing of this image.
-        let current = self.order.lock_or_recover().metas.get(id).map(|now| now.folder);
         if current != Some(pending.folder) {
             return Ok(());
         }
@@ -481,10 +536,23 @@ impl Inner {
                 Ok(SessionFile::Journaled(lsn)) if lsn >= pending.lsn
             );
             if !held {
+                // An image no save of this run split (replayed from an older build's journal)
+                // writes its parts first (`store/meta_parts.rs`).
+                let parts = self
+                    .local
+                    .parts
+                    .ensure(&dir, &pending.meta)
+                    .with_context(|| format!("write the metadata parts of {id}"))?;
                 // Counted, the checkpoint's own write too: a failed sync freezes the store (F3),
                 // and a checkpoint under way never writes an LSN past it.
                 self.counted_sync("a chat's metadata failed to sync", || {
-                    write_session_json(&dir, &pending.meta, pending.lsn, self.journal.journal_id())
+                    write_session_json(
+                        &dir,
+                        &pending.meta,
+                        &parts,
+                        pending.lsn,
+                        self.journal.journal_id(),
+                    )
                 })
                 .with_context(|| format!("write the metadata of {id}"))?;
             }
@@ -514,7 +582,11 @@ impl Inner {
         for (chat, replayed) in metas {
             let dir = self.local.dir(&chat);
             let meta: SessionMeta = match serde_json::from_slice(&replayed.image) {
-                Ok(meta) => meta,
+                Ok(mut meta) => {
+                    // A split image's large fields are in its folder's parts file.
+                    self.local.parts.merge(&dir, &replayed.image, &mut meta);
+                    meta
+                }
                 Err(error) => {
                     let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
                     tracing::error!(session = %chat, kept = %kept.display(), "a journaled metadata image does not read: {error}");
@@ -528,7 +600,7 @@ impl Inner {
                         Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
                         Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
                         Ok(SessionFile::Plain(_)) => Some(
-                            "its session.json changed without this journal since (a run with store.journal off, an older build, or another journal)",
+                            "its session.json changed without this journal since (an older build, or another journal)",
                         ),
                         Err(_) => Some("its session.json does not read"),
                     }

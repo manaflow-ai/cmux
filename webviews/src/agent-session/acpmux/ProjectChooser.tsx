@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
-import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
-import { AddProjectDialog } from "./AddProjectPanel";
-import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
 import { machineColor } from "./machineColor";
+import { emptyFolderLabel } from "./composerContextModel";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries the machine's computer, in the machine's own color, and its name, and a pick
@@ -23,7 +25,7 @@ export type Project = {
   repo?: ProjectRepo;
 };
 
-/// One row of the chooser: a project, or Do not work in a project (`project` undefined).
+/// One row of the chooser: a folder, or No folder (`project` undefined).
 type Row = { key: string; project?: Project };
 
 const NO_PROJECT_KEY = "\u0000none";
@@ -34,8 +36,9 @@ const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${pro
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
-/// we build in <project>?", cx-9g0w), and `onNoProject` adds Do not work in a project, checked while
-/// `noProject`.
+/// we build in <project>?", cx-9g0w), and `onNoProject` adds No folder, checked while `noProject`.
+/// `onBrowse` adds Add folder…: the host's folder panel, and a new chat in the folder picked there
+/// (Leo, 2026-11-06: "why not just add fodler? what's special about project?").
 export function ProjectChooser({
   projects,
   current,
@@ -46,7 +49,6 @@ export function ProjectChooser({
   onBrowse,
   onNoProject,
   noProject = false,
-  projectHost,
   side = "top",
   inline = false,
 }: {
@@ -59,22 +61,33 @@ export function ProjectChooser({
   onPick(cwd: string, peer?: string): void;
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onNoProject?(): void;
-  /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
+  /// The chat is in no folder: No folder is checked, and picking it changes nothing.
   noProject?: boolean;
-  projectHost?: ProjectDirectoryHost;
   /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
   side?: "top" | "bottom";
   inline?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
+  const [browseError, setBrowseError] = useState<string>();
+  // Counts picks: a folder panel's late answer (or failure) after one is dropped.
+  const picks = useRef(0);
+  // A folder panel's late answer after the chooser is gone picks nothing.
+  useEffect(
+    () => () => {
+      picks.current += 1;
+    },
+    [],
+  );
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
+  // No folder is checked whenever the face reads it (no folder and no label of the caller's), so
+  // the menu agrees with the chip. Only `noProject` makes a pick of it change nothing.
+  const noneChecked = noProject || (currentKey === undefined && currentLabel === undefined);
 
   // One row per repository; a lane's worktree or a scratch folder only when the search names it
   // (projectRepos.ts chooserRows).
@@ -89,7 +102,7 @@ export function ProjectChooser({
   }, [shown, onNoProject]);
   const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const isCurrent = (key: string) =>
-    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
+    rowsByKey.has(key) && (key === currentKey || (noneChecked && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
@@ -104,8 +117,10 @@ export function ProjectChooser({
   };
   const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (row: Row | undefined) => {
+    picks.current += 1;
+    setBrowseError(undefined);
     if (row && !row.project) {
-      // Do not work in a project: a change unless the chat is in no project already.
+      // No folder: a change unless the chat is in no project already.
       close(noProject);
       if (!noProject) onNoProject?.();
       return;
@@ -126,27 +141,44 @@ export function ProjectChooser({
     return () => window.removeEventListener("blur", blur);
   }, [open]);
 
-  const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
+  // Under the folders (Leo, 2026-11-06: "it's just folder"): Add folder…, then No folder.
+  const pinned = [...(onBrowse ? [ADD_PROJECT_KEY] : []), ...(onNoProject ? [NO_PROJECT_KEY] : [])];
   const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
-    if (key === ADD_PROJECT_KEY) return t("project.new");
+    if (key === ADD_PROJECT_KEY) return t("composer.addFolder");
     const project = rowsByKey.get(key)?.project;
     return project
       ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
       : key === NO_PROJECT_KEY
-        ? t("project.noProject")
+        ? t("project.noFolder")
         : key;
   };
 
-  const label = currentLabel ?? t("project.choose");
+  // The host's folder panel only answers (deferPick) and the pick commits here, as Add project's
+  // dialog did: a folder picked while the panel was open wins over its late answer. A refused or
+  // failed panel says why beside a Retry.
+  const browse = () => {
+    const before = picks.current;
+    setBrowseError(undefined);
+    void Promise.resolve()
+      .then(() => onBrowse?.({ deferPick: true }))
+      .then((cwd) => {
+        if (before === picks.current && typeof cwd === "string" && cwd) onPick(cwd);
+      })
+      .catch((error: unknown) => {
+        if (before === picks.current) setBrowseError(browseFailureMessage(error));
+      });
+  };
+  // No folder, never a "Choose folder" prompt (composerContextModel emptyFolderLabel).
+  const label = currentLabel ?? t(emptyFolderLabel);
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
       <button
         ref={trigger}
         type="button"
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
-        aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
+        aria-label={inline ? `${t("composer.folder")}: ${label}` : t("composer.folder")}
         aria-haspopup="dialog"
         // tooltip-allow: a truncated project label keeps its full path available.
         title={current}
@@ -166,7 +198,7 @@ export function ProjectChooser({
         open={open}
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}
-        label={t("project.label")}
+        label={t("composer.folder")}
         className="acpmux-menu acpmux-project-menu"
         side={side}
         initialFocus={search}
@@ -177,11 +209,12 @@ export function ProjectChooser({
             inputRef={search}
             suggestions={suggestions}
             pinnedSuggestions={pinned}
+            pinnedPlacement="bottom"
             onQuery={setQuery}
             onSubmit={(key) => {
               if (key === ADD_PROJECT_KEY) {
                 close(false);
-                setAdding(true);
+                browse();
                 return;
               }
               const row =
@@ -196,8 +229,8 @@ export function ProjectChooser({
             onCancel={() => close(true)}
             cancelOnBlur={false}
             autoHighlight
-            label={t("project.search")}
-            placeholder={t("project.search")}
+            label={t("composer.folderSearch")}
+            placeholder={t("composer.folderSearch")}
             inputClassName="acpmux-project-search-field"
             listClassName="acpmux-project-folders m-0 list-none p-0"
             itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
@@ -212,14 +245,14 @@ export function ProjectChooser({
                       <PlusIcon />
                     </span>
                     <span className="acpmux-menu-text">
-                      <span className="acpmux-menu-label">{t("project.new")}</span>
+                      <span className="acpmux-menu-label">{t("composer.addFolder")}</span>
                     </span>
                   </>
                 );
               const row = rowsByKey.get(key);
               const project = row?.project;
               const checked = isCurrent(key);
-              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
+              const name = project ? project.label : row ? t("project.noFolder") : t("project.usePath", { path: key });
               return (
                 <>
                   {project ? (
@@ -248,22 +281,18 @@ export function ProjectChooser({
               );
             }}
             inline
+            keepHeight
           />
           {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
-            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
+            <div className="acpmux-project-empty">
+              {t(query.trim() ? "composer.folderNone" : "composer.folderNoneYet")}
+            </div>
           )}
         </div>
       </Popover>
-      <AddProjectDialog
-        open={adding}
-        host={projectHost}
-        onBrowse={onBrowse}
-        onClose={() => setAdding(false)}
-        onPick={(cwd) => {
-          setAdding(false);
-          onPick(cwd);
-        }}
-      />
+      {browseError && (
+        <BrowseFailure error={browseError} onRetry={browse} onDismiss={() => setBrowseError(undefined)} />
+      )}
     </span>
   );
 }

@@ -85,6 +85,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 controller.services.cache.existingBrowser(tab)?.state.showsFocusModeIndicator = active
             }
         }
+        for (key, entry) in controller.services.cache.browsers { entry.followKeyboard(focusedTab: state.underlying.browserTab, key: key, window: controller.window) } // the cookie card shows only over its focused tab
     }
 
     // MARK: Responder
@@ -150,9 +151,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 resignPaneResponder(in: window)
                 return
             }
-            // Inside Home the keyboard stays only on a visible text input, or a transcript
-            // text selection; the pane itself or a header button moves it to the box.
-            _ = TabContent.conversation(view).landKeyboardInPrimaryInput(in: window)
+            // The page keeps the keyboard where the person put it inside it; from outside, its
+            // message box takes it (the page's own `home.messages.focusComposer`).
+            if !responder(of: window, isInside: view) { view.focusPrimaryInput() }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
@@ -417,7 +418,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
         next.remove(.webViewFocused)
-        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
+        if WebInspectorTargets(appPages: DesignSettings.shared.pageDeveloperTools).target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).

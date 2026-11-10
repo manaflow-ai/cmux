@@ -45,17 +45,25 @@
 //! starts it once through the binary's starter (`cmux acp daemon start`,
 //! as `cmux acp` does) and connects again; otherwise
 //! `agent_session.acpmux_unavailable`.
+//!
+//! The answer also carries `timings_ms`, this machine's own clock for each
+//! phase of the start ([`StartTimings`]): the keyed gate, the acpmux connect
+//! (and whether it had to start acpmux), the checks before the agent, the
+//! harness's `session/new`, the mode settle and the bind. The app logs it
+//! beside its own start steps, so a Cloud start's `start` step splits into
+//! the harness launch and everything around it (cmuxterm-hq probe rows).
+//! Durations only: no folder, harness or session value is in it.
 
 use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_link::AcpmuxLink;
+use super::agent_session_link::{AcpmuxLink, LinkError, Patience};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
@@ -111,9 +119,37 @@ pub enum AgentStartHost {
 /// Starts that may run at once on one daemon.
 const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
-/// A harness spawns and answers `session/new` (a cold agent can take long).
-const NEW_TIMEOUT: Duration = Duration::from_secs(60);
+/// How each acpmux call of a start waits ([`AcpmuxLink::call_while_alive_until`]): a harness spawning
+/// and answering `session/new` in a big folder, or reading its catalog there, on a machine under
+/// load, takes as long as it takes while acpmux still answers beside it. Was a fixed 60 s for
+/// `session/new` and 5 s for each check, which failed the starts of a 1.9 GB and a 20,000-file
+/// folder with `agent_session.timeout` while acpmux was still working (cmux#40385's matrix). A
+/// silent acpmux fails the start within `quiet + probe` (the status answer reads the host's
+/// load, so a busy machine gets 30 s for it); the ceiling, one for the whole start, is the login
+/// finish's. This covers the catalog read (`_acpmux/harnesses`) too: a starting acpmux holds that
+/// answer until its login shell read and catalog reload end (`Hub::harnesses_reply`), and the app
+/// restarts acpmux with a person key just before a Cloud chat's start, so a fixed 5 s refused it
+/// `agent_session.timeout` while acpmux was about to answer (cmuxterm-hq run 42837396397).
+pub(super) const START_PATIENCE: Patience = Patience {
+    quiet: Duration::from_secs(10),
+    probe: Duration::from_secs(30),
+    ceiling: Duration::from_secs(15 * 60),
+};
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a start waits for an acpmux that went away under its catalog read (restarting) to
+/// listen again ([`ready_catalog`]), and the pause between connects.
+const RECONNECT_WAIT: Duration = Duration::from_secs(20);
+const RECONNECT_PAUSE: Duration = Duration::from_millis(200);
+/// How long after a `session/new` failed as a timeout its answer is still waited for, to end the
+/// session acpmux made for a start that already gave up (Codex review of cmux#40640 at
+/// 00411eb5: an agent spawned after the start stopped waiting stayed bound to no tab).
+const LATE_SESSION_GRACE: Duration = Duration::from_secs(300);
+
+/// One acpmux call of a start, waiting on acpmux's liveness ([`START_PATIENCE`]) until the
+/// start's one ceiling, `until`.
+fn ask(link: &AcpmuxLink, until: Instant, method: &str, params: Value) -> Result<Value, LinkError> {
+    link.call_while_alive_until(method, params, START_PATIENCE, until)
+}
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
@@ -196,6 +232,48 @@ impl AgentSessionStarts {
         let mut starting = starts.starting.lock().unwrap_or_else(|e| e.into_inner());
         (starting.len() < MAX_STARTS && starting.insert(surface))
             .then(|| StartSlot { mux: mux.clone(), surface })
+    }
+}
+
+/// This machine's own clock for each phase of one start, in ms (module
+/// docs). A phase the start never reached stays None and is left out.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct StartTimings {
+    keyed_gate: Option<u64>,
+    acpmux_connect: Option<u64>,
+    /// The connect found nothing listening and started acpmux first.
+    acpmux_started: bool,
+    checks: Option<u64>,
+    session_new: Option<u64>,
+    settle: Option<u64>,
+    bind: Option<u64>,
+    total: Option<u64>,
+}
+
+/// Milliseconds since `since`, saturating.
+fn ms_since(since: Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+impl StartTimings {
+    /// The answer's `timings_ms`: each phase reached, and `acpmux_started`.
+    pub(crate) fn wire(&self) -> Value {
+        let mut out = serde_json::Map::new();
+        for (name, value) in [
+            ("keyed_gate", self.keyed_gate),
+            ("acpmux_connect", self.acpmux_connect),
+            ("checks", self.checks),
+            ("session_new", self.session_new),
+            ("settle", self.settle),
+            ("bind", self.bind),
+            ("total", self.total),
+        ] {
+            if let Some(value) = value {
+                out.insert(name.to_owned(), json!(value));
+            }
+        }
+        out.insert("acpmux_started".to_owned(), json!(self.acpmux_started));
+        Value::Object(out)
     }
 }
 
@@ -322,9 +400,14 @@ pub(super) fn start(
     if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);
     }
+    // A phone's start (the Cloud mobile carrier, `cloud-mobile-chat-v1`) gets the phone's floor.
+    // Read here, before the worker: a phone that leaves mid-start must not lift it.
+    let phone =
+        mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
     };
+    let surface = params.surface;
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
@@ -332,13 +415,24 @@ pub(super) fn start(
         .name("mux-agent-start".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
-            let result = match keyed_gate(&socket, &params) {
-                Ok(()) => run(&worker_mux, client, socket, params).map_err(|r| (r, None)),
+            let began = Instant::now();
+            let mut timings = StartTimings::default();
+            let gated = keyed_gate(&socket, &params);
+            timings.keyed_gate = Some(ms_since(began));
+            let result = match gated {
+                Ok(()) => run(&worker_mux, client, socket, params, phone, &mut timings),
                 Err(refused) => Err(refused),
             };
             drop(slot);
+            timings.total = Some(ms_since(began));
             match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
+                Ok(mut data) => {
+                    data.insert("timings_ms", timings.wire());
+                    // Before the answer: the caller may close the tab as soon as it reads it
+                    // (phone_carrier.rs).
+                    worker_mux.control_clients.remember_started_tab(client, surface);
+                    ok(&worker_writer, worker_id, data)
+                }
                 Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
                 Err((refusal, Some(data))) => {
                     super::refuse_with_data(&worker_writer, worker_id, refusal, data)
@@ -384,7 +478,26 @@ fn keyed_gate(
             Some(status.map_err(|_| unknown())?)
         }
     };
-    let keyed = status.as_ref().is_some_and(|status| {
+    keyed_by(status.as_ref(), params)
+}
+
+/// [`keyed_gate`] again on `link`, the acpmux the start runs on: the gate read the acpmux that
+/// listened before the start, and a restart since ([`ready_catalog`]) brings a run the caller may
+/// hold no key for, whose permission prompts it then could not approve.
+fn still_keyed(link: &AcpmuxLink, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+    if !params.require_person_key {
+        return Ok(());
+    }
+    let status = link
+        .call("_acpmux/status", json!({}), CALL_TIMEOUT)
+        .map_err(|_| (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({}))))))?;
+    keyed_by(Some(&status), params)
+}
+
+/// Ok when `status` (`_acpmux/status`; None: acpmux does not run) holds a person key for the
+/// caller's `person_instance`, else the typed `needs_keyed_start` refusal.
+fn keyed_by(status: Option<&Value>, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+    let keyed = status.is_some_and(|status| {
         status.get("personKey").and_then(Value::as_bool) == Some(true)
             && params.person_instance.is_some()
             && status.get("personInstance").and_then(Value::as_str)
@@ -393,7 +506,7 @@ fn keyed_gate(
     if keyed {
         return Ok(());
     }
-    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status.as_ref()))))
+    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status))))
 }
 
 /// The ONE rule for whether a keyed restart of this machine's acpmux can
@@ -442,11 +555,57 @@ fn run(
     client: u64,
     socket: PathBuf,
     params: StartParams,
-) -> Result<Value, Refusal> {
-    let link = connect(mux, &socket)?;
-    let result = start_and_bind(mux, client, &link, &params);
+    phone: bool,
+    timings: &mut StartTimings,
+) -> Result<Value, (Refusal, Option<Value>)> {
+    let began = Instant::now();
+    let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
+    (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
+    let checks = Instant::now();
+    let until = checks + START_PATIENCE.ceiling;
+    let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let result = still_keyed(&link, &params).and_then(|()| {
+        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
+            .map_err(|r| (r, None))
+    });
     link.close();
     result
+}
+
+/// acpmux's catalog for a start in `cwd`, read as long as acpmux is alive ([`START_PATIENCE`]:
+/// a starting acpmux holds it until its `catalog_ready`), by `until`. An acpmux that goes away
+/// under the read, or is not listening yet, is one restarting (the app's keyed restart for remote
+/// approvals, 0.3 s before the start in cmuxterm-hq run 42837396397): the read connects again and
+/// asks again until `until`. It never runs the starter again: the restart brings its own acpmux,
+/// and a second start here would race it. The read changes nothing, so asking twice is safe; what
+/// the start changes comes after it, on the link this returns.
+fn ready_catalog(
+    socket: &std::path::Path,
+    mut link: Arc<AcpmuxLink>,
+    cwd: &str,
+    until: Instant,
+) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    loop {
+        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+            Ok(catalog) => return Ok((link, catalog)),
+            Err(LinkError::Closed) if Instant::now() < until => link.close(),
+            Err(error) => {
+                link.close();
+                return Err(Refusal::of(error));
+            }
+        }
+        // A restart brings its acpmux up in seconds; one that stays down is gone.
+        let back_by = until.min(Instant::now() + RECONNECT_WAIT);
+        link = loop {
+            std::thread::sleep(RECONNECT_PAUSE);
+            match AcpmuxLink::connect(socket, |_| {}) {
+                Ok(link) => break link,
+                Err(_) if Instant::now() < back_by => {}
+                Err(_) => return Err(Refusal::Unavailable),
+            }
+        };
+    }
 }
 
 /// A link to acpmux, starting it once when nothing listens (also an
@@ -455,19 +614,24 @@ pub(in crate::server) fn connect(
     mux: &Mux,
     socket: &std::path::Path,
 ) -> Result<Arc<AcpmuxLink>, Refusal> {
+    connect_noting(mux, socket).map(|(link, _)| link)
+}
+
+/// [`connect`], and whether this call ran the starter (nothing listened).
+fn connect_noting(mux: &Mux, socket: &std::path::Path) -> Result<(Arc<AcpmuxLink>, bool), Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
-        return Ok(link);
+        return Ok((link, false));
     }
     let starts = &mux.control_clients.agent_sessions.starts;
     let starter = starts.starter().ok_or(Refusal::AcpmuxUnavailable)?;
     let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
     // Another start may have brought acpmux up while this one waited.
     if let Ok(link) = open() {
-        return Ok(link);
+        return Ok((link, false));
     }
     starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
-    open().map_err(|_| Refusal::AcpmuxUnavailable)
+    open().map(|link| (link, true)).map_err(|_| Refusal::AcpmuxUnavailable)
 }
 
 /// Runs `restart` (an acpmux handoff, `agent_update.rs`: the running acpmux
@@ -488,11 +652,21 @@ pub(in crate::server) fn restart_with(
     AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
+/// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
+/// `timings`: each phase reached, on this machine's clock.
+/// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
+/// checks before the agent began (the readiness wait included); `until`: the start's one ceiling.
+#[allow(clippy::too_many_arguments)]
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
-    link: &AcpmuxLink,
+    link: &Arc<AcpmuxLink>,
+    catalog: &Value,
     params: &StartParams,
+    phone: bool,
+    checks: Instant,
+    until: Instant,
+    timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
@@ -500,22 +674,31 @@ fn start_and_bind(
         .agent_sessions
         .starts
         .owner_cloud(vm_word(&params.vm_kind) == Some("owner"));
-    let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
+    // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
+    // the start answers.
+    let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
+    if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
+        return Err(Refusal::NotAsking);
+    }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog =
-        link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
-    let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
-    if !owner_cloud && refused_family(&table, &family) {
+    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
+    // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
+    // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
+    if !owner_cloud && !phone && refused_family(&table, &family) {
+        return Err(Refusal::NotAsking);
+    }
+    if phone && phone_modes(&family).is_empty() {
         return Err(Refusal::NotAsking);
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
-    let trust =
-        link.call("acp.trust.get", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let trust = ask(link, until, "acp.trust.get", json!({"cwd": cwd})).map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
@@ -540,7 +723,28 @@ fn start_and_bind(
     // after the trust answer cannot move the agent elsewhere.
     let cwd = trust.get("cwd").and_then(Value::as_str).ok_or(Refusal::UntrustedFolder)?;
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
-    let created = link.call("session/new", new, NEW_TIMEOUT).map_err(Refusal::of)?;
+    timings.checks = Some(ms_since(checks));
+    let spawn = Instant::now();
+    // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
+    // bound to no tab, so it ends as soon as its answer comes.
+    let created = link
+        .call_while_alive_or_late(
+            "session/new",
+            new,
+            START_PATIENCE,
+            until,
+            LATE_SESSION_GRACE,
+            |link, late| {
+                if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
+                    let kill = json!({"sessionId": session, "purge": true});
+                    let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+                }
+            },
+        )
+        .map_err(Refusal::of);
+    timings.session_new = Some(ms_since(spawn));
+    let created = created?;
+    let settle = Instant::now();
     let session = created
         .get("sessionId")
         .and_then(Value::as_str)
@@ -552,10 +756,12 @@ fn start_and_bind(
             link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
         refusal
     };
-    let family = if owner_cloud {
-        session_family(link, &session).map_err(end)?
+    let family = if phone {
+        settle_phone_mode(link, until, &session).map_err(end)?
+    } else if owner_cloud {
+        session_family(link, until, &session).map_err(end)?
     } else {
-        settle_asking_mode(link, &session).map_err(end)?
+        settle_asking_mode(link, until, &session).map_err(end)?
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
@@ -570,12 +776,16 @@ fn start_and_bind(
             .flatten()
             .filter_map(|harness| harness.rsplit('/').next())
             .find(|harness| validate_harness(harness).is_ok());
+    timings.settle = Some(ms_since(settle));
+    let bind = Instant::now();
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let _rebinding = mux.control_clients.agent_sessions.rebinding();
-    let (record, _) = mux
+    let bound = mux
         .bind_conversation_tab_session_as(&actor, params.surface, &session, None, harness)
-        .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;
+        .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)));
+    timings.bind = Some(ms_since(bind));
+    let (record, _) = bound?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
 }
 
@@ -626,9 +836,8 @@ fn refused_family(table: &Value, family: &str) -> bool {
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
 /// mode rule: a start on the caller's own Cloud VM. None is refused.
-fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
-    let table = link
-        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
+    let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
         .map_err(Refusal::of)?;
     table
         .pointer("/session/family")
@@ -641,10 +850,9 @@ fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
 /// asking default; anything else is refused. Returns the session's family.
-fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+fn settle_asking_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
     let read = || {
-        link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
-            .map_err(Refusal::of)
+        ask(link, until, "_acpmux/web_modes", json!({"sessionId": session})).map_err(Refusal::of)
     };
     let asks = |table: &Value| -> (bool, Option<String>) {
         let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
@@ -670,15 +878,51 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
         (true, _) => Ok(family),
         (false, None) => Err(Refusal::NotAsking),
         (false, Some(default)) => {
-            link.call(
-                "session/set_mode",
-                json!({"sessionId": session, "modeId": default}),
-                CALL_TIMEOUT,
-            )
-            .map_err(|_| Refusal::NotAsking)?;
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": default}))
+                .map_err(|_| Refusal::NotAsking)?;
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
+}
+
+/// The modes a phone's chat may run in, by family, in the order a start tries them: acpmux's
+/// Cloud mobile floor (`Hub::cloud_mobile_mode_asks`), which has the last word on each.
+fn phone_modes(family: &str) -> &'static [&'static str] {
+    match family {
+        "claude" => &["default", "plan"],
+        "codex" => &["ask"],
+        _ => &[],
+    }
+}
+
+/// A phone's new session: acpmux says its mode holds to the Cloud mobile floor
+/// (`cloudMobileAsks`, which reads the harness profile the session actually runs), else it moves
+/// to the family's phone modes in turn until acpmux says so; anything else is refused (the caller
+/// ends the session). Returns the session's family.
+fn settle_phone_mode(link: &AcpmuxLink, until: Instant, session: &str) -> Result<String, Refusal> {
+    let read = || -> Result<(String, bool), Refusal> {
+        let table = ask(link, until, "_acpmux/web_modes", json!({"sessionId": session}))
+            .map_err(Refusal::of)?;
+        let family =
+            table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let asks = table.pointer("/session/cloudMobileAsks").and_then(Value::as_bool) == Some(true);
+        Ok((family, asks))
+    };
+    let (family, asks) = read()?;
+    if family.is_empty() {
+        return Err(Refusal::NotAsking);
+    }
+    if asks {
+        return Ok(family);
+    }
+    for mode in phone_modes(&family) {
+        let set =
+            ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
+        if set.is_ok() && read()? == (family.clone(), true) {
+            return Ok(family);
+        }
+    }
+    Err(Refusal::NotAsking)
 }
 
 /// A call's `vm_kind` (decoded with `present_nullable`) as the gate reads it:
@@ -749,6 +993,31 @@ mod tests {
             assert_eq!(starts.host_gate(true), owner_word, "{host:?}");
             assert_eq!(starts.host_gate(false), no_word, "{host:?}");
         }
+    }
+
+    /// The answer's `timings_ms` names each phase the start reached, in ms,
+    /// and whether it started acpmux; a phase it never reached is left out.
+    #[test]
+    fn timings_name_each_phase_reached() {
+        let none = StartTimings::default().wire();
+        assert_eq!(none, json!({"acpmux_started": false}));
+        let all = StartTimings {
+            keyed_gate: Some(1),
+            acpmux_connect: Some(2),
+            acpmux_started: true,
+            checks: Some(3),
+            session_new: Some(1800),
+            settle: Some(4),
+            bind: Some(5),
+            total: Some(1815),
+        };
+        assert_eq!(
+            all.wire(),
+            json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
+                   "session_new": 1800, "settle": 4, "bind": 5, "total": 1815})
+        );
+        let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
+        assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
     }
 
     /// Only a Cloud VM with no team evidence, and only on the caller's owner

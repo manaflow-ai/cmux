@@ -564,8 +564,8 @@ class GeneratedClientMixin:
     def park_tabs(self, surfaces: List[TabRef]) -> JsonValue:
         return self._invoke_command('park-tabs', ParkTabsRequest(surfaces=surfaces))
 
-    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
-        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, filename: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, filename=filename, mime=mime, offset=offset, size=size))
 
     def pin_workspace(self, profile: str, session_id: str, workspace_key: str) -> JsonValue:
         return self._invoke_command('pin-workspace', PinWorkspaceRequest(profile=profile, session_id=session_id, workspace_key=workspace_key))
@@ -714,6 +714,9 @@ class GeneratedClientMixin:
     def set_default_colors(self, fg: Union[ColorHex, None, MissingType] = MISSING, *, bg: Union[ColorHex, None, MissingType] = MISSING, cursor: Union[ColorHex, None, MissingType] = MISSING, selection_bg: Union[ColorHex, None, MissingType] = MISSING, selection_fg: Union[ColorHex, None, MissingType] = MISSING, cursor_style: Union[CursorStyle, None, MissingType] = MISSING, cursor_blink: Union[bool, None, MissingType] = MISSING, palette: Union[Dict[str, ColorHex], None, MissingType] = MISSING, complete: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-default-colors', SetDefaultColorsRequest(fg=fg, bg=bg, cursor=cursor, selection_bg=selection_bg, selection_fg=selection_fg, cursor_style=cursor_style, cursor_blink=cursor_blink, palette=palette, complete=complete))
 
+    def set_divider_visible(self, split: Id, visible: bool, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-divider-visible', SetDividerVisibleRequest(split=split, visible=visible, transaction=transaction))
+
     def set_frontend_browser_history(self, surface: Id, history: Union[JsonValue, None]) -> JsonValue:
         return self._invoke_command('set-frontend-browser-history', SetFrontendBrowserHistoryRequest(surface=surface, history=history))
 
@@ -768,6 +771,9 @@ class GeneratedClientMixin:
     def set_terminal_keep(self, keep: bool, *, surface: Union[Id, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SetTerminalKeepResult:
         return self._invoke_command('set-terminal-keep', SetTerminalKeepRequest(keep=keep, surface=surface, terminal_id=terminal_id))
 
+    def set_terminal_tail_pin(self, pinned: bool, *, surface: Union[Id, None, MissingType] = MISSING, terminal: Union[str, None, MissingType] = MISSING) -> SetTerminalTailPinResult:
+        return self._invoke_command('set-terminal-tail-pin', SetTerminalTailPinRequest(pinned=pinned, surface=surface, terminal=terminal))
+
     def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> ViewportPaneWidthResult:
         return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
 
@@ -777,8 +783,17 @@ class GeneratedClientMixin:
     def set_workspace_metadata(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, marked_unread: Union[bool, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-workspace-metadata', SetWorkspaceMetadataRequest(workspace=workspace, color=color, expected_generation=expected_generation, expected_revision=expected_revision, icon=icon, key=key, marked_unread=marked_unread, mutation_id=mutation_id, origin=origin, pinned=pinned, title=title))
 
-    def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, keep_layout: Union[bool, MissingType] = MISSING) -> ShutdownDaemonResult:
-        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force, end_terminals=end_terminals, keep_layout=keep_layout))
+    def shell_read(self, run: str, *, after: Union[int, MissingType] = MISSING, wait_ms: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('shell-read', ShellReadRequest(run=run, after=after, wait_ms=wait_ms))
+
+    def shell_run(self, command: str, *, cwd: Union[str, None, MissingType] = MISSING, run: Union[str, None, MissingType] = MISSING, scope: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('shell-run', ShellRunRequest(command=command, cwd=cwd, run=run, scope=scope))
+
+    def shell_stop(self, run: str) -> JsonValue:
+        return self._invoke_command('shell-stop', ShellStopRequest(run=run))
+
+    def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, keep_layout: Union[bool, MissingType] = MISSING, restart: Union[bool, None, MissingType] = MISSING) -> ShutdownDaemonResult:
+        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force, end_terminals=end_terminals, keep_layout=keep_layout, restart=restart))
 
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
@@ -786,8 +801,8 @@ class GeneratedClientMixin:
     def snapshot_request(self, surface: Id, *, have: Union[SnapshotRequestHave, None, MissingType] = MISSING, reason: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> SnapshotRequestResult:
         return self._invoke_command('snapshot-request', SnapshotRequestRequest(surface=surface, have=have, reason=reason, request_id=request_id))
 
-    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, pane_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, split_id: Union[str, None, MissingType] = MISSING, tab_id: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> PaneSurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, kind=kind, pane_id=pane_id, rows=rows, shell_args=shell_args, split_id=split_id, tab_id=tab_id, url=url))
+    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, around: Union[Id, None, MissingType] = MISSING, before: Union[bool, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, kind: Union[PaneKind, None, MissingType] = MISSING, pane_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, split_id: Union[str, None, MissingType] = MISSING, tab_id: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> PaneSurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, around=around, before=before, cols=cols, cwd=cwd, env=env, keep=keep, kind=kind, pane_id=pane_id, rows=rows, shell_args=shell_args, split_id=split_id, tab_id=tab_id, url=url))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
@@ -809,6 +824,9 @@ class GeneratedClientMixin:
 
     def terminal_history(self, surface: Id, marker_epoch: int, *, before: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalHistoryPagesResult:
         return self._invoke_command('terminal-history', TerminalHistoryRequest(surface=surface, marker_epoch=marker_epoch, before=before, max_bytes=max_bytes))
+
+    def terminal_last_command(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING) -> TerminalLastCommandResult:
+        return self._invoke_command('terminal-last-command', TerminalLastCommandRequest(surface=surface, terminal_id=terminal_id))
 
     def terminal_ports(self, surface: Id) -> TerminalPortsResult:
         return self._invoke_command('terminal-ports', TerminalPortsRequest(surface=surface))
@@ -1129,6 +1147,7 @@ GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-inf
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
 GeneratedClientMixin.set_column_dock.__cmux_command__ = COMMANDS['set-column-dock']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
+GeneratedClientMixin.set_divider_visible.__cmux_command__ = COMMANDS['set-divider-visible']
 GeneratedClientMixin.set_frontend_browser_history.__cmux_command__ = COMMANDS['set-frontend-browser-history']
 GeneratedClientMixin.set_host_size_policy.__cmux_command__ = COMMANDS['set-host-size-policy']
 GeneratedClientMixin.set_layout_sizes.__cmux_command__ = COMMANDS['set-layout-sizes']
@@ -1147,9 +1166,13 @@ GeneratedClientMixin.set_tab_pinned.__cmux_command__ = COMMANDS['set-tab-pinned'
 GeneratedClientMixin.set_terminal_command_history.__cmux_command__ = COMMANDS['set-terminal-command-history']
 GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']
 GeneratedClientMixin.set_terminal_keep.__cmux_command__ = COMMANDS['set-terminal-keep']
+GeneratedClientMixin.set_terminal_tail_pin.__cmux_command__ = COMMANDS['set-terminal-tail-pin']
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.set_workspace_metadata.__cmux_command__ = COMMANDS['set-workspace-metadata']
+GeneratedClientMixin.shell_read.__cmux_command__ = COMMANDS['shell-read']
+GeneratedClientMixin.shell_run.__cmux_command__ = COMMANDS['shell-run']
+GeneratedClientMixin.shell_stop.__cmux_command__ = COMMANDS['shell-stop']
 GeneratedClientMixin.shutdown_daemon.__cmux_command__ = COMMANDS['shutdown-daemon']
 GeneratedClientMixin.sidebar_plugin.__cmux_command__ = COMMANDS['sidebar-plugin']
 GeneratedClientMixin.snapshot_request.__cmux_command__ = COMMANDS['snapshot-request']
@@ -1161,6 +1184,7 @@ GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['termi
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
+GeneratedClientMixin.terminal_last_command.__cmux_command__ = COMMANDS['terminal-last-command']
 GeneratedClientMixin.terminal_ports.__cmux_command__ = COMMANDS['terminal-ports']
 GeneratedClientMixin.terminal_read_range.__cmux_command__ = COMMANDS['terminal-read-range']
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']

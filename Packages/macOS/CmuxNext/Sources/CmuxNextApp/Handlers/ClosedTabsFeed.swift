@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 
 /// The app side of closed tabs. The daemon owns the closed history

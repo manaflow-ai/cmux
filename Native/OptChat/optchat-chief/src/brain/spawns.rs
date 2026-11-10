@@ -832,10 +832,14 @@ impl Brain {
         session_id: String,
         policy: Option<String>,
         harness: Option<String>,
+        made: Option<crate::action_lifetime::Made>,
     ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if made.is_some() {
+                sub.made = made;
+            }
             if harness.is_some() {
                 sub.harness = harness;
             }
@@ -1742,39 +1746,92 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Under the person's opt-in `subagents.closeFinishedWorkspaces`
-    /// (subagent_settings.rs, off by default), closes a finished subagent's
-    /// workspace. Without it a subagent's workspace never closes by itself,
-    /// short task or long, running or finished: only the person closes it. A
-    /// short-task close (runs under 30 minutes) closed workspaces whose agent
-    /// was still working, waiting on a build or a reply, and Chief went on
-    /// driving it with nothing left in the sidebar (Aziz 2026-11-05: "why
-    /// are your agents disappearing from sidebar?"; a38's closed mid-run).
+    /// Closes a finished subagent's workspace in two cases only:
+    /// - the person's opt-in `subagents.closeFinishedWorkspaces`
+    ///   (subagent_settings.rs, off by default) closes every finished one and
+    ///   forgets its key;
+    /// - the reaper (action_lifetime.rs) closes a tucked one (the collapsed
+    ///   "Chief" group) once its work ends, unless the run was stopped or its
+    ///   report left work to land, and only while none of its terminals runs
+    ///   a command, so a shell the person started there is never ended.
+    ///
+    /// Any other workspace never closes by itself, short task or long: only
+    /// the person closes it. A short-task close (runs under 30 minutes)
+    /// closed workspaces whose agent was still working, waiting on a build or
+    /// a reply, and Chief went on driving it with nothing left in the sidebar
+    /// (Aziz 2026-11-05: "why are your agents disappearing from sidebar?";
+    /// a38's closed mid-run).
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
-        if !done || !self.close_finished_subagent_workspaces() {
+        if !done {
+            // Running again: it has not expired.
+            if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+                made.expires_ms = None;
+            }
             return;
+        }
+        // Its lifetime ends now (action_lifetime.rs): a Task leaves the hat after its time, a
+        // tucked workspace is due for the reaper at once.
+        let now = now_ms();
+        if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+            made.ended(now);
+            self.save();
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
+        // A tucked one keeps its guards: a stopped run, or a report that left work to land (its
+        // landing follow-up resumes it), keeps its workspace.
+        let reap =
+            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
+                && !sub.stopped
+                && !sub
+                    .report
+                    .as_deref()
+                    .is_some_and(crate::sub_watch::unlanded);
+        let explicit = self.close_finished_subagent_workspaces();
+        if !(explicit || reap) {
+            return;
+        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        self.trace_workspace_close(id, "close_finished_setting");
-        // The setting closes every finished one and forgets it.
-        if let Some(sub) = self.state.sub_mut(id) {
-            sub.workspace = None;
-            super::control::retire_slot_key(sub);
+        self.trace_workspace_close(
+            id,
+            if explicit {
+                "close_finished_setting"
+            } else {
+                "tucked_reaper"
+            },
+        );
+        if explicit {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.workspace = None;
+                super::control::retire_slot_key(sub);
+            }
+            self.save();
         }
-        self.save();
-        let (log, id) = (self.log.clone(), id.to_owned());
+        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
         std::thread::spawn(move || {
-            if let Err(e) = workspaces.close(&key) {
-                log(&format!("subagent {id}: closing its workspace: {e}"));
+            let closed = if explicit {
+                workspaces.close(&key).map(|()| true)
+            } else {
+                workspaces.close_idle(&key)
+            };
+            match closed {
+                // A reaped workspace's key is forgotten once it is gone, so a later
+                // `control show` opens a new one.
+                Ok(true) if !explicit => {
+                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
+                }
+                Ok(true) => {}
+                Ok(false) => log(&format!(
+                    "subagent {id}: its workspace stays: a terminal runs a command"
+                )),
+                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
             }
         });
     }
@@ -2773,45 +2830,87 @@ impl Brain {
                             .unwrap_or(u64::MAX),
                     )
                 })
-                .map(|(spawn, s)| crate::subagents::QueuedStart {
-                    id: s.id.clone(),
-                    spawn: spawn.clone(),
-                    launch: s.queued_launch.clone(),
-                    engine: None,
-                    extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
-                });
-            let Some(mut queued) = next else { return };
-            queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
-                Some(harness) => Some(self.engine_on(harness)),
-                None => self.spawn_engine(),
-            };
-            let id = queued.id.clone();
-            let sent = self
-                .sub_starter
-                .as_ref()
-                .is_some_and(|starter| starter.send(queued).is_ok());
-            if !sent {
-                self.sub_failed(&id, "this Chief host cannot start queued subagents");
+                .map(|(spawn, s)| (spawn.clone(), s.id.clone()));
+            let Some((spawn, id)) = next else { return };
+            if !self.start_one(&spawn, &id, "a slot is free") {
                 continue;
             }
-            let mut delivered = 0;
-            if let Some(sub) = self.state.sub_mut(&id) {
-                sub.status = SubStatus::Starting;
-                sub.run_ms = now_ms();
-                sub.queued_launch = None;
-                // Its inbox went in with its task.
-                delivered = sub.inbox.len();
-                sub.inbox.clear();
-            }
-            if delivered > 0 {
-                self.queue(
-                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
-                    Source::Note,
-                );
-            }
-            self.save();
-            (self.log)(&format!("subagent {id}: a slot is free, starting it"));
         }
+    }
+
+    /// chief.stop {start: name} (Start now on a queued agent's tab in Home,
+    /// user 2026-11-07 msg 23835): queued subagent `name` starts at once,
+    /// past the live cap, the others keep their places. Answers
+    /// `{"started": bool, "note"?, "error"?}`.
+    pub(super) fn start_subagent_now(&mut self, name: &str) -> Value {
+        let found = self.state.spawns.iter().find_map(|(spawn, r)| {
+            r.subs
+                .iter()
+                .find(|s| s.id == name)
+                .map(|s| (spawn.clone(), s.status, s.cancelled))
+        });
+        let Some((spawn, status, cancelled)) = found else {
+            return json!({"started": false, "error": format!("no subagent {name}")});
+        };
+        if status != SubStatus::Queued || cancelled {
+            return json!({"started": false, "error": format!("{name} is not queued")});
+        }
+        if let Some(s) = self.state.sub_mut(name) {
+            // The person asked for it by name: a pause no longer holds it.
+            s.paused = false;
+        }
+        if !self.start_one(&spawn, name, "the user started it now") {
+            return json!({"started": false, "error": "this Chief host cannot start queued subagents"});
+        }
+        (self.log)(&format!("the owner started subagent {name} past the cap"));
+        json!({"started": true, "note": format!("Started by the user: {name}.")})
+    }
+
+    /// Starts queued subagent `id` of spawn `spawn` now (no cap check): its
+    /// launch goes to the starter, its inbox with it. False when the host
+    /// cannot start it (it failed, and says why).
+    fn start_one(&mut self, spawn: &str, id: &str, why: &str) -> bool {
+        let Some((_, s)) = self.state.sub(id) else {
+            return false;
+        };
+        let mut queued = crate::subagents::QueuedStart {
+            id: s.id.clone(),
+            spawn: spawn.to_owned(),
+            launch: s.queued_launch.clone(),
+            engine: None,
+            extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
+        };
+        queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+            Some(harness) => Some(self.engine_on(harness)),
+            None => self.spawn_engine(),
+        };
+        let id = queued.id.clone();
+        let sent = self
+            .sub_starter
+            .as_ref()
+            .is_some_and(|starter| starter.send(queued).is_ok());
+        if !sent {
+            self.sub_failed(&id, "this Chief host cannot start queued subagents");
+            return false;
+        }
+        let mut delivered = 0;
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.status = SubStatus::Starting;
+            sub.run_ms = now_ms();
+            sub.queued_launch = None;
+            // Its inbox went in with its task.
+            delivered = sub.inbox.len();
+            sub.inbox.clear();
+        }
+        if delivered > 0 {
+            self.queue(
+                format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                Source::Note,
+            );
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {why}, starting it"));
+        true
     }
 
     /// `text` with every mention of this Chief's subagents written as its link

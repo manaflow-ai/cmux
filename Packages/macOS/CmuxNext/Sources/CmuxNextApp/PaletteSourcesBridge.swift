@@ -21,6 +21,9 @@ enum PaletteSourcesBridge {
         ]
         // A typed path or web address: Open it, or Ask Agent about it (Cmd-P, Cmd-Shift-P and Search).
         sources.goTo = AppPaletteGoToSource(services: services)
+        // A browser profile argument typed with a name no profile has: Create Browser Profile “name”,
+        // then the action runs on it (New Tab with Browser Profile…).
+        sources.targetCreators[.browserProfile] = BrowserProfileTargetSource.creator(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
@@ -120,22 +123,24 @@ enum PaletteSourcesBridge {
             let ranks = services.windows.active?.sidebar.model.workspaceRanks() ?? [:]
             let subagents = ChiefSubagentIDs.live
             let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
+            let lastActive = TabSearchFactsBuilder.lastActive(services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
                 // A lone tab is its workspace (Go to Workspace lists no row of its own): its words find this row.
                 let live = tabs.filter { !closing.contains($0.id) }, lone = live.count == 1 && !HomeRules.isHome(workspace) ? live.first : nil
+                let title = services.shownWorkspaceName(workspace)
+                // A tab that alone repeats the name is this row too (NavigationPaletteProvider.distinctTitles); an untitled chat reads as it.
+                let repeating = lone == nil ? PaletteWorkspace.loneRepeat(live, of: title) { var named = resolver; named.workspaceName = title; return named.title($0) } : nil
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
-                // The local Chief runs on this Mac, as the sidebar's machine marks say.
-                let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
-                return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
+                return PaletteWorkspace(id: workspace.id, title: title, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
+                                        groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
-                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id])
+                                        keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
             }
         }
 
@@ -158,11 +163,11 @@ enum PaletteSourcesBridge {
             daemon.send("rename-workspace") { connection in _ = try await connection.renameWorkspace(key, to: title) }
         }
 
+        /// The row's "Close Workspace" is an entrypoint of `closeWorkspace`, as the sidebar row's close button
+        /// (`SidebarBridge+Intents`): the row leaves and the selection moves in this turn (`WorkspaceCloseFlow`), a
+        /// running program is asked about, and the action's own target reason refuses Home (`HomeRules`).
         func closeWorkspace(id: String) {
-            guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
+            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id))
         }
     }
 

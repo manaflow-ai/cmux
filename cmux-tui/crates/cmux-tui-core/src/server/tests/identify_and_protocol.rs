@@ -410,6 +410,7 @@ fn identify_advertises_additive_capabilities() {
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_CAPABILITY,
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }
@@ -880,7 +881,7 @@ fn title_changed_event_includes_authoritative_surface_title() {
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     loop {
         match events.recv_timeout(Duration::from_secs(1)).unwrap() {
-            MuxEvent::TitleChanged { surface: id, title }
+            MuxEvent::TitleChanged { surface: id, title, .. }
                 if id == surface.id && title.as_ref() == "server title" =>
             {
                 break;
@@ -891,14 +892,29 @@ fn title_changed_event_includes_authoritative_surface_title() {
 
     assert_eq!(surface.title(), "server title");
     assert_eq!(
-        subscribed_event_json(&MuxEvent::TitleChanged {
-            surface: surface.id,
-            title: Arc::<str>::from("server title"),
-        }),
+        subscribed_event_json(&MuxEvent::terminal_title(
+            surface.id,
+            Arc::<str>::from("server title"),
+        )),
         json!({
             "event": "title-changed",
             "surface": surface.id,
             "title": "server title",
+            "text": "server title",
+            "activity": null,
+        })
+    );
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::terminal_title(
+            surface.id,
+            Arc::<str>::from("⠐ Fix the login bug"),
+        )),
+        json!({
+            "event": "title-changed",
+            "surface": surface.id,
+            "title": "⠐ Fix the login bug",
+            "text": "Fix the login bug",
+            "activity": "working",
         })
     );
 }

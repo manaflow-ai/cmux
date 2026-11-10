@@ -11,8 +11,8 @@ extension AgentRenderWindows {
     /// or fully covered window), its view moves into its
     /// off-screen render window. Hidden, WebKit runs no animation frame, fires timers once a second
     /// and takes no native input (no window); Chromium draws no frame. Nothing shows and focus does
-    /// not move. A Chromium tab whose pane shows another tab of the same Chromium window stays
-    /// (``CEFAgentRelay/needsRenderWindow``).
+    /// not move. A Chromium tab whose pane shows another tab first moves to a Chromium window of its
+    /// own, so the pane keeps its page (``CEFAgentRelay/needsRenderWindow``).
     ///
     /// - Parameter needsAScreen: The call is a wheel: a page in a covered window on a screen stays
     ///   there (WebKit runs a trusted native wheel only in a window on a screen).

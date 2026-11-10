@@ -7,6 +7,7 @@
 //!   auto_…/state.json         the schedule cursor (atomic replace)
 //!   auto_…/runs.jsonl         run history, append-only, locked while appending
 //!   auto_…/logs/run_….log     each run's output
+//!   auto_…/logs/watch.log     a watch command's stderr
 //!   auto_…/moved.json         a tombstone: it moved away (teleport) and never fires
 //!   .imports/tp_….json        imported handoffs (import is idempotent by handoff id)
 //!   .deleted/auto_…-<time>/   deleted automations, history kept
@@ -70,6 +71,10 @@ impl From<std::io::Error> for StoreError {
 pub struct AutomationState {
     /// Every scheduled time up to here has a run row (or was paused over).
     pub handled_through: i64,
+    /// Watch events dropped by the guardrails since the last run started;
+    /// the next run's prompt says how many.
+    #[serde(default)]
+    pub dropped: u64,
 }
 
 /// How long `moved` lists a tombstone, in milliseconds (30 days).
@@ -189,6 +194,11 @@ impl Store {
         self.root.join(id)
     }
 
+    /// The stderr of an automation's watch command.
+    pub fn watch_log_path(&self, automation: &str) -> PathBuf {
+        self.dir(automation).join("logs").join("watch.log")
+    }
+
     /// The output file of one run.
     pub fn log_path(&self, automation: &str, run: &str) -> PathBuf {
         self.dir(automation).join("logs").join(format!("{run}.log"))
@@ -249,6 +259,7 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             created_at: now,
             updated_at: now,
             home: self.home.clone(),
@@ -282,6 +293,7 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             updated_at: now,
             ..old
         };
@@ -569,13 +581,36 @@ impl Store {
         }
     }
 
-    /// Move the schedule cursor.
-    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+    fn put_state(&self, id: &str, state: &AutomationState) -> Result<(), StoreError> {
         create_private_dir(&self.dir(id))?;
-        let json = serde_json::to_vec(&AutomationState { handled_through: t })
-            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let json = serde_json::to_vec(state).map_err(|e| StoreError::Io(e.to_string()))?;
         write_atomic(&self.dir(id).join("state.json"), &json)?;
         Ok(())
+    }
+
+    /// Move the schedule cursor.
+    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+        let state = AutomationState { handled_through: t, ..self.state(id)? };
+        self.put_state(id, &state)
+    }
+
+    /// Count one more dropped watch event. Only the runner writes state, so
+    /// the read and the write do not race.
+    pub fn add_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        state.dropped = state.dropped.saturating_add(1);
+        self.put_state(id, &state)?;
+        Ok(state.dropped)
+    }
+
+    /// The dropped count, reset to zero (a run is starting).
+    pub fn take_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        let n = std::mem::take(&mut state.dropped);
+        if n > 0 {
+            self.put_state(id, &state)?;
+        }
+        Ok(n)
     }
 
     fn runs_file(&self, id: &str) -> std::io::Result<File> {

@@ -148,6 +148,24 @@
   outline: none;
 }
 
+/* THE SHEET ROLE (design/overlay-surfaces.md: dialogs, confirms and sheets; Leo 2026-11-07 on the
+   agent chat's Share dialog: "this is bad bc it's too transparent and it's also hard corners and all
+   the buttons are weird"). Every dialog a page draws itself is the shared glass (.ui-glass) with
+   .ui-glass-floats, so in a see-through Chromium page the theme surface lies under its tint and the
+   page's text fades instead of reading through it (glass.css, "CHROMIUM OVER THE WINDOW GLASS"). This
+   one rule gives it the sheet role's veil, corner radius and depth (the surface-roles block in
+   glass.css), as the native dialog card has (pages/overlay/dialog). A dialog's own class sets only its
+   size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
+   Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
+.ui-dialog.ui-glass {
+  --glass-tint: var(--surface-sheet-veil);
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup);
+  border-radius: var(--surface-sheet-radius);
+  background: var(--glass-tint);
+}
+
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
    "Reasoning" and "Service Tier" as large unstyled titles at another indent, with no line between the sections, because
    the pane does not load ui.css). Zero-specificity defaults: a quiet caption aligned with the rows' text, and a
@@ -188,10 +206,13 @@
    native gate sets to 0 when the area's animations are off (and :root[data-agent-motion="off"]
    stops them in the pane). A surface that travels its own size (a side panel) sets
    --ui-enter-distance: 100%. Under Reduce Motion a panel with presence keeps the fade and drops
-   the travel; an enter-only surface appears at once, as the page's other animations do. */
+   the travel; an enter-only surface appears at once, as the page's other animations do. The enter is
+   the fade-in token itself (micro, 120 ms) and the exit the fade-out (quick, 80 ms): a quarter more
+   of each (150 and 100 ms) put every popup off the one motion scale (Leo 2026-11-10: "the slow
+   animations ... we need to be holding ourselves to high standards"). */
 :root {
-  --ui-enter-duration: calc(var(--agent-motion-in, 120ms) * 1.25);
-  --ui-exit-duration: calc(var(--agent-motion-out, 80ms) * 1.25);
+  --ui-enter-duration: var(--agent-motion-in, 120ms);
+  --ui-exit-duration: var(--agent-motion-out, 80ms);
   --ui-enter-ease: cubic-bezier(0.2, 0, 0, 1);
   --ui-exit-ease: cubic-bezier(0.4, 0, 1, 1);
   --ui-enter-distance: 8px;
@@ -394,6 +415,7 @@
    pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
 .ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
+.ui-combobox-pinned[data-placement="bottom"] { margin: 4px 0 0; padding: 4px 0 0; }
 .ui-combobox-scroll { min-height: 0; }
 .ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
 .ui-combobox-pinned > button:hover, .ui-combobox-pinned > button:focus-visible { background: var(--ui-row); }

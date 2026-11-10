@@ -178,11 +178,13 @@ impl VisitStore {
     }
 
     /// Sets the title of `url`'s newest visit (titles arrive after the load).
-    /// Returns the number of visits changed (0 or 1).
+    /// Returns the number of visits changed (0 or 1): a page that announces the title it already
+    /// has changes none and writes nothing.
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
         Ok(self.connection.execute(
             "UPDATE visits SET title = ?1, search = ?3 WHERE id = \
-             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1)",
+             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1) \
+             AND title IS NOT ?1",
             params![title, url, search_text(url, Some(title))],
         )?)
     }
@@ -398,8 +400,23 @@ impl VisitStore {
     /// Removes visits at or after `since_ms` (`None`: every visit), into
     /// `backup`.
     pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
+        self.remove_between(since_ms, i64::MAX, backup)
+    }
+
+    /// Removes visits at or after `since_ms` (`None`: from the first) and at
+    /// or before `until_ms`, into `backup`.
+    pub fn remove_between(
+        &self,
+        since_ms: Option<i64>,
+        until_ms: i64,
+        backup: &str,
+    ) -> Result<usize, HistoryError> {
         let since = since_ms.unwrap_or(i64::MIN);
-        self.remove_where("visit_time_ms >= ?2", &[&since], backup)
+        self.remove_where(
+            "visit_time_ms >= ?2 AND visit_time_ms <= ?3",
+            &[&since, &until_ms],
+            backup,
+        )
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest

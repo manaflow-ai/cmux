@@ -4,7 +4,9 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -52,19 +54,23 @@ final class OnboardingService {
     var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    /// Whether a classic cmux app is running; nil checks classic's socket lock and reads its launch sentinel.
     var classicRunning: (@MainActor () -> Bool)?
+    /// Whether the classic socket lock at a path is held; nil asks `flock` (tests answer free).
+    var classicLockHeld: (@MainActor (String) -> Bool)?
     /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
     /// (`~/.local/state/cmux`); tests use a scratch folder.
     var classicStateRoot: URL?
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
-    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
-    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
-    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
+    /// Keep in Sync's watches (imported cookies' too); `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
+        stopped: { [weak services] name in if let services { BrowserFileImport.toast(services, id: "cookie-sync-stopped", BrowserImportOfferStrings.syncStopped(name)) } },
+        deliver: SavingImportDestination.omnibar(services.cache))
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
@@ -72,7 +78,7 @@ final class OnboardingService {
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
-    /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
+    /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
     init(services: AppServices) {
@@ -163,11 +169,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
-    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
+    /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
-        let key = "home.firstRun.historyImportShown"
-        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
+        let key = OnboardingWindowPresenter.historyShownKey
+        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.
@@ -183,15 +189,22 @@ final class OnboardingService {
         return await services.openLocalProviderLogin(line)
     }
 
-    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
-    func showAgentsAtFirstRun(isFirstRun: Bool) async {
-        guard !services.environment.showcase else { return }
-        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
+    /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+
+    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
+    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
+    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    func showFirstRunSteps(isFirstRun: Bool) async {
+        guard !services.environment.skipsOnboarding else { return }
+        let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        guard route == .windows else { return }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
-    func historyImportFinished() {
-        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
-    }
+    func historyImportFinished() { UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey) }
 
 }
 

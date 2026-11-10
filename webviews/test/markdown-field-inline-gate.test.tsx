@@ -361,7 +361,7 @@ test("an attachment inserts at the caret and Backspace deletes it in one press",
 // Review (Sol, #26545): the field's plain offsets must count a placed attachment as one place, as
 // markdownOffset (MentionMenu.tsx) does, so a caret after it maps to the right markdown index.
 test("a placed attachment counts as one place in the field's plain text and its caret", async () => {
-  const { markdownOffset } = await import("../src/agent-session/acpmux/MentionMenu");
+  const { markdownOffset } = await import("../src/agent-session/acpmux/mentionMenuModel");
   await render(() => {});
   const { value, selectionStart } = handle.current!.text();
   expect(value.length).toBe("see ".length + 1 + " here".length);

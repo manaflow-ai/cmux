@@ -7,7 +7,15 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../src/motion/scale.generated";
+import {
+  MOTION_EASE_OUT,
+  MOTION_MS,
+  MOTION_SEND_MS,
+  MOTION_SETTLE,
+  MOTION_SETTLE_MS,
+  MOTION_SPRING,
+  MOTION_SPRING_STEP,
+} from "../src/motion/scale.generated";
 import { SCALE, SRC, scan, scanText } from "./motion-scale";
 
 const finds = (file: string, text: string) => scanText(file, text).map((violation) => violation.line);
@@ -33,10 +41,42 @@ describe("motion scale", () => {
     const points = SCALE.spring.points;
     expect(points[0]).toEqual([0, 0]);
     expect(points.at(-1)).toEqual([1, 100]);
-    // Visibly settled (within 1% of rest) from 58% of its run on: about 140 ms of the 240 ms step.
+    // It only rises, and never past its end (Lawrence: no bounce in any motion).
+    for (const [index, [value]] of points.entries()) {
+      expect(value).toBeLessThanOrEqual(1);
+      expect(value).toBeGreaterThanOrEqual(points[Math.max(0, index - 1)]![0]);
+    }
+    // Within 1% of its end from 55% of its run on: about 130 ms of the 240 ms step.
     const settled = points.filter(([value]) => Math.abs(value - 1) > 0.01).at(-1)![1];
     expect((settled / 100) * MOTION_MS[MOTION_SPRING_STEP]).toBeLessThanOrEqual(MOTION_MS.large);
     expect(MOTION_SPRING).toMatch(/^linear\(0, .* 1\)$/);
+  });
+
+  // Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key".
+  test("the settle decelerates into its end and never passes it", () => {
+    const [x1, y1, x2, y2] = SCALE.settle.bezier as [number, number, number, number];
+    // Never past the end (no control point's progress over 1) and never back under the start.
+    for (const value of [x1, y1, x2, y2]) {
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(1);
+    }
+    // A strong ease-out: most of the way in the first quarter, a long soft tail into the end.
+    expect(y1).toBe(1);
+    expect(x1).toBeLessThan(0.3);
+    expect(MOTION_SETTLE).toBe(`cubic-bezier(${SCALE.settle.bezier.join(", ")})`);
+    expect(MOTION_SETTLE_MS).toBe(SCALE.settle.ms);
+    const desktop = fs.readFileSync(path.join(SRC, "pages/shared/desktop.css"), "utf8");
+    expect(desktop).toContain(`--cmux-ease-settle: ${MOTION_SETTLE};`);
+    expect(desktop).toContain(`--cmux-motion-settle: ${MOTION_SETTLE_MS}ms;`);
+  });
+
+  // Leo, 2026-11-09: "there's some sort of \"settling\" and like ok maybe but the animations end to end
+  // need to just resolve faster". The settle and the send keep their curve but end on the standard
+  // step, so a fold or a sent prompt is at rest as soon as any structural move.
+  test("the settle and the send end within the standard step", () => {
+    expect(MOTION_SETTLE_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(MOTION_SEND_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(SCALE.send.ms).toBe(MOTION_SEND_MS);
   });
 
   // What the scan caught on the base before the scale (feat-cmux-next, 2026-10-20).
@@ -74,7 +114,7 @@ describe("motion scale", () => {
       ".a { transition: background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out); }",
       ".a { transition: transform var(--motion-in); }",
       // Loops and their periods.
-      ".a { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }",
+      ".a { animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite; }",
       ".a { animation: breathe 1.4s ease-out infinite alternate; animation-duration: 1.3s; }",
       // Delays: the second time of a shorthand, and the delay properties.
       ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }",

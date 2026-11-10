@@ -1,6 +1,13 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { inboxText, type InboxNotice } from "./inboxNotice";
-import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
+import { PrefixFilter } from "./prefixFlatMap";
+import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
+import {
+  laneNotice,
+  type LaneNotice,
+  type LaneNoticeDelivery,
+  type LaneNoticeKind,
+  type LaneNoticeThread,
+} from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
 
 export type LaneNoticeBatch = NonNullable<AcpmuxRow["laneNoticeBatch"]>;
@@ -11,20 +18,33 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
   const threads: LaneNoticeThread[] = notice.threads.map((thread) => {
     const messages = thread.messages?.map((message) => ({
       sender: message.from,
+      ...(message.sender && { lookup: senderKey(message.from, message.sender) }),
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
+      ...(message.unverified ? { unverified: message.unverified } : {}),
+      ...(message.harness ? { harness: message.harness } : {}),
+      ...(message.sender?.session ? { session: message.sender.session } : {}),
+      ...(message.at !== undefined ? { at: message.at } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
+    const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
     const preview = messages?.at(-1)?.text ?? thread.preview;
     return {
       id: thread.threadId,
       sender,
+      ...(lookup && { lookup }),
+      ...(thread.sender && { senderRecord: thread.sender }),
       ...(preview ? { preview } : {}),
+      ...(!messages?.length && thread.newest !== undefined ? { newest: thread.newest } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
-      ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+      // The thread's session, else its sender record's (acpmux may name it only there).
+      ...((thread.fromSession ?? thread.sender?.session)
+        ? { fromSession: thread.fromSession ?? thread.sender?.session }
+        : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+      ...(thread.unverified ? { unverified: thread.unverified } : {}),
       count: thread.count,
     };
   });
@@ -77,7 +97,9 @@ const phaseOf = (row: AcpmuxRow): DeliveryPhase => {
 let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
-type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
+/// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
+/// projection's only (projectInboxRows reuses it), the flat one has none.
+type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 // Waiting rows already have an outer fold; delivered notices need their own. Search and display
 // may use the same source array, so their flat and folded projections cannot share a cache.
@@ -108,14 +130,16 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
 
 const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
-const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
+const inboxDeliveries = (thread: LaneNoticeThread): readonly LaneNoticeDelivery[] =>
   thread.messages?.length
     ? thread.messages
     : [
         {
           sender: thread.sender,
-          text: thread.preview ?? "",
+          ...(thread.lookup && { lookup: thread.lookup }),
+          text: thread.newest ?? thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+          ...(thread.unverified ? { unverified: thread.unverified } : {}),
         },
       ];
 
@@ -134,6 +158,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         text: delivery.text,
         untyped: true,
         inboxDelivery: true,
+        inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
         ...(!thread.messages?.length
           ? {
@@ -141,11 +166,14 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 threadId: thread.id,
                 ...(thread.label ? { label: thread.label } : {}),
                 sender: delivery.sender,
-                preview: delivery.text,
+                preview: thread.preview ?? delivery.text,
+                ...(thread.newest !== undefined ? { newest: thread.newest } : {}),
                 count: thread.count ?? 1,
                 promptIds: thread.promptIds ?? [],
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(thread.senderRecord ? { senderRecord: { ...thread.senderRecord } } : {}),
               },
             }
           : {}),
@@ -153,12 +181,23 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           kind: "message",
           message: {
             name: delivery.sender,
+            ...(delivery.lookup && { lookup: delivery.lookup }),
             text: delivery.text,
             raw: delivery.text,
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
-            ...(thread.fromHarness && delivery.sender === thread.sender ? { harness: thread.fromHarness } : {}),
+            ...(delivery.session
+              ? { sessionId: delivery.session }
+              : thread.fromSession && delivery.sender === thread.sender
+                ? { sessionId: thread.fromSession }
+                : {}),
+            ...(delivery.harness
+              ? { harness: delivery.harness }
+              : thread.fromHarness && delivery.sender === thread.sender
+                ? { harness: thread.fromHarness }
+                : {}),
+            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
           },
         },
       });
@@ -285,6 +324,13 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const cache = foldNotices ? deliveredInboxCache : inboxFlattenCache;
   const cached = cache.get(rows);
   if (cached) return cached.rows;
+  // A chat with no inbox row and, folded, no two received lines next to each other draws its rows
+  // as they are: found from a pass that reads only the rows a snapshot changed (prefixFlatMap.ts),
+  // not by reading every row of a long chat on each event.
+  if ((foldNotices ? foldedInboxMarks : flatInboxMarks).read(rows).items.length === 0) {
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    return rows;
+  }
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
   let hasInbox = false;
@@ -310,19 +356,26 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const gathersLines =
     foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
   if (!hasInbox && !gathersLines) {
-    cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
     return rows;
   }
   const seenIds = new Set<string>();
   const seenBodies = new Set<string>();
+  // A delivery is its prompt: its own msgId, else the prompt ids of the preview-only thread it
+  // stands for. Its sender and text identify it only when it names no prompt: a cleaned preview
+  // can be empty, and two threads from one sender would then be one (review of cmux#37653).
   const keepDelivery = (child: AcpmuxRow): boolean => {
     const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
     if (!message) return false;
-    const id = message.msgId;
+    const ids = message.msgId ? [message.msgId] : (child.inboxThread?.promptIds ?? []);
+    if (ids.length) {
+      if (ids.every((id) => deliveredIds.has(id) || seenIds.has(id))) return false;
+      for (const id of ids) seenIds.add(id);
+      return true;
+    }
     const body = bodyKey(message.name, message.text);
-    if (id ? deliveredIds.has(id) || seenIds.has(id) : deliveredBodies.has(body) || seenBodies.has(body)) return false;
-    if (id) seenIds.add(id);
-    else seenBodies.add(body);
+    if (deliveredBodies.has(body) || seenBodies.has(body)) return false;
+    seenBodies.add(body);
     return true;
   };
   const offsets: number[] = [];
@@ -390,6 +443,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   return result;
 }
 
+/// Whether a row is or holds an inbox notice or delivery (projectAllInboxRows' `collect`).
+function holdsInbox(row: AcpmuxRow): boolean {
+  if (row.laneNoticeBatch) return row.laneNoticeBatch.kind === "inbox" || row.laneNoticeBatch.rows.some(holdsInbox);
+  return noticeOf(row)?.kind === "inbox" || !!row.inboxDelivery;
+}
+/// The rows that keep a projection from being the rows as they are: inbox rows, and folded, a
+/// received line right after another.
+const flatInboxMarks = new PrefixFilter<AcpmuxRow>(holdsInbox);
+const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
+  (row, index, rows) =>
+    holdsInbox(row) ||
+    (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
+);
+const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
+
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
  * no delivery index is rebuilt and historical messages are neither visited nor reparsed. A new,
@@ -420,15 +488,16 @@ export function projectInboxRows(
     if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
-  const projected = held.rows.slice(0, held.offsets[reusedRows]);
-  const offsets = held.offsets.slice(0, reusedRows);
+  const heldOffsets = held.offsets!;
+  const projected = held.rows.slice(0, heldOffsets[reusedRows]);
+  const offsets = heldOffsets.slice(0, reusedRows);
   at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     offsets.push(projected.length);
     const row = rows[i]!;
     if (relevant(row)) {
       const oldIndex = oldMessages[at++]!.index;
-      projected.push(...held.rows.slice(held.offsets[oldIndex], held.offsets[oldIndex + 1]));
+      projected.push(...held.rows.slice(heldOffsets[oldIndex], heldOffsets[oldIndex + 1]));
     } else projected.push(row);
   }
   offsets.push(projected.length);

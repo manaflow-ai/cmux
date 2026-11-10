@@ -136,11 +136,12 @@ mod mobile_chat;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -177,6 +178,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
+mod bookmarks_routed;
 mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
@@ -198,17 +200,23 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
+#[cfg(unix)]
+mod carrier_role;
 #[cfg(unix)]
 mod native_owner;
 mod new_screen;
 mod personal;
+#[cfg(unix)]
+mod phone_carrier;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
@@ -317,6 +325,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod shell_wire;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -410,6 +419,12 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+/// A client that declares this in `set-client-info` gets the public ids
+/// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
+/// `workspace_id`) in the replies that create or find a terminal or view
+/// (`run`, `create-terminal`, `new-tab`, `split`, ...). Other clients get the
+/// old reply: released SDKs reject unknown fields in those results.
+pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
@@ -424,6 +439,10 @@ pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-n
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// A client that sends this in `set-client-info` gets `restart` on the
+/// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
+/// get the bare event, which strict older SDK decoders accept.
+pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -446,6 +465,12 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `set-terminal-tail-pin`: a pinned terminal's last output line
+/// shows under its workspace as the status entry `tail:<term id>`.
+pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
+/// Advertises `terminal-last-command`: the newest command a live shell
+/// finished, for Run Last Command Again.
+pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
 /// Advertises `terminal-resume-command`: a person's resume command for one
 /// terminal, typed on the new prompt when the terminal is respawned.
 pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
@@ -455,6 +480,12 @@ pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// client that closes a tab should end the terminal (`close-terminal`)
 /// instead of only detaching it (`close-surface`).
 pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
+/// Advertises `if_unplaced` on the resource `terminal.close`: end the
+/// terminal only when it has no view, no `keep` mark and no attach stream.
+/// An older daemon refuses the field as an unknown parameter
+/// (`validation.invalid`, before the request is keyed), so a client sends
+/// it and falls back to the plain close on that refusal.
+pub const TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY: &str = "terminal-close-if-unplaced-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
 /// owner shows the same screens, splits and tabs, each dead until a
@@ -519,6 +550,20 @@ pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// `workspaces.newPlacement` setting; and `workspace.move {index}` moves the
 /// workspace in the sidebar document's order too (#29875).
 pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-placement-v1";
+/// `workspace.create` takes `created_by` (`kind` person, agent or script, the
+/// creator `workspace`, the agent `session`): an agent or script workspace
+/// goes below its creator; workspaces carry it as `extra.created_by`.
+pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
+/// lines) and `lines` (the last N lines of scrollback and screen), and
+/// `terminal.copy` takes `unwrap`.
+pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
+/// `terminal.wait` takes `new`: only text printed below the cursor's line as
+/// the wait starts can match, so a typed command's echo and older output never do.
+pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
+/// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
+/// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -847,6 +892,7 @@ enum Command {
         upload_id: String,
         op: String,
         mime: Option<String>,
+        filename: Option<String>,
         size: Option<usize>,
         offset: Option<usize>,
         data: Option<String>,
@@ -877,6 +923,12 @@ enum Command {
         /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
         #[serde(default)]
         keep_layout: bool,
+        /// Whether a replacement daemon follows (`server restart`: true) or
+        /// the session stops (`server stop`: false). Repeated as `restart`
+        /// on the [`DAEMON_SHUTDOWN_EVENT`] so an attached TUI reconnects or
+        /// exits. Absent from older callers, which leave it unknown.
+        #[serde(default)]
+        restart: Option<bool>,
     },
     Ping,
     SetClientInfo {
@@ -1085,6 +1137,11 @@ enum Command {
         #[serde(alias = "timeout_ms")]
         timeout_ms: u64,
     },
+    /// Shell mode's command on this machine (`shell-runs-v1`, `shell_wire.rs`).
+    ShellRun(shell_wire::RunParams),
+    /// Its output, a long poll answered off the dispatcher (`shell_wire::read`).
+    ShellRead(shell_wire::ReadParams),
+    ShellStop(shell_wire::StopParams),
     Run {
         #[serde(default)]
         argv: Option<Vec<String>>,
@@ -1203,6 +1260,16 @@ enum Command {
         terminal_id: Option<String>,
         keep: bool,
     },
+    /// Pin (`pinned: true`) or unpin one terminal's last output line under
+    /// its workspace in the sidebar (`terminal-tail-pin-v1`), named by
+    /// exactly one of a PTY `surface` or a public `terminal` (`term_`) id.
+    SetTerminalTailPin {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal: Option<String>,
+        pinned: bool,
+    },
     /// Read, set (a string) or clear (null) the resume command of one hosted
     /// terminal, named by exactly one of a PTY `surface` or a stable
     /// `terminal_id`. A respawn of the terminal types the command on its new
@@ -1214,6 +1281,16 @@ enum Command {
         terminal_id: Option<String>,
         #[serde(default, deserialize_with = "present_nullable")]
         command: Option<Option<String>>,
+    },
+    /// The newest command the shell of one live terminal finished (OSC 133),
+    /// named by exactly one of a PTY `surface` or a stable `terminal_id`;
+    /// null while recording is off, for an incognito terminal, and before a
+    /// first command.
+    TerminalLastCommand {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -1541,6 +1618,15 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `split-divider-visibility-v1`: hide (`visible` false) or show the
+    /// divider of split `split`. The screen's layout lists hidden dividers
+    /// as `hidden_dividers`.
+    SetDividerVisible {
+        split: SplitId,
+        visible: bool,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -2730,10 +2816,13 @@ mod client_registry_views;
 mod listen;
 pub use listen::{
     BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,
+    serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
 mod terminal_sessions;
+#[cfg(all(test, unix))]
+use listen::still_at_path;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
@@ -2822,7 +2911,7 @@ fn node_json(
 ) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => {
+        Node::Split { id, dir, ratio, a, b, .. } => {
             let mut value = json!({
                 "type": "split",
                 "split": id,
@@ -2872,15 +2961,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -2968,6 +3057,14 @@ mod loopback_forward_tests;
 mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/agent_session_start_phone_tests.rs"]
+mod agent_session_start_phone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/cloud_mobile_capability_tests.rs"]
+mod cloud_mobile_capability_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
 mod agent_inventory_tests;
 
@@ -3013,6 +3110,9 @@ mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
+#[cfg(test)]
+#[path = "server/split_before_tests.rs"]
+mod split_before_tests;
 
 #[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]
@@ -3031,7 +3131,16 @@ mod browser_profile_tests;
 mod creation_burst_tests;
 
 #[cfg(test)]
+#[path = "server/run_public_ids_tests.rs"]
+mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
+
+#[cfg(test)]
 mod tests;
 
+mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;

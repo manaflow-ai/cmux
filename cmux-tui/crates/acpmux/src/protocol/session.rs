@@ -25,6 +25,10 @@ pub struct ForkParams {
     /// Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// The caller's name for this fork while it is made, at most 128 bytes: `_acpmux/kill` with
+    /// `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_token: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
@@ -66,6 +70,21 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub stuck_error: Option<String>,
+    /// A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
+    /// Additive so older clients and peers can omit it.
+    #[serde(default)]
+    #[schemars(default)]
+    pub loop_episode: Option<LoopEpisodeSummary>,
+    /// Unix milliseconds when its harness first refused a command because the harness's own
+    /// sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_failed: Option<u64>,
+    /// Whether its harness refuses commands now for that reason; a completed command or a new
+    /// harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_failing: bool,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -109,6 +128,13 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub spawn_tool_call_id: Option<String>,
+    /// Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+    /// session?}`, decided by the daemon from the connection, never from a request value.
+    /// Null for a fork, a moved-in session and one saved before it existed; absent from a
+    /// peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub created_by: Option<crate::store::CreatedBy>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
@@ -140,6 +166,12 @@ pub struct SessionSummary {
     pub queued: u64,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
+    /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
+    /// (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+    /// drain. Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub person_hold: Option<PersonHold>,
     /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
     /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
     /// otherwise, and from a peer on an older acpmux.
@@ -195,6 +227,17 @@ pub struct SessionSummary {
     pub tags: Value,
     pub state_seq: u64,
     pub unread: bool,
+    /// Turns that ended while no client showed the chat, since a person last showed it
+    /// (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    pub unread_turns: u64,
+    /// The log seq the person had seen when they last stopped showing the chat: a client
+    /// opening it while `unreadTurns` is above 0 draws "New since you looked" after it.
+    pub seen_seq: Option<u64>,
+    /// The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+    /// `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+    /// `since`, also when its attach answers before its list read.
+    pub last_return: Option<crate::store::LastReturn>,
     #[schemars(with = "Option<LastTurn>")]
     pub last_turn: Option<Value>,
     /// The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
@@ -237,6 +280,24 @@ pub struct SessionSummary {
     /// are found, for any other harness, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_stats: Option<UsageStats>,
+    /// Incremental wall-time and token attribution for the chat. This is seeded by a detail or
+    /// attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub time_breakdown: Option<crate::hub::time_breakdown::TimeBreakdown>,
+}
+
+/// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
+/// becomes active and another when progress clears it; the summary lets a newly attached client
+/// render the current state without replaying the transcript.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopEpisodeSummary {
+    pub episode_id: u64,
+    pub since: u64,
+    pub count: u32,
+    pub diagnosis: String,
+    pub hint: String,
 }
 
 /// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
@@ -450,6 +511,16 @@ pub struct LastMessage {
     pub text: String,
 }
 
+/// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
+/// why an agent does not start there unasked.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct PersonHold {
+    pub folder: String,
+    pub reason: String,
+}
+
 /// The running turn.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -529,6 +600,21 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub subagent_retry: Option<QueuedSubagentRetry>,
+    /// Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+    /// message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+    /// proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+    /// Null otherwise. Display only, never authority.
+    #[serde(default)]
+    #[schemars(default)]
+    pub provenance: Option<serde_json::Value>,
+    /// acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+    /// `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+    /// messages it carries and never as the person's queued prompt, also when it has not read
+    /// its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+    /// once edited (an edit drops the provenance).
+    #[serde(default)]
+    #[schemars(default)]
+    pub inbox_notice: Option<Value>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
@@ -547,11 +633,25 @@ pub struct QueuedSubagentRetry {
 /// The person who queued a prompt in a shared chat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
+#[schemars(transform = require_all_but_avatar)]
 pub struct QueuedAuthor {
-    /// `tailnet:<login>` or `user_…`.
+    /// `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.
     pub id: String,
     pub name: String,
+    /// Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
+    /// they have none (and from an older acpmux).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+}
+
+/// [`require_all`], but a [`QueuedAuthor`]'s `avatar` may be left out.
+fn require_all_but_avatar(schema: &mut schemars::Schema) {
+    require_all(schema);
+    if let Some(Value::Array(required)) =
+        schema.as_object_mut().and_then(|object| object.get_mut("required"))
+    {
+        required.retain(|name| name != "avatar");
+    }
 }
 
 /// An image a queued prompt sends.
@@ -673,14 +773,16 @@ pub struct RetrySummary {
 }
 
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
-/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
-/// agent process died mid-turn.
+/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+/// agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+/// is compacted, then continued at once).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
     Capacity,
     Transport,
     AgentExited,
+    Context,
 }
 
 impl RetryReason {
@@ -690,6 +792,7 @@ impl RetryReason {
             "capacity" => Some(Self::Capacity),
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
+            "context" => Some(Self::Context),
             _ => None,
         }
     }
@@ -699,6 +802,7 @@ impl RetryReason {
             Self::Capacity => "capacity",
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
+            Self::Context => "context",
         }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout shifts/flicker
@@ -10,7 +11,7 @@ import Testing
 /// WorkspaceRowView, SidebarUpdatedCardHost). The card now has its room in its first frame (the height
 /// its page last reported) and its page's first height lands without the spring.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 struct UpdatedCardFirstFrameTests {
     final class FakeIsland: SidebarSurfaceIsland {
         let view = NSView()
@@ -36,8 +37,8 @@ struct UpdatedCardFirstFrameTests {
     }
 
     static let card = SidebarUpdatedCard(title: "Updated", whatsNewTitle: "See What's New", dismissLabel: "Close")
-    static let key = "cmux.sidebar.updatedCard.height"
-    static let widthsKey = "cmux.sidebar.updatedCard.heights"
+    static let key = SidebarUpdatedCardHost.rememberedHeightKey
+    static let widthsKey = SidebarUpdatedCardHost.rememberedHeightsKey
 
     static func forget() {
         UserDefaults.standard.removeObject(forKey: key)
@@ -295,5 +296,35 @@ struct UpdatedCardFirstFrameTests {
         let next = Self.launch(FakeSurfaces())
         #expect(next.updatedCardView.height == 64, "the early report was not remembered at the card's width")
     }
-}
 
+    /// Leo 2026-11-09, on the relaunched card: "it should have the updated to Nightly already loaded in,
+    /// instead of just having a blank glass bit". The card keeps its room from its first frame, but
+    /// draws its glass, its page and its x only once its page has reported its words (the page reports
+    /// as soon as it has its title, its change line a loading line), so it never stands as blank glass.
+    @Test func theCardDrawsNoBlankGlassBeforeItsPageReports() throws {
+        UserDefaults.standard.set(48.0, forKey: Self.key)
+        UserDefaults.standard.removeObject(forKey: Self.widthsKey)
+        defer { Self.forget() }
+        let surfaces = FakeSurfaces()
+        let sidebar = Self.launch(surfaces)
+        let card = sidebar.updatedCardView
+        let island = try #require(surfaces.islands.first)
+        let middle = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)
+        // The room is there; nothing draws in it yet.
+        #expect(card.height == 48, "the card lost its first frame's room")
+        #expect(!card.isHidden)
+        #expect(!card.drawn)
+        #expect(card.glass.isHidden, "the glass stood blank while the page loaded")
+        #expect(island.view.alphaValue == 0, "the page drew before it had its words")
+        #expect(!card.covers(windowPoint: middle), "an undrawn card took the pointer from the rows")
+
+        // The page reports with its title: the glass and the page show together, at the same height.
+        island.report(48)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(card.drawn)
+        #expect(!card.glass.isHidden)
+        #expect(island.view.alphaValue == 1)
+        #expect(card.height == 48, "the card moved when its words came")
+        #expect(card.covers(windowPoint: card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)))
+    }
+}

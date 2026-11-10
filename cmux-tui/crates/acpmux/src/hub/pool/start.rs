@@ -59,7 +59,7 @@ impl Hub {
             // As `ensure_child` starts a fresh Claude session.
             let fresh_id = uuid::Uuid::now_v7().to_string();
             let effort = current_effort(draft).unwrap_or_else(|| "default".into());
-            let mode = "default".to_owned();
+            let mode = crate::claude_stdio::OWN_MODE.to_owned();
             let model = current_model(draft).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -94,13 +94,14 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let cmd = crate::agent::harness_command(
+        let cmd = crate::agent::harness_command_ready(
             &draft.harness,
             profile,
             &draft.cwd,
             command_line,
             Some((&session_id, &name)),
-        )?;
+        )
+        .await?;
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
@@ -112,6 +113,8 @@ impl Hub {
         // The class it runs at once a chat's start took it, from the harness's own env: its
         // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
+            profile.kind,
+            &profile.argv,
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut host_spec = agent_host::SpawnSpec {
@@ -129,6 +132,7 @@ impl Hub {
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
@@ -303,7 +307,7 @@ impl Hub {
         let mut last_cpu_ms = None;
         // The last read of a harness macOS can read: what it did since is judged over its whole
         // process tree, page-ins too (`HarnessState::worked_since`).
-        let mut last_state: Option<crate::cpu_class::HarnessState> = None;
+        let mut last_state: Option<(crate::cpu_class::HarnessState, tokio::time::Instant)> = None;
         let mut no_progress_since = None;
         let mut unread_since = None;
         loop {
@@ -318,7 +322,9 @@ impl Hub {
                     match seen {
                         crate::cpu_class::HarnessSeen::Running(state) => {
                             unread_since = None;
-                            let worked = last_state.as_ref().is_some_and(|last| state.worked_since(last));
+                            let worked = last_state
+                                .as_ref()
+                                .is_some_and(|(last, at)| state.worked_since(last, at.elapsed()));
                             if state.cpu_ms > 0 && !worked {
                                 let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
                                 if since.elapsed() >= START_HAZARD {
@@ -338,7 +344,7 @@ impl Hub {
                                 pageins = state.pageins,
                                 "pooled agent start waiting; machine busy"
                             );
-                            last_state = Some(state);
+                            last_state = Some((state, tokio::time::Instant::now()));
                         }
                         // A hosted child can be alive before it reports a harness
                         // pid. Keep waiting in that state; `is_alive` above is the

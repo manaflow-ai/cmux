@@ -8,7 +8,7 @@
 // An update that needs sudo shows its exact command instead of a button.
 // Accounts (`_acpmux/accounts`, when the daemon has it): a provider row says "Authenticated · <plan>"
 // for the CLI's own login and lists every account routing may use under it (ProviderAccounts).
-import { useCallback, useId } from "react";
+import { useCallback, useEffect, useId } from "react";
 import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
@@ -220,6 +220,19 @@ export function HarnessesCard() {
     },
     [store],
   );
+  // An account's sign-in or sign-out runs in a terminal tab, like Accounts' logins: coming back to
+  // Settings (its window, or its tab) reads the accounts again (the host ignores it when none ran).
+  useEffect(() => {
+    const focused = () => {
+      if (document.visibilityState === "visible") void store.runHarnesses({ action: "focus" });
+    };
+    window.addEventListener("focus", focused);
+    document.addEventListener("visibilitychange", focused);
+    return () => {
+      window.removeEventListener("focus", focused);
+      document.removeEventListener("visibilitychange", focused);
+    };
+  }, [store]);
   return (
     <section className="group" data-card="harnesses" ref={mounted}>
       <h3 className="group-title">{t("settingsWindow.harnesses.title")}</h3>

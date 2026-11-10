@@ -78,10 +78,21 @@ public final class ScreenSession {
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
     /// Set for a Mac paired as a screen stream (WebRTC video + input channel).
-    @ObservationIgnored public private(set) var stream: ScreenStreamViewer?
+    @ObservationIgnored public private(set) var stream: ScreenStreamViewer? {
+        // A paste the old stream carried never hears from the Mac now: settle it.
+        didSet { if stream !== oldValue { abandonPendingPaste() } }
+    }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
+    /// A screen stream's pointers, as fractions of the streamed display:
+    /// the Mac's own (the person's) and the agent's; nil when off it. Only
+    /// with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onTelepointers: ((CGPoint?, CGPoint?) -> Void)?
+    /// The app draws a screen stream's pointers itself (``onTelepointers``):
+    /// the Mac then leaves its cursor out of the video. Set before
+    /// connecting; an app that never sets it gets the cursor in the picture.
+    @ObservationIgnored public var drawsPointers = false
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -95,6 +106,76 @@ public final class ScreenSession {
 
     /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
     public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
+    /// The Mac pastes images sent from here (``pasteImage(_:type:)``): a
+    /// screen stream in full control whose host listed it. Paste Image shows only then.
+    public var supportsImagePaste: Bool { stream != nil && hostCapabilities.contains(ScreenHostMessage.pasteImageCapability) }
+
+    /// Where the last Paste Image is.
+    public enum ImagePaste: Equatable, Sendable {
+        case idle
+        /// The image is on its way to the Mac.
+        case sending
+        /// The Mac put it on its pasteboard and pressed ⌘V.
+        case pasted
+        /// It did not reach the Mac's pasteboard (the reason, for the person).
+        case failed(String)
+    }
+
+    public private(set) var imagePaste = ImagePaste.idle
+    /// The image ``imagePaste`` is about (another image's answer never settles it).
+    @ObservationIgnored private var imagePasteID: String?
+
+    /// Sends an image for the Mac to paste where its focus is (the Mac puts
+    /// it on its pasteboard and presses ⌘V). ``imagePaste`` follows it:
+    /// sending, then pasted or failed once the Mac answers.
+    public func pasteImage(_ data: Data, type: String) {
+        guard let stream, supportsImagePaste else {
+            imagePaste = .failed("This Mac can't take pasted images.")
+            return
+        }
+        guard ScreenInput.pasteImageTypes.contains(type), !data.isEmpty else {
+            imagePaste = .failed("This kind of image can't be pasted.")
+            return
+        }
+        guard data.count <= ScreenInput.pasteImageMaximumBytes else {
+            imagePaste = .failed("This image is too large to paste.")
+            return
+        }
+        perf?.input("paste-image")
+        let id = UUID().uuidString
+        imagePasteID = id
+        imagePaste = .sending
+        Task { [weak self] in
+            let sent = await stream.pasteImage(data, type: type, id: id)
+            guard let self, id == imagePasteID, imagePaste == .sending, !sent else { return }
+            imagePaste = .failed("The connection closed before the image was sent.")
+        }
+    }
+
+    /// The Mac's answer about the image `id` (nil from a host that names none).
+    package func receivePasteImage(_ outcome: ScreenHostMessage.PasteImageOutcome, id: String? = nil) {
+        guard imagePaste == .sending, id == nil || id == imagePasteID else { return }
+        switch outcome {
+        case .pasted: imagePaste = .pasted
+        case .refused: imagePaste = .failed("The Mac could not paste this image.")
+        case .incomplete: imagePaste = .failed("Part of the image went missing. Try again.")
+        }
+    }
+
+    private func abandonPendingPaste() {
+        guard imagePaste == .sending else { return }
+        imagePaste = .failed("The connection dropped before the Mac answered. Try again.")
+    }
+
+    /// A paste that failed before it reached the session (the photo could not be read).
+    public func reportImagePasteFailure(_ message: String) {
+        imagePaste = .failed(message)
+    }
+
+    /// Clears a settled paste (the banner went away).
+    public func dismissImagePaste() {
+        if imagePaste != .sending { imagePaste = .idle }
+    }
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
     /// The connection stalled (ICE disconnected): no picture is coming,
@@ -261,6 +342,8 @@ public final class ScreenSession {
 
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
+        // The last stream's pointers: a new host may send none (it draws its cursor).
+        onTelepointers?(nil, nil)
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
@@ -296,6 +379,20 @@ public final class ScreenSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
+        viewer.onPasteImage = { [weak self, weak viewer] outcome, id in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receivePasteImage(outcome, id: id)
+            }
+        }
+        viewer.onTelepointers = { [weak self, weak viewer] message in
+            let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
+            let (person, agent) = (point(message.person), point(message.agent))
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onTelepointers?(person, agent)
+            }
+        }
         viewer.onState = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, let message, self.stream === viewer else { return }
@@ -312,6 +409,7 @@ public final class ScreenSession {
                 isReconnecting = false
                 // The display's rate first: the Mac then sets up the quality at the agreed rate.
                 if let fps = displayMaximumFrameRate { viewer.setDisplayFrameRate(fps) }
+                if drawsPointers { viewer.drawPointers() }
                 viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
@@ -419,6 +517,11 @@ public final class ScreenSession {
         }
     }
 
+    /// Tells the Mac how large the stream shows (``ScreenStreamViewer/reportView(longEdge:pinch:)``).
+    public func reportView(longEdge: Int, pinch: Bool) {
+        stream?.reportView(longEdge: longEdge, pinch: pinch)
+    }
+
     /// Streams display `index` (the Mac crops to it).
     public func selectDisplay(_ index: Int) {
         stream?.send(ScreenInput(t: "display", i: index))
@@ -448,6 +551,7 @@ public final class ScreenSession {
         // deallocation can take seconds): never on the main actor.
         if let stream { Task.detached { stream.close() } }
         stream = nil
+        onTelepointers?(nil, nil)
         stats.targetFps = nil
         if !silently { phase = .ended }
     }

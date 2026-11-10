@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 import os
 
@@ -278,7 +279,7 @@ public final class HomeDock {
         let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
         // A shell whose folder is unknown is not known to be the placeholder.
         let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? false
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         return atHome && (title.isEmpty || title == "~" || title == folder)
     }
 

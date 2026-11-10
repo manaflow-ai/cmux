@@ -1,0 +1,209 @@
+//! A whole session list goes to a Web or peer connection in pages of at most
+//! [`WEB_LIST_PAGE_BYTES`] (`list_reply.rs`'s bound), each with the `nextCursor` of
+//! the rest. On 2026-11-06 one Mac (about 500 chats) sent a 24.8 MB `_acpmux/watch` list to a
+//! local Web connection (the mobile host's push watcher, whose socket takes frames up to 16 MiB)
+//! about once a minute for hours: the client dropped each one and asked again, and the Mac's
+//! own chat panes waited behind those lists. The app's own connections still read it whole.
+
+use crate::config::{Config, StoreMode};
+use crate::peer::{Peer, PeerNotice};
+use crate::rpc::{Message, method};
+use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+
+use super::Origin;
+
+/// `list_reply.rs`'s bound on one list reply to a Web or peer connection.
+const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
+
+/// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
+const OWN: usize = 3_000;
+const TITLE_BYTES: usize = 10_000;
+/// A chat mirrored from the peer `box`.
+const MIRRORED: &str = "box-chat";
+
+/// The most a reply line adds to its result: the frame's id and envelope.
+const FRAME: usize = 256;
+
+async fn hub() -> Arc<crate::hub::Hub> {
+    hub_of(OWN, TITLE_BYTES, "idle").await
+}
+
+/// A hub with `chats` of its own, each titled `title` bytes long and `status`, and one chat
+/// mirrored from its peer `box`.
+async fn hub_of(chats: usize, title: usize, status: &str) -> Arc<crate::hub::Hub> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    for i in 0..chats {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": format!("own-{i}"), "name": format!("own-{i}"),
+            "title": "t".repeat(title), "harness": "fake", "cwd": "/tmp", "status": status,
+            "createdAt": 1, "updatedAt": i + 1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    let hub = crate::hub::Hub::new(config, store);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+    let row = json!({"sessionId": MIRRORED, "name": "lane", "status": "idle", "updatedAt": 5});
+    let mut settled = peer.settled();
+    for notice in [PeerNotice::Sessions(vec![row]), PeerNotice::Connected] {
+        hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
+        .await
+        .expect("the hub applies the notices")
+        .unwrap();
+    hub
+}
+
+struct Client {
+    input: mpsc::Sender<String>,
+    outgoing: mpsc::Receiver<String>,
+    id: u64,
+}
+
+impl Client {
+    async fn on(hub: &Arc<crate::hub::Hub>, origin: Origin) -> Self {
+        let (input, incoming) = mpsc::channel(8);
+        let (output, outgoing) = mpsc::channel(64);
+        tokio::spawn(super::serve_connection_with(hub.clone(), incoming, output, origin));
+        let mut client = Self { input, outgoing, id: 0 };
+        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "test", "version": "0"}});
+        client.call(method::INITIALIZE, hello).await;
+        client
+    }
+
+    /// The reply to `m`, the size of its line, and how long it took.
+    async fn call(&mut self, m: &str, params: Value) -> (Value, usize, Duration) {
+        self.id += 1;
+        let id = self.id;
+        let asked = Instant::now();
+        self.input.send(Message::request(id, m, params).to_line()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let line = self.outgoing.recv().await.unwrap();
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["id"] == id {
+                    assert!(reply.get("error").is_none(), "{m}: {}", &line[..line.len().min(400)]);
+                    return (reply["result"].clone(), line.len(), asked.elapsed());
+                }
+            }
+        })
+        .await
+        .expect("the reply comes")
+    }
+
+    /// The whole watch list as a paging client reads it (`_acpmux/watch`, then
+    /// `_acpmux/sessions {cursor}`): every id, and each reply line's size.
+    async fn whole_watch(&mut self) -> (Vec<String>, Vec<usize>) {
+        self.whole(method::MUX_WATCH, json!({"enabled": true})).await
+    }
+
+    /// The whole list read from `m {params}` on, then by `_acpmux/sessions {cursor}`.
+    async fn whole(&mut self, m: &str, params: Value) -> (Vec<String>, Vec<usize>) {
+        let (mut page, size, _) = self.call(m, params).await;
+        let (mut ids, mut sizes, mut seen) = (Vec::new(), vec![size], HashSet::new());
+        loop {
+            for row in page["sessions"].as_array().expect("a page lists sessions") {
+                ids.push(row["sessionId"].as_str().unwrap().to_owned());
+            }
+            let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) else { break };
+            assert!(seen.insert(cursor.clone()), "the cursor {cursor} came twice");
+            let (next, size, _) = self.call(method::MUX_SESSIONS, json!({"cursor": cursor})).await;
+            (page, sizes) = (next, [sizes, vec![size]].concat());
+        }
+        (ids, sizes)
+    }
+}
+
+fn sorted(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort_unstable();
+    ids
+}
+
+fn own_ids() -> Vec<String> {
+    sorted((0..OWN).map(|i| format!("own-{i}")).collect())
+}
+
+/// This daemon's own chats and the one mirrored from `box`.
+fn every_id() -> Vec<String> {
+    sorted([own_ids(), vec![MIRRORED.to_owned()]].concat())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
+    let hub = hub().await;
+    let mut web = Client::on(&hub, Origin::Web).await;
+    let (ids, sizes) = web.whole_watch().await;
+    assert!(sizes.len() > 1, "a list past one page goes in pages: {sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    // Every row once: the pages neither skip nor repeat one.
+    assert_eq!(sorted(ids), every_id());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
+    let hub = hub().await;
+    let mut link = Client::on(&hub, Origin::Peer).await;
+    let (ids, sizes) = link.whole_watch().await;
+    assert!(sizes.len() > 1, "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    // Every row once, the mirrored one too: each page has the same rows as the first
+    // (the link drops the mirrored ones on each page itself, `watch_sessions`).
+    assert_eq!(sorted(ids), every_id());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
+    let hub = hub().await;
+    let mut link = Client::on(&hub, Origin::Peer).await;
+    let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
+    assert!(sizes.len() > 1, "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert_eq!(sorted(ids), every_id());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_apps_own_connection_still_reads_the_list_in_one_reply() {
+    let hub = hub().await;
+    // The app's watch feeds read their list in one reply (AgentTurnStateFeed).
+    let mut local = Client::on(&hub, Origin::Local).await;
+    let (page, size, _) = local.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    assert!(page.get("nextCursor").is_none_or(Value::is_null), "no cursor");
+    assert_eq!(page["sessions"].as_array().unwrap().len(), OWN + 1);
+    assert!(size > WEB_LIST_PAGE_BYTES);
+}
+
+/// Bench: bytes and time of the first watch reply, and of the whole list read in pages, on a Web
+/// connection against the app's own one (the reply every connection got before), on about 9,000
+/// closed chats (a whole list of about 15 MB; summaries cap their titles).
+/// `cargo test -p acpmux list_web_page_bench -- --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+async fn list_web_page_bench() {
+    let hub = hub_of(9_000, 2_600, "closed").await;
+    let mut local = Client::on(&hub, Origin::Local).await;
+    let _ = local.call(method::MUX_SESSIONS, json!({"limit": 1})).await;
+    let (_, whole_bytes, whole_time) =
+        local.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    let mut web = Client::on(&hub, Origin::Web).await;
+    let (_, first_bytes, first_time) = web.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    let started = Instant::now();
+    let (ids, sizes) = web.whole_watch().await;
+    let paged_time = started.elapsed();
+    println!(
+        "PERF watch rows={} one_reply bytes={whole_bytes} ms={:.1} | web first_page bytes={first_bytes} ms={:.1} | web all_pages pages={} bytes={} ms={:.1}",
+        ids.len(),
+        whole_time.as_secs_f64() * 1000.0,
+        first_time.as_secs_f64() * 1000.0,
+        sizes.len(),
+        sizes.iter().sum::<usize>(),
+        paged_time.as_secs_f64() * 1000.0,
+    );
+}

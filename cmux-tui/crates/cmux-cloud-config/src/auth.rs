@@ -252,6 +252,270 @@ pub fn allowed_team_id(
     }
 }
 
+/// The name cmux's backend gives a person's own Cloud team (`team-vm-api-personal-stack.ts`
+/// creates it as "Personal"). The sign-in service lists it beside shared teams with no other mark a
+/// signed-in client can read (its provenance is server-only metadata), so this name is what tells
+/// the person's own team apart on screen. It only labels a row; nothing is allowed or refused by it.
+pub const PERSONAL_TEAM_NAME: &str = "Personal";
+
+/// What the app read about one of the account's teams.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFacts {
+    pub id: String,
+    pub name: String,
+    /// The team's plan id (`client_read_only_metadata.cmuxPlan`, web billing's mirror), when set.
+    #[serde(default)]
+    pub plan: Option<String>,
+}
+
+/// Whose a team is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TeamKind {
+    /// The person's own team.
+    Personal,
+    /// A team shared with other people.
+    Team,
+}
+
+/// One team as every team list shows it (the account menu, Switch Active Team, the menu bar).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRow {
+    pub id: String,
+    /// The team's name; its id when the name is blank.
+    pub title: String,
+    pub kind: TeamKind,
+    /// The team cmux works in now: the one row a list checks.
+    pub active: bool,
+    /// The plan id, lowercased, when the team has one; the app names it.
+    pub plan: Option<String>,
+}
+
+/// The account's teams as rows, in the order given, with `active` checked: at most one row is,
+/// and none when `active` names no listed team.
+pub fn team_rows(teams: &[TeamFacts], active: Option<&str>) -> Vec<TeamRow> {
+    teams
+        .iter()
+        .map(|team| {
+            let name = team.name.trim();
+            let plan = team
+                .plan
+                .as_deref()
+                .map(|plan| plan.trim().to_lowercase())
+                .filter(|plan| !plan.is_empty() && plan.len() <= 64);
+            TeamRow {
+                id: team.id.clone(),
+                title: if name.is_empty() { team.id.clone() } else { name.to_owned() },
+                kind: if name == PERSONAL_TEAM_NAME { TeamKind::Personal } else { TeamKind::Team },
+                active: active == Some(team.id.as_str()),
+                plan,
+            }
+        })
+        .collect()
+}
+
+/// The build facts [`launch_sign_in`] reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Build {
+    pub bundle_id: Option<String>,
+    pub is_debug_build: bool,
+    pub is_production_auth: bool,
+}
+
+/// How a launch signs in from the credentials it was given.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchSignIn {
+    /// The debug sign-in surface: the ambient dogfood files and the `42` shortcut.
+    pub dev_auth: bool,
+    /// Whether the launch resolves credentials and signs in from them.
+    pub auto_login: bool,
+    /// Whether resolved credentials replace a session already stored.
+    pub replaces_session: bool,
+    /// Whether the session lives in memory only: never read from or written to the Keychain, the
+    /// credentials file or the defaults, so it ends with the process.
+    pub memory_only: bool,
+}
+
+/// How a launch of `build` with `environment` signs in. The signed NEXT DEV build (a Release
+/// compile) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE` (the proof passes it),
+/// never the ambient files, keeps a session already signed in unless told to replace it, and gets
+/// no debug sign-in surface. Signed cmux NIGHTLY signs in from an explicit file the same way, for
+/// end-to-end checks on a CI Mac, with that launch's session in memory only: it never reads, writes
+/// or replaces the session in its Keychain. Every other Release build never signs in from the
+/// launch. A debug build signs in from its dogfood credentials against the development project;
+/// pointed at production, only from an explicit file.
+pub fn launch_sign_in(build: &Build, environment: &BTreeMap<String, String>) -> LaunchSignIn {
+    let explicit = environment.get("CMUX_AUTH_CREDENTIALS_FILE").is_some_and(|v| !v.is_empty());
+    let bundle_id = build.bundle_id.as_deref();
+    if !build.is_debug_build
+        && bundle_id == Some(crate::config::NIGHTLY_BUNDLE_ID)
+        && build.is_production_auth
+        && explicit
+    {
+        return LaunchSignIn { auto_login: true, memory_only: true, ..LaunchSignIn::default() };
+    }
+    let replace_asked = environment.get("CMUX_DEV_AUTH_REPLACE_SESSION").is_some_and(|v| v == "1");
+    if !build.is_debug_build && bundle_id == Some(crate::config::NEXT_DEV_BUNDLE_ID) && explicit {
+        return LaunchSignIn {
+            auto_login: true,
+            replaces_session: replace_asked,
+            ..LaunchSignIn::default()
+        };
+    }
+    let dev_auth = build.is_debug_build && (!build.is_production_auth || explicit);
+    let replaces = replace_asked
+        || environment.contains_key("CMUX_DEV_AUTH_PROFILE")
+        || environment.contains_key("CMUX_AUTH_CREDENTIALS_FILE");
+    LaunchSignIn {
+        dev_auth,
+        auto_login: dev_auth,
+        replaces_session: dev_auth && replaces,
+        memory_only: false,
+    }
+}
+
+/// What the launch's sign-in does with the account [`decide`] picked.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchLogin {
+    /// The account to sign in, handed to the coordinator's auto-login as the
+    /// `CMUX_UITEST_STACK_*` launch keys.
+    pub credentials: Option<Credentials>,
+    pub replace_session: bool,
+    /// Whether the coordinator may sign in from the launch's keys at all: the debug surface, or
+    /// the explicit file's resolved account (never raw launch keys on a signed build).
+    pub allows_environment_auto_login: bool,
+    /// Why the build starts signed out, masked for the log; never the secret.
+    pub refusal_log: Option<String>,
+}
+
+/// The launch's sign-in: `sign_in` from [`launch_sign_in`], `decision` from [`decide`] (absent
+/// when the launch does not sign in from credentials).
+pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> LaunchLogin {
+    let credentials = decision.and_then(|d| d.credentials.clone());
+    let refusal_log = decision.and_then(|d| d.refusal.as_ref()).map(|refusal| match refusal {
+        Refusal::NoDeclaredAccount => "dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)".to_owned(),
+        Refusal::AccountMismatch { found, declared } => {
+            format!("dev auto sign-in off: {} is not the declared {}", mask(found), mask(declared))
+        }
+    });
+    LaunchLogin {
+        replace_session: credentials.is_some() && sign_in.replaces_session,
+        allows_environment_auto_login: sign_in.dev_auth
+            || (sign_in.auto_login && credentials.is_some()),
+        credentials,
+        refusal_log,
+    }
+}
+
+/// Where the hosted cmux sign-in opens (Debug Settings `auth.signInWindow`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SignInWindow {
+    /// The popup when the default browser is Safari, else the default browser.
+    Automatic,
+    /// Always the popup (a browser that ends it at once still falls back).
+    Popup,
+    /// Always the default browser.
+    DefaultBrowser,
+}
+
+/// Bundle identifiers of browsers that host the sign-in popup (`ASWebAuthenticationSession`).
+/// macOS hands the popup to the default browser, and one that does not host those sessions ends
+/// it as cancelled (Helium; Edge, 2026-10-19: four Sign In clicks, four cancels).
+pub const POPUP_BROWSERS: [&str; 2] = ["com.apple.Safari", "com.apple.SafariTechnologyPreview"];
+
+/// Whether a sign-in skips the popup and opens in the default browser (`default_browser`: its
+/// bundle identifier, absent when unknown).
+pub fn opens_default_browser(window: SignInWindow, default_browser: Option<&str>) -> bool {
+    match window {
+        SignInWindow::Popup => false,
+        SignInWindow::DefaultBrowser => true,
+        SignInWindow::Automatic => default_browser.is_some_and(|b| !POPUP_BROWSERS.contains(&b)),
+    }
+}
+
+/// Whether a person's creation waiting on a hosted sign-in survives an account scope change
+/// (`[user, team]`, before and after). Hosted auth publishes its user before loading the initial
+/// active team: that nil-to-team hydration belongs to the sign-in being awaited. A later user
+/// replacement, sign-out, or populated-team change does not.
+pub fn creation_survives_scope_change(
+    previous: &[Option<String>],
+    current: &[Option<String>],
+) -> bool {
+    let at = |scope: &[Option<String>], i: usize| scope.get(i).cloned().flatten();
+    let (was_user, was_team) = (at(previous, 0), at(previous, 1));
+    let (user, team) = (at(current, 0), at(current, 1));
+    (previous.len() == 2 && was_user.is_none() && was_team.is_none() && user.is_some())
+        || (was_user.is_some() && was_user == user && was_team.is_none() && team.is_some())
+}
+
+/// The team detail facts the Invite to Team dialog's cost line reads.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeatInputs {
+    pub invite_members: bool,
+    pub role: Option<String>,
+    pub plan_id: Option<String>,
+    pub has_active_subscription: Option<bool>,
+    pub member_count: Option<u64>,
+    pub member_limit: Option<u64>,
+    /// The detail's member rows.
+    pub members: u64,
+}
+
+/// What a team's plan says about one more member.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeatFacts {
+    pub can_invite: bool,
+    pub plan_id: Option<String>,
+    pub has_subscription: bool,
+    pub member_count: u64,
+    pub member_limit: Option<u64>,
+}
+
+/// A team's seat facts: an admin may always invite; the billed member count, else the rows.
+pub fn seat_facts(inputs: &SeatInputs) -> SeatFacts {
+    SeatFacts {
+        can_invite: inputs.invite_members || inputs.role.as_deref() == Some("admin"),
+        plan_id: inputs.plan_id.clone(),
+        has_subscription: inputs.has_active_subscription.unwrap_or(false),
+        member_count: inputs.member_count.unwrap_or(inputs.members),
+        member_limit: inputs.member_limit,
+    }
+}
+
+/// How one team invite went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InviteAnswer {
+    Sent,
+    AlreadyMember,
+    SendFailed,
+    NotAllowed,
+    Unreachable,
+}
+
+/// One invite's answer: `error` is the team error the call threw (`forbidden`, ...), else
+/// `first_failure_already_member` says whether the address was refused, and why.
+pub fn invite_answer(
+    error: Option<&str>,
+    first_failure_already_member: Option<bool>,
+) -> InviteAnswer {
+    match (error, first_failure_already_member) {
+        (Some("forbidden"), _) => InviteAnswer::NotAllowed,
+        (Some(_), _) => InviteAnswer::Unreachable,
+        (None, None) => InviteAnswer::Sent,
+        (None, Some(true)) => InviteAnswer::AlreadyMember,
+        (None, Some(false)) => InviteAnswer::SendFailed,
+    }
+}
+
 #[cfg(test)]
 #[path = "auth_tests.rs"]
 mod tests;

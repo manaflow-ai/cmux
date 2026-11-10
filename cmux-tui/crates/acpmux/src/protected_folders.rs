@@ -15,6 +15,7 @@ const PROTECTED_FOLDERS_JSON: &str = include_str!("../data/protected-folders.jso
 #[derive(serde::Deserialize)]
 struct ProtectedEntry {
     path: String,
+    kind: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -38,6 +39,23 @@ fn protected_list() -> Option<&'static ProtectedList> {
         }
     })
     .as_ref()
+}
+
+/// A known privacy-protected location, without the broader startup refusal for `/` or home.
+/// This is a hint for an OS-denied read, not proof that TCC caused the denial.
+pub fn protected_kind_in(path: &Path, home: Option<&Path>) -> Option<&'static str> {
+    let list = protected_list()?;
+    let path = fold(path);
+    let under = |root: &str| path == root || path.starts_with(&format!("{root}/"));
+    for entry in &list.roots {
+        if under(&entry.path.to_lowercase()) {
+            return Some(&entry.kind);
+        }
+    }
+    let home = fold(home?);
+    list.in_home.iter().find_map(|entry| {
+        under(&format!("{home}/{}", entry.path.to_lowercase())).then_some(entry.kind.as_str())
+    })
 }
 
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
@@ -79,6 +97,15 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
 /// root folder, other volumes and the privacy-protected folders stay refused.
 pub fn spare_refusal(cwd: &Path) -> Option<String> {
     spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
+}
+
+/// Why a daemon start may not go on by itself with a chat's restored work in `cwd` (its queued
+/// prompts, a cut turn, held agent messages: `hub/protected_hold.rs`), or `None` when it may. As
+/// `spare_refusal`: off macOS the home folder itself raises no privacy prompt, and a machine whose
+/// chats all run there (a fleet lane VM, a cmux Cloud machine) has no person to open each chat, so
+/// a hold there left every queue waiting for good after an update restarted the daemon.
+pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal(cwd)
 }
 
 /// `spare_refusal` for the user whose home folder is `home`, on macOS or not.

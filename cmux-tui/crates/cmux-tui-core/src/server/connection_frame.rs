@@ -25,8 +25,24 @@ pub(super) fn handle_connection_frame(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    // The slow request log's record of this line, from here to its reply written
+    // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
+    let _slow_log = mux.connection_stats().request_log().map(|log| {
+        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+    });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
+    }
+    // A carrier stream's signed role, stamped by the session host before the person's first
+    // byte (carrier_role.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = phone_carrier::refuse_line(mux, client, message, writer) {
+        return keep_open;
     }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
@@ -59,6 +75,9 @@ pub(super) fn handle_connection_frame(
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
             return keep_open;
+        }
+        if let Ok(envelope) = &request {
+            crate::diagnostics::request_log::decoded_operation(envelope.operation.wire_name());
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -127,6 +146,7 @@ pub(super) fn handle_connection_frame(
         Err(error) => return send_bad_request(writer, message, &error),
     };
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
+    crate::diagnostics::request_log::decoded_command();
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
     // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
     if let Command::Send(send) = &request.cmd
@@ -186,6 +206,9 @@ pub(super) fn handle_request_with_cancellation(
     }
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, writer);
+    }
+    if let Command::ShellRead(params) = cmd {
+        return shell_wire::read(mux, client, id, params, writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);

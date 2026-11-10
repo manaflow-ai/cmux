@@ -7,7 +7,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { CloudStartView, startupChecklist } from "./CloudStartView";
+import { CloudStartView } from "./CloudStartView";
+import { startupChecklist } from "./cloudStartViewModel";
+import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
 
 let dom: JSDOM | undefined;
@@ -140,6 +142,100 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).toContain("No machine free");
   expect(html).not.toContain("cv-spinner");
   expect(html).not.toContain("fix the build");
+});
+
+test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
+  const variant = cloudStartGallery.variants["signed-out"]!;
+  const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
+  expect(html).toContain(variant.props.start.task);
+  expect(html).toContain('class="acpmux-cloud-start__sign-in"');
+  expect(html).toContain("Sign in to use Cloud.");
+});
+
+test("a start waiting on its browser sign-in says so, not starting or Thinking", () => {
+  const variant = cloudStartGallery.variants["signing-in"]!;
+  for (const showSteps of [false, true]) {
+    const html = renderToStaticMarkup(<CloudStartView {...variant.props} showSteps={showSteps} />);
+    expect(html).toContain(variant.props.start.task);
+    expect(html).toContain('data-signing-in="true"');
+    expect(html).toContain("Waiting for you to sign in in your browser");
+    expect(html).not.toContain("cv-thinking");
+    expect(html).not.toContain("Preparing machine");
+  }
+  // Once signed in, the start reads as any start again.
+  const { signingIn: _signingIn, ...started } = variant.props.start;
+  const html = renderToStaticMarkup(<CloudStartView start={started} />);
+  expect(html).toContain("cv-thinking");
+  expect(html).not.toContain("data-signing-in");
+});
+
+test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures offer none", () => {
+  const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+      onDismiss={() => undefined}
+    />,
+  );
+  expect(html).toContain('data-role="default">Upgrade</button>');
+  expect(html).toContain(">Run on This Mac</button>");
+  expect(html).toContain(">Not Now</button>");
+  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
+  expect(html).toContain('aria-expanded="false"');
+  const generic = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, code: "cloud_start_failed" }}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+    />,
+  );
+  expect(generic).not.toContain(">Upgrade</button>");
+  expect(generic).not.toContain(">Run on This Mac</button>");
+});
+
+test("a plan refusal in a team says so, names the team and switches to the person's own; no Retry, no wait", async () => {
+  const refusal: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_plan_required",
+    message: "Cloud machines need a Pro plan.",
+    retryable: true,
+    planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
+  };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+      onRetry={() => undefined}
+    />,
+  );
+  expect(html).toContain("This team has no Cloud plan");
+  expect(html).toContain("cmux is the team selected in the team menu.");
+  expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
+  expect(html).toContain('data-action="see-plans">See plans</button>');
+  expect(html).not.toContain("acpmux-cloud-start__retry");
+  expect(html).not.toContain("acpmux-cloud-start__card");
+  expect(html).not.toContain("Cloud machines need a Pro plan.");
+  // With no own team known, See plans leads.
+  const plans = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, planTeam: { team: "cmux" } }}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+    />,
+  );
+  expect(plans).not.toContain("switch-team");
+  expect(plans).toContain('data-role="default" data-action="see-plans"');
+  // The click hands the team to the pane, which switches and sends again.
+  const host = installDom();
+  const picked: string[] = [];
+  root = createRoot(host);
+  await act(async () => root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />));
+  (host.querySelector('[data-action="switch-team"]') as HTMLButtonElement).click();
+  expect(picked).toEqual(["team_0123456789abcdef0123"]);
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
@@ -309,4 +405,75 @@ test("a start this Mac refused before it reached Cloud marks no step failed", ()
   const failed = { key: "k", task: "hey", state: "failed" as const, folder: "paint" };
   expect(startupChecklist(failed)[0]?.status).toBe("error");
   expect(startupChecklist({ ...failed, refusedHere: true }).map((row) => row.status)).not.toContain("error");
+});
+
+const ask = {
+  id: "ask-1",
+  kind: "codexDevice" as const,
+  title: "Sign in to Codex",
+  lines: ["Enter this one-time code: WXYZ-1234"],
+  buttons: [
+    { id: "cancel", title: "Cancel", role: "cancel" as const },
+    { id: "signedIn", title: "I signed in", role: "default" as const },
+  ],
+  code: "WXYZ-1234",
+  link: { url: "https://auth.openai.com/codex/device", title: "Open sign-in" },
+};
+
+test("the host's question shows in the card with one filled button and its page as a link", () => {
+  for (const name of ["inline", "sheet", "banner"]) {
+    (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "cloud-start-ask": name };
+    const html = renderToStaticMarkup(<CloudStartView start={{ ...start, ask }} onAnswer={async () => true} />);
+    expect(html).toContain(`data-look="${name}"`);
+    expect(html).toContain("Sign in to Codex");
+    expect(html).toContain("WXYZ-1234");
+    expect(html).toContain('href="https://auth.openai.com/codex/device"');
+    expect(html.match(/data-role="default"/g)).toHaveLength(1);
+    expect(html).toContain('data-open="true"');
+  }
+  expect(renderToStaticMarkup(<CloudStartView start={start} />)).not.toContain("acpmux-cloud-ask");
+});
+
+test("a click answers once with the ask's id and the button; a refused answer lets the buttons take another", async () => {
+  const container = installDom();
+  const answers: [string, string][] = [];
+  let take = false;
+  const onAnswer = async (id: string, button: string) => {
+    answers.push([id, button]);
+    return take;
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={{ ...start, ask }} onAnswer={onAnswer} />);
+  });
+  const yes = () => container.querySelector<HTMLButtonElement>('.acpmux-cloud-ask__button[data-role="default"]')!;
+  await act(async () => yes().click());
+  expect(answers).toEqual([["ask-1", "signedIn"]]);
+  expect(yes().disabled).toBe(false);
+  take = true;
+  await act(async () => yes().click());
+  expect(answers).toHaveLength(2);
+  expect(yes().disabled).toBe(true);
+  // The host takes the question away: the row closes and answers nothing more.
+  await act(async () => root!.render(<CloudStartView start={start} onAnswer={onAnswer} />));
+  const row = container.querySelector(".acpmux-cloud-ask-row");
+  expect(row?.getAttribute("data-open")).toBe("false");
+  expect(row?.getAttribute("aria-hidden")).toBe("true");
+});
+
+test("Retry shows only on a failure another try can help", async () => {
+  const failed = { ...start, state: "failed" as const, message: "paint-dev didn't connect in time." };
+  expect(renderToStaticMarkup(<CloudStartView start={failed} onRetry={() => undefined} />)).not.toContain(
+    "acpmux-cloud-start__retry",
+  );
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={{ ...failed, retryable: true }} onRetry={() => void retried++} />);
+  });
+  const retry = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__retry");
+  expect(retry?.textContent).toBe("Retry");
+  await act(async () => retry?.click());
+  expect(retried).toBe(1);
 });

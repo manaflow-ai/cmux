@@ -51,6 +51,31 @@ impl PublicTopologyFold {
         }
     }
 
+    /// Whether decorating `change` could make the fold state it: an upsert of a resource decoration adds to
+    /// (`state/values.rs` `decorate_value`: a workspace, tab or screen) whose held value differs from it only in
+    /// what decoration sets (`content_kind`, `extra`). One that differs elsewhere (a tab whose index moved) is
+    /// kept without a query.
+    fn may_state_decorated(&self, change: &Value) -> bool {
+        let (Some(resource), Some(id)) = (change["resource"].as_str(), change["id"].as_str())
+        else {
+            return false;
+        };
+        if change["kind"] != "upsert" || !matches!(resource, "workspace" | "tab" | "screen") {
+            return false;
+        }
+        let Some(held) = self.values.get(&(resource.to_string(), id.to_string())) else {
+            return false;
+        };
+        let (Some(held), Some(raw)) = (held.as_object(), change["value"].as_object()) else {
+            return false;
+        };
+        let decorated_only = |key: &String| key == "content_kind" || key == "extra";
+        held.iter()
+            .filter(|(key, _)| !decorated_only(key))
+            .all(|(key, value)| raw.get(key) == Some(value))
+            && raw.keys().filter(|key| !decorated_only(key)).all(|key| held.contains_key(key))
+    }
+
     fn states(&self, change: &Value) -> bool {
         change["kind"] == "upsert"
             && change["resource"]
@@ -61,7 +86,7 @@ impl PublicTopologyFold {
                     self.values.get(&(resource.to_string(), id.to_string())).is_some_and(|value| {
                         value == &change["value"]
                             || (resource == "workspace"
-                                && without_workspace_key(value) == change["value"])
+                                && equal_without_workspace_key(value, &change["value"]))
                     })
                 }
                 _ => false,
@@ -72,7 +97,47 @@ impl PublicTopologyFold {
 /// Whether `stated` (a folded value) already says what the decorated upsert `value` says: equal, or equal
 /// without `extra.key` (a raw projection value never carries it).
 pub(crate) fn workspace_value_stated(stated: &Value, value: &Value) -> bool {
-    stated == value || without_workspace_key(stated) == without_workspace_key(value)
+    stated == value || equal_without_workspace_key(stated, value)
+}
+
+/// A workspace value's `extra` object: `Some(None)` when absent, `None` when not an object.
+fn workspace_extra(
+    object: &serde_json::Map<String, Value>,
+) -> Option<Option<&serde_json::Map<String, Value>>> {
+    match object.get("extra") {
+        None => Some(None),
+        Some(Value::Object(extra)) => Some(Some(extra)),
+        Some(_) => None,
+    }
+}
+
+/// `without_workspace_key(a) == without_workspace_key(b)`, compared in place:
+/// the fold checks every workspace of a projection, and a copy of each per
+/// check was a create's cost growing with the session.
+fn equal_without_workspace_key(a: &Value, b: &Value) -> bool {
+    let (Some(a), Some(b)) = (a.as_object(), b.as_object()) else { return a == b };
+    let others_equal = |x: &serde_json::Map<String, Value>, y: &serde_json::Map<String, Value>| {
+        x.iter()
+            .filter(|(field, _)| *field != "extra")
+            .all(|(field, value)| y.get(field) == Some(value))
+    };
+    let (Some(extra_a), Some(extra_b)) = (workspace_extra(a), workspace_extra(b)) else {
+        return without_workspace_key(&Value::Object(a.clone()))
+            == without_workspace_key(&Value::Object(b.clone()));
+    };
+    let without_key_len = |extra: Option<&serde_json::Map<String, Value>>| {
+        extra.map_or(0, |extra| extra.len() - usize::from(extra.contains_key("key")))
+    };
+    let extras_equal = without_key_len(extra_a) == without_key_len(extra_b)
+        && extra_a.is_none_or(|extra_a| {
+            extra_a
+                .iter()
+                .filter(|(name, _)| *name != "key")
+                .all(|(name, value)| extra_b.and_then(|extra_b| extra_b.get(name)) == Some(value))
+        });
+    a.len() - usize::from(a.contains_key("extra")) == b.len() - usize::from(b.contains_key("extra"))
+        && others_equal(a, b)
+        && extras_equal
 }
 
 /// A folded workspace value without `extra.key` (and without `extra` when
@@ -99,10 +164,26 @@ impl WorkspaceRegistry {
         self.catch_up_public_fold();
         let Some(fold) = self.public_fold.as_ref() else { return Ok(deltas.clone()) };
         let changes = deltas.as_array().context("resource deltas are not an array")?;
+        // The fold holds decorated values (`record_public_fold`), the projection raw ones: a raw upsert of a
+        // decorated tab or screen (a chat tab, a frontend browser's profile, a pinned screen) never equals what
+        // the fold holds, so it is compared decorated as the journal would write it. Without this, every chat
+        // tab of a pane was journaled again on each create in it.
+        let connection = self.connection.get();
+        let decorate = crate::state::store::state_tables_ready(&connection)?;
         let mut kept = Vec::with_capacity(changes.len());
         for change in changes {
             if fold.states(change) {
                 continue;
+            }
+            if decorate && fold.may_state_decorated(change) {
+                let mut decorated = change.clone();
+                let resource = change["resource"].as_str().unwrap_or_default();
+                if let Some(value) = decorated.get_mut("value") {
+                    crate::state::values::decorate_value(&connection, resource, value)?;
+                }
+                if fold.states(&decorated) {
+                    continue;
+                }
             }
             let mut change = change.clone();
             if let Some(object) = change.as_object_mut()
@@ -179,6 +260,34 @@ impl WorkspaceRegistry {
         }
     }
 
+    /// `deltas` without the projection upserts the journal already states,
+    /// or `None` while the fold is unseeded (nothing to prune against).
+    pub(crate) fn prune_stated_projection_deltas(
+        &mut self,
+        deltas: &Value,
+    ) -> anyhow::Result<Option<Value>> {
+        self.catch_up_public_fold();
+        if self.public_fold.is_none() {
+            return Ok(None);
+        }
+        self.prune_stated_topology_deltas(deltas).map(Some)
+    }
+
+    /// [`Self::record_public_fold`] for a resource patch commit at
+    /// `revision` whose `journaled` changes are a full topology projection's
+    /// (`Mux::commit_resource_mutation_plan`, which does not prune against
+    /// the fold): they seed an empty fold.
+    pub(crate) fn record_full_projection_fold(&mut self, revision: u64, journaled: &Value) {
+        // A seeded fold reads this commit back from the journal; only an
+        // empty one (or one that cannot catch up) is seeded from it.
+        self.catch_up_public_fold();
+        if self.public_fold.as_ref().is_some_and(|fold| fold.revision >= revision) {
+            return;
+        }
+        self.public_fold = None;
+        self.record_public_fold(revision.saturating_sub(1), revision, journaled, true);
+    }
+
     /// Apply every resource record committed since the fold's revision, or
     /// clear the fold when the journal cannot supply them.
     fn catch_up_public_fold(&mut self) {
@@ -231,5 +340,40 @@ impl WorkspaceRegistry {
         self.catch_up_public_fold();
         let fold = self.public_fold.as_ref()?;
         Some(fold.values.get(&(resource.to_string(), id.to_string())).cloned())
+    }
+}
+
+#[cfg(test)]
+mod workspace_key_comparison_tests {
+    use super::{equal_without_workspace_key, without_workspace_key};
+    use serde_json::json;
+
+    /// The in-place comparison answers as the copying one did.
+    #[test]
+    fn the_comparison_in_place_matches_the_copies() {
+        let values = [
+            json!({"id": "w", "name": "a"}),
+            json!({"id": "w", "name": "b"}),
+            json!({"id": "w", "name": "a", "extra": {}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k"}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k2"}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k", "title": "t"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "t"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "u"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "t", "color": "c"}}),
+            json!({"id": "w", "name": "a", "focused": true}),
+            json!({"id": "w", "extra": {"key": "k"}}),
+            json!({"id": "w", "name": "a", "extra": "odd"}),
+            json!("not an object"),
+        ];
+        for a in &values {
+            for b in &values {
+                assert_eq!(
+                    equal_without_workspace_key(a, b),
+                    without_workspace_key(a) == without_workspace_key(b),
+                    "{a} vs {b}"
+                );
+            }
+        }
     }
 }

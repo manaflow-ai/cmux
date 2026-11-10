@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -72,8 +73,9 @@ public struct WorkspaceScreen: View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
             .overlay(alignment: .top) {
-                if showsGrid {
-                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2)))
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
+                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2).unlessReduceMotion))
                 }
             }
             // The workspace's own toast (TabsKit's is never fed: it covers the title and
@@ -174,7 +176,7 @@ public struct WorkspaceScreen: View {
             if let title = source.pendingTabTitle {
                 // A tab on its way: the grid keeps its cards until the Mac lists it.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(Self.openingText(title))
                 }
                 .font(theme.type.meta.weight(.semibold))
@@ -202,7 +204,7 @@ public struct WorkspaceScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .cmuxMobileDismissibleToast(entry: placement.entry, announcement: text) {
-                    withAnimation(theme.motion.snappy.animation) { source.clearNotice() }
+                    withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { source.clearNotice() }
                 }
                 .padding(.horizontal, 20)
                 .padding(showsGrid ? .bottom : .top, placement.inset)
@@ -211,9 +213,9 @@ public struct WorkspaceScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
-        .animation(theme.motion.snappy.animation, value: source.toastText)
-        .animation(theme.motion.snappy.animation, value: source.pendingTabTitle)
-        .animation(theme.motion.snappy.animation, value: showsGrid)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.toastText)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.pendingTabTitle)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: showsGrid)
     }
 
     /// "Opening a Claude chat…" for "New Claude Chat".
@@ -337,6 +339,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
 /// on a Mac publish, not the workspace screen and the tabs under it.
 struct WorkspaceGridHeader: View {
     let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
         ZStack {
@@ -351,9 +355,9 @@ struct WorkspaceGridHeader: View {
                     source.exit()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
                         .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)

@@ -29,11 +29,26 @@
 //! publishes it. `cmux terminal <t> wait --until prompt|idle` waits on these
 //! facts (cx-6so.14).
 //!
+//! `last_command` is the last command the shell finished: its exit code from
+//! OSC 133 `D;<code>` (absent when the shell sent none, or the next prompt
+//! came without a `D`), when it finished and, when its `C` was seen, when it
+//! started (`terminal-exit-status-v1`). A shell without integration never
+//! publishes it, so a missing field means "unknown", never success. It is not
+//! part of the terminal-host handoff, so a daemon that adopts a terminal
+//! after a restart learns it from the next command.
+//!
 //! `last_output` is when the terminal last printed anything, with or
 //! without shell integration. Reads (`terminal.list`, `terminal.show`) and
 //! every other publish carry the exact time; output on its own pushes an
 //! upsert at most once per `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming
 //! command does not commit a revision per chunk.
+//!
+//! `last_input` is when a client last wrote input to the terminal through
+//! the resource API (`terminal.input.write`, `terminal.input.keys`). It is
+//! read-time only: it never publishes a change by itself. `cmux terminal <t>
+//! wait --until idle` uses it as the input's sequence point, so an idle
+//! state the terminal had before that input does not end the wait (W5-R,
+//! bench round 4 item 10).
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
@@ -99,6 +114,16 @@ pub struct ShellActivitySnapshot {
     pub(crate) prompt_since_ms: Option<u64>,
 }
 
+/// The last command a shell finished (OSC 133 `C` .. `D`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LastCommand {
+    /// The exit status `D` reported; `None` when it reported none.
+    pub(crate) exit_code: Option<i32>,
+    /// When its `C` mark arrived, if this terminal saw it.
+    pub(crate) started_at_ms: Option<u64>,
+    pub(crate) finished_at_ms: u64,
+}
+
 /// The shell command state of one terminal, from OSC 133 marks and the
 /// terminal modes the command set.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -112,8 +137,13 @@ pub(crate) struct ShellActivity {
     prompt_since_ms: Option<u64>,
     /// When the terminal last printed anything.
     last_output_ms: Option<u64>,
+    /// When a client last wrote input through the resource API.
+    last_input_ms: Option<u64>,
+    /// The last command the shell finished.
+    last_command: Option<LastCommand>,
     published: (Option<u64>, bool, Option<u64>),
     published_output_ms: Option<u64>,
+    published_last_command: Option<LastCommand>,
 }
 
 impl ShellActivity {
@@ -127,17 +157,36 @@ impl ShellActivity {
                 self.prompt_since_ms = None;
                 false
             }
-            ShellMark::CommandEnd { .. } => {
-                self.end();
+            ShellMark::CommandEnd { exit_code } => {
+                self.finish(exit_code, now_ms);
                 false
             }
             ShellMark::PromptStart => {
+                // A prompt without `D` (some shells skip it on ^C): the
+                // command ended, its status unknown.
+                if self.busy_since_ms.is_some() {
+                    self.finish(None, now_ms);
+                }
                 self.end();
                 self.prompt_since_ms.get_or_insert(now_ms);
                 true
             }
             ShellMark::InputStart => false,
         }
+    }
+
+    fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) {
+        self.last_command = Some(LastCommand {
+            exit_code,
+            started_at_ms: self.busy_since_ms,
+            finished_at_ms: now_ms,
+        });
+        self.end();
+    }
+
+    /// The last command the shell finished, if one did.
+    pub(crate) fn last_command(&self) -> Option<LastCommand> {
+        self.last_command
     }
 
     fn end(&mut self) {
@@ -188,6 +237,16 @@ impl ShellActivity {
         self.last_output_ms
     }
 
+    /// Notes input a client wrote at `now_ms`.
+    pub(crate) fn note_input(&mut self, now_ms: u64) {
+        self.last_input_ms = Some(now_ms);
+    }
+
+    /// When a client last wrote input, if one did.
+    pub(crate) fn last_input(&self) -> Option<u64> {
+        self.last_input_ms
+    }
+
     /// The state a terminal host hands to the daemon that adopts it.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
@@ -213,6 +272,12 @@ impl ShellActivity {
     pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
         self.last_output_ms = previous.last_output_ms;
         self.published_output_ms = previous.published_output_ms;
+        self.last_input_ms = previous.last_input_ms;
+        // Nor the last command: a reconnect to the same host keeps it.
+        if self.last_command.is_none() {
+            self.last_command = previous.last_command;
+            self.published_last_command = previous.published_last_command;
+        }
     }
 
     /// Whether the command or prompt fact changed, or the last output moved
@@ -223,6 +288,7 @@ impl ShellActivity {
         if changed {
             self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
             self.published_output_ms = self.last_output_ms;
+            self.published_last_command = self.last_command;
         }
         changed
     }
@@ -237,6 +303,7 @@ impl ShellActivity {
             (last, published) => last != published,
         };
         (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
+            || self.last_command != self.published_last_command
             || output_moved
     }
 }
@@ -251,8 +318,27 @@ pub(crate) fn prompt_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
 }
 
+/// The `last_command` field of a terminal record: `exit_code` only when the
+/// shell reported one.
+pub(crate) fn last_command_json(last: LastCommand) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("finished_at_ms".into(), json!(last.finished_at_ms.to_string()));
+    if let Some(code) = last.exit_code {
+        value.insert("exit_code".into(), json!(code));
+    }
+    if let Some(started) = last.started_at_ms {
+        value.insert("started_at_ms".into(), json!(started.to_string()));
+    }
+    Value::Object(value)
+}
+
 /// The `last_output` field of a terminal record.
 pub(crate) fn last_output_json(at_ms: u64) -> Value {
+    json!({"at_ms": at_ms.to_string()})
+}
+
+/// The `last_input` field of a terminal record.
+pub(crate) fn last_input_json(at_ms: u64) -> Value {
     json!({"at_ms": at_ms.to_string()})
 }
 
@@ -328,6 +414,62 @@ mod tests {
         activity.note_output(40_000);
         assert_eq!(activity.last_output(), Some(40_000));
         assert!(activity.take_change(), "a time before the published one publishes");
+    }
+
+    #[test]
+    fn read_run_last_command_records_the_exit_code_of_d_and_publishes_once() {
+        let mut activity = ShellActivity::default();
+        assert_eq!(activity.last_command(), None, "no command, no record");
+        activity.observe(ShellMark::PromptStart, 1_000);
+        assert_eq!(activity.last_command(), None, "a prompt alone finishes nothing");
+        assert!(activity.take_change());
+
+        activity.observe(ShellMark::CommandStart, 2_000);
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(7) }, 2_500);
+        let last =
+            LastCommand { exit_code: Some(7), started_at_ms: Some(2_000), finished_at_ms: 2_500 };
+        assert_eq!(activity.last_command(), Some(last));
+        assert!(activity.take_change(), "a finished command publishes");
+        activity.observe(ShellMark::PromptStart, 2_501);
+        assert_eq!(activity.last_command(), Some(last), "the prompt after D keeps D's status");
+        assert!(activity.take_change(), "the prompt publishes");
+        assert!(!activity.take_change());
+        assert_eq!(
+            last_command_json(last),
+            json!({"exit_code": 7, "started_at_ms": "2000", "finished_at_ms": "2500"})
+        );
+    }
+
+    #[test]
+    fn read_run_last_command_without_d_or_without_a_code_has_no_exit_code() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::CommandStart, 10);
+        activity.observe(ShellMark::PromptStart, 20);
+        let last = activity.last_command().unwrap();
+        assert_eq!(last.exit_code, None, "a prompt without D: status unknown, not 0");
+        assert_eq!(last_command_json(last), json!({"started_at_ms": "10", "finished_at_ms": "20"}));
+
+        activity.observe(ShellMark::CommandStart, 30);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 40);
+        assert_eq!(activity.last_command().unwrap().exit_code, None);
+
+        // Without shell integration there are no marks, so no record at all.
+        let mut plain = ShellActivity::default();
+        plain.note_output(50);
+        assert_eq!(plain.last_command(), None);
+    }
+
+    #[test]
+    fn read_run_last_command_survives_a_reconnect_to_the_same_host() {
+        let mut previous = ShellActivity::default();
+        previous.observe(ShellMark::CommandStart, 1);
+        previous.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 2);
+        assert!(previous.take_change());
+        let mut restored = ShellActivity::default();
+        restored.restore(previous.snapshot());
+        restored.keep_output_of(&previous);
+        assert_eq!(restored.last_command(), previous.last_command());
+        assert!(!restored.take_change(), "an already published record does not publish again");
     }
 
     #[test]

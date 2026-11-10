@@ -18,6 +18,8 @@ final class SidebarRows {
     private let model: SidebarModel
     private let document: @MainActor () -> SidebarDocStore?
     private var live: [SidebarRowSection] = []
+    /// Where each row of `live` sits, found at the first patch after `live` was set (a patch or a fold moves no row).
+    private var livePlaces = SidebarRowSection.RowPlaces()
     /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
     /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
     private var liveShownAt: UInt64?
@@ -36,9 +38,7 @@ final class SidebarRows {
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
-    var fixture: [CmuxNextSidebar.SidebarSection]? {
-        didSet { show() }
-    }
+    var fixture: [CmuxNextSidebar.SidebarSection]? { didSet { show() } }
     #endif
 
     /// `document`: the app's own sidebar document store (nil before it starts).
@@ -103,12 +103,12 @@ final class SidebarRows {
         let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
         if unlessShown, !reprojected, model.arrangementIsCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
-        if let live { self.live = live }
+        if let live { (self.live, livePlaces) = (live, .init()) }
         if let creating { self.creating = creating }
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
+        var sections = PendingWorkspaceRow.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
         edits.applyFolds(to: &sections)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
@@ -121,7 +121,7 @@ final class SidebarRows {
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     func patch(_ changed: [SidebarWorkspace]) {
-        live = SidebarSection.patching(changed, in: live)
+        livePlaces.patch(changed, in: &live) // its rows only, in place: no walk and copy of every section per row change
         #if DEBUG
         if fixture != nil { return }
         #endif

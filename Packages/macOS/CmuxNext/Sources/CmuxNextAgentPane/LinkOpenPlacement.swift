@@ -61,15 +61,20 @@ package struct LinkOpenPlacement<Pane: Equatable> {
     /// `right`: the pane right of the source on its screen, if any; `column`: the right column it
     /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured). `kind`:
     /// what opens, which `holds` matches against the column's panes (``RightColumnPlacement/Kind``).
+    /// `left`: the pane left of a source that is a page beside it (``LinkOpener`` names one only for
+    /// a page, never a terminal or a chat): with nothing on the source's right, the open is a tab in
+    /// the source, which is already the side pane (Leo 2026-11-07: "it's already in the second pane,
+    /// and it therefore doesn't need to open the right split").
     package func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
-                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
+                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, left: Pane? = nil) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
         if let right, right != source {
             return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds)
         }
         if !takesTabs { return .besideDock(source) }
         if setting == .newColumn { return .newColumn(rightOf: source) }
+        if let left, left != source { return .pane(source) }
         // A split halves the source: one that would leave it under the chat floor is a tab in it
         // instead (RightColumnPlacement). A new column adds width to the strip, so it needs no floor.
         if case .tab = RightColumnPlacement.decide(sourceWidth: sourceWidth, column: [Pane](), width: width) { return .pane(source) }

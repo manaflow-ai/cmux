@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Review note 1 of #30279 (comment 6554528009): the close question (`DestructiveConfirmation.runningPrograms`), the quit
-/// facts (`QuitFactsReader.foregroundPrograms`) and the session transfer list ask `process-info` for every live pty tab,
+/// facts (the removed `QuitFactsReader.foregroundPrograms`) and the session transfer list ask `process-info` for every live pty tab,
 /// a Ctrl-` stand-in too. The request boundary refuses a stand-in (rule b) and shows "This pane is still opening" for a
 /// read the person never asked for. A stand-in terminal has no process yet: a read of it is never built, so it is never
 /// sent; its program is "none yet".

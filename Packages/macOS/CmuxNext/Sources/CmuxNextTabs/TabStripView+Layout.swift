@@ -88,6 +88,7 @@ extension TabStripView {
             if added.contains(slot.id), move != nil, starts[slot.id] == nil { starts[slot.id] = place }
             placed[slot.id] = place
         }
+        pinClosingTabs()
         updateCrowded()
         scrollOffset = TabScrollMath.clamp(scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) {
@@ -114,12 +115,37 @@ extension TabStripView {
         onCrowdedChange?(crowded)
     }
 
+    /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
+    /// tabs do not overlap) while it shrinks to that width (Chrome StartRemoveTabAnimation), following
+    /// that tab as it resizes: both move on one tween from one frame. The previous tab is the nearest one
+    /// left of it that stayed when it closed (`closingAnchor(of:staying:)`; by order, not by x: a tab
+    /// opened meanwhile must not move it a slot); the first tab keeps its x. An anchor that closes too is pinned first, so the order of `dying` never
+    /// changes where a tab rests.
+    func pinClosingTabs() {
+        var pinned: Set<TabID> = []
+        for id in dying where id.chipGroupID == nil { pinClosingTab(id, pinned: &pinned) }
+    }
+
+    private func pinClosingTab(_ id: TabID, pinned: inout Set<TabID>) {
+        guard pinned.insert(id).inserted, var place = placed[id] else { return }
+        let previousMaxX: CGFloat?
+        if let anchor = closingAnchors[id] {
+            // The left neighbour's slot, or its own closing geometry (pinned first) when it is closing too.
+            if let anchor, anchor.chipGroupID == nil, dying.contains(anchor) { pinClosingTab(anchor, pinned: &pinned) }
+            previousMaxX = anchor.flatMap { a in result.slot(a)?.maxX ?? placed[a]?.maxX }
+        } else {
+            previousMaxX = result.slots.last { $0.id != Self.placeholderID && $0.x < place.x - 0.5 }?.maxX
+        }
+        place.x = previousMaxX.map { $0 - metrics.chrome.closeEndWidth } ?? place.x
+        placed[id] = place
+    }
+
     /// The motion of a strip change on `token`, or nil when it applies at once (the token does not
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
-        guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
+        guard let motion = MotionMove.tween(token, in: Motion.tabs, window: window), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion)
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs, window: window))
     }
 
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
@@ -177,9 +203,9 @@ extension TabStripView {
         let from = scrollMapping
         scrollOffset = target
         var move: TabStripMove?
-        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
+        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs, window: window) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, isScroll: true)
+            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }
         applyFrames(move: move, scrollFrom: from)
     }
@@ -196,7 +222,7 @@ extension TabStripView {
                                            viewportWidth: viewportWidth)
         var layers = [scrollProbe] + cells.values.map(\.layer) + groups.chips.values.map(\.layer)
         layers += groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
-        layers += [newTabButton.layer, newTabMenuButton.layer].compactMap { $0 }
+        layers += [newTabButton.layer, newTabMenuButton.layer].compactMap { $0 } + [pinnedDivider]
         TabStripMove.cancelScroll(on: layers)
     }
 
@@ -205,7 +231,7 @@ extension TabStripView {
     func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
         guard dying.contains(id) else { return }
         // A reveal's spring only scrolls it (it may be cut short by a wheel): the close decides when it goes.
-        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration : 0)
+        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration(closing: id.chipGroupID == nil) : 0)
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
@@ -319,7 +345,7 @@ extension TabStripView {
                 let resized = frame.size != cell.frame.size
                 cell.setFrame(frame, laysOut: false)
                 cell.layer.opacity = opacity
-                moved = move.animate(from: before, scroll: scrollPart(isPinned: isPinned))
+                moved = move.animate(from: before, closing: dying.contains(id), scroll: scrollPart(isPinned: isPinned))
                 if resized { cell.layoutLayers() }
             } else {
                 cell.frame = frame
@@ -329,10 +355,13 @@ extension TabStripView {
             if drag?.id == id || groups.isDragged(id) { TabStripMove.cancelPosition(cell.layer) }
             if let move { noteClosing(id, moved: moved, move: move) }
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
-            trailing = max(trailing, place.maxX)
+            // The lifted tab can slide past the last slot (`dragTrailingLimit`): the + stays after the slots.
+            let liftedSlotEnd = drag?.id == id ? result.slot(id).map(\.maxX) : nil
+            trailing = max(trailing, liftedSlotEnd ?? place.maxX)
         }
+        updateCornerFlush(tabY: tabY, tabHeight: tabHeight)
         updateOcclusion()
-        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
+        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))
         for group in groups.chips.keys {
             guard let place = placed[.groupChip(group)] else { continue }
             trailing = max(trailing, place.maxX)

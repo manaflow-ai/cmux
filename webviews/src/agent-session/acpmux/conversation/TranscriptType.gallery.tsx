@@ -15,7 +15,7 @@ import { TurnFooter } from "./TurnRows";
 import { TurnActionsContext } from "./turnActions";
 import { ToolRow } from "./ToolRow";
 import { CommandRow } from "./CommandRow";
-import type { CloudSignIn, LoginAgent } from "../cloudAgentLogin";
+import { LoginStepError, type CloudSignIn, type LoginAgent, type LoginFailure } from "../cloudAgentLogin";
 
 const output = Array.from({ length: 14 }, (_, index) => `step ${index + 1}: completed`).join("\n");
 const file = toolFiles([
@@ -36,34 +36,50 @@ const image = {
 
 /// A Cloud chat's sign-in with synthetic replies: Claude's page gives a code to paste back, or with
 /// `approve` its automatic page opens on the chat's machine and signs in on the approve (a code to
-/// paste stays one link away); Codex's asks for the device code the card shows. Nothing leaves the
-/// gallery.
-function gallerySignIn(agent: LoginAgent, approve: boolean): CloudSignIn {
+/// paste stays one link away); Codex's and Grok's ask for the device code the card shows; Gemini
+/// takes a key only. Nothing leaves the gallery.
+const DEVICE_PAGES = {
+  codex: { url: "https://auth.openai.com/codex/device", userCode: "QRST-4821" },
+  grok: { url: "https://accounts.x.ai/device", userCode: "WDJB-MJHT" },
+  cursor: { url: "https://cursor.com/loginDeepControl?challenge=gallery" },
+} as const;
+
+/// The route name the card says for each agent.
+const AGENT_NAMES: Record<LoginAgent, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  grok: "Grok",
+  cursor: "Cursor",
+};
+
+function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure): CloudSignIn {
   return {
     agent,
-    start: async () =>
-      agent === "claude"
-        ? {
-            loginId: "gallery-login",
-            url: "https://claude.ai/oauth/authorize",
-            needsCode: true,
-            ...(approve
-              ? {
-                  autoUrl: "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
-                  callbackPort: 54545,
-                }
-              : {}),
-          }
-        : {
-            loginId: "gallery-login",
-            url: "https://auth.openai.com/codex/device",
-            userCode: "QRST-4821",
-            needsCode: false,
-          },
+    start: async () => {
+      // A machine that refuses the sign-in (a team machine: `shared_machine`).
+      if (fail) throw new LoginStepError(fail);
+      if (agent === "claude")
+        return {
+          loginId: "gallery-login",
+          url: "https://claude.ai/oauth/authorize",
+          needsCode: true,
+          ...(approve
+            ? {
+                autoUrl: "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
+                callbackPort: 54545,
+              }
+            : {}),
+        };
+      // Gemini has no sign-in page (the card never starts one).
+      if (agent === "gemini") throw new LoginStepError("unsupported");
+      return { loginId: "gallery-login", ...DEVICE_PAGES[agent], needsCode: false };
+    },
     open: () => {},
     openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
+    gateway: async () => true,
     cancel: () => {},
     reserve: async () => undefined,
     resend: async () => {},
@@ -71,14 +87,14 @@ function gallerySignIn(agent: LoginAgent, approve: boolean): CloudSignIn {
 }
 
 /// Only a Cloud chat's sign-in card, for its states.
-function CloudSignInStates({ agent, approve }: { agent: LoginAgent; approve: boolean }) {
+function CloudSignInStates({ agent, approve, fail }: { agent: LoginAgent; approve: boolean; fail?: LoginFailure }) {
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
       <TurnActionsContext.Provider
         value={{
           switchModel: () => {},
-          cloudSignIn: gallerySignIn(agent, approve),
-          route: { name: agent === "claude" ? "Claude Code" : "Codex", harness: agent, hostKind: "cloud" },
+          cloudSignIn: gallerySignIn(agent, approve, fail),
+          route: { name: AGENT_NAMES[agent], harness: agent, hostKind: "cloud" },
         }}
       >
         <TurnFooter
@@ -98,8 +114,16 @@ function CloudSignInStates({ agent, approve }: { agent: LoginAgent; approve: boo
   );
 }
 
-function TranscriptType({ signIn, approve = false }: { signIn?: LoginAgent; approve?: boolean }) {
-  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} />;
+function TranscriptType({
+  signIn,
+  approve = false,
+  fail,
+}: {
+  signIn?: LoginAgent;
+  approve?: boolean;
+  fail?: LoginFailure;
+}) {
+  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} fail={fail} />;
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
@@ -109,7 +133,10 @@ function TranscriptType({ signIn, approve = false }: { signIn?: LoginAgent; appr
       <div data-type="tool-output">
         <ToolRow item={tool("Fetch retry log", "fetch", "completed", { output })} />
       </div>
-      <CommandRow item={tool("Run retry tests", "execute", "completed", { command: "bun test", exitCode: 2 })} />
+      {/* A script the verb table does not know (commandActions.ts), so the row draws its line in mono. */}
+      <CommandRow
+        item={tool("Run retry tests", "execute", "completed", { command: "./scripts/retry-check.sh", exitCode: 2 })}
+      />
       <ShellRow
         row={{
           id: "type-shell",
@@ -218,12 +245,66 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
       },
     },
+    "cursor-sign-in": {
+      props: { signIn: "cursor" },
+      note: "A Cloud chat whose Cursor agent is not signed in on its machine: one Sign in to Cursor button and no Use an API key (a Cursor key goes in as the Cloud secret CURSOR_API_KEY).",
+    },
+    "cursor-approve": {
+      props: { signIn: "cursor" },
+      note: "After the one Sign in to Cursor click: cursor-agent login runs on the machine, its cursor.com page is open, and the card waits for the approve with no code to type.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__text"));
+      },
+    },
     "codex-code": {
       props: { signIn: "codex" },
       note: "The same one click for Codex: its page open and its device code, large and already copied, while the card waits for the approval.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+      },
+    },
+    "gemini-sign-in": {
+      props: { signIn: "gemini" },
+      note: "A Cloud chat whose Gemini CLI is not signed in on its machine: Gemini signs in there with a key only, so Use an API key is the card's one filled button, with no sign-in page.",
+    },
+    "gemini-key-entry": {
+      props: { signIn: "gemini" },
+      note: "After Use an API key for Gemini: the key field, saved to the machine's .gemini/.env (and settings.json picks the key) where Gemini CLI reads it.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-signin__input[type="password"]'));
+      },
+    },
+    "grok-sign-in": {
+      props: { signIn: "grok" },
+      note: "A Cloud chat whose Grok is not signed in on its machine: one Sign in to Grok button, and no Use an API key (Grok reads its key from the person's vault).",
+    },
+    "grok-code": {
+      props: { signIn: "grok" },
+      note: "After the one Sign in to Grok click: grok login --device-auth runs on the machine, its accounts.x.ai page is open and its device code is shown, already copied, while the card waits for the approval.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+      },
+    },
+    "grok-team-machine": {
+      props: { signIn: "grok", fail: "shared_machine" },
+      note: "Sign in to Grok on a team Cloud machine: acpmux refuses an own sign-in there (every member runs as the same user), and the card says so with no Retry.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__error"));
+      },
+    },
+    "claude-sign-in-cancel": {
+      props: { signIn: "claude" },
+      note: "Opening the code form and cancelling resize the card over the shared micro duration; the final card is the original sign-in state.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.click({ selector: ".cv-turn-signin__row .cv-turn-auth-action:nth-child(2)" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin__input"));
       },
     },
   },

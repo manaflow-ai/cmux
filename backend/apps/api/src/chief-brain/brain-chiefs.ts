@@ -7,6 +7,7 @@ import { patchError } from "./brain-store.ts"
 import { effectRefusal } from "./effect-policy.ts"
 import { declared } from "../do-stub.ts"
 import { conversationMutate } from "../home-routes.ts"
+import { chiefPrincipal } from "./brain-io.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -118,7 +119,8 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
     const made = committed((await user(env, owner).chiefManage(owner, agent, frame)).frames)
     // The channel Chief runs the caller's models; it keeps the chiefs grant so it can invite to its own channel (owner's word only: effect-policy).
     const cfg = await configured(env, made.id, owner, { enabled: true, model: me.model, compactor_model: me.compactor_model, chiefs: true, ...profile })
-    const invited = await invitePeople(env, owner, agent, made.channel!.conversation, args.people ?? [], key)
+    // The Chief that made the channel is not in it; the channel's own Chief (a participant) invites the first people.
+    const invited = await invitePeople(env, owner, made.id, made.channel!.conversation, args.people ?? [], key)
     const on = cfg.enabled && env.CHIEF_BRAIN_ENABLED === "1"
     return `${JSON.stringify({ ...made, ...profile, invited, brain: on ? { state: "started" } : { state: "not_started" } }, null, 2)}\n${on ? "The channel and its Chief are ready; the Chief answers in the channel." : "The channel exists, but its Chief's brain is NOT on here, so it will not answer yet. Tell the person exactly that."}`
   }
@@ -157,13 +159,20 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
 }
 
 /**
- * Invites `people` to the owner's channel `conversation` in the owner's name, through the same Worker path as the
- * person's own Invite (home-routes.ts conversationMutate: reach rules, roles, rate limits): an email gets an invite,
- * an account id is added. Each result is reported, so one refusal does not hide the others.
+ * Invites `people` to the owner's channel `conversation` as the Chief `inviter` (kind agent: the invite's
+ * invited_by and a member's added_by name that Chief, never its owner), through the same Worker path as a person's
+ * own Invite (home-routes.ts conversationMutate): the inviter must be a participant, its reach is its owner's once
+ * the owner confirms the Chief (home-reach.ts), and roles and rate limits apply. An email gets an invite, an
+ * account id is added. Each result is reported, so one refusal does not hide the others.
  */
-const invitePeople = async (env: Env, owner: string, agent: string, conversation: string, people: ReadonlyArray<string>, key: string): Promise<Array<{ who: string; ok: boolean; code?: string }>> => {
+const invitePeople = async (env: Env, owner: string, inviter: string, conversation: string, people: ReadonlyArray<string>, key: string): Promise<Array<{ who: string; ok: boolean; code?: string }>> => {
   if (people.length > 20) throw new ChiefsRefused("validation.invalid", "at most 20 people per call")
-  const principal = { identity: `agent:${agent} via chief`, kind: "session" as const, user: owner }
+  const agent = inviter
+  // The Chief's own principal (brain-io.ts chiefPrincipal) plus send-external for this call only: an email invite
+  // leaves the system. The owner's word gates the call (effect-policy); a channel's Chief is the one agent the
+  // conversation lets invite (home-core invite-ops.ts).
+  const base = chiefPrincipal(inviter, owner)
+  const principal = { ...base, grant_classes: [...(base.grant_classes ?? []), "send-external"] }
   const out: Array<{ who: string; ok: boolean; code?: string }> = []
   for (const [i, raw] of people.entries()) {
     const who = raw.trim()

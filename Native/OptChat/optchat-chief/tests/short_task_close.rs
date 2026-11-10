@@ -98,6 +98,18 @@ fn finish_a1(report: &str, ran: Duration) -> (Vec<String>, Option<String>) {
 
 /// `finish_a1` with the person's close-on-finish setting on or off.
 fn finish_a1_with(report: &str, ran: Duration, close: bool) -> (Vec<String>, Option<String>) {
+    finish_a1_routed(report, ran, close, true, "")
+}
+
+/// `finish_a1` with every knob: `show` is `subagents.showWorkspaces`, and
+/// `body` lines go before the report (they steer the lifetime route).
+fn finish_a1_routed(
+    report: &str,
+    ran: Duration,
+    close: bool,
+    show: bool,
+    body: &str,
+) -> (Vec<String>, Option<String>) {
     let mut h = Harness::new(script());
     if close {
         h.brain
@@ -106,10 +118,13 @@ fn finish_a1_with(report: &str, ran: Duration, close: bool) -> (Vec<String>, Opt
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
-    // Shown at start (#26386: hidden unless this setting is on).
-    h.brain
-        .set_setting("subagents.showWorkspaces", "true")
-        .unwrap();
+    // Shown at start (#26386: hidden unless this setting is on), unless the
+    // test lets the lifetime route decide.
+    if show {
+        h.brain
+            .set_setting("subagents.showWorkspaces", "true")
+            .unwrap();
+    }
     let sp = Arc::new(
         Spawner::new(
             h.chat.clone(),
@@ -128,10 +143,12 @@ fn finish_a1_with(report: &str, ran: Duration, close: bool) -> (Vec<String>, Opt
             h.tx.clone(),
             Arc::new(|_: &str| {}),
         )
-        .with_workspaces(Some(ws)),
+        .with_workspaces(Some(ws))
+        // Never the real user's cmux settings file.
+        .with_user_settings(Some(h.dir.path().join("no-cmux-next.json"))),
     );
     h.connect();
-    let task = format!("Title: Tab bar tweak\nREPORT:{report}|");
+    let task = format!("Title: Tab bar tweak\n{body}REPORT:{report}|");
     let worker = std::thread::spawn(move || sp.spawn(vec![task], None));
     let until = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
@@ -232,3 +249,32 @@ fn the_persons_close_setting_still_closes_a_finished_workspace() {
     assert_eq!(workspace, None, "and forgets its key");
 }
 
+/// The tucked reaper stays: a short task the route tucks into the collapsed
+/// "Chief" group (something to watch, but short) closes when its work ends.
+#[test]
+fn a_tucked_workspace_still_closes_when_its_work_ends() {
+    let (closed, workspace) = finish_a1_routed(
+        "Done: renamed the button.",
+        Duration::from_secs(5 * 60),
+        false,
+        false,
+        "Open a terminal and run the tab bar check.\n",
+    );
+    assert_eq!(closed.len(), 1, "the tucked workspace closes");
+    assert_eq!(workspace, None, "and its key is forgotten");
+}
+
+/// A shown short task (not tucked) keeps its workspace with the same report:
+/// only the tucked reaper and the person's setting close one.
+#[test]
+fn a_shown_short_task_keeps_its_workspace_where_a_tucked_one_closes() {
+    let (closed, workspace) = finish_a1_routed(
+        "Done: renamed the button.",
+        Duration::from_secs(5 * 60),
+        false,
+        false,
+        "Sidebar: shown\nOpen a terminal and run the tab bar check.\n",
+    );
+    assert!(closed.is_empty(), "a shown workspace stays: {closed:?}");
+    assert!(workspace.is_some());
+}

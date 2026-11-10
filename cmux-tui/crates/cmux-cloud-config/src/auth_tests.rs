@@ -136,3 +136,175 @@ fn a_managed_device_uses_only_its_team() {
     assert_eq!(allowed_team_id(Some("a"), &available, Some("m")).as_deref(), Some("m"));
     assert_eq!(allowed_team_id(Some("a"), &available[..1], Some("m")), None);
 }
+
+fn build(bundle: Option<&str>, debug: bool, production: bool) -> Build {
+    Build {
+        bundle_id: bundle.map(str::to_owned),
+        is_debug_build: debug,
+        is_production_auth: production,
+    }
+}
+
+const FILE: (&str, &str) = ("CMUX_AUTH_CREDENTIALS_FILE", "/Users/me/.secrets/cmuxterm-dev.env");
+
+fn sign_in(dev: bool, auto: bool, replaces: bool, memory: bool) -> LaunchSignIn {
+    LaunchSignIn {
+        dev_auth: dev,
+        auto_login: auto,
+        replaces_session: replaces,
+        memory_only: memory,
+    }
+}
+
+/// Ported from the app's CloudAuthLaunchSignInTests.
+#[test]
+fn signed_next_dev_signs_in_from_its_launch_credentials_file() {
+    let dev = build(Some("com.cmuxterm.app.debug.next"), false, false);
+    assert_eq!(launch_sign_in(&dev, &map(&[FILE])), sign_in(false, true, false, false));
+    assert_eq!(launch_sign_in(&dev, &map(&[])), sign_in(false, false, false, false));
+    assert_eq!(
+        launch_sign_in(&dev, &map(&[FILE, ("CMUX_DEV_AUTH_REPLACE_SESSION", "1")])),
+        sign_in(false, true, true, false)
+    );
+}
+
+#[test]
+fn shipped_builds_never_sign_in_from_the_launch_and_nightly_only_in_memory() {
+    for bundle in [
+        None,
+        Some("com.cmuxterm.app"),
+        Some("com.cmuxterm.app.nightly.cmux-next"),
+        Some("com.cmuxterm.app.rc"),
+    ] {
+        assert_eq!(
+            launch_sign_in(&build(bundle, false, true), &map(&[FILE])),
+            LaunchSignIn::default(),
+            "{bundle:?}"
+        );
+    }
+    let nightly = build(Some("com.cmuxterm.app.nightly"), false, true);
+    assert_eq!(launch_sign_in(&nightly, &map(&[])), LaunchSignIn::default());
+    assert_eq!(
+        launch_sign_in(&nightly, &map(&[("CMUX_AUTH_CREDENTIALS_FILE", "")])),
+        LaunchSignIn::default()
+    );
+    assert_eq!(launch_sign_in(&nightly, &map(&[FILE])), sign_in(false, true, false, true));
+    assert_eq!(
+        launch_sign_in(&nightly, &map(&[FILE, ("CMUX_DEV_AUTH_REPLACE_SESSION", "1")])),
+        sign_in(false, true, false, true)
+    );
+}
+
+#[test]
+fn debug_builds_keep_their_dev_auth() {
+    let staging = build(Some("com.cmuxterm.app.debug.mytag"), true, false);
+    assert_eq!(launch_sign_in(&staging, &map(&[])), sign_in(true, true, false, false));
+    assert_eq!(launch_sign_in(&staging, &map(&[FILE])), sign_in(true, true, true, false));
+    let production = build(Some("com.cmuxterm.app.debug.mytag"), true, true);
+    assert_eq!(launch_sign_in(&production, &map(&[])), LaunchSignIn::default());
+    assert_eq!(launch_sign_in(&production, &map(&[FILE])), sign_in(true, true, true, false));
+}
+
+#[test]
+fn the_launch_login_hands_over_only_a_resolved_account() {
+    let found = Decision { credentials: credentials("a@x.com", "pw"), refusal: None };
+    let signed = launch_login(&sign_in(false, true, true, false), Some(&found));
+    assert_eq!(signed.credentials, credentials("a@x.com", "pw"));
+    assert!(signed.replace_session && signed.allows_environment_auto_login);
+    let refused = Decision {
+        credentials: None,
+        refusal: Some(Refusal::AccountMismatch {
+            found: "bob@x.com".to_owned(),
+            declared: "leo@y.com".to_owned(),
+        }),
+    };
+    let off = launch_login(&sign_in(false, true, true, false), Some(&refused));
+    assert!(!off.replace_session && !off.allows_environment_auto_login);
+    assert_eq!(
+        off.refusal_log.as_deref(),
+        Some("dev auto sign-in off: b***@x.com is not the declared l***@y.com")
+    );
+    // The debug surface signs in from raw launch keys too.
+    assert!(launch_login(&sign_in(true, true, false, false), None).allows_environment_auto_login);
+}
+
+#[test]
+fn automatic_keeps_the_popup_for_safari_only() {
+    assert!(!opens_default_browser(SignInWindow::Automatic, Some("com.apple.Safari")));
+    assert!(!opens_default_browser(
+        SignInWindow::Automatic,
+        Some("com.apple.SafariTechnologyPreview")
+    ));
+    assert!(!opens_default_browser(SignInWindow::Automatic, None));
+    assert!(opens_default_browser(SignInWindow::Automatic, Some("com.microsoft.edgemac")));
+    assert!(!opens_default_browser(SignInWindow::Popup, Some("com.microsoft.edgemac")));
+    assert!(opens_default_browser(SignInWindow::DefaultBrowser, Some("com.apple.Safari")));
+}
+
+#[test]
+fn a_waiting_creation_survives_only_its_own_sign_in() {
+    let s = |v: &str| Some(v.to_owned());
+    assert!(creation_survives_scope_change(&[None, None], &[s("u"), None]));
+    assert!(creation_survives_scope_change(&[None, None], &[s("u"), s("t")]));
+    assert!(creation_survives_scope_change(&[s("u"), None], &[s("u"), s("t")]));
+    assert!(!creation_survives_scope_change(&[s("u"), None], &[s("v"), s("t")]));
+    assert!(!creation_survives_scope_change(&[s("u"), s("t")], &[s("u"), s("t2")]));
+    assert!(!creation_survives_scope_change(&[s("u"), s("t")], &[None, None]));
+    assert!(!creation_survives_scope_change(&[None, None], &[None, None]));
+}
+
+#[test]
+fn seat_facts_and_invite_answers() {
+    let facts = seat_facts(&SeatInputs {
+        role: Some("admin".to_owned()),
+        members: 3,
+        ..SeatInputs::default()
+    });
+    assert!(facts.can_invite && !facts.has_subscription);
+    assert_eq!(facts.member_count, 3);
+    let billed = seat_facts(&SeatInputs {
+        plan_id: Some("team".to_owned()),
+        has_active_subscription: Some(true),
+        member_count: Some(5),
+        member_limit: Some(10),
+        members: 3,
+        ..SeatInputs::default()
+    });
+    assert!(!billed.can_invite && billed.has_subscription);
+    assert_eq!((billed.member_count, billed.member_limit), (5, Some(10)));
+    assert_eq!(invite_answer(None, None), InviteAnswer::Sent);
+    assert_eq!(invite_answer(None, Some(true)), InviteAnswer::AlreadyMember);
+    assert_eq!(invite_answer(None, Some(false)), InviteAnswer::SendFailed);
+    assert_eq!(invite_answer(Some("forbidden"), None), InviteAnswer::NotAllowed);
+    assert_eq!(invite_answer(Some("signedOut"), None), InviteAnswer::Unreachable);
+}
+
+fn facts(id: &str, name: &str, plan: Option<&str>) -> TeamFacts {
+    TeamFacts { id: id.to_owned(), name: name.to_owned(), plan: plan.map(str::to_owned) }
+}
+
+#[test]
+fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
+    let teams = [
+        facts("t1", "cmux", Some(" Team ")),
+        facts("t2", "leo@example.com's Team", None),
+        facts("t3", "Personal", Some("pro")),
+        facts("t4", "  ", Some("")),
+    ];
+    let rows = team_rows(&teams, Some("t1"));
+    assert_eq!(rows.iter().filter(|row| row.active).count(), 1);
+    assert_eq!(rows[0].title, "cmux");
+    assert_eq!(rows[0].kind, TeamKind::Team);
+    assert_eq!(rows[0].plan.as_deref(), Some("team"));
+    assert_eq!(rows[1].kind, TeamKind::Team);
+    assert_eq!(rows[1].plan, None);
+    assert_eq!(rows[2].kind, TeamKind::Personal);
+    assert_eq!(rows[2].plan.as_deref(), Some("pro"));
+    assert!(!rows[2].active);
+    // A blank name shows the id, and a blank plan is none.
+    assert_eq!(rows[3].title, "t4");
+    assert_eq!(rows[3].plan, None);
+    // An active id no row has checks none.
+    assert!(team_rows(&teams, Some("gone")).iter().all(|row| !row.active));
+    assert!(team_rows(&teams, None).iter().all(|row| !row.active));
+}

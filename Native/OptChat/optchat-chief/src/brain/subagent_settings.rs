@@ -9,14 +9,19 @@
 //!   that per-Chief file, so `cmux settings set subagents.showWorkspaces
 //!   true` wrote a value nothing read and the setting looked like it went
 //!   back to false on its own (Aziz 2026-11-05).
+//!   It is the older show-all switch: on, every subagent shows, whatever the
+//!   Chief or the `chief.subagentSidebar` rules choose (sidebar_choice.rs,
+//!   action_lifetime.rs).
 //! - `subagents.closeFinishedWorkspaces`: a finished subagent's workspace
-//!   closes (fewer workspaces in the sidebar). Default false: a subagent's
-//!   workspace never closes by itself; only the person closes it. Replaces
-//!   the `OPTCHAT_SUBAGENT_ON_FINISH=close` environment variable.
+//!   closes (fewer workspaces in the sidebar). Default false: only a tucked
+//!   workspace (the collapsed "Chief" group, action_lifetime.rs) closes when
+//!   its work ends; any other stays until the person closes it. Replaces the
+//!   `OPTCHAT_SUBAGENT_ON_FINISH=close` environment variable.
 //!
 //! Telemetry (the monitoring trace, trace.rs): `setting.changed` when the
 //! effective `subagents.showWorkspaces` or its source changes, and
-//! `subagent.workspace_closed` with its reason for every close the host
+//! `subagent.workspace_closed` with its reason (`close_finished_setting`,
+//! `tucked_reaper`, `superseded`, `control_hide`) for every close the host
 //! makes on its own.
 
 use serde_json::{Value, json};
@@ -40,16 +45,6 @@ pub fn user_bool(doc: Option<&Value>, key: &str) -> Option<bool> {
 }
 
 impl Brain {
-    /// The user's cmux settings document now (or the test's).
-    fn user_settings_doc(&self) -> Option<Value> {
-        match &self.user_settings {
-            Some(doc) => doc.clone(),
-            None => std::env::var_os("HOME").and_then(|home| {
-                crate::agent_memory::settings::document(std::path::Path::new(&home))
-            }),
-        }
-    }
-
     /// Whether a subagent starting now gets its sidebar workspace: the user's
     /// file, else this Chief's settings. Traces a change of value or source.
     pub(super) fn show_subagent_workspaces(&mut self) -> bool {

@@ -7,6 +7,8 @@ struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
     var color: GroupTint
+    /// The header bar's `sidebar.groupHeader.background` look: under glass the line takes the bar's translucent paint.
+    var background: SidebarGroupBackgroundStyle = .auto
     /// The group's tree level: a nested group's rail is fainter, so stacked rails stay quiet.
     var level = 0
     /// A group with no color: `frame` is its block, the header and its members (`SidebarNoColorGroupLook`), not a rail.
@@ -25,27 +27,85 @@ extension SidebarListViewComponents {
     /// group's line goes with its card (SidebarListLift). `current` places
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
+    ///
+    /// Only the lines near the visible rows (`lineWindow`): a pass costs the rows on screen and the groups they sit in,
+    /// never every row the list holds. A scroll past `lineCover` shows the lines it reaches (`showLinesInView`).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
-        let lines = SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
+        let window = lineWindow()
+        lineCover = window
+        let (rows, edge) = lineRows(layout, around: window)
+        return styled(SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
-        }
-        // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
-        guard !model.showsColors else { return lines }
+        }.filter { $0.group != edge })
+    }
+
+    /// `lines` in the sidebar's settings: the header's `sidebar.groupHeader.background` look (Sections draws none), and
+    /// with `sidebar.showColors` off every group as one with no color, its line unseen. Every path that makes lines (a
+    /// rebuild, a fold, a lift) passes them through here, so none draws a look the headers do not.
+    func styled(_ lines: [SidebarGroupLine]) -> [SidebarGroupLine] {
+        let background = model.groupHeaderDetails.background, showsColors = model.showsColors
         return lines.map { line in
             var line = line
-            line.color = .none
+            line.background = background
+            if !showsColors { line.color = .none }
             return line
         }
     }
 
+    /// Where the lines are made: the realization rect and one of its heights above and below it, so a scroll
+    /// finds its lines already made; nil (the whole list) while the list has no realization rect.
+    func lineWindow() -> NSRect? {
+        let realize = realizationRect()
+        return realize.isNull ? nil : realize.insetBy(dx: 0, dy: -realize.height)
+    }
+
+    /// The rows `window` reaches, widened to whole top-level groups (the line of every group among them is the one a
+    /// pass over every row makes), and the row under the last of them when that last row is a group header: its
+    /// line's top stops at the row under it. `edge` is that row's group when the row is a header itself: the
+    /// caller drops its line, which these rows hold only the start of.
+    func lineRows(_ layout: SidebarLayout, around window: NSRect?) -> (rows: ArraySlice<SidebarRow>, edge: GroupID?) {
+        guard let window, !layout.rows.isEmpty else { return (layout.rows[...], nil) }
+        let colors = lineColors
+        func top(_ row: SidebarRow) -> GroupID? {
+            var id: GroupID? = if case let .group(header) = row.key { header } else { row.group }
+            var seen = Set<GroupID>()
+            while let current = id, let parent = colors[current]?.parent, seen.insert(current).inserted { id = parent }
+            return id
+        }
+        let shown = layout.rowIndices(from: window.minY, to: window.maxY)
+        var start = shown.first ?? layout.lastIndex(startingAtOrBefore: window.minY) ?? 0
+        var end = (shown.last ?? start) + 1
+        if let group = top(layout.rows[start]) { while start > 0, top(layout.rows[start - 1]) == group { start -= 1 } }
+        if let group = top(layout.rows[end - 1]) { while end < layout.rows.count, top(layout.rows[end]) == group { end += 1 } }
+        guard end < layout.rows.count, layout.rows[end - 1].key.isGroupHeader else { return (layout.rows[start..<end], nil) }
+        let below = layout.rows[end]
+        let edge: GroupID? = if case let .group(id) = below.key { id } else { nil }
+        return (layout.rows[start...end], edge)
+    }
+
+    /// After a scroll past `lineCover`: the lines of the groups now near the visible rows, each that has none shown at
+    /// once at its frame. Lines already shown, moving or not, stay as they are.
+    func showLinesInView() {
+        let realize = realizationRect()
+        guard let cover = lineCover, !realize.isNull, realize.minY < cover.minY || realize.maxY > cover.maxY else { return }
+        groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
+    }
+
     /// The groups as their lines draw them: with `sidebar.showColors` off every group has no color, so each draws
     /// its block (`SidebarGroupLine.isBlock`) as a group nobody colored does.
+    /// Under the gradient palette, a placed group's line takes its place's color (`drawnTints`), as its header does.
     var lineColors: [GroupID: SidebarGroup] {
-        model.showsColors ? groups : groups.mapValues { group in
-            var group = group
-            group.tint = .none
-            return group
+        guard model.showsColors else {
+            return groups.mapValues { group in
+                var group = group
+                group.tint = .none
+                return group
+            }
         }
+        guard !drawnTints.isEmpty else { return groups }
+        var colored = groups
+        for (id, tint) in drawnTints { colored[id]?.tint = tint }
+        return colored
     }
 }
 

@@ -19,7 +19,7 @@
 // near-hover so it's easier to grab"; the agent pane's default, `data-cmux-scroller-fade` on
 // <html>), the same thumb fades like every other scroller: none at rest, shown while the lines
 // scroll sideways, and thicker while the pointer is near the block's bottom edge. Without the fade
-// (Debug Settings agentPane.debug.scrollerFade off) it stays at rest, as above.
+// (a page that never sets it, such as the guest page) it stays at rest, as above.
 //
 // Before: the diff's thumb was transparent until the rows scrolled, the output had the engine's
 // own scroller (an overlay that shows only while it scrolls, or a 15px classic bar), and a cut
@@ -149,6 +149,9 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
       { timeout: 60_000 },
     );
     await page.evaluate((card) => document.querySelector(card)!.scrollIntoView({ block: "center" }), block.card);
+    // Without the fade the agent pane's theme turns on (App.tsx applyPaneTheme): the tests that
+    // measure the fade set it again.
+    await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-scroller-fade"));
     // The pointer away from every block, and long enough past the last scroll that no scroller
     // shows because it is scrolling (SCROLLING_HIDE_MS).
     await page.mouse.move(2, 2);
@@ -267,6 +270,23 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
         return box?.hasAttribute(attribute) === on;
       },
       { ...block, attribute, on },
+      { timeout: 10_000 },
+    );
+
+  /// Waits out the box's scripted thumb fade (followShownScrollerFade): it steps the ink inline once a
+  /// frame and drops it when the fade ends, so the stylesheet's resting ink is what shows then.
+  const faded = (page: Page, block: Block) =>
+    page.waitForFunction(
+      ({ scroller, shadow }) => {
+        const body = document.querySelector<HTMLElement>(scroller)!;
+        const box = shadow
+          ? [...body.querySelectorAll("*")]
+              .map((element) => element.shadowRoot?.querySelector<HTMLElement>("[data-code]"))
+              .find(Boolean)
+          : body;
+        return box?.style.getPropertyValue("--cmux-sideways-ink") === "";
+      },
+      block,
       { timeout: 10_000 },
     );
 
@@ -389,6 +409,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           const page = await open(engine, block);
           try {
             await page.evaluate(() => document.documentElement.setAttribute("data-cmux-scroller-fade", ""));
+            // The thumb fades out over the fade's length (3e0de67aedb), not in one frame.
+            await faded(page, block);
             await painted(page);
             const box = await measure(page, block);
             const rest = await thumb(page, box);
@@ -400,6 +422,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             const scrolling = await thumb(page, await measure(page, block));
             const thin = await thickness(page, await measure(page, block));
             await boxMark(page, block, "data-cmux-scrolling", false);
+            await faded(page, block);
             await painted(page);
             const rested = await thumb(page, await measure(page, block));
             // The pointer comes down to the bar.

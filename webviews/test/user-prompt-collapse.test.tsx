@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// Leo 2026-10-21: a long prompt collapses as Claude's does. A sent prompt longer than ten lines
-// shows its first ten, the last ones fading out, with a Show more / Show less toggle under them; the hover
+// Leo 2026-10-21: a long prompt collapses as Claude's does. A sent prompt longer than twenty lines
+// shows its first twenty (Leo 2026-11-07: "show more than we are showing right now"), the last ones fading out, with a Show more / Show less toggle under them; the hover
 // row stays, and Copy copies the whole prompt. The choice is kept by the row's id (the transcript
 // disclosure store), so a prompt scrolled out and back, or drawn again from history, stays as the
 // reader left it. A block the composer marked as pasted (`user_message.pasted`, UTF-16 ranges into
@@ -57,7 +57,8 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { PromptText } = await import("../src/agent-session/acpmux/conversation/PromptText");
 const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
-const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+const { resetTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
@@ -102,6 +103,24 @@ const click = (element: Element) =>
 const body = () => host.querySelector(".cv-user__text")!;
 const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more");
 
+/// Lays out every box and line of the prompt's text as one `height()` tall (PromptText.tsx
+/// laidOutHeight reads them, open or clamped); returns the undo.
+function laidOut(height: () => number): () => void {
+  const element = Object.getOwnPropertyDescriptor(dom.window.Element.prototype, "getBoundingClientRect");
+  const line = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+  const box = () => {
+    const tall = height();
+    return { top: 0, bottom: tall, height: tall, left: 0, right: 100, width: 100 };
+  };
+  Object.defineProperty(dom.window.Element.prototype, "getBoundingClientRect", { configurable: true, value: box });
+  Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", { configurable: true, value: box });
+  return () => {
+    if (element) Object.defineProperty(dom.window.Element.prototype, "getBoundingClientRect", element);
+    if (line) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", line);
+    else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+  };
+}
+
 // Supply layout that JSDOM does not perform, while keeping the real component, effects and
 // observer lifecycle. The profiler counts commits, not timings on the test machine.
 function measuredPrompt(
@@ -118,8 +137,6 @@ function measuredPrompt(
   root = createRoot(host);
   const computed = dom.window.getComputedStyle;
   const observer = scope.ResizeObserver;
-  const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-  const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
   const observers = new Set<() => void>();
   const commits: string[] = [];
   let height = initialHeight;
@@ -128,12 +145,8 @@ function measuredPrompt(
     measurements += 1;
     return height;
   };
-  Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: readHeight });
+  const undoLayout = laidOut(readHeight);
   Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-  Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-    configurable: true,
-    value: () => ({ height: readHeight() }),
-  });
   scope.ResizeObserver = class {
     constructor(private changed: () => void) {}
     observe() {
@@ -171,10 +184,7 @@ function measuredPrompt(
     root = createRoot(host);
     scope.ResizeObserver = observer;
     Object.assign(dom.window, { getComputedStyle: computed });
-    if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-    else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-    if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-    else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    undoLayout();
   }
 }
 
@@ -195,8 +205,8 @@ try {
   });
 
   test("measuring a long prompt confirms its initial clamp without a second commit", () => {
-    measuredPrompt(240, ({ render, commits, measurements }) => {
-      const text = lines(12);
+    measuredPrompt(480, ({ render, commits, measurements }) => {
+      const text = lines(22);
       render(text);
       expect(measurements()).toBeGreaterThan(0);
       expect(body().textContent).toBe(text);
@@ -206,11 +216,11 @@ try {
     });
   });
 
-  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
+  test("a measured prompt folds and unfolds when its width crosses twenty lines", () => {
     measuredPrompt(20, ({ render, resize }) => {
       const text = "word ".repeat(12).trim();
       render(text);
-      resize(240);
+      resize(480);
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
       resize(40);
@@ -221,15 +231,15 @@ try {
   });
 
   test("new content ignores the previous prompt measurement and still follows later resize", () => {
-    measuredPrompt(240, ({ render, resize }) => {
+    measuredPrompt(480, ({ render, resize }) => {
       render("A short guess that wraps in a narrow bubble");
       expect(body().classList.contains("is-clamped")).toBe(true);
       // Same mounted component, different text: the old short guess must not override a new
       // long guess, and the new measurement must be able to correct that guess either way.
       resize(40);
-      render(lines(12));
+      render(lines(22));
       expect(toggle()).toBeNull();
-      resize(240);
+      resize(480);
       expect(body().classList.contains("is-clamped")).toBe(true);
       render("Replacement short text");
       expect(body().classList.contains("is-clamped")).toBe(true);
@@ -243,7 +253,7 @@ try {
     resetTranscriptDisclosure();
     const text = lines(2000);
     render(prompt("user-1", text));
-    expect(COLLAPSED_PROMPT_LINES).toBe(10);
+    expect(COLLAPSED_PROMPT_LINES).toBe(20);
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(body().classList.contains("is-faded")).toBe(true);
     // The whole prompt stays in the bubble: select and Find read all of it; only its height is clamped.
@@ -316,156 +326,35 @@ try {
     expect(repainted).toBeGreaterThan(0);
   });
 
-  test("a pasted block is a card, its first lines over its size, that opens in place", async () => {
+  // ask-14d16a6247 (Leo, 2026-11-07: "Like just don't separate these out. And, like, I thought we
+  // said, you know, remove these inner bubbles, inner, inner cards."): a paste is part of the
+  // message's one text body, under the bubble's one fold, which Find opens. Copy is the prompt as sent.
+  test("a paste is part of the message's one body under one fold, which Find opens", async () => {
     resetTranscriptDisclosure();
-    const typed = "Why does this fail?";
-    const paste = lines(2300, "error at frame");
-    const text = `${typed}\n${paste}`;
+    const typed = "See the log";
+    const paste = lines(50, "frame");
     const start = typed.length + 1;
-    const row = prompt("user-6", text, { pasted: [{ start, end: start + paste.length }] });
-    // A fresh mount: the last test's Copy still shows its check.
+    const text = `${typed}\n${paste}`;
+    const row = prompt("user-text-paste", text, { pasted: [{ start, end: start + paste.length }] });
     remount(row);
-    const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
-    expect(chip).not.toBeNull();
-    // The composer's label, without its remove button.
-    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
-    expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
-      `${translate("transcript.pastedLines", { n: 2300, count: "2,300" })} · ${translate("composer.pastedChars", {
-        count: new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length),
-      })}`,
-    );
-    expect(host.querySelector(".cv-user__paste-text")?.textContent?.split("\n")[0]).toBe("error at frame 1");
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
-    expect(host.querySelector(".acpmux-attachment-remove, [aria-label='Remove']")).toBeNull();
-    // Closed, only the paste's head is drawn; the typed words are.
-    expect(body().textContent).toContain(typed);
-    expect(body().textContent).not.toContain("error at frame 2300");
-    click(chip);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe(paste);
-    // Copy is the prompt as sent, paste included.
+    expect(host.querySelector(".cv-user__paste, .cv-user__paste-card, .cv-user__pasted")).toBeNull();
+    expect(body().querySelectorAll(".cv-user__typed")).toHaveLength(1);
+    expect(body().textContent).toBe(text);
+    // Fifty lines fold under the prompt's one Show more.
+    expect(body().classList.contains("is-clamped")).toBe(true);
+    expect(toggle()?.textContent).toBe(MORE);
+    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     copied.length = 0;
     await act(async () => {
       host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     expect(copied).toEqual([text]);
+    render(row, { rowId: "user-text-paste", card: false, needle: "frame 42", repaint: () => {} });
+    expect(body().classList.contains("is-clamped")).toBe(false);
   });
 
-  // Leo, 2026-11-05, on the sent bubble's chip: "I think this is almost kind of interesting, but
-  // it's, like, really awkward". It said "1 line" over a paragraph of hundreds of words, in an
-  // outlined box that showed its first five words above the whole text once opened.
-  test("a one-paragraph paste's chip previews its first lines, says its size and opens in place", () => {
-    resetTranscriptDisclosure();
-    const typed = "Can you tighten this up?";
-    const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
-    const text = `${typed}\n${paste}`;
-    const start = typed.length + 1;
-    remount(prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] }));
-    const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
-    // The composer's label: what it is and its size, never "1 line" for one long paragraph.
-    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
-    const chars = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length);
-    expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
-      translate("composer.pastedChars", { count: chars }),
-    );
-    // No outlined attachment box inside the bubble.
-    expect(host.querySelector(".cv-user__paste-block .acpmux-attachment")).toBeNull();
-    // Closed, the paste's own first lines show, wrapped at the bubble's width: far more than five
-    // words, never the whole paste, and outside Find.
-    const preview = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
-    expect(preview).not.toBeNull();
-    expect(preview.textContent!.length).toBeGreaterThan(200);
-    expect(preview.textContent!.length).toBeLessThan(paste.length);
-    expect(paste.startsWith(preview.textContent!)).toBe(true);
-    expect(preview.closest("[data-find-skip]")).not.toBeNull();
-    click(chip);
-    // Open, the same text grows to the whole paste in place, and Find reads it.
-    const opened = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
-    expect(opened).toBe(preview);
-    expect(opened.textContent).toBe(paste);
-    expect(opened.closest("[data-find-skip]")).toBeNull();
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    // The label closes it again; a click on the closed preview opens it too.
-    click(host.querySelector(".cv-user__paste")!);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("false");
-    click(host.querySelector(".cv-user__paste-text")!);
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-  });
-
-  // In a browser the closed card's preview runs past its three lines, clipped. A range over the
-  // prompt's text counted those lines, so the prompt measured long, clamped, measured short (its
-  // clamped box) and unclamped, until React gave up and the pane could not be drawn.
-  test("a closed paste card's clipped preview never makes the prompt measure long", () => {
-    act(() => root.unmount());
-    resetTranscriptDisclosure();
-    root = createRoot(host);
-    const computed = dom.window.getComputedStyle;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-    const elementBox = dom.window.Element.prototype.getBoundingClientRect;
-    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    // Clamped, the box is the typed line and the card.
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 140 });
-    // Its text: the typed line, and the preview's 30 wrapped lines, most of them clipped.
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value(this: Range) {
-        const start = this.startContainer as Element;
-        const preview =
-          start.nodeType === 1 &&
-          (start.matches(".cv-user__paste-text") || start.querySelector(".cv-user__paste-text"));
-        return preview ? { top: 28, bottom: 628, height: 600 } : { top: 0, bottom: 20, height: 20 };
-      },
-    });
-    dom.window.Element.prototype.getBoundingClientRect = function (this: Element) {
-      return this.classList.contains("cv-user__paste-block")
-        ? ({ top: 20, bottom: 128, height: 108 } as DOMRect)
-        : elementBox.call(this);
-    };
-    try {
-      const typed = "Can you tighten this up?";
-      const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
-      const text = `${typed}\n${paste}`;
-      const start = typed.length + 1;
-      act(() =>
-        root.render(
-          <div className="cv-user__bubble">
-            <PromptText
-              rowId="clipped-preview"
-              text={text}
-              pasted={[{ start, end: text.length }]}
-              show={(value) => value}
-            />
-          </div>,
-        ),
-      );
-      expect(body().classList.contains("is-clamped")).toBe(false);
-      expect(toggle()).toBeNull();
-    } finally {
-      act(() => root.unmount());
-      root = createRoot(host);
-      Object.assign(dom.window, { getComputedStyle: computed });
-      dom.window.Element.prototype.getBoundingClientRect = elementBox;
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
-    }
-  });
-
-  test("Find opens the closed paste chip that holds the match", () => {
-    resetTranscriptDisclosure();
-    const typed = "See the log";
-    const paste = lines(50, "frame");
-    const start = typed.length + 1;
-    const row = prompt("user-7", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
-    render(row, { rowId: "user-7", card: false, needle: "frame 42", repaint: () => {} });
-    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toContain("frame 42");
-  });
-
-  test("Find's current match lands in the opened paste, never on the chip's name or line count", () => {
+  test("Find's matches in a paste land in the message's body text", () => {
     resetTranscriptDisclosure();
     const typed = "Why does this fail?";
     const paste = lines(30, "error at frame");
@@ -489,10 +378,8 @@ try {
     try {
       const current = paintFindHighlights(host, "error at frame", { rowId: "user-8", card: false, occurrence: 0 });
       expect(current).toBeDefined();
-      expect(current!.startContainer.parentElement?.closest(".cv-user__paste-text")).not.toBeNull();
-      // Nothing in the chip itself is a match: its name and count are labels, not the prompt's text.
+      expect(current!.startContainer.parentElement?.closest(".cv-user__typed")).not.toBeNull();
       const all = [...((set.get("acpmux-find") as { ranges: Range[] } | undefined)?.ranges ?? []), current!];
-      expect(all.some((range) => range.startContainer.parentElement?.closest(".cv-user__paste"))).toBe(false);
       expect(all.length).toBe(30);
     } finally {
       Object.assign(globalThis, { CSS: css, Highlight: highlight });
@@ -509,15 +396,9 @@ try {
     const start = typed.length + 1;
     const row = prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] });
     const computed = dom.window.getComputedStyle;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 1000 });
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    // Drawn whole, the prompt is measured by its parts' lines (a paste card by its own box).
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ top: 0, bottom: 1000, height: 1000 }),
-    });
+    // Laid out, its parts are 1000px tall.
+    const undoLayout = laidOut(() => 1000);
     try {
       act(() => root.unmount());
       root = createRoot(host);
@@ -526,10 +407,7 @@ try {
       expect(body().classList.contains("is-clamped")).toBe(false);
     } finally {
       Object.assign(dom.window, { getComputedStyle: computed });
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+      undoLayout();
     }
   });
 
@@ -551,7 +429,7 @@ try {
     try {
       act(() => root.unmount());
       root = createRoot(host);
-      render(prompt("user-fold-style", lines(20)));
+      render(prompt("user-fold-style", lines(30)));
       expect(durationReads).toBe(0);
       click(toggle()!);
       expect(body().classList.contains("is-clamped")).toBe(false);
@@ -568,19 +446,10 @@ try {
     resetTranscriptDisclosure();
     const computed = dom.window.getComputedStyle;
     const observer = scope.ResizeObserver;
-    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
-    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
     const observers = new Set<() => void>();
     let drawnHeight = 20;
-    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get: () => drawnHeight,
-    });
+    const undoLayout = laidOut(() => drawnHeight);
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ height: drawnHeight }),
-    });
     scope.ResizeObserver = class {
       constructor(private changed: () => void) {}
       observe() {
@@ -594,8 +463,8 @@ try {
       render(prompt("user-short-geometry", "word ".repeat(12).trim()));
       expect(toggle()).toBeNull();
       expect(observers.size).toBeGreaterThan(0);
-      // A later font load or narrower pane wraps the same mounted prompt past ten lines.
-      drawnHeight = 240;
+      // A later font load or narrower pane wraps the same mounted prompt past twenty lines.
+      drawnHeight = 480;
       act(() => {
         for (const changed of observers) changed();
       });
@@ -604,10 +473,7 @@ try {
     } finally {
       scope.ResizeObserver = observer;
       Object.assign(dom.window, { getComputedStyle: computed });
-      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
-      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
-      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
-      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+      undoLayout();
     }
   });
 

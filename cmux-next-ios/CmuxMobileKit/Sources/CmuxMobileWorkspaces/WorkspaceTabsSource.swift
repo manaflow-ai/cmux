@@ -687,7 +687,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: ToastDismissal.lifetime(for: text))
-            if self?.toastText == text { withAnimation { self?.clearNotice() } }
+            if self?.toastText == text { withAnimation(.default.unlessReduceMotion) { self?.clearNotice() } }
         }
     }
 
@@ -1110,6 +1110,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The grid rests: agent cards are drawn into pictures, one per frame,
     /// built cards first (`AgentCardRasterizer`).
+    /// Select Tabs is up in the grid: `WorkspaceGridHeader` steps aside for its Close | More.
+    public private(set) var isSelectingTabs = false
+    public func overviewSelectingChanged(_ selecting: Bool) { isSelectingTabs = selecting }
+
     public func overviewIdleChanged(_ idle: Bool) {
         gridIdle = idle
         if idle {

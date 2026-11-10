@@ -10,6 +10,11 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_artifact_uploads_retry.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every artifact upload a nightly needs is a first try with continue-on-error and a retry step with the same inputs and overwrite: true; run python3 tests/test_nightly_artifact_uploads_retry.py yourself after adding or changing an upload in nightly.yml (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_background_steps.py"
 lane = "linux-guard"
 
@@ -46,6 +51,11 @@ path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_deltas_keyless_prebuild.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that build-nightly-deltas builds the deltas without the Sparkle key and the keyed job only signs them; run python3 tests/test_nightly_deltas_keyless_prebuild.py yourself after changing either job or the delta scripts (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_deltas_sparse_checkout.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that generate-nightly-deltas checks out only scripts/ of the build ref and that the reel's apt install retries; run python3 tests/test_nightly_deltas_sparse_checkout.py yourself after changing either (about 1 s, no Mac)."
@@ -59,11 +69,20 @@ path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_job_sdkroot.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the SDK step of nightly.yml on a fake macOS 27 host (Command Line Tools 27, Xcode 26.6) and links with each compiling job's environment; run python3 tests/test_nightly_job_sdkroot.py yourself after changing a Select Xcode step or a compiling job in nightly.yml (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_legacy_publish_linux.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_live_code_variant.py"
 lane = "linux-guard"
 
 [[test]]
@@ -109,11 +128,6 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_one_feed_readers.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Keeps scripts/ off the retired nightly-next/next/ feed; run python3 tests/test_nightly_next_one_feed_readers.py yourself after changing a script that reads the nightly feed (under 1 s, no Mac)."
-
-[[test]]
 path = "tests/test_nightly_next_fix_forward.py"
 lane = "linux-guard"
 
@@ -130,10 +144,6 @@ path = "tests/test_nightly_next_identity_probe.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_notary_full_import.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_nightly_next_launch_smoke.py"
 lane = "manual"
 reason = "Run by hand with python3 when nightly_next_launch_smoke.py or its workflow changes; repository policy adds no new CI tests."
@@ -143,8 +153,27 @@ path = "tests/test_nightly_next_live_feed_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_notary_full_import.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs decide's browser-import block from nightly.yml in node and checks the outputs the build and publish jobs read; run python3 tests/test_nightly_next_notary_full_import.py yourself after changing that block or NIGHTLY_NEXT_BROWSER_DATA_IMPORT."
+
+[[test]]
 path = "tests/test_nightly_next_notary_handoff.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_notary_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_one_feed_readers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Keeps scripts/ off the retired nightly-next/next/ feed; run python3 tests/test_nightly_next_one_feed_readers.py yourself after changing a script that reads the nightly feed (under 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_next_pipeline.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the nightly-next build and sign stages: a push run builds and dispatches a sign run (nightly_next_sign_stage) in its own group, the push run skips the sign stage, retry and run_tail cover the sign run, a superseded sign run leaves before the signer, and the resume reads a live push run only as a sign stage; run python3 tests/test_nightly_next_pipeline.py yourself after changing those (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_post_publish.py"
@@ -167,12 +196,27 @@ path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_rollback_drill.py"
+lane = "manual"
+reason = "Run by hand after changing nightly-next-rollback-drill.yml, nightly-next-rollback.yml's drill call or scripts/ci/nightly_next_rollback_drill.py: python3 tests/test_nightly_next_rollback_drill.py (no network, no secrets); no new CI tests (CLAUDE.md)."
+
+[[test]]
 path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_single_loop.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks nightly-next's one latest-wins loop: the retry dispatch takes the push group, retry-nightly-next checks the head and caps at two, decide builds nothing for a resume from outside the loop, and a loop run dispatches its tail after the GitHub release (dispatch-published-in, run_tail); run python3 tests/test_nightly_next_single_loop.py yourself after changing those (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tail_off_push_group.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that a nightly-next loop run keeps the GitHub release and dSYMs and dispatches the rest of the tail (dispatch-published-in, gated on run_tail), whose run reads the record only from the checked source run's artifact; run python3 tests/test_nightly_next_tail_off_push_group.py yourself after changing published-build, dispatch-published-in or nightly_published_build.py (about 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_train.py"
@@ -289,9 +333,10 @@ path = "tests/test_nightly_version.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_workflow_size.py"
-lane = "linux-guard"
+path = "tests/test_nightly_warm_checkout_sparse.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next builder's checkout step from nightly.yml in a temp workspace that the signer, the deltas jobs or a full actions/checkout left sparse, and needs the whole build tree after it; run python3 tests/test_nightly_warm_checkout_sparse.py yourself after changing that step or a sparse checkout of a job that can share its runner (about 5 s, git only, no Mac)."
 
 [[test]]
-path = "tests/test_nightly_live_code_variant.py"
+path = "tests/test_nightly_workflow_size.py"
 lane = "linux-guard"

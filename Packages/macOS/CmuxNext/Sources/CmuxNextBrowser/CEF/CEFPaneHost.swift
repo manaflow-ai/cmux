@@ -28,6 +28,8 @@ final class CEFPaneHost {
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab? { didSet { if let visibleTab { runtime.extensionActionReads.tabShown(visibleTab) } } }
+    /// The tab `present` showed while this host's page window was out of the window (`holdFirstFrameIfAppeared`).
+    private(set) weak var shownWithWindowOut: CEFTab?
     /// The browser this host last made Chromium's active tab (its own
     /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
     /// activation for it, often after the user has moved on.
@@ -128,13 +130,15 @@ final class CEFPaneHost {
 
     private func applyHostVisibility() {
         hostVisibilityPending = false
-        let hidden = visibleTab.map(\.isContentHidden) ?? true
+        let hidden = visibleTab.map(Self.hidesHost) ?? true
         if hostView.isHidden != hidden { hostView.isHidden = hidden }
     }
 
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        // The fork orders the page window of a hidden host, or of one in no window, out by the end of that turn.
+        let windowOut = hostView.isHidden || hostView.window == nil || hostView.window !== container.window
         if hostView.superview !== container {
             // A direct addSubview moves the view without taking it out of
             // the window: the page's child window is not re-added (about
@@ -146,11 +150,12 @@ final class CEFPaneHost {
         }
         // The content lifecycle decides visibility; entering a window does
         // not override a hide it applied (a pane parked off screen).
-        hostView.isHidden = tab.isContentHidden
+        hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
-        if !isPopupHost { runtime.lastShownHost = self }
+        if !holdsOwnTab { runtime.lastShownHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
@@ -163,6 +168,7 @@ final class CEFPaneHost {
             // it in the opener's pane. It moves into this host's window.
             ensureOwnWindow(for: tab)
         } else {
+            holdFirstFrameIfAppeared(tab)
             showBrowser(of: tab)
             tab.grantPendingFocusIfShown()
         }
@@ -266,9 +272,9 @@ final class CEFPaneHost {
                 }
             }
             #if DEBUG || CMUX_BENCH_HOOKS
-            let started = runtime.benchMarks.span("cef.create_window", create)
+            let started = keepingKey { runtime.benchMarks.span("cef.create_window", create) }
             #else
-            let started = create()
+            let started = keepingKey(create)
             #endif
             if started != 1 {
                 runtime.pendingWindows[request] = nil
@@ -323,7 +329,7 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion), follows: runtime.hostingSwitch)
+        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
         var active = tab
@@ -392,6 +398,8 @@ final class CEFPaneHost {
         // page keeps its store and navigation guard.
         tab.machineStore = opener?.machineStore
         tab.navigationGuard = opener?.navigationGuard ?? .none
+        // Opened in an agent's window: the opener's pane window is its home (`returnHome` when shown).
+        tab.homeHost = opener?.homeHost
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
@@ -410,15 +418,17 @@ final class CEFPaneHost {
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
-        if !isPopupHost, tabs.count == 1, placeholder != nil { runtime.spareWindow.giveBack(self, runtime: runtime) }
+        if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindow.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             // A spare page no tab took never outlives its window's tabs (`CEFSpareWindow.page`).
             runtime.spareWindow.closePage(in: self)
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if isPopupHost { runtime.hosts[key] = nil }
+            if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
         }
+        // A lent tab closed while its window was still being made: the placeholder goes too.
+        if isAgentHost { retireIfUnused() }
     }
 
     func refreshExtensionActions() {

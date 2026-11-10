@@ -6,6 +6,9 @@
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:var(--ds-space-3);width:min(288px,calc(100% - 2 * var(--ds-space-3)));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
 .acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg);box-shadow:var(--acpmux-popup-elevation)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
+/* The column clips its rows, so its drag edge sits just inside its left edge (ui/SplitEdge.css). */
+.acpmux-summary-card[data-placement=inline]>.ui-split-edge[data-side=left]{left:0}
+.acpmux-summary-card[data-placement=inline]>.ui-split-edge::after{left:0;translate:none}
 .acpmux-main[data-summary=inline]{min-width:0}
 /* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
    tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */
@@ -14,10 +17,12 @@
 .acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]){--acpmux-summary-push:var(--acpmux-summary-column-width)}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + var(--ds-space-2))}
-.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
+/* The Find bar is the scroller's own child: a `:has()` over the whole stage would be checked again for every node a
+   streamed chunk inserts (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(>.acpmux-scroll>.acpmux-find)>.acpmux-summary-card{visibility:hidden}
 /* While hidden, the popover blurs nothing under it (ui/glass/seeThroughBlur.ts): no Find bar or
    transcript stays blurred under an invisible card. Above glass.css's filter rule in specificity. */
-:root[data-cmux-see-through] :is(.acpmux-inspecting,.acpmux-stage:has(.acpmux-find))>[data-glass-under~=summary]{filter:none}
+:root[data-cmux-see-through] :is(.acpmux-inspecting,.acpmux-stage:has(>.acpmux-scroll>.acpmux-find))>[data-glass-under~=summary]{filter:none}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 0 var(--ds-space-1)}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:var(--ds-space-2);height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;text-align:left}
@@ -119,7 +124,7 @@
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=failed]::after{content:"✕"}
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=running]::after{content:"";inset:var(--ds-space-1);border-radius:50%;background:var(--surface-popup)}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
-.acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--cmux-surface-solid,var(--agent-page-bg)) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+.acpmux-chat-gallery{position:fixed;inset:var(--acpmux-image-viewer-top,0px) 0 0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--cmux-surface-solid,var(--agent-page-bg)) var(--ds-glass-popover-tint),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);color:var(--agent-text);outline:none}
 /* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
 @media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}}
 :root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}

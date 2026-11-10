@@ -105,7 +105,9 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
-    let scope_digest = digest(state_root.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
+    let scope_root = cmux_agent_pane_policy::build_identity::path_identity(state_root);
+    let scope_digest = digest(scope_root.as_os_str().as_encoded_bytes());
     Paths {
         runtime,
         state: state_root.join("remote"),
@@ -343,7 +345,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);

@@ -43,7 +43,8 @@ impl HostedReader {
                 crate::prompt_mode_reset::write_output(&mut term, &output, &mut self.shell_marks);
             terminal_notifications = pty.observe_terminal_output(&output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
-                mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
+                mux.upgrade()
+                    .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
             let output = match normalized {
                 Cow::Borrowed(_) => output,
@@ -92,12 +93,12 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                // A program that rewrites the same title (a spinner's
-                // resting frame, a prompt redraw) announces nothing.
+                // A program that rewrites the same title (a prompt redraw)
+                // or only steps its spinner announces nothing (D2).
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
-                if *stored != title {
-                    *stored = title.clone();
+                if let Some(title) =
+                    crate::terminal_title::store(&mut pty.title.lock().unwrap(), title)
+                {
                     title_update = Some(title);
                 }
             }

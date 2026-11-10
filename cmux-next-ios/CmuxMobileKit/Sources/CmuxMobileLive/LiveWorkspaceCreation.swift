@@ -4,7 +4,7 @@ import CmuxMobileTransport
 import Foundation
 import OSLog
 
-private let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
+let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
 
 /// Creates workspaces and tabs on the linked Mac's cmux-tui daemon. The
 /// phone's `daemon` lane (cmux-mobile-host policy) allows `new-workspace {name}`,
@@ -14,12 +14,16 @@ private let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creati
 @MainActor
 public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     let sync: WorkspaceSync
-    private let link: LinkController
+    let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
     weak var acpmux: AcpmuxHub?
 
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
+    /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
+    var reads = StickyRead()
+    /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
+    var readMarks: [String: Int] = [:]
 
     /// Whether a Mac streams browser tabs: it said `browser-stream-v1`. A Mac that
     /// has not answered yet keeps the option (an older Mac's refusal then reads plainly).

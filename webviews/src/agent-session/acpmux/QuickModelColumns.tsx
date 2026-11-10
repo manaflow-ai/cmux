@@ -6,6 +6,7 @@
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
 import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -13,17 +14,20 @@ import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
-import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
+import { SearchIcon } from "./ComposerPickers";
+import { reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { CHAT_COLUMN } from "./modelPickerLayout";
+import { MODEL_MENU_MIN_WIDTH, naturalMenuWidth, setModelMenuWidth, useModelMenuWidth } from "./modelMenuWidth";
 import {
-  QuickModelMenu,
-  StarIcon,
   familyTabs,
+  heldTab,
   initialOf,
   leadRoute,
   runsOffers,
@@ -34,7 +38,7 @@ import {
   type QuickFamily,
   type QuickMenu,
   type QuickModel,
-} from "./QuickModelMenu";
+} from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -252,7 +256,7 @@ function Columns({
     }),
     [trigger],
   );
-  const { families, current, effort, fast, auth, search } = menu;
+  const { families, current, effort, fast, auth, search, setup } = menu;
   const account = menu.ownModel ? undefined : menu.account;
   const accounts = useAccountList(open, account);
   const [addingAccount, setAddingAccount] = useState(false);
@@ -306,6 +310,8 @@ function Columns({
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
   // observer goes with the frame, which unmounts as the menu closes.
   const sizeHold = useRef<ResizeObserver | null>(null);
+  const popupRef = useRef<HTMLElement | null>(null);
+  const [popupNode, setPopupNode] = useState<HTMLElement | null>(null);
   // The columns' fades follow their scroll, their size (the menu grows, the window shrinks) and their
   // rows (a tab or a search changes them). The observers go with the body as the menu closes.
   const fadeWatch = useRef<(() => void) | null>(null);
@@ -331,15 +337,15 @@ function Columns({
     sizeHold.current?.disconnect();
     sizeHold.current = null;
     const popup = frame?.parentElement;
+    popupRef.current = popup ?? null;
+    // The portal mounts after the open render's effects ran: measure and size it now.
+    setPopupNode(popup ?? null);
     if (!frame || !popup || typeof ResizeObserver === "undefined") return;
-    let width = 0;
+    // The width is set (the longest name of every tab, or the person's own, modelMenuWidth.ts), so
+    // only the height is held here.
     let height = 0;
     const observer = new ResizeObserver(() => {
       const box = frame.getBoundingClientRect();
-      if (box.width > width) {
-        width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
-      }
       if (box.height > height) {
         height = box.height;
         // Never past the frame's own cap: min-height beats max-height.
@@ -351,6 +357,20 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
+  // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
+  // of every tab, so it never changes width from tab to tab; a narrower menu ends names in an ellipsis.
+  const ownWidth = useModelMenuWidth();
+  const [natural, setNatural] = useState<{ key: string; width: number }>();
+  // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
+  const dragging = useRef(false);
+  const widthOf = (popup: HTMLElement | null | undefined) => {
+    if (!popup || dragging.current) return;
+    const room = "var(--available-width, calc(100vw - 24px))";
+    const wanted = ownWidth ?? natural?.width;
+    popup.style.width = wanted ? `min(${wanted}px, ${room})` : "";
+    popup.style.minWidth = wanted ? `min(${MODEL_MENU_MIN_WIDTH}px, ${room})` : "";
+    popup.style.maxWidth = wanted ? room : "";
+  };
 
   // The Starred tab is always the rail's first, also before anything is starred.
   const starredText = t("picker.starred");
@@ -361,6 +381,29 @@ function Columns({
         : [{ id: STARRED_TAB, name: starredText, starred: true, models: [], more: [] }, ...families.list],
     [families.list, starredText],
   );
+  // Every name the menu can list (each tab's models and their providers): the default width fits
+  // the longest, measured once per list as the menu opens.
+  const names = useMemo(
+    () => [
+      ...new Set(
+        list.flatMap((family) =>
+          [...family.models, ...family.more].flatMap((model) => [
+            // A tag ("New") draws after the name, a gap away: it is measured with it.
+            model.tag ? `${model.name}  ${model.tag}` : model.name,
+            ...(model.offers?.map((offer) => offer.provider ?? offer.name) ?? []),
+          ]),
+        ),
+      ),
+    ],
+    [list],
+  );
+  const namesKey = names.join("\u0000");
+  useLayoutEffect(() => {
+    if (!open || natural?.key === namesKey) return;
+    const width = naturalMenuWidth(names, modelsList.current);
+    if (width) setNatural({ key: namesKey, width });
+  }, [open, names, namesKey, natural?.key, popupNode]);
+  useLayoutEffect(() => widthOf(popupRef.current));
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
@@ -370,18 +413,28 @@ function Columns({
     () => (found ? searchGroups(found, list, families.current) : undefined),
     [found, list, families],
   );
-  // Rows a search lists twice under one name (two routes of one model) also name their model id.
-  const twins = useMemo(() => twinRows(groups ?? []), [groups]);
   // The list: a search's matches under their family's name, else the tab's models, then its Legacy ones.
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
-    : shown && !shown.fork
+    : shown
       ? [...shown.models, ...shown.more]
       : [];
+  // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
+  // model id under the name, so the variants read apart (Lawrence 2026-11-05).
+  // One pass over the listed rows; `rows` is rebuilt each render.
+  const twins = twinRows(groups ?? [{ id: "", name: "", rows }]);
   const legacyFrom = groups || !shown ? rows.length : shown.models.length;
   const isRunning = (model: QuickModel) =>
     model.family === families.current && (model.id === current || runsOffers(model, current));
   const runningIndex = rows.findIndex(isRunning);
+  // A started chat's pick of another harness's model, held for its next message (forkHold.ts): its
+  // row is the checked one, and its settings column shows the held effort and Fast.
+  const heldFor = families.held;
+  const isHeld = (model: QuickModel) =>
+    !!heldFor && model.family === heldFor.family && heldFor.id !== undefined && model.id === heldFor.id;
+  const heldIndex = heldFor ? rows.findIndex(isHeld) : -1;
+  // What a started chat ran carries the "used here" mark (UsedMark), also while another is held.
+  const used = families.used;
 
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -389,7 +442,8 @@ function Columns({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      const first = families.current ?? list.find((family) => !family.starred)?.id;
+      // A held pick of another harness opens on its tab: the menu shows what the next message runs.
+      const first = heldTab(families) ?? families.current ?? list.find((family) => !family.starred)?.id;
       setTab(first);
       setQuery("");
       setCol(1);
@@ -407,7 +461,14 @@ function Columns({
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
   const firstIndex = rows.findIndex((model) => !model.disabled);
-  const hl = modelHl >= 0 && modelHl < rows.length ? modelHl : runningIndex >= 0 ? runningIndex : firstIndex;
+  const hl =
+    modelHl >= 0 && modelHl < rows.length
+      ? modelHl
+      : heldIndex >= 0
+        ? heldIndex
+        : runningIndex >= 0
+          ? runningIndex
+          : firstIndex;
   // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
   // list it) still shows the session's levels and Fast, as the list menu's Effort row did.
   const sessionRow: QuickModel | undefined =
@@ -445,13 +506,20 @@ function Columns({
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
   const focusKey = focus ? keyOf(focus) : "";
   const mine = focusRuns && held?.key === focusKey ? held : undefined;
-  // The held pick when it is the shown model (or one of its providers).
+  // The held pick when it is the shown model (or one of its providers): one picked here, else the
+  // chat's pick of another harness's model held for its next message, with its effort and Fast.
   const picked =
     pending &&
     focus &&
     (keyOf(pending.model) === focusKey || focus.offers?.some((o) => keyOf(o) === keyOf(pending.model)))
       ? pending.model
-      : undefined;
+      : !pending && focus && heldFor && isHeld(focus)
+        ? {
+            ...focus,
+            ...(heldFor.effort ? { effort: heldFor.effort } : {}),
+            ...(heldFor.fast ? { fast: true } : {}),
+          }
+        : undefined;
   const level =
     picked?.effort ??
     mine?.effort ??
@@ -469,11 +537,14 @@ function Columns({
     : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
   // A model the harness cannot start takes no level, provider or Fast.
   const focusOff = !!focus?.disabled;
-  /// The row that shows the check: the held pick, else the running model.
+  /// The row that shows the check: the pick made here, else another harness's held model, else the
+  /// running model.
   const isChosen = (model: QuickModel) =>
     pending
       ? keyOf(model) === keyOf(pending.model) || !!model.offers?.some((o) => keyOf(o) === keyOf(pending.model))
-      : isRunning(model);
+      : heldFor
+        ? isHeld(model)
+        : isRunning(model);
   const tuneRows: TuneRow[] = [
     ...ladder.map((choice) => ({ kind: "level" as const, choice })),
     ...offers.map((offer) => ({ kind: "offer" as const, offer })),
@@ -484,6 +555,69 @@ function Columns({
   useRowInView(railList, tab);
 
   const close = () => finish(false, true);
+  /// A drag on the menu's outer edge: the width follows the pointer and is kept on release. The other
+  /// edge, the one lined up with the chip, stays where it is, and the menu never grows past the room
+  /// it has (the chat column, else the window). Base UI places the popup a frame or more after a
+  /// size change (a React render), so each width step drew the menu off its edge for a frame and,
+  /// past the room, ran it out of the pane until the release snapped it back: the flicker in Lucas's
+  /// recording (2026-11-10). While the drag runs, a translate holds the edge until Base UI catches up.
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const popup = popupRef.current;
+    const positioner = popup?.parentElement;
+    if (event.button !== 0 || !popup || !positioner) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const grip = event.currentTarget;
+    const doc = popup.ownerDocument;
+    const start = popup.getBoundingClientRect();
+    const startX = event.clientX;
+    const fromEnd = align === "end";
+    // The room: the chat column the menus keep to (CHAT_COLUMN), else the window, less the popup's
+    // collision padding (5 px, popupInset.ts).
+    const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const left = (bound?.left ?? 0) + 5;
+    const right = (bound?.right ?? doc.defaultView?.innerWidth ?? start.right) - 5;
+    const most = Math.max(MODEL_MENU_MIN_WIDTH, fromEnd ? start.right - left : right - start.left);
+    let width = start.width;
+    // Where the popup's left edge belongs for `width`; the translate makes up whatever Base UI has
+    // not placed yet, read live each time it moves the positioner.
+    const pin = () => {
+      const wanted = fromEnd ? start.right - width : start.left;
+      const placed = positioner.getBoundingClientRect().left;
+      const offset = Math.round((wanted - placed) * 100) / 100;
+      popup.style.translate = offset ? `${offset}px 0` : "";
+      return offset;
+    };
+    const placed = new MutationObserver(() => {
+      if (pin() === 0 && !dragging.current) placed.disconnect();
+    });
+    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
+    grip.setPointerCapture?.(event.pointerId);
+    grip.dataset.dragging = "";
+    dragging.current = true;
+    const move = (next: PointerEvent) => {
+      const delta = (next.clientX - startX) * (fromEnd ? -1 : 1);
+      width = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
+      popup.style.width = `${width}px`;
+      popup.style.minWidth = `${MODEL_MENU_MIN_WIDTH}px`;
+      popup.style.maxWidth = `${most}px`;
+      pin();
+    };
+    const end = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      delete grip.dataset.dragging;
+      dragging.current = false;
+      // The edge is held until Base UI has placed the final width, then the translate goes.
+      if (pin() === 0) placed.disconnect();
+      if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
+      else widthOf(popup);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row); the
   /// menu stays open.
   const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
@@ -505,9 +639,12 @@ function Columns({
     if (!model || model.disabled) return;
     setModelHl(index);
     setTuneHl(0);
-    // The running model again: nothing to land, unless a search named a level or Fast for it.
-    if (isRunning(model) && !model.effort && !model.fast) setPending(undefined);
-    else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
+    // The running model again: nothing to land, unless a search named a level or Fast for it. With
+    // another harness's model held, it is a pick again: it drops the hold.
+    if (isRunning(model) && !model.effort && !model.fast) {
+      setPending(undefined);
+      if (heldFor) menu.families.onPick(model);
+    } else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
   };
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
@@ -549,7 +686,6 @@ function Columns({
     if (!entry) return;
     const family = leadRoute(entry, families.current);
     if (entry.routes.length === 1 && family.launch && !family.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(family.id);
       return;
@@ -572,7 +708,6 @@ function Columns({
   };
   const showRoute = (route: QuickFamily) => {
     if (route.launch && !route.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(route.id);
       return;
@@ -626,18 +761,12 @@ function Columns({
       // A launch-only tab the arrows reached starts its harness on Return, as a click on it does.
       const launchOnly = shownTab?.routes.length === 1 && shown?.launch && !shown.note ? shown : undefined;
       if (launchOnly && (col === 0 || rows.length === 0)) {
-        if (families.forkReady === false) return;
         onOpenChange(false);
         families.onLaunch?.(launchOnly.id);
         return;
       }
       if (col === 2 && tuneKeys) runTune(tuneHl);
       else if (col === 1 && focus && !picked) pickModel(hl);
-      else if (col === 1 && !focus && !query && shown?.fork && families.forkReady) {
-        onOpenChange(false);
-        families.onFork?.(shown.id);
-        return;
-      }
       close();
       return;
     }
@@ -731,7 +860,6 @@ function Columns({
             face: { id: route.id, name: route.name },
             name: route.name,
             ...(route.note ? { detail: route.note } : {}),
-            disabled: !!route.launch && families.forkReady === false,
             pick: () => showRoute(route),
           }))
       : []),
@@ -869,7 +997,7 @@ function Columns({
           model.name,
           query ? model.harness : undefined,
           model.hint ?? model.provider,
-          twins.has(model) ? model.id : undefined,
+          model.id !== model.name ? model.id : undefined,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -878,8 +1006,16 @@ function Columns({
           pickModel(index);
         }}
       >
-        <span className="acpmux-cols-name">{model.name}</span>
+        {twins.has(model) ? (
+          <span className="acpmux-cols-text">
+            <span className="acpmux-cols-name">{model.name}</span>
+            <span className="acpmux-cols-id">{model.id}</span>
+          </span>
+        ) : (
+          <span className="acpmux-cols-name">{model.name}</span>
+        )}
         {model.tag && <span className="acpmux-cols-tag">{model.tag}</span>}
+        {used && isRunning(model) && <UsedMark look={used} />}
         {stars && (
           <button
             type="button"
@@ -913,6 +1049,7 @@ function Columns({
           <div className="acpmux-cols-group">
             <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
             {group.name}
+            {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
           </div>
           {group.rows.map((model, offset) => modelRow(model, start + offset))}
         </Fragment>
@@ -938,6 +1075,7 @@ function Columns({
     onClick: () => void,
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
+    title?: string,
   ) => {
     tuneIndex += 1;
     const index = tuneIndex;
@@ -949,6 +1087,8 @@ function Columns({
         aria-disabled={disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={col === 2 && index === tuneHl ? "" : undefined}
+        // tooltip-allow: names the provider's route (its model id), which tells same-named models apart.
+        title={title}
         onPick={() => {
           if (disabled) return;
           setCol(2);
@@ -962,7 +1102,7 @@ function Columns({
     );
   };
 
-  const tabEmpty = !query && !!shown && !shown.fork && rows.length === 0;
+  const tabEmpty = !query && !!shown && rows.length === 0;
   return (
     <>
       <button
@@ -1019,6 +1159,16 @@ function Columns({
         initialFocus={field}
         finalFocus={false}
       >
+        {/* The outer edge, away from the chip it lines up with: a drag sets the menu's width for every
+            composer, a double-click goes back to the default (modelMenuWidth.ts). */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
+        <div
+          className="acpmux-cols-resize"
+          data-edge={align === "end" ? "start" : "end"}
+          aria-hidden="true"
+          onPointerDown={startResize}
+          onDoubleClick={() => setModelMenuWidth(undefined)}
+        />
         {/* ui-allow: Up, Down, Left, Right and Return move through the columns, as in a column browser. */}
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the field's keys bubble here: arrows move the columns */}
         <div
@@ -1103,6 +1253,30 @@ function Columns({
               <hr className="acpmux-cols-sep" />
             </>
           )}
+          {/* A picked model's harness being set up (harnessSetup.ts): installing, signing in or
+              starting, or why it could not, whatever tab or search shows. */}
+          {setup && (
+            <>
+              <output className="acpmux-cols-setup" data-busy={setup.busy ? "" : undefined}>
+                {setup.busy && <Spinner size={12} className="acpmux-cols-setup-spinner" loading />}
+                <span className="acpmux-cols-setup-text">
+                  <span>{setup.text}</span>
+                  {setup.detail && (
+                    // tooltip-allow: the installer's last line can run long; the strip shows one line
+                    <span className="acpmux-cols-setup-detail" title={setup.detail}>
+                      {setup.detail}
+                    </span>
+                  )}
+                </span>
+                {setup.actions.map((action) => (
+                  <button key={action.label} type="button" className="acpmux-cols-update-action" onClick={action.run}>
+                    {action.label}
+                  </button>
+                ))}
+              </output>
+              <hr className="acpmux-cols-sep" />
+            </>
+          )}
           <div ref={bodyRef} className="acpmux-cols-body">
             <DrivenList
               ref={railList}
@@ -1115,17 +1289,20 @@ function Columns({
               {tabs.map((entry, index) => {
                 const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
                 const selected = !query && entry === shownTab;
+                // A started chat's own tab: the "used here" mark (UsedMark), drawn by the tab.
+                const ownTab = !!used && entry.routes.some((route) => route.id === families.current);
                 return (
                   <DrivenRow
                     key={entry.key}
                     kind="tab"
                     aria-selected={selected}
                     aria-label={entry.name}
-                    aria-disabled={
-                      entry.routes.every((route) => route.launch) && families.forkReady === false ? true : undefined
-                    }
-                    // tooltip-allow: the rail tab draws only the family's mark; the title names it.
-                    title={family.note ? `${entry.name} · ${family.note}` : entry.name}
+                    // tooltip-allow: the rail tab draws only the family's mark; the title names it and
+                    // whether this chat ran it.
+                    title={[entry.name, family.note, ownTab ? t("picker.usedHere") : undefined]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    data-used={ownTab ? used : undefined}
                     data-tooltip-side="left"
                     className="acpmux-cols-tab"
                     data-hl={selected ? "" : undefined}
@@ -1144,6 +1321,7 @@ function Columns({
                         {initialOf(entry.name)}
                       </span>
                     )}
+                    {ownTab && used !== "glyph" && <UsedMark look={used} />}
                   </DrivenRow>
                 );
               })}
@@ -1175,26 +1353,7 @@ function Columns({
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
             >
-              {!query && shown?.fork ? (
-                <>
-                  <div className="acpmux-cols-caption">{tabName}</div>
-                  <DrivenRow
-                    kind="button"
-                    className="acpmux-cols-row"
-                    data-hl=""
-                    aria-disabled={!families.forkReady ? true : undefined}
-                    onPick={() => {
-                      if (!families.forkReady) return;
-                      close();
-                      families.onFork?.(shown.id);
-                    }}
-                  >
-                    <span className="acpmux-cols-name">{t("picker.forkTo", { harness: shown.name })}</span>
-                  </DrivenRow>
-                </>
-              ) : (
-                models
-              )}
+              {models}
               {query && rows.length === 0 && (
                 <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                   <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
@@ -1277,8 +1436,11 @@ function Columns({
                       () => pickOffer(offer),
                       <>
                         <span className="acpmux-cols-name">{offer.provider}</span>
+                        {used && offer.id === current && focus.family === families.current && <UsedMark look={used} />}
                         <span className="acpmux-cols-check">{offer === runningOffer && <CheckIcon />}</span>
                       </>,
+                      "radio",
+                      `${offer.provider} · ${offer.id}`,
                     ),
                   )}
                   {fastShown && (

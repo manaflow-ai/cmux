@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -65,8 +66,18 @@ def test_macos_job_runs_the_focused_filter() -> None:
 
 def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
+    code, calls, _ = _run_focused_with_output(listing, ignored, extra_env)
+    return code, calls
+
+
+def _run_focused_with_output(
+    listing: str, ignored: str, extra_env: dict[str, str] | None = None
+) -> tuple[int, str, str]:
+    """Like _run_focused, and also return what the script wrote to $GITHUB_OUTPUT."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        github_output = root / "github-output"
+        github_output.write_text("", encoding="utf-8")
         log = root / "cargo.log"
         cargo = root / "cargo"
         cargo.write_text(
@@ -84,10 +95,16 @@ def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = 
             check=False,
             capture_output=True,
             text=True,
-            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), **(extra_env or {})},
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "GITHUB_OUTPUT": str(github_output),
+                **(extra_env or {}),
+            },
         )
         calls = log.read_text(encoding="utf-8") if log.exists() else ""
-    return result.returncode, calls
+        outputs = github_output.read_text(encoding="utf-8")
+    return result.returncode, calls, outputs
 
 
 def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
@@ -97,17 +114,19 @@ def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
 
 
 def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -> None:
-    """Linux-only test files (#![cfg(target_os = "linux")]) compile to nothing on macOS.
+    """Host-only test files (#![cfg(target_os = "linux")], macOS-only tests) compile to nothing elsewhere.
 
     A focused dispatch for bring_back_journey or cloud_move_journey ran them on Linux
-    and then failed macOS with "selected no Rust tests". The macOS job allows a host
-    with no matching test; Linux stays strict, so a typo still fails the dispatch.
+    and then failed macOS with "selected no Rust tests". A macOS-only filter
+    (macos_app_support_loads_after_xdg, run 42626993043, 2026-11-09) failed Linux the
+    same way. Both jobs allow a host with no matching test and report the count;
+    hosted verification fails the run when neither host ran one, so a typo still fails.
     """
     code, calls = _run_focused("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
     assert code == 0
     assert "some_filter -- --test-threads=2" not in calls
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for job_name, allowed in (("macos", "1"), ("test", None)):
+    for job_name, allowed in (("macos", "1"), ("test", "1")):
         step = next(
             step
             for step in workflow["jobs"][job_name]["steps"]
@@ -116,10 +135,126 @@ def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -
         assert step["env"].get("CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST") == allowed, job_name
 
 
+def test_focused_script_reports_how_many_tests_it_selected() -> None:
+    """Each host writes its runnable count to $GITHUB_OUTPUT (selected=N) for hosted verification."""
+    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "")
+    assert code == 0 and "selected=2" in outputs.splitlines(), outputs
+    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "tui::b: test\\n")
+    assert code == 0 and "selected=1" in outputs.splitlines(), outputs
+    code, _, outputs = _run_focused_with_output("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
+    assert code == 0 and "selected=0" in outputs.splitlines(), outputs
+
+
+def _focused_count_step(job: dict) -> dict:
+    [step] = [step for step in job["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
+    return step
+
+
+def _run_gate(**env_overrides: str) -> tuple[int, str]:
+    """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", "-e", str(script)], env=env, capture_output=True, text=True)
+    return run.returncode, run.stdout + run.stderr
+
+
+def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
+    """A macOS-only or Linux-only filter passes; the run fails only when both hosts selected 0 tests.
+
+    The Linux and macOS jobs run in parallel and each reports its count as a job
+    output; hosted verification, which needs both, gives the verdict.
+    """
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "0", 1)):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == want, (linux, macos, output)
+        if want:
+            assert "selected no Rust tests on Linux or macOS" in output, output
+    # Full mode has no filter: the counts do not apply.
+    code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
+    assert code == 0, output
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    for job_name, variable in (("test", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
+        job = workflow["jobs"][job_name]
+        step = _focused_count_step(job)
+        assert job["outputs"]["focused_selected"] == "${{ steps.%s.outputs.selected }}" % step["id"], job_name
+        assert gate_env[variable] == "${{ needs.%s.outputs.focused_selected }}" % job_name, variable
+
+
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
     code, calls = _run_focused("tui::a_test: test\\n", "")
     assert code == 0
     assert "test --workspace --locked --no-fail-fast some_filter -- --test-threads=2" in calls
+
+
+def test_a_test_binary_that_hangs_while_listing_fails_fast_and_is_named() -> None:
+    """A cmux_tui test binary hung while listing on macOS and ran into the job's 40 minute
+    timeout with only "The operation was canceled." (runs 42458823348, 42461695724). The
+    listing now fails once it is quiet past its deadline, naming the last binary cargo ran."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"--list"*) echo "     Running unittests src/main.rs (target/debug/deps/cmux_tui-abc)"; sleep 60 ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
+            },
+        )
+    output = result.stdout + result.stderr
+    assert result.returncode == 124, output
+    assert "::error" in output and "target/debug/deps/cmux_tui-abc" in output, output
+
+
+def test_a_hang_in_the_ignored_listing_still_names_its_binary() -> None:
+    """The ignored pass writes to a file; its watchdog report must still reach the log."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"--list --ignored"*) echo "     Running tests/slow.rs (target/debug/deps/slow-abc)"; sleep 60 ;;\n'
+            '  *"--list"*) printf "tui::a_test: test\\n" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
+            },
+        )
+    output = result.stdout + result.stderr
+    assert result.returncode == 124, output
+    assert "::error" in output and "target/debug/deps/slow-abc" in output, output
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -282,10 +417,12 @@ ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 
 
 def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
-    """Attempt 1 takes the owned minis' side lane; a rerun goes to Blacksmith macOS 15.
+    """Attempt 1 takes the owned minis' side lane; a rerun goes to the macOS 15 pool.
 
     Never vars.MACOS_RUNNER_PR, the nightly build's 12 vCPU macOS 26 label,
-    and neither names the retired glaeda-aws pools.
+    and neither names the retired glaeda-aws pools. Since #32457 every runner
+    selection reads its size's declared pool (fromJSON(vars.RUNNER_POOLS).macos_15,
+    declared in .github/runners.json) instead of the Blacksmith literal.
     """
     workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
     builds = [
@@ -299,16 +436,16 @@ def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
             "vars.CI_PR_POOL_OWNED == '1' && "
             "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
             "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
         assert job["with"]["macos_retry_runner"] == (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
 
 
 def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
-    """The release-path dogfood build goes straight to Blacksmith macOS 15.
+    """The release-path dogfood build goes straight to the macOS 15 pool (Blacksmith macOS 15).
 
     On the owned side lane, focused runs' dogfood builds sat queued until the
     run was cancelled (up to 120 min; one success waited 92 min for a 25 min
@@ -325,7 +462,7 @@ def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
         assert "MACOS_RUNNER_PR" not in route
         assert route == (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "'blacksmith-6vcpu-macos-15' }}"
+            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
         )
 
 
@@ -365,3 +502,33 @@ def test_hosted_verification_gate_reports_every_selected_job_before_failing() ->
     assert "lint finished with result 'failure'" in output, output
     assert "macOS lint and tests finished with result 'failure'" in output, output
     assert "Rust tests: success" in output, output
+
+
+def main() -> int:
+    """Run every test_ function in this file; CI calls the file with plain python3 (no pytest).
+
+    Before this, the file had no entry point, so `python3 tests/test_tui_focused_filter_guard.py`
+    (ci-guards.yml) defined the tests, ran none of them, and passed.
+    """
+    import traceback
+
+    tests = [(name, value) for name, value in globals().items() if name.startswith("test_") and callable(value)]
+    failed: list[str] = []
+    for name, test in tests:
+        try:
+            test()
+        except Exception:  # noqa: BLE001 - report every failure, then exit non-zero once
+            failed.append(name)
+            print(f"FAIL: {name}", file=sys.stderr)
+            traceback.print_exc()
+        else:
+            print(f"ok: {name}")
+    print(f"{len(tests) - len(failed)} of {len(tests)} tests passed")
+    if not tests:
+        print("error: no tests found", file=sys.stderr)
+        return 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

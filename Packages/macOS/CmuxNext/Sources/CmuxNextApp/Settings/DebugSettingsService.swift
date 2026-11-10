@@ -10,13 +10,13 @@ import CmuxNextChiefViews
 import CmuxNextCompat
 import CmuxNextDaemonRecovery
 import CmuxNextDesign
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
@@ -25,7 +25,6 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
-import CmuxNextTasks
 import CmuxNextWorkspaceNaming
 import Foundation
 
@@ -37,11 +36,10 @@ enum TunableCatalog {
         ChiefViewsPage.tunables +
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionInfo.descriptor]
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
+            + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
-            + HangFileTunables.all + HostPressureTunables.all
-            + BrowserHostTunables.all
+            + HangFileTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
     }
 }
 
@@ -84,7 +82,7 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        for registerRenames in [BrowserResizeTunables.registerRenames, AgentPaneTunables.registerRenames] { registerRenames(store) }
+        for registerRenames in [AgentPaneTunables.registerRenames] { registerRenames(store) }
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
@@ -105,7 +103,7 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
     /// for a build that keeps its app names (``BuildIdentity/keepsAppNames``),
-    /// `cmux/builds/<key>/debug-tunables.json` for every other build, so no
+    /// `cmux-next/builds/<key>/debug-tunables.json` for every other build, so no
     /// build reads another's tunables (per-build isolation S5, cx-is1kf.6);
     /// or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
     nonisolated static func fileURL(environment: [String: String], tag: String?, bundleID: String?,
@@ -115,7 +113,8 @@ final class DebugSettingsService: InternalPageProvider {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
         let cmux = home.appending(path: "Library/Application Support/cmux")
-        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: cmux) {
+        if let build, !build.keepsAppNames,
+           let state = build.daemonStateDirectory(appSupport: home.appending(path: "Library/Application Support/cmux-next")) {
             return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
         }
         let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")
@@ -185,11 +184,10 @@ final class DebugSettingsService: InternalPageProvider {
         return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
-    /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
-    /// default), else nil (the SwiftUI view). Its own window has a standard title bar
-    /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
+    /// The React page over `model`, or nil when the page cannot be made (the SwiftUI view then).
+    /// Its own window has a standard title bar (`DebugSettingsWindowController`), so the page needs
+    /// no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
-        guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

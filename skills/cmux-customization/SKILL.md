@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, Ghostty-backed terminal preferences, or a view of their own (a sidebar or Session Info section built as the customize app, such as the PRs from the last 24h)."
+description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
 ---
 
 # cmux Customization
@@ -131,8 +131,21 @@ top, so a block copies between the two:
 }
 ```
 
+- cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
+  list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
+  behind the window and the pane background), `classic-desktop` (gray chrome, hard
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
+  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
+  name wins over the shipped one). Steps and the undo path for people:
+  [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
+- A background picture may sit beside the theme: `"appearance.background":
+  "file:harbor.jpg"` (or `folder:walls`, or `file:~/Pictures/x.png`) resolves against
+  `~/.config/cmux/themes`, so a theme and its pictures move as one folder.
 - Only look settings apply (`appearance.*`, `ui.animation*`, `ui.calm`,
-  `browser.omnibar.glass*`, `app.uiScale`), each checked like `cmux settings set`.
+  `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
+  `terminal.fontSize`, and the sidebar's `sidebar.style`, `sidebar.border`,
+  `sidebar.borderWidth` and `sidebar.sectionLook`), each checked like `cmux settings set`.
   A refused value or key is dropped with the toast settings use, naming the
   theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
   ignored: ...`); the rest still applies. Look keys up as in
@@ -163,6 +176,9 @@ install click.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
+- A section whose script failed shows the error with its `main.js:line` and a Reload button. A save
+  mounts it again by itself; `cmux apps reload` (palette: Reload Custom Views) runs every local view
+  again from its saved files without a restart.
 - Adding a view: keep every existing implementation and render function. A taken
   slot gets the new view inside its existing render; add each new name to the one
   `__cmuxAppExports` object.
@@ -186,7 +202,7 @@ The worked example, as copy-paste files, and the recipe for adding a view:
 To make a button run the person's own command, read the current workspace,
 follow changes or open a pane of their own, start from a folder in
 [templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
-`pane`). A button runs a `cmux-next.json` action with
+`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install
 a template: [references/extensions.md](references/extensions.md).
