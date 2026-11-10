@@ -2632,7 +2632,14 @@ impl WorkspaceRegistry {
                 open_once(&mut session_guard, &mut lease)
             }
             Err(error) => Err(error),
-        }?;
+        }
+        .inspect_err(|error| {
+            // Still under the session locks: the files of the quarantined
+            // registry follow it before the next start can misuse them.
+            if let Some(quarantined) = error.downcast_ref::<RegistryQuarantined>() {
+                open_guard::keep_with_quarantined(&db_path, quarantined);
+            }
+        })?;
         // A roster the next build folded beside the previous owner.
         premigrate::adopt(&registry);
         Ok(registry)
