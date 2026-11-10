@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42729865827",
+  "recorded_at": "2026-11-10T00:45:35Z",
+  "reason": "cmux-tui 87cffbe589b7 changes the image's cmux-tui (pinned a55d9ed6976a)",
+  "dry_run": false,
+  "cmux_tui": "87cffbe589b77747c93af4ae14d266e6cc3a5276",
+  "fixes": [
+    {
+      "sha": "87cffbe589b77747c93af4ae14d266e6cc3a5276",
+      "mergedAt": "2026-11-10T00:21:11Z",
+      "subject": "Shell mode works on Cloud and SSH chats: the command runs on the chat's machine (#39203)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T00:45:35Z",
+    "snapshot_id": "sh-ca9be586a75146439bf8a7f807af1c67",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42729865827): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2370cadd8ed0055ef93ded535b364db4a6985ee5",
+    "image": "cloud-native-auto-87cffbe5-42729865827-1",
+    "revision": "ci-42729865827-1",
+    "at": "2026-11-10T00:45:35Z"
+  },
+  "rolled_back": false
+}
