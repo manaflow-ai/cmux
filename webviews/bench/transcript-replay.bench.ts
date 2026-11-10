@@ -14,6 +14,10 @@
 //   transcript_replay.open.moved_px        worst move of a row in view at first paint, until rest (1 px; a row that
 //                                          left the view counts the view's height)
 //   transcript_replay.live.cls             worst layout-shift sum while a log streams in (0.01)
+//   transcript_replay.trickle.cls          the same for the long log's first TRICKLE_TURNS turns streamed TRICKLE_BATCH
+//                                          records a frame, as a slow daemon or a busy page lands them (0.01; small
+//                                          fixture, about 30 s): a turn's call, its reply and the next prompt land in
+//                                          frames of their own, which the 25-a-frame catch-up mostly folds into one
 //   transcript_replay.live.long_tasks      long tasks (> 50 ms) while bursts play, all logs (0)
 //   transcript_replay.long.token_ms        main-thread ms per streamed reply token, p50 over checkpoints, p95 the worst
 //                                          (10 ms: a frame's work)
@@ -91,6 +95,12 @@ if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "reco
 const GROWTH_FACTOR = 1.5;
 /// Records a frame takes outside a burst: a daemon's catch-up arrives about this fast.
 const BATCH = 25;
+/// The trickle round (transcript_replay.trickle.cls): a short log, two records a frame. At 25 a frame a turn's
+/// end, the next prompt and its first call mostly land in one update, so what moves between them is never
+/// drawn; at two it is, every turn (the live line resized as a reply landed over its step: 0.036 a turn, 4.2
+/// of the long log's 7.7 at four a frame).
+const TRICKLE_BATCH = 2;
+const TRICKLE_TURNS = 60;
 /// The budgets, one rule each (header).
 const BUDGET = {
   cls: 0.01,
@@ -398,7 +408,7 @@ type Live = {
   shiftNotes: string[];
 };
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
-async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promise<Live> {
+async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean, batchSize = BATCH): Promise<Live> {
   const first = log.events[0]?.at ?? Date.now();
   const { page, cdp } = await openPage(ctx, log, 0, "running", first);
   const started = performance.now();
@@ -443,7 +453,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
         continue;
       }
       const batch: EventRecord[] = [];
-      while (index < log.events.length && batch.length < BATCH && !inBurst.has(log.events[index]!.seq))
+      while (index < log.events.length && batch.length < batchSize && !inBurst.has(log.events[index]!.seq))
         batch.push(log.events[index++]!);
       await clockTo(page, batch.at(-1)!.at);
       for (const event of batch) {
@@ -755,6 +765,29 @@ if (import.meta.main) {
       }
     }
     const { rows, misses } = judge(opens, lives, BURST_LOG);
+    if (FIXTURE === "small" && ONLY.includes("long")) {
+      try {
+        const trickle = await liveRound(ctx, { ...longLog({ turns: TRICKLE_TURNS }), name: "trickle" }, false, TRICKLE_BATCH);
+        console.log(`transcript-replay: trickle (${TRICKLE_TURNS} turns, ${TRICKLE_BATCH} records a frame) live cls ${trickle.cls}`);
+        for (const note of trickle.shiftNotes) if (!note.includes(" 0.0000 ")) console.log(`  trickle shift: ${note}`);
+        const row: PerfRow = {
+          name: "transcript_replay.trickle.cls",
+          p50: trickle.cls,
+          p95: trickle.cls,
+          unit: "score",
+          target: BUDGET.cls,
+          floor: 0.001,
+        };
+        rows.push(row);
+        if (row.p95 > BUDGET.cls)
+          misses.push(
+            `BUDGET MISS ${row.name} = ${row.p95} score (budget ${BUDGET.cls}): streaming the long log ${TRICKLE_BATCH} records a frame shifted rows already painted (${trickle.shiftNotes.join("; ") || "no sources"})`,
+          );
+      } catch (error) {
+        failed += 1;
+        console.log(`transcript-replay: trickle FAILED: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);
     if (!misses.length) console.log("transcript-replay: every budget held");
