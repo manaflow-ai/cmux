@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42733897897",
+  "recorded_at": "2026-11-10T01:22:44Z",
+  "reason": "cmux-tui 5d318f1417fc changes the image's cmux-tui (pinned a6be827c653b)",
+  "dry_run": false,
+  "cmux_tui": "5d318f1417fc114c3eeddbf4493b23682461b331",
+  "fixes": [
+    {
+      "sha": "5d318f1417fc114c3eeddbf4493b23682461b331",
+      "mergedAt": "2026-11-09T16:52:38-08:00",
+      "subject": "ci(cmux-tui): the focused filter guard tests run; a one-host filter passes (#39706)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T01:22:44Z",
+    "snapshot_id": "sh-c60571bb3c7348b5910ef82d5a728f37",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42733897897): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1911f1fa951b47d57e74e3dc9c0ab7f56a1725c3",
+    "image": "cloud-native-auto-5d318f14-42733897897-1",
+    "revision": "ci-42733897897-1",
+    "at": "2026-11-10T01:22:44Z"
+  },
+  "rolled_back": false
+}
