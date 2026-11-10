@@ -26,6 +26,36 @@
 //!   so the next start re-folds the whole journal
 //! - `--quiet`: no progress on stderr
 //!
+//! `--shape lawrence` writes the 2026-11-10 shape instead
+//! (`synth_registry::generate_shape`: 64% `agent.state.changed`, 11%
+//! `terminal.progress`, 4% other `agent.*`, the rest session puts; all but
+//! about 500 records sealed; 16 checkpoints near the head; the History fold
+//! saved 30% of the journal behind the head) and prints
+//! `synth_registry::counts` of the file plus what it wrote:
+//!
+//! ```sh
+//! cargo run --release -p cmux-tui-core --example synth_registry -- \
+//!   --out /tmp/synth/sessions --session synth --shape lawrence \
+//!   --target-bytes 1073741824 --seal-age-minutes 120 --quiet
+//! ```
+//!
+//! - `--target-bytes B` (default 1 GiB; 4,300 file bytes a record, so 1 GiB
+//!   is about 250,000 records and 9.6 GB about 2.26 M; `--bytes-per-record`
+//!   changes the 4,300), or `--records N`
+//! - `--workspaces W` (default 826), `--agent-terminals T` (default 170;
+//!   journal subjects only, whatever W is), `--live-rows L` (default 500)
+//! - `--seal-age-minutes M`: move every segment's `sealed_at_ms` M minutes
+//!   back (default 0: not); `--young-segments K`: but not the newest K
+//! - `--receipt-percent P` (default 36): the share of all records that the
+//!   daemon's ingress commit writes, each with a receipt
+//! - `--subjects-per-record S` (default 12)
+//! - `--keep-auto-vacuum`: leave the file with incremental auto-vacuum
+//!   (default: `auto_vacuum` none and no migration marker, as a registry
+//!   made before journal maintenance)
+//!
+//! `--counts REGISTRY_FILE` prints the counts of an existing registry file
+//! as one JSON line, through a read-only connection, and exits.
+//!
 //! Two modes for an existing registry (`daemon-registry-start.sh
 //! registry=`), which write no rows:
 //!
@@ -44,12 +74,14 @@
 use std::path::PathBuf;
 
 use cmux_tui_core::synth_registry::{
-    ROSTER_REDUCER_VERSION, SynthOptions, bump_roster_version, generate, rebind_resource_pepper,
-    registry_path,
+    ROSTER_REDUCER_VERSION, ShapeOptions, SynthOptions, bump_roster_version, counts, generate,
+    generate_shape, rebind_resource_pepper, registry_path,
 };
 
 fn main() -> anyhow::Result<()> {
     let mut options = SynthOptions { progress: true, ..SynthOptions::default() };
+    let mut shape = ShapeOptions::default();
+    let mut shape_name = None;
     let mut out = None;
     let mut registry = None;
     let (mut print_registry_path, mut bump_only, mut rebind_pepper) = (false, false, false);
@@ -62,7 +94,25 @@ fn main() -> anyhow::Result<()> {
             "--session-puts" => options.session_puts = value()?.parse()?,
             "--agent-events" => options.agent_events = value()?.parse()?,
             "--output-bytes" => options.output_bytes = value()?.parse()?,
-            "--workspaces" => options.workspaces = value()?.parse()?,
+            "--workspaces" => {
+                options.workspaces = value()?.parse()?;
+                shape.workspaces = options.workspaces;
+            }
+            "--shape" => shape_name = Some(value()?),
+            "--target-bytes" => shape.target_bytes = value()?.parse()?,
+            "--records" => shape.records = Some(value()?.parse()?),
+            "--bytes-per-record" => shape.bytes_per_record = value()?.parse()?,
+            "--agent-terminals" => shape.agent_terminals = value()?.parse()?,
+            "--live-rows" => shape.live_rows = value()?.parse()?,
+            "--seal-age-minutes" => shape.seal_age_minutes = value()?.parse()?,
+            "--young-segments" => shape.young_segments = value()?.parse()?,
+            "--receipt-percent" => shape.receipt_percent = value()?.parse()?,
+            "--subjects-per-record" => shape.subjects_per_record = value()?.parse()?,
+            "--keep-auto-vacuum" => shape.legacy_auto_vacuum = false,
+            "--counts" => {
+                println!("{}", counts(&PathBuf::from(value()?))?);
+                return Ok(());
+            }
             "--payload-bytes" => options.payload_bytes = value()?.parse()?,
             "--batch-rows" => options.batch_rows = value()?.parse()?,
             "--seal" => options.seal = true,
@@ -105,6 +155,14 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(&out)?;
+    if let Some(name) = shape_name {
+        anyhow::ensure!(name == "lawrence", "unknown shape {name}: the only shape is lawrence");
+        shape.session = options.session.clone();
+        shape.progress = options.progress;
+        let report = generate_shape(&out, &shape)?;
+        println!("{}", report.to_json());
+        return Ok(());
+    }
     let report = generate(&out, &options)?;
     println!("{}", report.to_json());
     Ok(())
