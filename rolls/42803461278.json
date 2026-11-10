@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42803461278",
+  "recorded_at": "2026-11-10T11:00:16Z",
+  "reason": "cmux-tui 91caaf25e60f changes the image's cmux-tui (pinned 536cd5dd8b66)",
+  "dry_run": false,
+  "cmux_tui": "91caaf25e60f3952acc6c19e87fa08b7d72ec466",
+  "fixes": [
+    {
+      "sha": "91caaf25e60f3952acc6c19e87fa08b7d72ec466",
+      "mergedAt": "2026-11-10T02:41:04-08:00",
+      "subject": "Cloud page: a paused machine says what its pause costs a month (#40336)"
+    },
+    {
+      "sha": "18620aaba5c38796145c715f9047bf8a8c2a2adb",
+      "mergedAt": "2026-11-10T10:36:33Z",
+      "subject": "chore(next): base autofix at 6fe33a71a462"
+    },
+    {
+      "sha": "6fe33a71a462957dfad22655e60a82f7ee9f26bc",
+      "mergedAt": "2026-11-10T02:33:39-08:00",
+      "subject": "CLI app reconnects: a quit app fails in about 1 s, MCP calls keep their own deadline (fix forward #40147) (#40281)"
+    },
+    {
+      "sha": "d802d6d92ce27487cc7feee656548748fd5e9556",
+      "mergedAt": "2026-11-10T02:32:24-08:00",
+      "subject": "cmux ext: scaffold an extension and watch it reload in cmux as you edit (ext new, ext dev, ext dev --once --json) (#40242)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T11:00:16Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
