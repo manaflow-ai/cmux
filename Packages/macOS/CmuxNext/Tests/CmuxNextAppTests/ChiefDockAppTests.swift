@@ -3,7 +3,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextLayout
+import CmuxNextHome
+@testable import CmuxNextLayout
 import Foundation
 import Testing
 
@@ -30,6 +31,7 @@ struct ChiefDockAppTests {
             })
             #expect(window.chiefPanelView?.chief is HomeHostView, "the panel does not hold the real Chief view")
             #expect(window.state.chiefPanel.dockedEdge == nil && window.state.docks.isEmpty, "Cmd-I docked")
+            try Self.expectEmptySpaceDrags(window)
             #expect(window.state.workspaceID == other && window.parked[home.id]?.contentView.isHiddenOrHasHiddenAncestor != false,
                     "Home came on screen with the Chief")
 
@@ -42,5 +44,45 @@ struct ChiefDockAppTests {
             _ = services.registry.perform("home.openChiefDock", invocation: ActionInvocation(origin: .user))
             #expect(!window.frameChiefPanelShown, "the Chief showed over Home")
         }
+    }
+
+    /// The real chat in the Chief's own window (user 2026-11-09): a drag on the transcript's empty space moves the
+    /// window, a drag in the message box does not (its text selects).
+    static func expectEmptySpaceDrags(_ window: WindowController) throws {
+        let panel = try #require(window.chiefPanelView), launcher = try #require(panel.launcher)
+        try #require(panel.window === launcher, "the real Chief is not in its own window")
+        let content = try #require(launcher.contentView), frameView = try #require(content.superview)
+        content.layoutSubtreeIfNeeded()
+        var empty: NSPoint?
+        let b = content.bounds
+        scan: for y in stride(from: b.maxY - 60, to: b.minY + 100, by: -8) {
+            for x in stride(from: b.minX + 20, to: b.maxX - 20, by: 8) {
+                let point = content.convert(NSPoint(x: x, y: y), to: nil)
+                guard let hit = frameView.hitTest(frameView.convert(point, from: nil)),
+                      hit.enclosing(HomeNativeTranscriptView.self) != nil,
+                      ChiefLauncherPanel.pressMovesWindow(at: point, hit: hit, in: content) else { continue }
+                empty = point
+                break scan
+            }
+        }
+        let start = try #require(empty, "no point of the real transcript moves the window")
+        let hit = try #require(frameView.hitTest(frameView.convert(start, from: nil)))
+        let origin = launcher.frame.origin
+        try ChiefLauncherWindowTests.drag(at: hit.convert(start, from: nil), in: hit, by: CGVector(dx: 40, dy: -30))
+        #expect(abs(launcher.frame.minX - (origin.x + 40)) <= 1 && abs(launcher.frame.minY - (origin.y - 30)) <= 1,
+                "a drag on the real transcript's empty space (\(type(of: hit))) did not move the window: \(launcher.frame)")
+        if let field = launcher.firstResponder as? NSTextView {
+            let moved = launcher.frame
+            try ChiefLauncherWindowTests.drag(at: NSPoint(x: field.bounds.midX, y: field.bounds.midY), in: field, by: CGVector(dx: 40, dy: 0))
+            #expect(launcher.frame == moved, "a drag in the message box moved the window")
+        }
+    }
+}
+
+private extension NSView {
+    func enclosing<T: NSView>(_ type: T.Type) -> T? {
+        var view: NSView? = self
+        while let next = view { if let found = next as? T { return found }; view = next.superview }
+        return nil
     }
 }

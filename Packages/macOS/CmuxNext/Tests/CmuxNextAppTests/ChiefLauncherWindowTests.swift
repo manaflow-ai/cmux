@@ -202,6 +202,28 @@ struct ChiefLauncherWindowTests {
         sheet.close()
         f.frame()
         #expect(launcher.isVisible, "closing the sheet hid it")
+
+        // With its popup holding the keys, a click into the cmux window is a click outside.
+        _ = popup.show(size: CGSize(width: 200, height: 120), anchor: anchor, in: launcher, makeKey: true)
+        await Self.settle { popup.panel.isKeyWindow }
+        try #require(launcher.isVisible)
+        f.controller.window?.makeKeyAndOrderFront(nil)
+        await Self.settle { !launcher.isVisible }
+        #expect(!launcher.isVisible && !f.controller.frameChiefPanelShown, "a click outside while its popup had the keys did not hide it")
+        popup.hide()
+    }
+
+    /// Lets the main actor deliver what is queued (notifications) until `done`, a bounded number of turns.
+    static func settle(_ done: () -> Bool) async {
+        for _ in 0..<200 where !done() {
+            turnRunLoop()
+            await Task.yield()
+        }
+    }
+
+    /// One pass of the main run loop: the key tracker decides in a run loop block (not callable from async code).
+    static func turnRunLoop() {
+        RunLoop.main.run(mode: .default, before: .distantPast)
     }
 
     /// Esc hides it, and so does a click outside (it gives up the keys), each giving the Chief back to Home.

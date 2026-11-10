@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import ObjectiveC
 
 /// The floating Chief's own window, a launcher in the Raycast manner (user 2026-11-09: "it should be raycast-type
 /// floating window"): borderless and rounded with a shadow, over every app and Space, never activating cmux. It opens
@@ -53,6 +54,9 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
         setAccessibilityIdentifier("cmux.chiefLauncher")
         contentView = NSView(frame: NSRect(origin: .zero, size: FloatingChatFrames.defaultSize))
         delegate = self
+        // A popup of its own with the keys never makes this window resign them: when the keyboard then leaves the
+        // window and its popups for another window or app, that was a click outside.
+        watchKeyFamily { [weak self] left in if left { self?.requestDismiss() } }
     }
 
     override public var canBecomeKey: Bool { true }
@@ -112,12 +116,28 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
         if let onDismiss { onDismiss() } else { dismiss() }
     }
 
-    /// A click outside: the window gave up the keys to another app or window. A sheet or child window of its own
-    /// (a menu, a popover) taking them is not outside.
+    /// A click outside: the window gave up the keys to another app or window. A window of its own taking them is
+    /// not outside: a sheet, a modal panel, or a popup (a settings card, a picker: a child window that can take the
+    /// keys, which gives them back when it closes).
     override public func resignKey() {
         super.resignKey()
-        guard attachedSheet == nil, !(childWindows ?? []).contains(where: { $0.isVisible && $0.isKeyWindow }) else { return }
+        guard !ownsKeys else { return }
         requestDismiss()
+    }
+
+    /// Whether a window of its own has or is taking the keys.
+    private var ownsKeys: Bool {
+        if attachedSheet != nil || NSApp.modalWindow.map(owns) == true || NSApp.keyWindow.map(owns) == true { return true }
+        return (childWindows ?? []).contains { $0.isVisible && $0.canBecomeKey }
+    }
+
+    /// Whether `window` is a window of its own: this one's child, sheet or one of theirs.
+    private func owns(_ window: NSWindow) -> Bool {
+        var current: NSWindow? = window
+        while let next = current, next !== self {
+            current = next.sheetParent ?? next.parent
+        }
+        return current === self && window !== self
     }
 
     override public func cancelOperation(_ sender: Any?) { requestDismiss() }
@@ -140,6 +160,11 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
 
     public func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
 
+    /// A move it did not make itself (a view's `performDrag`, as the chat's header does) is kept too.
+    public func windowDidMove(_ notification: Notification) {
+        if isVisible, drag?.moved != true { saveFrame() }
+    }
+
     private func saveFrame() {
         guard let screen else { return }
         frames.save(frame, onDisplay: FloatingChatFrames.display(screen))
@@ -159,8 +184,9 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
                 drag = (point, frame.origin, false, true)
                 return
             }
-            if let content = contentView, let hit = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow),
-               Self.movesWindow(hit) {
+            if let content = contentView, let frameView = content.superview,
+               let hit = frameView.hitTest(frameView.convert(event.locationInWindow, from: nil)),
+               Self.pressMovesWindow(at: event.locationInWindow, hit: hit, in: content) {
                 drag = (point, frame.origin, false, false)
             }
         case .leftMouseDragged:
@@ -190,21 +216,36 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
         event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
     }
 
-    /// Whether a press on `hit` may drag the window: it lets the window move under it (a label always does), and
-    /// neither it nor a view above it is text, a control, a scroller or a web page, whose drags are their own.
-    static func movesWindow(_ hit: NSView) -> Bool {
+    /// Whether a press at `point` (window coordinates) on `hit` drags the window. The views under it that decide
+    /// point by point (``WindowBackgroundDragDeciding``, the chat's transcript) answer first, innermost first. Else the
+    /// innermost view that takes the press keeps it (text, a control, a scroller, a web page, or any view with its own
+    /// `mouseDown`), unless it says it moves the window; a press nothing takes is on empty space and drags.
+    static func pressMovesWindow(at point: CGPoint, hit: NSView, in content: NSView) -> Bool {
         var view: NSView? = hit
-        while let next = view {
-            if !isLabel(next), next is NSText || next is NSControl || next is NSScroller || NSStringFromClass(type(of: next)).hasPrefix("WK") {
-                return false
+        while let next = view, next !== content.superview {
+            if let decider = next as? any WindowBackgroundDragDeciding, let moves = decider.pressMovesWindow(atWindowPoint: point, hit: hit) {
+                return moves
             }
             view = next.superview
         }
-        return isLabel(hit) || hit.mouseDownCanMoveWindow
+        view = hit
+        while let next = view, next !== content.superview {
+            if !(next is any WindowBackgroundDragDeciding), let moves = ownRule(next) { return moves }
+            view = next.superview
+        }
+        return true
     }
 
-    private static func isLabel(_ view: NSView) -> Bool {
-        guard let field = view as? NSTextField else { return false }
-        return !field.isEditable && !field.isSelectable
+    /// A view's own answer: nil when it takes no press (a plain container, a label).
+    private static func ownRule(_ view: NSView) -> Bool? {
+        if let field = view as? NSTextField, !field.isEditable, !field.isSelectable { return nil } // a label
+        if view is NSText || view is NSControl || view is NSScroller || NSStringFromClass(type(of: view)).hasPrefix("WK") { return false }
+        guard overrides(type(of: view), #selector(NSView.mouseDown(with:))) else { return nil }
+        return overrides(type(of: view), #selector(getter: NSView.mouseDownCanMoveWindow)) && view.mouseDownCanMoveWindow
+    }
+
+    /// Whether `type` has its own implementation of `selector`, not `NSView`'s.
+    private static func overrides(_ type: AnyClass, _ selector: Selector) -> Bool {
+        class_getMethodImplementation(type, selector) != class_getMethodImplementation(NSView.self, selector)
     }
 }
