@@ -413,6 +413,14 @@ pub(crate) fn note_ephemeral(workspace_id: &str) {
     NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
 }
 
+/// Whether any workspace was ever ephemeral in this process: a remote
+/// device's `list-workspaces` revision is then a digest of what it may see
+/// (server.rs `list_workspaces_reply_since`).
+pub(crate) fn any_ephemeral_noted() -> bool {
+    use crate::panic_free::RecoverPoison;
+    !NOTED_EPHEMERAL.lock().recover_poison().is_empty()
+}
+
 /// Whether workspace `workspace_id` was ever ephemeral in this process.
 pub(crate) fn was_ephemeral(workspace_id: &str) -> bool {
     use crate::panic_free::RecoverPoison;

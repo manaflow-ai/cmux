@@ -50,12 +50,16 @@ pub(super) struct KnownTree {
 /// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
+    client: u64,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
     limit: Option<usize>,
 ) -> anyhow::Result<Value> {
     let mut reply = match (known, limit) {
-        (Some(known), limit) => list_workspaces_reply_since(mux, known, limit)?,
+        (Some(known), limit) => {
+            let view = super::incognito_remote::list_view(mux, client);
+            list_workspaces_reply_since(mux, known, limit, view.as_ref())?
+        }
         (None, Some(limit)) => list_workspaces_reply_first(mux, limit)?.0,
         (None, None) => list_workspaces_reply(mux)?,
     };

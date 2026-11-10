@@ -3067,7 +3067,11 @@ fn list_workspaces_reply_since(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
     limit: Option<usize>,
+    remote_view: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<Value> {
+    if let Some(hidden) = remote_view {
+        return list_workspaces_reply_seen(mux, known, hidden);
+    }
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
     let (workspace_revision, pane_revision) =
@@ -3177,6 +3181,44 @@ impl SidebarOrder {
             .map(|i| i as usize)
             .collect()
     }
+}
+
+/// `list-workspaces` with `known` for a remote device that must not see
+/// some workspaces (incognito_remote.rs `list_view`): its tree revision is a
+/// digest of the rows it is answered, so an incognito workspace's changes,
+/// which the daemon's revision counts, never move it. It costs the whole
+/// tree's rows, as the reply without `known` does; only the line it sends is
+/// small.
+fn list_workspaces_reply_seen(
+    mux: &Mux,
+    known: &cmd_workspaces::KnownTree,
+    hidden: &incognito_remote::Hidden,
+) -> anyhow::Result<Value> {
+    use std::hash::{Hash, Hasher};
+    let daemon_revision = mux.tree_revision();
+    let mut reply = list_workspaces_reply(mux)?;
+    hidden.prune_reply(&mut reply);
+    let mut digest = std::collections::hash_map::DefaultHasher::new();
+    reply["workspaces"].to_string().hash(&mut digest);
+    reply["groups"].to_string().hash(&mut digest);
+    let boot = daemon_revision.split_once('.').map_or(daemon_revision.as_str(), |(boot, _)| boot);
+    let tree_revision = format!("{boot}.v{:016x}", digest.finish());
+    if known.registry_id.as_deref() == reply["registry_id"].as_str()
+        && known.tree_revision.as_deref() == Some(tree_revision.as_str())
+    {
+        return Ok(json!({
+            "unchanged": true,
+            "workspaces": [],
+            "registry_id": reply["registry_id"],
+            "generation": reply["generation"],
+            "workspace_revision": reply["workspace_revision"],
+            "pane_revision": reply["pane_revision"],
+            "terminal_revision": reply["terminal_revision"],
+            "tree_revision": tree_revision,
+        }));
+    }
+    reply.set("tree_revision", json!(tree_revision));
+    Ok(reply)
 }
 
 /// Remove the socket file (call on clean shutdown).
