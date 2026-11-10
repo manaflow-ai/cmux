@@ -199,8 +199,9 @@ final class CEFHostedPageView: NSView {
 }
 
 /// The QuartzCore SPI ``CEFHostedPageView/inProcessRoot(contextID:)`` reads. No class conforms; a caller casts an object
-/// it asked `responds(to:)` for the one message it sends.
-@objc private protocol QuartzContextSPI {
+/// it asked `responds(to:)` for the one message it sends. `nonisolated`: the reader is a nonisolated function (the
+/// initializer's default value calls it), and the module's default isolation would make these getters main-actor ones.
+@objc private nonisolated protocol QuartzContextSPI {
     /// `+[CAContext allContexts]`: an instance requirement because `#selector` cannot name a static one of a protocol;
     /// it is sent to the class object with `perform(_:)`.
     func allContexts() -> [NSObject]?
