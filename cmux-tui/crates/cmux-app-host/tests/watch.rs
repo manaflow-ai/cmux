@@ -40,11 +40,13 @@ mod apps {
         assert!(h.texts("b").iter().any(|t| t == "one"), "{:?}", h.texts("b"));
         assert_eq!(h.subscriptions.len(), 1);
         let sub = *h.subscriptions.keys().next().expect("subscription");
+        // The native host drains microtasks after every entry point, so the first event starts a
+        // read and the other four, arriving while it is in flight, queue exactly one more.
         for _ in 0..5 {
             h.vm.event(sub, &json!({})).expect("event");
         }
         h.pump().expect("pump");
-        assert_eq!(reads(&h, "workspace.list"), 2);
+        assert_eq!(reads(&h, "workspace.list"), 3);
         h.vm.unmount("a").expect("unmount");
         h.pump().expect("pump");
         assert_eq!(h.subscriptions.len(), 1);

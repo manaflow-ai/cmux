@@ -27,15 +27,17 @@ function fireTimers(host: FakeHost) {
   }
 }
 
-/** A section that lists `name` with `params` (JSON) and shows its status. */
+/** A section that lists `name` with `params` (JSON) and shows its status; each mount is a reader (`w` is the last). */
 const section = (name: string, params = "{}", options = "{}") =>
   app(`
-    const w = cmux.watch(${JSON.stringify(name)}, ${params}, ${options})
-    globalThis.w = w
-    return { render: () => VStack([
-      Text(() => "status=" + w.status()),
-      ForEach({ items: () => w.value() ?? [], key: (p) => p.id }, (p) => Row({ title: () => p().title })),
-    ]) }`)
+    return { render: () => {
+      const w = cmux.watch(${JSON.stringify(name)}, ${params}, ${options})
+      globalThis.w = w
+      return VStack([
+        Text(() => "status=" + w.status()),
+        ForEach({ items: () => w.value() ?? [], key: (p) => p.id }, (p) => Row({ title: () => p().title })),
+      ])
+    } }`)
 
 const twoSections = (name: string, a = "{}", b = "{}") =>
   app(`

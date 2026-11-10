@@ -32,7 +32,7 @@ const problem = (e: CmuxError | undefined) =>
 
 const open = (p: Pull) => cmux.actions.run("openBrowser", { url: p.url })
 
-/** The Refresh command (catalog.json `example.pr_list.refresh`, in the palette as "PR List: Refresh"). */
+/** The Refresh command (catalog.json `local.pr_list.refresh`, in the palette as "PR List: Refresh"). */
 export async function refresh() {
   const s = await cmux.watch.refresh("github.pulls", params())
   return { count: s.value?.length ?? 0, status: s.status }

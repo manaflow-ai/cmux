@@ -1,7 +1,7 @@
 {
   "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
-  "id": "example/pr-list",
+  "id": "local/pr-list",
   "name": { "en": "PR List" },
   "version": "1.0.0",
   "description": { "en": "An example extension: your pull requests and the ones waiting for your review, live in a sidebar section, built on cmux.watch(\"github.pulls\")." },
@@ -36,6 +36,6 @@
       "showDrafts": { "type": "boolean", "title": "Show drafts", "default": true }
     }
   },
-  "activation": ["onInterface:cmux.section/1", "onOp:example.pr_list.refresh"],
+  "activation": ["onInterface:cmux.section/1", "onOp:local.pr_list.refresh"],
   "files": ["dist/", "catalog.json"]
 }

@@ -1,10 +1,10 @@
 {
-  "family": "example.pr_list",
-  "owner": "app:example/pr-list",
+  "family": "local.pr_list",
+  "owner": "app:local/pr-list",
   "operations": [
     {
-      "name": "example.pr_list.refresh",
-      "owner": "app:example/pr-list",
+      "name": "local.pr_list.refresh",
+      "owner": "app:local/pr-list",
       "class": "mutation",
       "risk": "mutate-own",
       "idempotency": "required",
@@ -14,7 +14,7 @@
       "mcp": { "expose": "never" },
       "palette": { "title": { "en": "PR List: Refresh" } },
       "docs": "Re-read your pull requests now; the sidebar section shows the result.",
-      "since": "example.pr_list/1",
+      "since": "local.pr_list/1",
       "export": "refresh"
     }
   ]

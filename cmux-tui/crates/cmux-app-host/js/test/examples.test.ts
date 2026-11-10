@@ -25,7 +25,7 @@ const item = (id: number, extra: Record<string, unknown> = {}) => ({
 })
 
 function prList(answer: (path: string) => { ok: boolean; body: unknown }) {
-  const host = new FakeHost(load("examples/extensions/pr-list"), { app: { id: "example/pr-list", version: "1.0.0" }, settings: {} })
+  const host = new FakeHost(load("examples/extensions/pr-list"), { app: { id: "local/pr-list", version: "1.0.0" }, settings: {} })
   host.handlers["integration.request"] = (p) => answer(decodeURIComponent(String(p.path)))
   host.handlers["action.run"] = () => ok(null)
   return host
@@ -38,7 +38,7 @@ function fireTimers(host: FakeHost) {
   }
 }
 
-describe("example/pr-list", () => {
+describe("local/pr-list", () => {
   test("lists review requests first with their state, and a click opens the PR", async () => {
     const host = prList((path) => ok({ items: path.includes("review-requested") ? [item(3)] : [item(1), item(2, { draft: true })] }))
     expect(host.mount("m", "renderPullRequests")).toBe("")

@@ -1,20 +1,22 @@
 # Recipe: a live sidebar section
 
-`example/pr-list` is a sidebar section with your open pull requests and the ones waiting for your
+`local/pr-list` is a sidebar section with your open pull requests and the ones waiting for your
 review, kept live by `cmux.watch("github.pulls")`. It uses only the public app API, so it is also
 the template for any live section: copy the folder, change the id, the watch and the rows.
 
 ## 1. The manifest (`cmux-app.v2.json`)
 
-- `id` in your own namespace (`<you>/<name>`), `manifestVersion: 2`, `runtime.main: "dist/main.js"`.
+- `id`: `local/pr-list` while you develop (a folder in the daemon's local folder is a `local/` app,
+  and it needs no repository). To publish, rename it to `<github-owner>/<name>`: the validator
+  requires the publisher to equal the owner of `repository`, and the catalog family to be
+  `<owner>.<name>` (`-` becomes `_`). `manifestVersion: 2`, `runtime.main: "dist/main.js"`.
 - `implements["cmux.section/1"]`: the render `export`, a `title`, a `symbol`, and
   `options.defaultRegion` (`top`, `middle` or `bottom`: where it starts; the person moves it).
 - `scopes`: what the source needs (`cmux.watch` lists them per source in
   `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`, `CmuxSignalMap`; here
   `integration:github:read`) plus `actions:run` to open a link. `optionalScopes` for a fallback.
-- `catalog`: `catalog.json` declares the Refresh command as an op (`example.pr_list.refresh`); its
-  `palette.title` puts "PR List: Refresh" in the command palette and `cli.path` makes it
-  `cmux example.pr_list refresh`.
+- `catalog`: `catalog.json` declares the Refresh command as an op (`local.pr_list.refresh`); its
+  `palette.title` puts "PR List: Refresh" in the command palette, and `cli.path` adds it to the CLI.
 
 ## 2. The section (`src/main.ts`)
 
@@ -62,7 +64,7 @@ Tests: `cmux-tui/crates/cmux-app-host/js/test/examples.test.ts` mounts it in the
 
 ## Placing the section
 
-A section starts in its `defaultRegion`; `cmux apps place 'example/pr-list#cmux.section/1' --region
+A section starts in its `defaultRegion`; `cmux apps place 'local/pr-list#cmux.section/1' --region
 top|middle|bottom` moves it. The person drags it by its header up and down among the sections of
 the top and bottom regions, native ones included, and between those two regions; that is why this
 example starts in `top`. In the middle region (around the workspace list) a section does not drag yet.
