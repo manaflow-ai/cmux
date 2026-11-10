@@ -23,6 +23,8 @@ final class SidebarListView: NSView {
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
+    /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
+    var splicedOut: (key: SidebarRowKey, moved: Bool)?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
