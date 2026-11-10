@@ -141,7 +141,7 @@ async fn deliver_authenticates_and_writes_the_message_to_the_inbox() {
         conn.read_to_string(&mut got).unwrap();
         got
     });
-    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test").await.unwrap();
+    deliver(&dir, &peer, "hello desk", "u-9", "acpmux:test", None).await.unwrap();
     let got = reader.join().unwrap();
     let lines: Vec<Value> = got.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines[0]["token"], "0123456789abcdef0123456789abcdef");
@@ -163,11 +163,204 @@ async fn deliver_sends_nothing_without_a_key_and_names_an_inbox_it_cannot_reach(
         version: None,
         socket: Some(dir.join("gone.sock")),
     };
-    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f", None).await.unwrap_err();
     assert!(err.contains("missing or unreadable"), "no key, nothing sent: {err}");
     let key = key_file(&dir, 1, &dir.join("gone.sock"));
     std::fs::write(key, json!({"peerToken": "0123456789abcdef0123456789abcdef"}).to_string())
         .unwrap();
-    let err = deliver(&dir, &peer, "x", "u", "f").await.unwrap_err();
+    let err = deliver(&dir, &peer, "x", "u", "f", None).await.unwrap_err();
     assert!(err.contains("could not reach"), "{err}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_registered_child_token_opens_the_delivery_instead_of_the_peer_key() {
+    let dir = scratch("child-token");
+    let sock = dir.join("in.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut got = String::new();
+        conn.read_to_string(&mut got).unwrap();
+        got
+    });
+    let peer = Peer {
+        pid: 1,
+        session_id: "s".into(),
+        cwd: None,
+        entrypoint: Some("claude-desktop".into()),
+        kind: None,
+        name: None,
+        version: None,
+        socket: Some(sock.clone()),
+    };
+    // No key file: the child token alone opens it.
+    deliver(&dir, &peer, "hi", "u-c", "acpmux:test", Some("child-tok")).await.unwrap();
+    let got = reader.join().unwrap();
+    let lines: Vec<Value> = got.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[0], json!({"type": "auth", "token": "child-tok"}));
+    assert_eq!(lines[1]["type"], "user");
+    assert_eq!(lines[1]["from"], "acpmux:test");
+}
+
+#[test]
+fn a_kept_token_is_the_live_sessions_only_while_its_process_and_inbox_are_the_same() {
+    let home = scratch("token-store");
+    let sock = PathBuf::from("/tmp/cc-socks/42.sock");
+    let kept = ChildToken { pid: 42, socket: sock.clone(), token: "tok".into(), started: Some(7) };
+    save_token(&home, "chat-1", &kept).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(token_file(&home, "chat-1")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "owner-only");
+    }
+    let mut peer = Peer {
+        pid: 42,
+        session_id: "s".into(),
+        cwd: None,
+        entrypoint: None,
+        kind: None,
+        name: None,
+        version: None,
+        socket: Some(sock),
+    };
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)).as_deref(), Some("tok"));
+    assert_eq!(
+        token_for(&home, "chat-2", &peer, Some(7)),
+        None,
+        "another chat's is not this one's"
+    );
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(8)), None, "a later process under the pid");
+    assert_eq!(token_for(&home, "chat-1", &peer, None), None, "no proven start, no token");
+    peer.pid = 43;
+    assert_eq!(
+        token_for(&home, "chat-1", &peer, Some(7)),
+        None,
+        "a restarted session has a new token"
+    );
+    peer.pid = 42;
+    peer.socket = Some(PathBuf::from("/tmp/cc-socks/other.sock"));
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)), None);
+    forget_token(&home, "chat-1");
+    peer.socket = Some(PathBuf::from("/tmp/cc-socks/42.sock"));
+    assert_eq!(token_for(&home, "chat-1", &peer, Some(7)), None);
+    // A chat id never leaves the folder.
+    assert_eq!(token_file(&home, "../x").parent(), Some(home.join("bridge-tokens").as_path()));
+}
+
+/// A second live entry claiming the same conversation (anyone may write one) proves neither.
+#[test]
+fn a_conversation_two_live_entries_claim_is_neither_ones() {
+    let peer = |pid: u32, id: &str| Peer {
+        pid,
+        session_id: id.into(),
+        cwd: None,
+        entrypoint: None,
+        kind: None,
+        name: None,
+        version: None,
+        socket: None,
+    };
+    let (mine, forged, other) = (peer(42, "sid"), peer(43, "sid"), peer(44, "other"));
+    assert!(sole_claimant(&mine, &[mine.clone(), other.clone()]));
+    assert!(!sole_claimant(&mine, &[mine.clone(), forged.clone(), other]));
+    assert!(!sole_claimant(&forged, &[mine, forged.clone()]));
+}
+
+/// A process is Claude Code only by its signature: this test binary, whatever its name, is not.
+#[test]
+fn a_process_that_is_not_signed_as_claude_code_is_not_claude_code() {
+    assert!(!is_claude_code(std::process::id()));
+}
+
+/// The conversation a launch names is read from the kernel's record of its arguments, in every
+/// spelling Claude Code takes.
+#[test]
+fn a_launch_names_its_conversation_in_any_spelling() {
+    let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert_eq!(resumed_session(&args(&["claude", "--resume=abc-1"])).as_deref(), Some("abc-1"));
+    assert_eq!(
+        resumed_session(&args(&["claude", "--resume", "abc-2", "-p"])).as_deref(),
+        Some("abc-2")
+    );
+    assert_eq!(resumed_session(&args(&["claude", "-r", "abc-3"])).as_deref(), Some("abc-3"));
+    assert_eq!(resumed_session(&args(&["claude", "--session-id=abc-4"])).as_deref(), Some("abc-4"));
+    assert_eq!(resumed_session(&args(&["claude", "--resume", "--print"])), None);
+    assert_eq!(resumed_session(&args(&["claude", "-c"])), None);
+    // Repro (99c410fe): after `--` it is a prompt, not a flag.
+    assert_eq!(resumed_session(&args(&["claude", "--", "--resume=victim"])), None);
+    assert_eq!(resumed_session(&args(&["claude", "--", "--resume", "victim"])), None);
+    // The operand of the option before it.
+    assert_eq!(
+        resumed_session(&args(&["claude", "--append-system-prompt", "--resume=victim"])),
+        None
+    );
+    assert_eq!(resumed_session(&args(&["claude", "--model", "-r", "victim"])), None);
+    // Repro (b101a26b F2): a boolean flag takes no value, so a restart after one still names it.
+    assert_eq!(
+        resumed_session(&args(&["claude", "--verbose", "--resume", "sid"])).as_deref(),
+        Some("sid")
+    );
+    assert_eq!(resumed_session(&args(&["claude", "-p", "--resume=sid"])).as_deref(), Some("sid"));
+    assert_eq!(resumed_session(&args(&["claude", "--debug", "-r", "sid"])).as_deref(), Some("sid"));
+    // An option Claude does not list as boolean may take it as its value.
+    assert_eq!(resumed_session(&args(&["claude", "--await-initialize", "--resume=sid"])), None);
+    // Two sessions named: neither.
+    assert_eq!(resumed_session(&args(&["claude", "--resume=a", "--session-id=b"])), None);
+    // A desktop launch: inline values throughout.
+    let desktop = ["claude", "--output-format=stream-json", "--resume=s-1", "--allowedTools=x,y"];
+    assert_eq!(resumed_session(&args(&desktop)).as_deref(), Some("s-1"));
+    // KERN_PROCARGS2: argc, the executable path, padding to 8 bytes, the arguments, the env.
+    let raw = |argc: i32, path: &str, rest: &[&str]| {
+        let mut buf = argc.to_ne_bytes().to_vec();
+        buf.extend_from_slice(path.as_bytes());
+        buf.resize(buf.len() + 8 - path.len() % 8, 0);
+        for part in rest {
+            buf.extend_from_slice(part.as_bytes());
+            buf.push(0);
+        }
+        buf
+    };
+    let got = procargs(&raw(3, "/bin/claude", &["claude", "--resume=s-9", "-p", "HOME=/x"]));
+    assert_eq!(
+        got,
+        Some(args(&["claude", "--resume=s-9", "-p"])),
+        "the environment is not an argument"
+    );
+    // A path that fills its 8 bytes still gets a full 8 of padding.
+    let got = procargs(&raw(1, "/a/claude/claude", &["claude", "HOME=/x"]));
+    assert_eq!(got, Some(args(&["claude"])));
+    // Repro (a418d95a F2): an empty argument stays one, so argc never reaches the environment.
+    let buf = raw(
+        4,
+        "/bin/claude",
+        &["claude", "--append-system-prompt", "", "hello", "--resume=victim"],
+    );
+    let got = procargs(&buf).unwrap();
+    assert_eq!(got, args(&["claude", "--append-system-prompt", "", "hello"]));
+    assert_eq!(resumed_session(&got), None);
+    // Repro (b101a26b F1): an empty argv[0] is not padding; it fails closed.
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["", "--verbose", "--resume=victim"])), None);
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["", "claude", "--resume=victim"])), None);
+    // Padding of the wrong length, or argv[0] naming another program: nothing.
+    let mut short = 2i32.to_ne_bytes().to_vec();
+    short.extend_from_slice(b"/bin/claude\0\0claude\0-p\0");
+    assert_eq!(procargs(&short), None);
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["sh", "-p", "X=1"])), None);
+    // Fewer arguments than argc: nothing.
+    assert_eq!(procargs(&raw(3, "/bin/claude", &["claude"])), None);
+    // The desktop launches by full path; the CLI by its link.
+    let app = "/Apps/claude.app/Contents/MacOS/claude";
+    assert!(procargs(&raw(2, app, &[app, "--resume=s-1", "HOME=/x"])).is_some());
+    // Repro (a418d95a F1): a forked launch starts a new conversation, in any position.
+    for fork in [
+        &["claude", "--resume=victim", "--fork-session"][..],
+        &["claude", "--fork-session", "--resume", "victim"],
+        &["claude", "-r", "victim", "--fork-session=true"],
+        &["claude", "--session-id=victim", "--fork-session"],
+    ] {
+        assert_eq!(resumed_session(&args(fork)), None, "{fork:?}");
+    }
 }

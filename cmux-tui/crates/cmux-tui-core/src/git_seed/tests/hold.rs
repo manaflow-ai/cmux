@@ -1,4 +1,4 @@
-//! `git-seed-hold-v1`: a copy this Mac streams in opens at its head under the machine's hold of
+//! `git-seed-hold-v2`: a copy this Mac streams in opens at its head under the machine's hold of
 //! the folder's sync barrier, while every tool waits for the whole folder; a copy that ends short
 //! or goes quiet leaves the folder failed, never ready.
 
@@ -99,6 +99,13 @@ fn a_copy_that_ends_short_leaves_its_folder_failed() {
     let again = service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap_err();
     assert_eq!(again.code, "seed.unknown_job", "an ended hold cannot be ended ready");
     assert_eq!(state(&folder), "incomplete");
+    // The copy's retry holds the failed folder again, files and all, and repairs it.
+    let retry = hold(&service, &folder, json!({ "key": "retry" })).unwrap();
+    assert_eq!(settles(&folder, "syncing"), "syncing");
+    service.call("git.seed.hold.end", &json!({ "job": retry, "ok": true })).unwrap();
+    assert_eq!(settles(&folder, "ready"), "ready");
+    // A folder whose sync is whole is the machine's again: no hold stands over it.
+    assert_eq!(hold(&service, &folder, json!({})).unwrap_err().code, "seed.folder_not_empty");
 }
 
 #[test]
@@ -209,4 +216,64 @@ fn the_hold_ops_are_framed_and_advertised_under_their_own_capability() {
     assert_eq!(denied["error_code"], "seed.permission_denied");
     assert_eq!(state(&folder), "syncing", "a denied end changes nothing");
     service.call("git.seed.hold.end", &json!({ "job": job, "ok": false })).unwrap();
+}
+
+#[test]
+fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
+    let home = Home::new("hold-fenced-write");
+    let service = service(&home);
+    let folder = home.join("work/notes");
+    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
+    let write_one = |name: &str| {
+        let request = json!({ "hold": job, "path": folder.join(name) });
+        let request = request.as_object().cloned().unwrap();
+        held_op(Some(&service), &json!(1), request, |request| {
+            assert!(!request.contains_key("hold"), "the op itself never sees the hold");
+            std::fs::write(folder.join(name), "x").unwrap();
+            Ok(json!({}))
+        })
+    };
+    assert_eq!(write_one("a.md")["ok"], true);
+    // The lease runs out; a write sent before it and read after lands nowhere.
+    assert_eq!(settles(&folder, "incomplete"), "incomplete");
+    let late = write_one("late.md");
+    assert_eq!(late["error_code"], "seed.unknown_job", "{late}");
+    assert!(!folder.join("late.md").exists());
+    // An op that names no hold runs as it is; one naming no running hold never runs.
+    let plain = held_op(Some(&service), &json!(2), Default::default(), |_| Ok(json!({})));
+    assert_eq!(plain["ok"], true);
+    let unknown = json!({ "hold": "nope" }).as_object().cloned().unwrap();
+    let refused = held_op(Some(&service), &json!(3), unknown, |_| panic!("never runs"));
+    assert_eq!(refused["error_code"], "seed.unknown_job");
+}
+
+#[test]
+fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
+    let home = Home::new("hold-write-in-flight");
+    let service = service(&home);
+    let folder = home.join("work/notes");
+    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let (finish, wait_finish) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let request = json!({ "hold": job }).as_object().cloned().unwrap();
+        let (service, folder) = (&service, &folder);
+        let writer = scope.spawn(move || {
+            held_op(Some(service), &json!(1), request, move |_| {
+                started.send(()).unwrap();
+                wait_finish.recv().unwrap();
+                std::fs::write(folder.join("slow.md"), "x").unwrap();
+                Ok(json!({}))
+            })
+        });
+        wait_started.recv().unwrap();
+        // Well past the lease: the hold may not end while the write is in flight.
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(state(folder), "syncing", "the barrier stays until the write lands");
+        finish.send(()).unwrap();
+        assert_eq!(writer.join().unwrap()["ok"], true);
+    });
+    assert_eq!(settles(&folder, "incomplete"), "incomplete");
 }

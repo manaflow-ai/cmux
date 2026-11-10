@@ -223,6 +223,83 @@ test("switching the grouping keeps the last rows under their own heading until t
   await act(async () => root.unmount());
 });
 
+test("Download CSV waits for the picked grouping's reply, then saves that reply's own days and grouping", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  const calls: Record<string, unknown>[] = [];
+  let release: (value: unknown) => void = () => undefined;
+  const load = (params: Record<string, unknown>) => {
+    calls.push(params);
+    if (params.format === "csv") return Promise.resolve({ status: "saved", path: "/Users/a/Downloads/spend.csv" });
+    return params.groupBy === "day" ? new Promise((resolve) => (release = resolve)) : Promise.resolve(answer());
+  };
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  const button = () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Download CSV")!;
+  expect(button().disabled).toBe(false);
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  await act(async () => day.click());
+  await settle();
+  // The person rows are still on screen while Day loads: Download would save the wrong table, so it waits.
+  expect(button().disabled).toBe(true);
+  await act(async () => button().dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  expect(calls.some((call) => call.format === "csv")).toBe(false);
+  await act(async () =>
+    release(
+      answer({
+        groupBy: "day",
+        range: { since: "2026-10-12", until: "2026-11-08" },
+        rows: [{ ...totals(), key: "2026-11-08" }],
+      }),
+    ),
+  );
+  await settle();
+  expect(button().disabled).toBe(false);
+  await act(async () => button().dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  await settle();
+  expect(calls.at(-1)).toEqual({ since: "2026-10-12", until: "2026-11-08", groupBy: "day", format: "csv" });
+  await act(async () => root.unmount());
+});
+
+test("a Download clicked with a new grouping, before its read starts, saves nothing", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  const calls: Record<string, unknown>[] = [];
+  const load = (params: Record<string, unknown>) => {
+    calls.push(params);
+    if (params.format === "csv") return Promise.resolve({ status: "saved", path: "/Users/a/Downloads/spend.csv" });
+    return params.groupBy === "day" ? new Promise(() => {}) : Promise.resolve(answer());
+  };
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  const button = () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Download CSV")!;
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  const stale = button();
+  expect(stale.disabled).toBe(false);
+  // One act: the pick and the click land before React renders or runs the read's effect, so the
+  // click goes to the handler of the render that still shows the person reply.
+  act(() => {
+    day.click();
+    stale.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await settle();
+  expect(calls.filter((call) => call.format === "csv")).toEqual([]);
+  expect(button().disabled).toBe(true);
+  await act(async () => root.unmount());
+});
+
 test("Team says why there is nothing: not in a sharing team, off, signed out", async () => {
   const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
   for (const [status, words] of [

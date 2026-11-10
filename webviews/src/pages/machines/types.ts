@@ -74,4 +74,6 @@ export interface MachinesSnapshot {
   failed: Record<string, JoinedMachineChange>;
   /** The joined machine whose menu shows as open (the capture fixture's). */
   openMenu?: string;
+  /** The team the Cloud machines belong to (the app's active team), named on the Cloud header. */
+  cloudTeam?: { name: string; personal: boolean };
 }

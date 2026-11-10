@@ -25,6 +25,7 @@ mod shortcuts_menus;
 mod sidebar_agent_status;
 mod surface_attach;
 mod tab_close_selection;
+mod tab_titles;
 mod viewport_history;
 
 use super::{

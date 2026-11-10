@@ -251,6 +251,39 @@ test("a closed toast fades where it was", () => {
   expect(copy?.style.top).toBe("-40px");
 });
 
+// CMUX-359: the fading copy kept only its width. In a stack taller than the room a toast's Details give
+// up height (toasts.css), and out of the flow the copy grew back to its full Details while it faded.
+// The copy keeps the height it had in the stack.
+test("a closed toast fades at the size it had", () => {
+  const view = (toasts: ToastState[]) => stack(toasts);
+  const doc = render(view([toast(1)]));
+  doc.documentElement.dataset.cmuxMotion = "reduced";
+  const proto = dom!.window.HTMLElement.prototype as unknown as {
+    animate: unknown;
+    getBoundingClientRect: () => DOMRect;
+  };
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const height = this.classList.contains("cmux-toasts") ? 400 : 64;
+    return {
+      x: 0,
+      y: 300,
+      top: 300,
+      left: 0,
+      right: 300,
+      bottom: 300 + height,
+      width: 300,
+      height,
+      toJSON() {},
+    } as DOMRect;
+  };
+  proto.animate = () => ({ onfinish: null, oncancel: null, cancel() {} });
+  act(() => root!.render(view([toast(1, { message: "again" })])));
+  act(() => root!.render(view([])));
+  const copy = doc.querySelector<HTMLElement>("[data-toast-exiting]");
+  expect(copy?.style.width).toBe("300px");
+  expect(copy?.style.height).toBe("64px");
+});
+
 // Review 6 of #37289 (F1): the stack was anchored only at its floor, so long Details on several toasts in
 // a short window pushed the older toasts' buttons above the page, where it clips them. The stack spans
 // the page above its floor with its toasts at the bottom, and a toast that does not fit gives up the

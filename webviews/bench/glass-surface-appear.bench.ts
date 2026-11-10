@@ -15,7 +15,11 @@
 // which it is unmounted or at opacity 0, withdrawAt the first report without it (or with it at opacity
 // 0); lingerMs = max(0, withdrawAt - goneAt). Opens: HOVERS pull request links' hover cards, the
 // composer's model picker (when it is a marked surface) and one menu (the first menu button showing).
-// LABEL names the run in the output (the before/after of one harness).
+// LABEL names the run in the output (the before/after of one harness). PRESENT_MS (default 0) is how
+// much later a page frame reaches the screen than the App's glass: in the App the page is Chromium's
+// remote layer, which presents one or two frames after the frame that drew it, while the App's glass
+// shows at its next commit. The App's machine is 33 (two 60 Hz frames): emptyGlassMs is then
+// max(0, contentAt + PRESENT_MS - glassAt).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -29,6 +33,7 @@ const TURNS = Number(process.env.TURNS ?? 300);
 const HOVERS = Number(process.env.HOVERS ?? 4);
 const BUSY_MS = Number(process.env.BUSY_MS ?? 0);
 const ANSWER_MS = Number(process.env.ANSWER_MS ?? 4);
+const PRESENT_MS = Number(process.env.PRESENT_MS ?? 0);
 const LABEL = process.env.LABEL ?? "build";
 const HOLD_MS = Math.max(600, BUSY_MS * 2 + 300);
 const webviews = path.resolve(import.meta.dir, "..");
@@ -393,11 +398,11 @@ for (const note of notes) log(note);
 const kinds = [...new Set(lives.map((l) => l.kind))];
 const summary: Record<string, Record<string, number>> = {};
 const fmt = (n: number) => (Number.isFinite(n) ? n.toFixed(1) : "-").padStart(8);
-console.log(`label=${LABEL} busy=${BUSY_MS}ms answer=${ANSWER_MS}ms rounds=${ROUNDS} reports=${reports}`);
+console.log(`label=${LABEL} busy=${BUSY_MS}ms answer=${ANSWER_MS}ms present=${PRESENT_MS}ms rounds=${ROUNDS} reports=${reports}`); // prettier-ignore
 console.log("label   busy  kind        n  glass  empty p50  empty max  linger p50 linger max  firstReport->glass p50");
 for (const kind of kinds) {
   const of = lives.filter((l) => l.kind === kind);
-  const empty = of.filter((l) => l.glassAt !== undefined && l.contentAt !== undefined).map((l) => Math.max(0, l.contentAt! - l.glassAt!)); // prettier-ignore
+  const empty = of.filter((l) => l.glassAt !== undefined && l.contentAt !== undefined).map((l) => Math.max(0, l.contentAt! + PRESENT_MS - l.glassAt!)); // prettier-ignore
   const linger = of.filter((l) => l.goneAt !== undefined && l.withdrawAt !== undefined).map((l) => Math.max(0, l.withdrawAt! - l.goneAt!)); // prettier-ignore
   const toGlass = of.filter((l) => l.glassAt !== undefined && l.firstReportAt !== undefined).map((l) => l.glassAt! - l.firstReportAt!); // prettier-ignore
   const row = {
@@ -415,4 +420,4 @@ for (const kind of kinds) {
   if (Number.isFinite(row.emptyP50))
     console.log(`${PERF_ROW_MARK}${JSON.stringify({ name: `glass_surface_appear.${kind}.empty_glass`, p50: row.emptyP50, p95: pct(empty, 95), unit: "ms" })}`); // prettier-ignore
 }
-console.log(`GLASSBENCH ${JSON.stringify({ label: LABEL, busyMs: BUSY_MS, answerMs: ANSWER_MS, rounds: ROUNDS, reports, notes: [...notes], kinds: summary })}`); // prettier-ignore
+console.log(`GLASSBENCH ${JSON.stringify({ label: LABEL, busyMs: BUSY_MS, answerMs: ANSWER_MS, presentMs: PRESENT_MS, rounds: ROUNDS, reports, notes: [...notes], kinds: summary })}`); // prettier-ignore
