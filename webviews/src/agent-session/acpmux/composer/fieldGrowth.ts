@@ -69,7 +69,7 @@ type Motion = {
 
 /** Calls `still` when the motion gate of `field`'s page leaves full motion while a growth runs: the
  *  app's switch (`data-cmux-motion`), the pane's (`data-agent-motion`, its zero tokens on the root's
- *  style), Reduce Motion and a hidden page (ui/motion/motionMode.ts). Only while the field moves. */
+ *  style) and Reduce Motion (ui/motion/motionMode.ts). Only while the field moves. */
 function watchMotionGate(field: HTMLElement, still: () => void): () => void {
   const doc = field.ownerDocument;
   const check = () => {
@@ -82,11 +82,9 @@ function watchMotionGate(field: HTMLElement, still: () => void): () => void {
   });
   const media = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
   media?.addEventListener?.("change", check);
-  doc.addEventListener("visibilitychange", check);
   return () => {
     observer?.disconnect();
     media?.removeEventListener?.("change", check);
-    doc.removeEventListener("visibilitychange", check);
   };
 }
 

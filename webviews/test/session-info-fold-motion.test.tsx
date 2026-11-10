@@ -256,6 +256,6 @@ test("a Show less on a scrolled list takes the scroll back on the fold, never at
   const margin = keyframes.find((frames) => frames[0]?.marginTop !== undefined);
   expect(margin?.[0]?.marginTop).toBe("-40px");
   expect(margin?.at(-1)?.marginTop).toBe("0px");
-  for (const animation of [...animations]) await act(async () => animation.onfinish?.());
+  for (const animation of animations) await act(async () => animation.onfinish?.());
   expect(scroller.children.length).toBe(2);
 });
