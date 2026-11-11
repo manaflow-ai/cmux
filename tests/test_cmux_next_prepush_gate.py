@@ -6,6 +6,7 @@ scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
 `origin` through the real `git push`, so the installed trusted hook copy is what
 runs. The base already carries a `try!` (base debt): only what a push adds counts.
 """
+import contextlib
 import importlib.util
 import sys
 import os
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 import urllib.request
 
 
@@ -215,6 +217,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            "scripts/ci/deadline_http.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -2431,29 +2434,33 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
         asked = []
 
-        def urlopen(request, timeout=None):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, **options):
+            # The helper's one HTTP call (deadline_http.stream); an error status raises, as raise_errors does.
+            self.assertTrue(options.get("raise_errors"))
             target = request.full_url if hasattr(request, "full_url") else request
             asked.append(target)
             if target == url:
                 raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
             if target == tag:
-                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
-                                                            {"name": "tool-linux.zip", "url": asset}]}).encode())
+                yield io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
+                                                           {"name": "tool-linux.zip", "url": asset}]}).encode())
+                return
             if target == asset:
                 self.assertEqual(request.get_header("Accept"), "application/octet-stream")
-                return io.BytesIO(archive)
+                yield io.BytesIO(archive)
+                return
             raise AssertionError(f"unexpected fetch {target}")
 
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "lint-tools.lock"
             lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
-            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), urllib.request.urlopen
+            old_dir = os.environ.get("CMUX_LINT_TOOLS_DIR")
             os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
-            urllib.request.urlopen = urlopen
             try:
-                path = gate.ensure_tool(lock, "tool")
+                with unittest.mock.patch.object(gate.release_download().deadline_http, "stream", stream):
+                    path = gate.ensure_tool(lock, "tool")
             finally:
-                urllib.request.urlopen = old_open
                 if old_dir is None:
                     os.environ.pop("CMUX_LINT_TOOLS_DIR")
                 else:
@@ -2476,22 +2483,24 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
         requests = {}
 
-        def urlopen(request, timeout=None):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, **options):
+            self.assertTrue(options.get("follow_redirects", True), "the asset's storage redirect is followed")
             requests[request.full_url] = request
             if request.full_url == url:
                 raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
             if request.full_url == tag:
-                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
-            return io.BytesIO(b"archive")
+                yield io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
+                return
+            yield io.BytesIO(b"archive")
 
-        old_open, old_token = urllib.request.urlopen, os.environ.get("GH_TOKEN")
+        old_token = os.environ.get("GH_TOKEN")
         os.environ["GH_TOKEN"] = "token-for-test"
-        urllib.request.urlopen = urlopen
         try:
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory() as tmp, \
+                    unittest.mock.patch.object(gate.release_download().deadline_http, "stream", stream):
                 gate.download(url, Path(tmp) / "tool.zip")
         finally:
-            urllib.request.urlopen = old_open
             if old_token is None:
                 os.environ.pop("GH_TOKEN")
             else:
@@ -2539,6 +2548,50 @@ class ToolDownloadFallbackTests(unittest.TestCase):
                 sys.modules.pop("cmux_github_release_download", None)
                 if stashed is not None:
                     sys.modules["cmux_github_release_download"] = stashed
+            self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
+        self.assertEqual(asked, [url])
+
+    def test_a_hook_copy_with_the_helper_but_not_its_transport_still_downloads_directly(self):
+        # An install from before deadline_http.py has the old refresh_checks.py, which rewrites the gate and
+        # github_release_download.py from feat-cmux-next but not deadline_http.py, which the helper imports. That gate
+        # must still fetch a tool directly, not fail on the import.
+        import io
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            asked.append(getattr(request, "full_url", request))
+            return io.BytesIO(b"archive")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp) / "hooks"
+            hook_dir.mkdir()
+            shutil.copyfile(SOURCE / GATE, hook_dir / "cmux_next_prepush_gate.py")
+            shutil.copyfile(SOURCE / "scripts/cmux-next/git_batch.py", hook_dir / "git_batch.py")
+            shutil.copyfile(SOURCE / "scripts/ci/github_release_download.py", hook_dir / "github_release_download.py")
+            spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_no_transport",
+                                                          hook_dir / "cmux_next_prepush_gate.py")
+            gate = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = gate
+            stashed = {name: sys.modules.pop(name, None) for name in ("cmux_github_release_download", "deadline_http")}
+            old_path = list(sys.path)
+            # Only the hook folder offers deadline_http, and it has none.
+            ci = (SOURCE / "scripts/ci").resolve()
+            sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != ci]
+            old_open = urllib.request.urlopen
+            urllib.request.urlopen = urlopen
+            try:
+                spec.loader.exec_module(gate)
+                self.assertIsNone(gate.release_download())
+                gate.download(url, Path(tmp) / "tool.zip")
+            finally:
+                urllib.request.urlopen = old_open
+                sys.path[:] = old_path
+                sys.modules.pop(spec.name, None)
+                for name, module in stashed.items():
+                    sys.modules.pop(name, None)
+                    if module is not None:
+                        sys.modules[name] = module
             self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
         self.assertEqual(asked, [url])
 

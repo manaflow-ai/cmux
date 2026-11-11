@@ -41,6 +41,8 @@ on:
     paths:
       - App/**
       - cmux.xcodeproj/**
+      # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - THIRD_PARTY_LICENSES.md
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -298,6 +300,30 @@ on:
       - cmux-tui/**
       - Assets.xcassets/**
       - Resources/**
+      # What the checks tier's tests import, run or read outside the paths above (tests/test_ci_workflow_paths_cover_inputs.py).
+      # Pull-request only, like the lines above. The router's CI_ONLY lists the ones no build reads (checks tier alone);
+      # the GhosttyKit download, the reload and release-strip scripts and .gitattributes still start the Mac tiers.
+      - scripts/ci/**
+      - .claude/settings.json
+      - .gitattributes
+      - .github/github-token-budget.json
+      - .github/runners.json
+      - README.md
+      - cmux-next-ios/scripts/set-test-notes.sh
+      - scripts/cef/test-embedder-step.sh
+      - scripts/cef/tests/test-embedder-step.test.sh
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/ghosttykit-checksums.txt
+      - scripts/install-git-hooks.sh
+      - scripts/launch-tagged-automation.sh
+      - scripts/lib/reload-shim.test.mjs
+      - scripts/lib/stop-app-instances.sh
+      - scripts/merge-pbxproj.py
+      - scripts/merge-xcstrings.py
+      - scripts/web-lint.sh
+      - scripts/web_lint_prepush.py
+      - scripts/strip-release-bundle.sh
+      - scripts/write-app-symbol-map.py
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -337,6 +363,8 @@ on:
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
+      # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - THIRD_PARTY_LICENSES.md
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
@@ -7014,6 +7042,13 @@ jobs:
               post pending "The results service is down ($down); the Mac Release compile decides this head" "$RUN_URL" \
                 || { echo "::error title=Compile check::could not post the handoff status"; exit 1; }
               echo "::warning title=Compile check::results service down ($down); compile-status-handoff posts the Mac Release compile's verdict"
+              exit 0
+            fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-346 (overflow handoff)
+            if [[ -n "${PR:-}" ]]; then
+              post pending "[overflow] Results service down ($down); the overflow compile of this head posts the verdict" "$RUN_URL" \
+                || { echo "::error title=Compile check::could not post the overflow handoff status"; exit 1; }
+              echo "::warning title=Compile check::results service down ($down); the overflow compile posts cmux-next/compile for $SHA"
               exit 0
             fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])

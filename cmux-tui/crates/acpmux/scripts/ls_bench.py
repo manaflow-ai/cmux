@@ -19,6 +19,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -41,7 +42,9 @@ def write_sessions(home, count):
             "lastPrompt": "x" * 400, "tags": {"area": {"value": "acpmux"}},
         }
         d = os.path.join(home, "sessions", sid)
-        os.makedirs(d, mode=0o700)
+        # A real session has its log folder from its first record on: without one, loading each
+        # log logs two warnings, and the bench measured those instead of `ls`.
+        os.makedirs(os.path.join(d, "events"), mode=0o700)
         with open(os.path.join(d, "session.json"), "w") as f:
             json.dump(row, f)
         os.chmod(os.path.join(d, "session.json"), 0o600)
@@ -78,6 +81,9 @@ def main():
                 break
         else:
             sys.exit("daemon did not become ready")
+        # The daemon logs to the same stdout: read it to the end, or a full pipe stops the daemon
+        # at its next log line and every `ls` waits on it (the 866 ms of the first baseline).
+        threading.Thread(target=lambda: [None for _ in daemon.stdout], daemon=True).start()
         clients = []
         for spec in a.client:
             name, rest = spec.split("=", 1)

@@ -40,6 +40,10 @@ export type WireEntry = {
 export type WireStats = {
   entries: number;
   dropped: number;
+  /// Characters of message text the log holds (at most MAX_TEXT_CHARS).
+  textChars: number;
+  /// The `seq` of the oldest entry kept: everything before it was dropped.
+  oldestSeq?: number;
   requests: number;
   errors: number;
   inFlight: number;
@@ -80,6 +84,14 @@ const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
   "_acpmux/agent_login/api_key": ["key"],
 };
 const AGENT_LOGIN_START = "_acpmux/agent_login/start";
+
+/// A copy of `text` that holds its own characters. An engine's slice of a long string can point into the
+/// string it came from (a V8 sliced string), so a log entry of a message's first MAX_PAYLOAD_CHARS kept the whole
+/// message alive: a god chat's MB pages stayed in memory, uncounted by MAX_TEXT_CHARS. A JSON round trip builds a
+/// new flat string (a cut surrogate pair survives it as the same lone code unit).
+export function ownCopy(text: string): string {
+  return JSON.parse(JSON.stringify(text)) as string;
+}
 
 /// `text` with `fields` of its `params` (or `result`) replaced, for the log.
 function withoutFields(text: string, part: "params" | "result", fields: readonly string[]): string {
@@ -210,6 +222,8 @@ export class AcpWireLog {
     return {
       entries: this.log.length,
       dropped: this.droppedCount,
+      textChars: this.bytes,
+      oldestSeq: this.log[0]?.seq,
       ...this.counters,
       inFlight: this.pending.size,
       lastError: this.lastError,
@@ -249,7 +263,7 @@ export class AcpWireLog {
     const truncated = text.length > MAX_PAYLOAD_CHARS;
     return {
       size: text.length,
-      text: truncated ? text.slice(0, MAX_PAYLOAD_CHARS) : text,
+      text: truncated ? ownCopy(text.slice(0, MAX_PAYLOAD_CHARS)) : text,
       truncated: truncated || undefined,
     };
   }
@@ -274,6 +288,17 @@ export class AcpWireLog {
   private notify(): void {
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * A copy of `text` that holds its own characters. A slice of a long string shares the long one's
+ * buffer (JavaScriptCore and V8 both), so the 16 KB cut of a 2 MB attach reply kept the whole reply
+ * alive for as long as its entry stayed: the log's 2,000 entries held up to 2,000 frames whole,
+ * past the MAX_TEXT_CHARS it counts (test/acp-wire-log-retention.test.ts, and the chat-reopen
+ * scenario of bench/stateGrowth.ts). Only a cut message pays the copy, at most MAX_PAYLOAD_CHARS.
+ */
+function ownCopy(text: string): string {
+  return JSON.parse(JSON.stringify(text)) as string;
 }
 
 /** The page's log. One agent pane is one page. */
