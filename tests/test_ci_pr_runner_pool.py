@@ -24,12 +24,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 def load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    assert path.stem == name, (name, path)
+    if str(path.parent) not in sys.path:
+        sys.path.insert(0, str(path.parent))
+    return importlib.import_module(name)
 
 
 pool = load("pr_runner_pool", ROOT / "scripts/ci/pr_runner_pool.py")
