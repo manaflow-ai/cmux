@@ -1,162 +1,190 @@
-//! The signed Cloud capability's app rules (cmux-platform#1126): what a mint answers, what a
-//! relayed call sends, and when the app mints again.
+//! The pre-approval token's rules: what a call sends, when the next is asked for, what an answer keeps.
 
 use super::*;
 use serde_json::json;
 
-const TOKEN: &str = "cc1.eyJ2IjoxfQ.c2lnbmF0dXJl";
-const TEAM: &str = "team_a";
+const T0: u64 = 1_794_304_118_456;
+const TOKEN: &str = "cc1.eyJ2IjoxfQ.c2ln-_x";
 
-/// The route's answer (CloudCapabilityRoute.ts): server times, 5 min life, refresh at 4.
-fn minted(team: &str, issued: i64) -> Value {
+fn answer(team: &str, issued: u64) -> Value {
     json!({"ok": true, "value": {
-        "capability": TOKEN, "team": team, "plan_id": "max", "cloud": true, "company": false,
-        "limits": null, "issued_at": issued, "expires_at": issued + 300_000, "refresh_at": issued + 240_000,
+        "capability": TOKEN, "team": team, "plan_id": "pro", "cloud": true,
+        "issued_at": issued, "expires_at": issued + 300_000, "refresh_at": issued + 240_000,
     }})
 }
 
-fn held(now: i64) -> Held {
-    read_mint(200, &minted(TEAM, 1_000_000), TEAM, now).expect("a capability")
+fn kept(team: &str, sent: u64, now: u64, status: u64, body: Value) -> KeepReply {
+    keep(&KeepRequest {
+        state: State::default(),
+        team: team.into(),
+        sent_ms: sent,
+        now_ms: now,
+        status,
+        body,
+    })
 }
 
-fn state(held: Option<Held>, team: Option<&str>, now: i64) -> State {
-    State { held, team: team.map(str::to_owned), now, ..State::default() }
+fn used(state: &State, team: Option<&str>, now: u64) -> UseReply {
+    use_for(&UseRequest { state: state.clone(), team: team.map(str::to_owned), now_ms: now })
 }
 
+/// Signed in with nothing held: the call goes with no token (the full checks) and starts the fetch;
+/// a second call meanwhile starts no second fetch.
 #[test]
-fn a_mint_is_held_on_this_macs_clock_whatever_the_servers_clock_says() {
-    // The server's clock is an hour behind this Mac's: the lifetime still counts from arrival.
-    let now = 1_000_000 + 3_600_000;
-    let held = read_mint(200, &minted(TEAM, 1_000_000), TEAM, now).unwrap();
-    assert_eq!(held.token, TOKEN);
-    assert_eq!(held.team, TEAM);
-    assert_eq!(held.expires_at, now + 300_000);
-    assert_eq!(held.refresh_at, now + 240_000);
-}
-
-#[test]
-fn a_refusal_another_team_or_a_malformed_answer_holds_nothing() {
-    let now = 5;
-    assert_eq!(read_mint(403, &minted(TEAM, 0), TEAM, now), None);
-    assert_eq!(
-        read_mint(404, &json!({"ok": false, "error": {"code": "cloud.capability_off"}}), TEAM, now),
-        None
+fn the_first_call_fetches_once_and_never_waits() {
+    let first = used(&State::default(), Some("team_a"), T0);
+    assert_eq!((first.header, first.fetch), (None, true));
+    let second = used(&first.state, Some("team_a"), T0 + 5);
+    assert_eq!((second.header, second.fetch), (None, false));
+    assert!(
+        used(&first.state, Some("team_a"), T0 + IN_FLIGHT_MS).fetch,
+        "a fetch that never answered is asked again"
     );
-    assert_eq!(read_mint(200, &minted("team_b", 0), TEAM, now), None, "minted for another team");
-    for token in ["", "cc2.a.b", "cc1.a", "cc1.a.b.c", "cc1.a b.c", "cc1..c", "cc1.a\n.b"] {
-        let mut body = minted(TEAM, 0);
-        body["value"]["capability"] = json!(token);
-        assert_eq!(read_mint(200, &body, TEAM, now), None, "{token:?}");
+}
+
+#[test]
+fn a_held_token_goes_on_its_teams_calls_until_its_refresh_then_still_until_expiry() {
+    let state = kept("team_a", T0, T0 + 400, 200, answer("team_a", 9_999_999)).state;
+    let held = state.held.clone().unwrap();
+    assert_eq!(held.refresh_at_ms, T0 + 240_000);
+    assert_eq!(held.use_until_ms, T0 + 300_000 - EXPIRY_MARGIN_MS);
+    let fresh = used(&state, Some("team_a"), T0 + 1_000);
+    assert_eq!((fresh.header.as_deref(), fresh.fetch), (Some(TOKEN), false));
+    // Past the refresh: still sent, and this call asks for the next one.
+    let due = used(&state, Some("team_a"), T0 + 240_000);
+    assert_eq!((due.header.as_deref(), due.fetch), (Some(TOKEN), true));
+    // Past its use: never sent.
+    let late = used(&state, Some("team_a"), held.use_until_ms);
+    assert_eq!(late.header, None);
+}
+
+/// The server's clock is read only as a lifetime from the send: a Mac clock hours off keeps the
+/// same 5 minutes.
+#[test]
+fn a_skewed_mac_clock_never_stretches_a_token() {
+    for issued in [1, T0 - 3_600_000, T0 + 3_600_000] {
+        let held = kept("team_a", T0, T0 + 10, 200, answer("team_a", issued)).state.held.unwrap();
+        assert_eq!(held.use_until_ms, T0 + 300_000 - EXPIRY_MARGIN_MS, "{issued}");
     }
-    let mut long = minted(TEAM, 0);
-    long["value"]["capability"] = json!(format!("cc1.{}.sig", "a".repeat(4096)));
-    assert_eq!(read_mint(200, &long, TEAM, now), None, "longer than the server accepts");
-    let mut forever = minted(TEAM, 0);
-    forever["value"]["expires_at"] = json!(3_600_000);
-    assert_eq!(read_mint(200, &forever, TEAM, now), None, "lives longer than the TTL");
-    let mut dead = minted(TEAM, 0);
-    dead["value"]["expires_at"] = json!(0);
-    assert_eq!(read_mint(200, &dead, TEAM, now), None, "already expired");
 }
 
 #[test]
-fn a_mint_without_a_refresh_time_refreshes_a_minute_before_expiry() {
-    let mut body = minted(TEAM, 0);
-    body["value"].as_object_mut().unwrap().remove("refresh_at");
-    let held = read_mint(200, &body, TEAM, 10).unwrap();
-    assert_eq!(held.refresh_at, 10 + 240_000);
+fn another_teams_token_is_never_sent_and_a_switch_fetches() {
+    let state = kept("team_a", T0, T0 + 10, 200, answer("team_a", T0)).state;
+    let other = used(&state, Some("team_b"), T0 + 20);
+    assert_eq!((other.header, other.fetch), (None, true));
+    let signed_out = used(&state, None, T0 + 20);
+    assert_eq!((signed_out.header, signed_out.fetch), (None, false));
+    assert_eq!(used(&state, Some(""), T0 + 20).header, None);
 }
 
 #[test]
-fn a_call_sends_the_capability_of_its_own_team_until_just_before_it_expires() {
-    let held = held(0);
-    let at = |now| plan(&state(Some(held.clone()), Some(TEAM), now), Reason::Call);
-    assert_eq!(at(0).send.as_deref(), Some(TOKEN));
-    assert!(!at(0).fetch, "a fresh one is not minted again");
-    assert_eq!(at(0).wake_in, Some(240_000));
-    assert_eq!(at(300_000 - SEND_MARGIN_MS - 1).send.as_deref(), Some(TOKEN));
-    assert_eq!(at(300_000 - SEND_MARGIN_MS).send, None, "too close to expiry to send");
-    assert_eq!(at(400_000).send, None);
+fn an_answer_for_another_team_is_not_kept() {
+    let reply = kept("team_a", T0, T0 + 10, 200, answer("team_b", T0));
+    assert_eq!((reply.state.held, reply.outcome), (None, "wrong_team"));
 }
 
 #[test]
-fn a_call_after_a_team_switch_sends_nothing_and_mints_for_the_new_team() {
-    let switched = plan(&state(Some(held(0)), Some("team_b"), 10), Reason::Call);
-    assert_eq!(switched.send, None, "never another team's capability");
-    assert!(switched.fetch);
-    assert_eq!(switched.wake_in, None);
+fn a_failed_fetch_backs_off_by_what_it_was() {
+    let refused = json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}});
+    let busy = json!({"ok": false, "error": {"code": "owner.unreachable", "message": "retry"}});
+    let off = json!({"ok": false, "error": {"code": "cloud.capability_off", "message": "off"}});
+    for (status, body, outcome, after) in [
+        (404, off, "off", RETRY_OFF_MS),
+        (403, refused, "refused", RETRY_REFUSED_MS),
+        (403, busy.clone(), "failed", RETRY_UNREACHABLE_MS),
+        (503, busy, "failed", RETRY_UNREACHABLE_MS),
+        (0, Value::Null, "unreachable", RETRY_UNREACHABLE_MS),
+        (200, json!({"ok": true, "value": {}}), "unreadable", RETRY_UNREACHABLE_MS),
+    ] {
+        let reply = kept("team_a", T0, T0 + 10, status, body);
+        assert_eq!(
+            (reply.outcome, reply.state.next_fetch_ms),
+            (outcome, T0 + 10 + after),
+            "{status}"
+        );
+        assert!(!used(&reply.state, Some("team_a"), T0 + 10 + after - 1).fetch);
+        assert!(used(&reply.state, Some("team_a"), T0 + 10 + after).fetch);
+    }
+}
+
+/// A failed refresh drops the team's old token: what the server would no longer take is not sent.
+#[test]
+fn a_failed_refresh_drops_the_old_token() {
+    let state = kept("team_a", T0, T0 + 10, 200, answer("team_a", T0)).state;
+    let reply = keep(&KeepRequest {
+        state,
+        team: "team_a".into(),
+        sent_ms: T0 + 240_000,
+        now_ms: T0 + 240_100,
+        status: 503,
+        body: Value::Null,
+    });
+    assert_eq!(reply.state.held, None);
+}
+
+/// Only a token that can go in a header as is: no line break, no space, not past the platform's
+/// longest.
+#[test]
+fn a_token_that_cannot_go_in_a_header_is_not_kept() {
+    for bad in ["", "cc1.a\r\nx-evil: 1", "cc1.a b", "cc1.é", &"a".repeat(MAX_TOKEN_CHARS + 1)] {
+        let mut body = answer("team_a", T0);
+        body["value"]["capability"] = json!(bad);
+        assert_eq!(kept("team_a", T0, T0 + 10, 200, body).outcome, "unreadable", "{bad:?}");
+    }
+}
+
+/// A fetch that answered after its token's lifetime (a stalled request) keeps nothing.
+#[test]
+fn an_answer_that_arrives_expired_is_not_kept() {
+    let reply = kept("team_a", T0, T0 + 300_000, 200, answer("team_a", T0));
+    assert_eq!((reply.state.held, reply.outcome), (None, "expired"));
+}
+
+/// Swift's `JSONValue` sends every number as a `Double`: `1.0e12` reads as a whole ms; a fraction or a
+/// negative is refused, never rounded.
+#[test]
+fn numbers_from_swift_read_as_whole_ms() {
+    let request: UseRequest = serde_json::from_str(
+        r#"{"state":{"nextFetchMs":5.0},"team":"t","nowMs":1.794304118456e12}"#,
+    )
+    .unwrap();
+    assert_eq!((request.now_ms, request.state.next_fetch_ms), (1_794_304_118_456, 5));
+    for bad in ["1.5", "-1", "1e300"] {
+        assert!(
+            serde_json::from_str::<UseRequest>(&format!(r#"{{"team":"t","nowMs":{bad}}}"#))
+                .is_err(),
+            "{bad}"
+        );
+    }
+}
+
+/// The route's answer reaches Rust re-encoded by Swift's `JSONValue`, every number a float.
+#[test]
+fn an_answer_with_float_times_is_kept() {
+    let body = json!({"ok": true, "value": {"capability": TOKEN, "team": "team_a", "issued_at": 5.0, "expires_at": 300_005.0, "refresh_at": 240_005.0}});
+    let reply = kept("team_a", T0, T0 + 10, 200, body);
+    assert_eq!(reply.outcome, "held");
+    assert_eq!(reply.state.held.unwrap().refresh_at_ms, T0 + 240_000);
 }
 
 #[test]
-fn signed_out_nothing_is_sent_or_minted() {
-    assert_eq!(plan(&state(Some(held(0)), None, 10), Reason::Intent), Plan::default());
-    assert_eq!(plan(&state(None, Some(""), 10), Reason::Intent), Plan::default());
-}
-
-#[test]
-fn sign_in_and_intent_mint_when_none_is_held_and_once_it_is_due() {
-    assert!(plan(&state(None, Some(TEAM), 0), Reason::Intent).fetch);
-    assert!(!plan(&state(Some(held(0)), Some(TEAM), 239_999), Reason::Intent).fetch);
-    let due = plan(&state(Some(held(0)), Some(TEAM), 240_000), Reason::Call);
-    assert!(due.fetch, "due at refresh_at");
-    assert_eq!(
-        due.send.as_deref(),
-        Some(TOKEN),
-        "the held one still goes while the next is minted"
-    );
-}
-
-#[test]
-fn a_failed_mint_waits_before_the_next_for_that_team_only() {
-    let mut failed = state(None, Some(TEAM), 100_000);
-    failed.failed_at = Some(100_000 - RETRY_AFTER_MS + 1);
-    failed.failed_team = Some(TEAM.to_owned());
-    assert!(!plan(&failed, Reason::Call).fetch);
-    assert!(!plan(&failed, Reason::Intent).fetch);
-    failed.now += 1;
-    assert!(plan(&failed, Reason::Call).fetch, "the wait is over");
-    failed.now -= 1;
-    failed.team = Some("team_b".to_owned());
-    assert!(plan(&failed, Reason::Call).fetch, "another team's failure does not hold this one");
-}
-
-#[test]
-fn the_timer_keeps_one_warm_only_while_cloud_is_in_use() {
-    let mut timer = state(Some(held(0)), Some(TEAM), 240_000);
-    assert!(!plan(&timer, Reason::Timer).fetch, "never used: no mint every 4 minutes for nothing");
-    timer.last_use = Some(240_000 - IDLE_STOP_MS + 1);
-    assert!(plan(&timer, Reason::Timer).fetch);
-    timer.last_use = Some(240_000 - IDLE_STOP_MS);
-    assert!(!plan(&timer, Reason::Timer).fetch);
-    assert!(plan(&timer, Reason::Call).fetch, "a call always may");
-}
-
-#[test]
-fn the_wire_names_match_the_server() {
-    assert_eq!(HEADER, "x-cmux-cloud-capability");
-    assert_eq!(PATH, "v1/cloud/capability");
-    assert_eq!(serde_json::to_value(Reason::Intent).unwrap(), "intent");
-    let value =
-        serde_json::to_value(plan(&state(Some(held(0)), Some(TEAM), 0), Reason::Call)).unwrap();
-    assert_eq!(value, json!({"send": TOKEN, "fetch": false, "wakeIn": 240_000}));
-    let back: State =
-        serde_json::from_value(json!({"held": held(0), "team": TEAM, "now": 3})).unwrap();
-    assert_eq!(back.now, 3);
-}
-
-/// A refresh that failed wakes again when the backoff ends, not at once, and only while Cloud is in use.
-#[test]
-fn a_failed_refresh_wakes_again_when_the_backoff_ends_while_cloud_is_in_use() {
-    let mut failed = state(Some(held(0)), Some(TEAM), 250_000);
-    failed.failed_at = Some(250_000);
-    failed.failed_team = Some(TEAM.to_owned());
-    failed.last_use = Some(240_000);
-    let retry = plan(&failed, Reason::Timer);
-    assert!(!retry.fetch, "inside the backoff");
-    assert_eq!(retry.wake_in, Some(RETRY_AFTER_MS), "re-armed for the backoff's end");
-    failed.now += RETRY_AFTER_MS;
-    let recovered = plan(&failed, Reason::Timer);
-    assert!(recovered.fetch, "the retry mints");
-    failed.last_use = Some(250_000 - IDLE_STOP_MS);
-    assert_eq!(plan(&failed, Reason::Timer).wake_in, None, "idle: no timer");
+fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
+    // The only test of the process-wide state: the others use the pure rules with their own state.
+    forget();
+    let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
+    assert_eq!(ask(T0), HeaderReply { header: None, fetch: true });
+    assert!(!ask(T0 + 1).fetch, "one fetch in flight");
+    let kept = super::answer(AnswerRequest {
+        team: "team_a".to_owned(),
+        sent_ms: T0,
+        now_ms: T0 + 50,
+        status: 200,
+        body: answer("team_a", 1_000),
+    });
+    assert_eq!(kept.outcome, "held");
+    assert_eq!(ask(T0 + 60), HeaderReply { header: Some(TOKEN.to_owned()), fetch: false });
+    forget();
+    assert_eq!(ask(T0 + 70), HeaderReply { header: None, fetch: true });
+    forget();
 }

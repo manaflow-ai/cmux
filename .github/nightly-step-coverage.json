@@ -350,6 +350,7 @@
         "Leave notarization to a newer published build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
       "generate-nightly-deltas": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -359,6 +360,7 @@
       "republish-nightly-deltas": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
+        "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},

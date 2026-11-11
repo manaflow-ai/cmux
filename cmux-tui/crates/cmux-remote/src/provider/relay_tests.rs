@@ -92,6 +92,35 @@ async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStr
     (socket, authorization)
 }
 
+/// A relay that takes the TCP connection and never answers the upgrade (a
+/// socket that died silently mid-open): the open fails within
+/// [`RELAY_CONNECT_TIMEOUT`] as a retryable carrier failure, so a daemon's
+/// registration logs it and registers again instead of waiting forever.
+#[tokio::test(start_paused = true)]
+async fn a_relay_open_with_no_answer_fails_retryably_within_the_connect_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+    let (held_tx, held_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        // Hold the stream open, unanswered, until the test ends.
+        let _ = held_rx.await;
+        drop(stream);
+    });
+
+    let started = Instant::now();
+    let error =
+        match connect_relay_socket_once(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await {
+            Ok(_) => panic!("an unanswered relay upgrade opened"),
+            Err(error) => error.into_provider_error(),
+        };
+    assert!(started.elapsed() <= RELAY_CONNECT_TIMEOUT + Duration::from_millis(100));
+    assert!(error.to_string().contains("no answer within 10000 ms"), "{error}");
+    assert!(error.is_retryable_carrier_failure(), "{error}");
+    let _ = held_tx.send(());
+    server.await.unwrap();
+}
+
 #[tokio::test]
 async fn relay_dial_bounds_fragmented_messages_and_disables_nagle() {
     const MAXIMUM: usize = 8;

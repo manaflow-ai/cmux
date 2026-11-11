@@ -299,9 +299,9 @@ impl Outbox {
         crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
-    /// Records a new delivery; the same prompt id again answers with the first one. Fails when
-    /// the file cannot be written: then the delivery is not kept in memory either (not kept
-    /// means not sent), and a later write never puts it on disk.
+    /// Records a new delivery; the same prompt id to the same target again answers with the first
+    /// one. Fails when the file cannot be written: then the delivery is not kept in memory either
+    /// (not kept means not sent), and a later write never puts it on disk.
     pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, added) = self.add_scoped(delivery, false);
         self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
@@ -325,16 +325,18 @@ impl Outbox {
     }
 
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
+    /// A prompt id names one message to one target, as the target's prompt ledger keys it
+    /// (`Hub::prompt_with`): the same id to another target is another message.
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
+                && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
-                        && d.target == delivery.target
                         && projected_message(d) == projected_message(&delivery)))
         }) {
             let first = first.clone();
@@ -903,6 +905,30 @@ mod tests {
         intent.id = "unused-retry-id".into();
         assert_eq!(outbox.remember_forward(intent).unwrap().id, "intent-4");
         assert_eq!(outbox.add(delivery(1)).unwrap().id, "d-1");
+    }
+
+    /// A queued send's prompt id is a key for one message to one target, as the target's own
+    /// prompt ledger keys it (`Hub::prompt_with`): the same prompt id to another target is a
+    /// message of its own and is delivered too. Before, `add` answered it with the first
+    /// message's delivery (`delivered`, to the first target), and the second never went.
+    #[test]
+    fn a_queued_send_with_a_reused_prompt_id_to_another_target_is_its_own() {
+        let outbox = Outbox::default();
+        let first = delivery(1);
+        assert_eq!(outbox.add(first.clone()).unwrap().id, "d-1");
+        // The same message again (a CLI retry): the first delivery.
+        let mut again = first.clone();
+        again.id = "retry".into();
+        assert_eq!(outbox.add(again).unwrap().id, "d-1");
+        // The same prompt id to another target: its own delivery.
+        let mut other = first.clone();
+        other.id = "d-2".into();
+        other.target = "other".into();
+        other.request["sessionId"] = json!("other");
+        assert_eq!(outbox.add(other.clone()).unwrap().id, "d-2");
+        other.id = "retry-2".into();
+        assert_eq!(outbox.add(other).unwrap().id, "d-2");
+        assert_eq!(outbox.unsettled(), 2);
     }
 
     #[test]

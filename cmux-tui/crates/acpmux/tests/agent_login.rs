@@ -338,7 +338,8 @@ async fn agent_login_over_the_wire() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(d.join("claude-home/settings.json")).unwrap().permissions().mode();
+        let mode =
+            std::fs::metadata(d.join("claude-home/settings.json")).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0, "{mode:o}");
     }
     let env = std::collections::BTreeMap::from([(
@@ -347,11 +348,7 @@ async fn agent_login_over_the_wire() {
     )]);
     let found = acpmux::claude_auth::find(&env);
     assert!(found.signed_in(), "{found:?}");
-    assert!(
-        found.sources.iter().any(|s| s.contains("ANTHROPIC_API_KEY")),
-        "{:?}",
-        found.sources
-    );
+    assert!(found.sources.iter().any(|s| s.contains("ANTHROPIC_API_KEY")), "{:?}", found.sources);
     // The Claude profile also uses an alternate account home, so its API key
     // save must leave the canonical machine choice untouched.
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());

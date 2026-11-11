@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """structural-rebuild.py's log reading and edit, with no build: the timing summary and the driver's receipt come
-out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeConversationPage, and a
+out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeHostView, and a
 run refuses a source file with local edits; a SIGTERM during a reload unwinds and ends the reload's process
 group, SIGKILLing a member that ignores SIGTERM."""
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
@@ -37,11 +37,11 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
 
     source = Path(tmp) / sr.EDIT_FILE
     source.parent.mkdir(parents=True)
-    source.write_text("import AppKit\n\n@MainActor\nfinal class HomeConversationPage: NSView {\n    let transcript: Int\n}\n")
+    source.write_text("import AppKit\n\n@MainActor\nfinal class HomeHostView: NSView {\n    let transcript: Int\n}\n")
     sr.ROOT = tmp
     sr.add_property(1)
     sr.add_property(2)
-    assert source.read_text() == ("import AppKit\n\n@MainActor\nfinal class HomeConversationPage: NSView {\n"
+    assert source.read_text() == ("import AppKit\n\n@MainActor\nfinal class HomeHostView: NSView {\n"
                                   "    var structuralRebuildProbe2 = 2\n    var structuralRebuildProbe1 = 1\n"
                                   "    let transcript: Int\n}\n"), source.read_text()
 

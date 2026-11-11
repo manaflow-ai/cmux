@@ -64,7 +64,10 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/ci/web_coalesce.py
+          sparse-checkout: |
+            scripts/ci/web_coalesce.py
+            scripts/ci/web_subareas.py
+            scripts/ci/webviews_test_history.py
           sparse-checkout-cone-mode: false
 
       # The last push that ran the web checks: the newest entry by its prefix. Missing (the first run, an eviction)

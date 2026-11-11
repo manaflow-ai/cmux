@@ -497,6 +497,34 @@
             "generated": false
           },
           "swift_owner": "QuitBehaviorSetting"
+        },
+        {
+          "key": "app.confirmQuit",
+          "note": "Lawrence 2026-11-10: an accidental Cmd-Q ended every agent and terminal with no question. Asks only when the quit ends them.",
+          "title": {
+            "key": "settings.app.confirmQuit",
+            "text": "Ask Before Quitting Ends Agents or Terminals"
+          },
+          "help": {
+            "key": "settings.app.confirmQuit.help",
+            "text": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "quit",
+            "cmd-q",
+            "confirm",
+            "ask",
+            "warn",
+            "exit",
+            "agents",
+            "terminals"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
         }
       ]
     },

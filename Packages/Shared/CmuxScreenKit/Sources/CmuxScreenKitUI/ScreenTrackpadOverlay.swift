@@ -3,7 +3,7 @@ import CmuxScreenKit
 import SwiftUI
 import UIKit
 
-/// Connects the trackpad overlay's pad to the screen it drives. `ScreenView`
+/// Connects the trackpad drawer's pad to the screen it drives. `ScreenView`
 /// fills in the controller; the pad sends its touches through it, so the pad
 /// and the screen share one pointer, one click state and one cursor.
 @MainActor
@@ -13,20 +13,26 @@ public final class ScreenTrackpadLink {
     public init() {}
 }
 
-/// The trackpad overlay's surface: one finger moves the Mac's pointer the
+/// The trackpad drawer's surface: one finger moves the Mac's pointer the
 /// way a MacBook trackpad does (a tap clicks, tap then drag drags, a long
 /// press drags), two fingers tap to right-click and drag to scroll.
 struct ScreenTrackpadPad: UIViewRepresentable {
     let link: ScreenTrackpadLink
+    /// The drawer is open. Closed, the pad stays laid out under the handle but
+    /// takes no touches and is hidden from VoiceOver and UI tests (SwiftUI's
+    /// `accessibilityHidden` does not reach a hosted UIKit view).
+    let active: Bool
 
     func makeUIView(context: Context) -> ScreenTrackpadPadView {
         let view = ScreenTrackpadPadView()
         view.link = link
+        view.setActive(active)
         return view
     }
 
     func updateUIView(_ view: ScreenTrackpadPadView, context: Context) {
         view.link = link
+        view.setActive(active)
     }
 }
 
@@ -63,6 +69,12 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    func setActive(_ active: Bool) {
+        isUserInteractionEnabled = active
+        isAccessibilityElement = active
+        accessibilityElementsHidden = !active
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
@@ -76,21 +88,6 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
         let translation = recognizer.translation(in: self)
         recognizer.setTranslation(.zero, in: self)
         link?.controller?.padScroll(by: translation, began: recognizer.state == .began)
-    }
-}
-
-/// Where the trackpad overlay sits: an offset from its home at the bottom
-/// centre, kept inside the screen so its grip can always be reached.
-struct TrackpadOverlayPlacement: Equatable {
-    var offset: CGSize = .zero
-
-    /// `proposed` clamped so a `panel`-sized overlay at the bottom centre of
-    /// `container` (inside `margin`) stays fully on screen.
-    static func clamped(_ proposed: CGSize, panel: CGSize, container: CGSize, margin: CGFloat) -> CGSize {
-        let maxX = max(0, (container.width - panel.width) / 2 - margin)
-        let maxUp = max(0, container.height - panel.height - 2 * margin)
-        return CGSize(width: min(max(proposed.width, -maxX), maxX),
-                      height: min(max(proposed.height, -maxUp), 0))
     }
 }
 #endif

@@ -79,6 +79,10 @@ def shot(name):
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, name + ".png")}, 60)
 
 
+def drive(action, **params):
+    return rpc("debug.home.drive", dict(params, action=action)) or {}
+
+
 def config_value():
     try:
         return (json.load(open(CONFIG)).get("home") or {}).get("channelsEnabled")

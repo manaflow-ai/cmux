@@ -268,24 +268,41 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 ## Load arm `oversub` (`busy_holder.py`)
 
 A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
-per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
+per core (agents, node, cargo); a read of one gave 97 % of them below the default priority 31 (at 20 and at 4), from
+processes that also sleep on I/O. A bench "load" arm with a host load under 15 is a
 quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
-default priority and QoS beside the app under test, for a short time.
+default priority and QoS beside the app under test, for a short time (shape `spin`), or N processes at utility and
+background QoS that burst, do I/O and sleep (shape `agents`).
 
 ```
 BH="/usr/bin/python3 scripts/perf-bench/busy_holder.py"
 PID=$($BH start --owner <task> --watch-pid $$ --threads 250 --procs 250 --max-seconds 120)   # prints the PID
+PID=$($BH start --owner <task> --watch-pid $$ --threads 320 --shape agents --max-seconds 120) # the other shape
 $BH status $PID      # threads, running, priority, CPU, load
 $BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
 $BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
 $BH probe --label quiet    # the scheduling delay one thread of each QoS class gets (run quiet and under start)
-$BH selftest               # the safety rules with 4 threads for at most 10 s each
+$BH selftest               # the safety rules with 4 to 6 threads for at most 10 s each
 ```
 
 - `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
   processes' thread groups first, so the two are different loads; a real Mac has many processes. Write the shape
   next to each number: threads, processes, cores, threads per core, the 1-minute load at the start and the end.
-- It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
+- `--shape spin` (default) is run-queue pressure only: threads that never sleep, no disk I/O, no process starts.
+  They start at the default priority 31 and the kernel lowers them: `ps -M` shows them at 0 to 24 during the arm.
+  A thread of the app that sleeps most of the time and wakes at 31 or more runs at once beside them; a thing that
+  needs the CPU for a long time at 31 or less (a CLI call that starts a process for each key) takes seconds.
+- `--shape agents` is N processes with one thread each, like a Mac full of agent CLIs and their helpers: two of
+  three at utility QoS (priority 20), one of three at background (4); each repeats a CPU burst of 2 to 24 ms, one
+  I/O step (write 64 KiB with an fsync each 8th turn, lstat 200 system files, start `/usr/bin/true` and wait for
+  it, read the 64 KiB back) and a sleep of 0 to 20 ms. Its files are in the tool's private state folder and are
+  removed at the end (after a hard kill of the supervisor: by `stop PID`). Each one is a new process, not a fork: macOS refuses the QoS class call in a forked child
+  (it stays at 31), and a process that does not get its class ends the holder with an error. Read the priorities
+  in the arm (`ps -M`, or the `selftest` on the bench host inside your hold) before you trust a row.
+  Say the shape next to each number; a row made with one shape does not pair with the other.
+- Neither shape copies memory pressure, page cache traffic of large files, GPU work or network.
+- Time each row with the app's own clock (or the frame on the display), not with the wall time of the call that
+  sends the input: under this load the call itself can take seconds while the app answers in one frame.
 - Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
   the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
   the first word of `~/perf-lead/gui.lock/owner` is `--owner` (a bench host inside the caller's own GUI lock hold; never a
@@ -308,7 +325,8 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
-- `busy_holder.py`: the load arm `oversub` (N busy threads at the default priority, with hard self-limits).
+- `busy_holder.py`: the load arm `oversub` (shape `spin`: N busy threads that start at the default priority; shape
+  `agents`: N processes at utility and background QoS that burst, do I/O and sleep; hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.
 
 ## The shared `real` session (`session_real.py`)
@@ -378,13 +396,19 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   `terminal-resources`), not every program of that name on the host, and refuses counts that are
   not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
   lower bound that is not judged; an error reply of the command is exit 1.
-- A RESTORED session does not run 170 bench agents (measured 2026-11-10, aws-m4pro-3, a host with `claude` on its PATH):
-  the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on) types the stored resume command, so
-  157 of the 170 agent terminals ran the real `claude --resume session-real-real-NNNN` (12.6 GB footprint, 1273 wakeups/s
-  in `measure`, group `daemon_other`) and only the 13 that got a new shell ran the bench program. `agents` types its
-  command into those terminals too, starts nothing there, and now says it: exit 3, "13 agent programs run in this
-  daemon's terminals, the session has 170 agent terminals". The tool before gave exit 0. Until the session or the tool
-  handles it, the memory and CPU rows of a restored run include those `claude` processes.
+- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as on his Mac)
+  types the stored resume command, so on a host with `claude` on its PATH an agent terminal runs the real
+  `claude --resume session-real-real-NNNN` (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals, 12.6 GB footprint,
+  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
+  the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
+  the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
+  it, and types the start line when only the shell is left and that shell is 25 s old (the product types its resume
+  command into a new shell in its first 20 s at the worst). Each round reads what runs and sends its lines at once
+  after the read, before any signal. It never types into and never signals another program, a running bench program,
+  or a terminal whose processes it cannot read: such a terminal is a fault (exit 3) with the reason. With a `--settle`
+  below about 30 s a tab that `agents` had to start again gets no line in time: that is a fault that says so. Its line says `resumed_cli_ended`, `resumed_cli_left`,
+  `other_programs` and `agent_programs_running`; exit 0 = one bench program in each agent terminal and no resumed CLI.
+  Run `agents` after EVERY restore and before `measure`, `map` or your own driver; a row made before it has the real CLIs.
 - `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
   terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
 - `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says

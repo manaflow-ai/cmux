@@ -15,6 +15,21 @@ export const MAX_PAGE_BYTES = 4 << 20;
 /// paging.rs `record_bytes`: a record's JSON and room for its envelope.
 export const recordBytes = (record: unknown) => JSON.stringify(record).length + 120;
 
+/// paging.rs MAX_RECORD_BYTES: the most one record may hold in a page (rpc.rs MAX_MESSAGE_BYTES, 31 MiB, less
+/// one MiB for the reply around it), and ENVELOPE_FIELD_BYTES, the longest kind a stub keeps.
+export const MAX_RECORD_BYTES = (31 << 20) - (1 << 20);
+const ENVELOPE_FIELD_BYTES = 1 << 10;
+
+/// paging.rs `fit_sized`: a record no message can carry goes as a stub with its seq and time, its `msg` what it
+/// left out and how much, and its kind unless that is the large part (a copy). Also returns what it adds.
+function fit<T extends Rec>(rec: T, bytes: number): { rec: T; bytes: number } {
+  if (bytes <= MAX_RECORD_BYTES) return { rec, bytes };
+  const stub = { ...rec, msg: { _meta: { acpmux: { omitted: { bytes, reason: "too_large" } } } } };
+  if ((rec.kind?.length ?? 0) > ENVELOPE_FIELD_BYTES) stub.kind = "";
+  return { rec: stub, bytes: recordBytes(stub) };
+}
+const delivered = (rec: Rec) => recordBytes(rec) <= MAX_RECORD_BYTES;
+
 type Rec = { seq: number; dir?: string; kind?: string; msg?: unknown };
 type Obj = Record<string, unknown>;
 const obj = (value: unknown): Obj | undefined =>
@@ -100,6 +115,8 @@ function readSuperseded<T extends Rec>(
   const call = callOf(rec);
   if (!call) return { rec };
   if (rec.kind === "tool_call") {
+    // The call's start, older than every update of it, unless it goes out as a stub.
+    if (!delivered(rec)) return { rec };
     const held = calls.get(call.key)?.held;
     calls.delete(call.key);
     return { rec, moot: held };
@@ -111,6 +128,8 @@ function readSuperseded<T extends Rec>(
   const output = call.plain && onlyOutput(update, fields);
   const out = output && known?.fields.has("content") ? withoutContent(rec) : rec;
   const ends = update.status === "completed" || update.status === "failed";
+  // A stubbed record supersedes nothing older.
+  if (!delivered(out)) return { rec: out };
   if (!known) {
     calls.set(call.key, { fields });
     return { rec: out };
@@ -126,14 +145,23 @@ function readSuperseded<T extends Rec>(
   return { rec: out, moot };
 }
 
-/// The newest page before `beforeSeq`, oldest first, and whether older records remain (pure).
+/// paging.rs `page_bytes`: the ask's `maxBytes` when it is a whole number of bytes (JSON's u64), else 1 MiB, at
+/// most 4 MiB.
+export const pageBytes = (maxBytes: unknown) =>
+  Math.min(
+    typeof maxBytes === "number" && Number.isSafeInteger(maxBytes) && maxBytes >= 0 ? maxBytes : DEFAULT_PAGE_BYTES,
+    MAX_PAGE_BYTES,
+  );
+
+/// The newest page before `beforeSeq`, oldest first, and whether older records remain (pure). `maxBytes` is the
+/// ask's param as sent: events.rs folds superseded updates when it is named and not null.
 export function newestPage<T extends Rec>(
   events: readonly T[],
-  { limit = 400, beforeSeq = Infinity, maxBytes }: { limit?: number; beforeSeq?: number; maxBytes?: number } = {},
+  { limit = 400, beforeSeq = Infinity, maxBytes }: { limit?: number; beforeSeq?: number; maxBytes?: unknown } = {},
 ): { page: T[]; hasMore: boolean } {
-  const max = Math.min(maxBytes ?? DEFAULT_PAGE_BYTES, MAX_PAGE_BYTES);
-  // events.rs: a page the client bounds by bytes leaves out superseded updates.
-  const calls = maxBytes === undefined ? undefined : new Map<string, { fields: Set<string>; held?: number }>();
+  const max = pageBytes(maxBytes);
+  const fold = maxBytes !== undefined && maxBytes !== null;
+  const calls = fold ? new Map<string, { fields: Set<string>; held?: number }>() : undefined;
   // Newest first; a slot an older record made moot is empty.
   const found: ({ rec: T; bytes: number } | undefined)[] = [];
   let held = 0;
@@ -142,7 +170,7 @@ export function newestPage<T extends Rec>(
   while (index >= 0 && events[index]!.seq >= beforeSeq) index -= 1;
   for (; index >= 0; index -= 1) {
     const read = calls ? readSuperseded(calls, events[index]!, found.length) : { rec: events[index]! };
-    const recBytes = recordBytes(read.rec);
+    const { rec, bytes: recBytes } = fit(read.rec, recordBytes(read.rec));
     const mootBytes = read.moot === undefined ? 0 : (found[read.moot]?.bytes ?? 0);
     const kept = held + 1 - (read.moot === undefined ? 0 : 1);
     const size = bytes + recBytes - mootBytes;
@@ -151,7 +179,7 @@ export function newestPage<T extends Rec>(
     if (read.moot !== undefined) found[read.moot] = undefined;
     held = kept;
     bytes = size;
-    found.push({ rec: read.rec, bytes: recBytes });
+    found.push({ rec, bytes: recBytes });
   }
   const page = found.flatMap((entry) => (entry ? [entry.rec] : [])).reverse();
   return { page, hasMore: index >= 0 };

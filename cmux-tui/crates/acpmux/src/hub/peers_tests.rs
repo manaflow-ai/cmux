@@ -217,7 +217,8 @@ fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
     let mut actual = Vec::new();
     hub.visit_session_summaries(true, |row| {
         // A writer can remove rows during serialization without changing this snapshot.
-        let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
+        let mut rows =
+            hub.remote_sessions.try_write().expect("visitor must not hold the rows writer lock");
         let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
         for (id, captured) in captured {
             let writes = rows.writes;
@@ -231,7 +232,7 @@ fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
     super::super::session_pages::sort_session_summaries(&mut actual);
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), 3);
-    assert!(hub.remote_sessions.lock().unwrap().is_empty());
+    assert!(hub.remote_sessions.read().is_empty());
 }
 
 /// A wait reads the row the full list puts first for each id: a peer's newer chat

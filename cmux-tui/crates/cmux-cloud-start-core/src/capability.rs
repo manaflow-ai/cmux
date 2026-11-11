@@ -1,153 +1,293 @@
-//! The signed Cloud capability (cmux-platform#1126; Leo, 2026-11-09: "why do we even need to have
-//! checks just-in-time anyways, can't we just pre-approve peopel sometimes? the handshakes
-//! themsleves take ms, no?"). The app asks `POST /v1/cloud/capability` with its install token at
-//! sign-in, on a team switch, on Cloud intent and before the held one is due, never on a start; it
-//! holds the answer in memory only and sends it in [`HEADER`] on every op it relays to `/v1/ops`
-//! and `/v1/read` with a token of the same team. The Worker then skips the plan and membership
-//! reads of that call; a missing, expired or stale capability only means today's full checks.
+//! The person's signed Cloud capability on the Mac (cmux-platform `CloudCapability.ts`, #1126):
+//! Leo, 2026-11-09: "can't we just pre-approve peopel sometimes? the handshakes themsleves take ms,
+//! no?". `POST /v1/cloud/capability` runs every check a start runs (membership, sign-in policy,
+//! plan, grants) once, off the start path, and answers a token. The app sends it on its Cloud calls
+//! in `x-cmux-cloud-capability`, so a create or a start skips those reads.
 //!
-//! Pure: the app does the HTTP, the timer and the clock; these rules say what a mint's answer
-//! holds, what a call sends and when the next mint goes, and [`holder`] is the app's holder over
-//! them (sign-in, a team switch, sign-out, refresh and retry) as one reducer.
+//! The app asks here (ops `cloud_capability_header`, `cloud_capability_answer`, `cloud_capability_drop`);
+//! this module holds the token for the app process and decides which one goes on a call, when to ask
+//! for the next, and what an answer means. The app only makes the fetch. Asked at
+//! sign-in, on a team switch and while the person types (the composer's reserve), and again on a
+//! call once the token is past its refresh time; never on a timer, so nothing runs while Cloud is
+//! idle. A call never waits for a fetch: it goes with the token it has, or with none (the server's
+//! full checks, as before).
+//!
+//! Times are this Mac's wall clock in ms. The server's own issue and expiry times are read only as
+//! a lifetime from the moment the fetch was sent, so a Mac clock that is off never makes a token
+//! look fresh past its server expiry.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub mod holder;
-
-/// The request header a relayed op carries the capability in (cmux-platform `CAPABILITY_HEADER`).
+/// The request header the token goes in (cmux-platform `CAPABILITY_HEADER`).
 pub const HEADER: &str = "x-cmux-cloud-capability";
-/// The mint route, relative to the API origin (cmux-platform `CAPABILITY_PATH`).
-pub const PATH: &str = "v1/cloud/capability";
-/// cmux-platform's `MAX_TOKEN_CHARS`: a longer answer is not a capability.
-const MAX_TOKEN_CHARS: usize = 4096;
-/// The longest a capability lives (cmux-platform `CAPABILITY_TTL_MS`); an answer claiming more is refused.
-const MAX_LIFETIME_MS: i64 = 5 * 60_000;
-/// No call sends a capability this close to its expiry: its flight and the clocks' skew would land
-/// it expired, which costs the Worker a verify for nothing.
-pub const SEND_MARGIN_MS: i64 = 15_000;
-/// After a mint that failed, the next one for the same team waits this long (a start never waits on it).
-pub const RETRY_AFTER_MS: i64 = 30_000;
-/// The timer mints again only while Cloud was used this recently ("every 4 min while Cloud is open").
-pub const IDLE_STOP_MS: i64 = 30 * 60_000;
+/// The route that mints it, on the platform origin.
+pub const PATH: &str = "/v1/cloud/capability";
+/// A token is no longer sent this close to its expiry: transit and the server's own check.
+pub const EXPIRY_MARGIN_MS: u64 = 15_000;
+/// When an answer names no refresh time: the platform's `CAPABILITY_REFRESH_MS`.
+pub const REFRESH_FALLBACK_MS: u64 = 4 * 60_000;
+/// A fetch in flight holds off another for this long; its answer clears it sooner.
+pub const IN_FLIGHT_MS: u64 = 30_000;
+/// After an unreachable or unreadable answer: ask again on a call after this.
+pub const RETRY_UNREACHABLE_MS: u64 = 30_000;
+/// After a refusal (`auth.forbidden`: no access to the team's machines): the refresh period.
+pub const RETRY_REFUSED_MS: u64 = REFRESH_FALLBACK_MS;
+/// After `cloud.capability_off` or a backend without the route (404).
+pub const RETRY_OFF_MS: u64 = 30 * 60_000;
+/// Longest token kept (cmux-platform `MAX_TOKEN_CHARS`).
+pub const MAX_TOKEN_CHARS: usize = 4096;
 
-/// The capability the app holds, its times on this Mac's clock (the answer's lifetime counted from
-/// its arrival, so a Mac clock that is off never makes a valid one look expired or an expired one valid).
+/// A token the app holds for one team.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Held {
     pub token: String,
-    /// The backend team (`team_…`) it was minted for: the install token's team claim.
     pub team: String,
-    pub expires_at: i64,
-    pub refresh_at: i64,
+    /// Not sent at or after this.
+    #[serde(deserialize_with = "ms")]
+    pub use_until_ms: u64,
+    /// A call at or after this asks for the next one.
+    #[serde(deserialize_with = "ms")]
+    pub refresh_at_ms: u64,
 }
 
-/// The held capability from a mint's answer (`status`, the parsed `body`) for `team`, received at
-/// `now`; `None` for a refusal, a deployment without capabilities, another team or a malformed answer.
-pub fn read_mint(status: u16, body: &Value, team: &str, now: i64) -> Option<Held> {
-    if status != 200 || body.get("ok").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    let value = body.get("value")?;
-    let token = value.get("capability")?.as_str()?;
-    if !well_formed(token) || value.get("team")?.as_str()? != team || team.is_empty() {
-        return None;
-    }
-    let issued = value.get("issued_at")?.as_i64()?;
-    let expires = value.get("expires_at")?.as_i64()?;
-    let lifetime = expires - issued;
-    if lifetime <= SEND_MARGIN_MS || lifetime > MAX_LIFETIME_MS {
-        return None;
-    }
-    // The server's refresh time, kept inside the lifetime; a minute early when it names none.
-    let refresh = value
-        .get("refresh_at")
-        .and_then(Value::as_i64)
-        .map(|at| at - issued)
-        .unwrap_or(lifetime - 60_000)
-        .clamp(0, lifetime - SEND_MARGIN_MS);
-    Some(Held {
-        token: token.to_owned(),
-        team: team.to_owned(),
-        expires_at: now + lifetime,
-        refresh_at: now + refresh,
-    })
-}
-
-/// `cc1.<payload>.<signature>`, base64url parts, at most [`MAX_TOKEN_CHARS`]: the only shape a
-/// header ever carries (it is never logged, and nothing else is sent in its place).
-fn well_formed(token: &str) -> bool {
-    let base64url = |part: &str| {
-        !part.is_empty()
-            && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    };
-    let mut parts = token.split('.');
-    token.len() <= MAX_TOKEN_CHARS
-        && parts.next() == Some("cc1")
-        && parts.next().is_some_and(base64url)
-        && parts.next().is_some_and(base64url)
-        && parts.next().is_none()
-}
-
-/// Why the app asks: a relayed call wants its header, the refresh timer fired, or sign-in, a team
-/// switch or the person's Cloud intent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Reason {
-    Call,
-    Timer,
-    Intent,
-}
-
-/// What the app holds and knows when it asks [`plan`].
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct State {
-    pub held: Option<Held>,
-    /// The team of the token the call goes with (the install token's team claim); `None` signed out.
-    pub team: Option<String>,
-    pub now: i64,
-    /// When a mint for `failed_team` last failed.
-    pub failed_at: Option<i64>,
-    pub failed_team: Option<String>,
-    /// When a call or an intent last asked.
-    pub last_use: Option<i64>,
-}
-
-/// The answer: the header value this call sends, whether a mint goes now (in the background; a
-/// call never waits for it), and how long until the timer should ask again.
+/// What the app keeps between calls (as JSON, opaque to it).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Plan {
-    pub send: Option<String>,
-    pub fetch: bool,
-    pub wake_in: Option<i64>,
+pub struct State {
+    #[serde(default)]
+    pub held: Option<Held>,
+    /// No fetch starts before this (a fetch in flight, or the backoff after a failed one).
+    #[serde(default, deserialize_with = "ms")]
+    pub next_fetch_ms: u64,
 }
 
-/// The capability a call sends, whether to mint, and when to look again.
-pub fn plan(state: &State, reason: Reason) -> Plan {
-    let Some(team) = state.team.as_deref().filter(|team| !team.is_empty()) else {
-        return Plan::default();
+/// One call is about to go in `team` (the install token's team) at `now_ms`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UseRequest {
+    #[serde(default)]
+    pub state: State,
+    #[serde(default)]
+    pub team: Option<String>,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+}
+
+/// The token to send (none: the full checks), whether to start a fetch now, and the state to keep.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UseReply {
+    pub header: Option<String>,
+    pub fetch: bool,
+    pub state: State,
+}
+
+/// The token for a call in `team` at `now_ms`, and whether this call starts the next fetch. A fetch
+/// it starts holds off others for [`IN_FLIGHT_MS`]. With no team (signed out, no install token
+/// yet) nothing is sent and nothing is fetched.
+pub fn use_for(request: &UseRequest) -> UseReply {
+    let mut state = request.state.clone();
+    let Some(team) = request.team.as_deref().filter(|team| !team.is_empty()) else {
+        return UseReply { header: None, fetch: false, state };
     };
+    let now = request.now_ms;
     let held = state.held.as_ref().filter(|held| held.team == team);
-    let send = held
-        .filter(|held| state.now < held.expires_at - SEND_MARGIN_MS)
-        .map(|held| held.token.clone());
-    let due = held.is_none_or(|held| state.now >= held.refresh_at);
-    let backing_off = state.failed_team.as_deref() == Some(team)
-        && state.failed_at.is_some_and(|at| state.now - at < RETRY_AFTER_MS);
-    // The timer keeps one warm only while Cloud is in use; a call or an intent always may.
-    let in_use =
-        reason != Reason::Timer || state.last_use.is_some_and(|at| state.now - at < IDLE_STOP_MS);
-    // The timer wakes at the refresh time, or after a failed refresh when the backoff ends; never while idle.
-    let retry_in = backing_off
-        .then(|| state.failed_at.map(|at| at + RETRY_AFTER_MS - state.now))
-        .flatten()
-        .unwrap_or(0);
-    let wake_in =
-        held.filter(|_| in_use).map(|held| (held.refresh_at - state.now).max(retry_in).max(0));
-    Plan { send, fetch: due && !backing_off && in_use, wake_in }
+    let header = held.filter(|held| now < held.use_until_ms).map(|held| held.token.clone());
+    let due = held.is_none_or(|held| now >= held.refresh_at_ms);
+    let fetch = due && now >= state.next_fetch_ms;
+    if fetch {
+        state.next_fetch_ms = now.saturating_add(IN_FLIGHT_MS);
+    }
+    UseReply { header, fetch, state }
+}
+
+/// The route's answer to a fetch for `team` sent at `sent_ms`, read at
+/// `now_ms`. `status` 0: no answer (unreachable, timed out).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepRequest {
+    #[serde(default)]
+    pub state: State,
+    pub team: String,
+    #[serde(deserialize_with = "ms")]
+    pub sent_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub status: u64,
+    #[serde(default)]
+    pub body: Value,
+}
+
+/// The state after an answer, and what it was (for the app's one log line; never the token).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepReply {
+    pub state: State,
+    pub outcome: &'static str,
+}
+
+/// Keeps a good answer's token for `team`; on anything else holds none for that team and backs
+/// off: [`RETRY_OFF_MS`] when the backend has no capabilities, [`RETRY_REFUSED_MS`] on a refusal,
+/// else [`RETRY_UNREACHABLE_MS`]. A token another team's answer named, an expired one, or one that
+/// could not go in a header is never kept.
+pub fn keep(request: &KeepRequest) -> KeepReply {
+    let mut state = request.state.clone();
+    if state.held.as_ref().is_some_and(|held| held.team == request.team) {
+        state.held = None;
+    }
+    let now = request.now_ms;
+    let back_off = |mut state: State, after: u64, outcome| {
+        state.next_fetch_ms = now.saturating_add(after);
+        KeepReply { state, outcome }
+    };
+    let body = &request.body;
+    let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or_default();
+    match request.status {
+        200 => {}
+        404 => return back_off(state, RETRY_OFF_MS, "off"),
+        401 | 403 if code != "owner.unreachable" => {
+            return back_off(state, RETRY_REFUSED_MS, "refused");
+        }
+        0 => return back_off(state, RETRY_UNREACHABLE_MS, "unreachable"),
+        _ => return back_off(state, RETRY_UNREACHABLE_MS, "failed"),
+    }
+    let value = body.get("value").unwrap_or(&Value::Null);
+    let token = value.get("capability").and_then(Value::as_str).unwrap_or_default();
+    let team = value.get("team").and_then(Value::as_str).unwrap_or_default();
+    let number = |name: &str| value.get(name).and_then(whole);
+    let (Some(issued), Some(expires)) = (number("issued_at"), number("expires_at")) else {
+        return back_off(state, RETRY_UNREACHABLE_MS, "unreadable");
+    };
+    if body.get("ok").and_then(Value::as_bool) != Some(true) || !header_safe(token) {
+        return back_off(state, RETRY_UNREACHABLE_MS, "unreadable");
+    }
+    if team != request.team {
+        return back_off(state, RETRY_UNREACHABLE_MS, "wrong_team");
+    }
+    let lifetime = expires.saturating_sub(issued);
+    let refresh = number("refresh_at").map_or(REFRESH_FALLBACK_MS, |at| at.saturating_sub(issued));
+    let use_until_ms = request.sent_ms.saturating_add(lifetime).saturating_sub(EXPIRY_MARGIN_MS);
+    if use_until_ms <= now {
+        return back_off(state, RETRY_UNREACHABLE_MS, "expired");
+    }
+    let refresh_at_ms = request.sent_ms.saturating_add(refresh.min(lifetime)).min(use_until_ms);
+    state.held =
+        Some(Held { token: token.to_owned(), team: team.to_owned(), use_until_ms, refresh_at_ms });
+    state.next_fetch_ms = 0;
+    KeepReply { state, outcome: "held" }
+}
+
+/// The token this app process holds, kept here so the app carries no state of its own (Swift stays minimal in
+/// the Cloud core: `.github/language-boundaries.toml` `cloud-core-swift-minimal`).
+static HELD: std::sync::Mutex<State> =
+    std::sync::Mutex::new(State { held: None, next_fetch_ms: 0 });
+
+fn held() -> std::sync::MutexGuard<'static, State> {
+    HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `cloud_capability_header`: a call in `team` is about to go at `now_ms`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderRequest {
+    #[serde(default)]
+    pub team: Option<String>,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+}
+
+/// The token to send (none: the server's full checks) and whether the app starts the fetch now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderReply {
+    pub header: Option<String>,
+    pub fetch: bool,
+}
+
+/// [`use_for`] on the process's held state.
+pub fn header(request: &HeaderRequest) -> HeaderReply {
+    let mut state = held();
+    let reply = use_for(&UseRequest {
+        state: state.clone(),
+        team: request.team.clone(),
+        now_ms: request.now_ms,
+    });
+    *state = reply.state;
+    HeaderReply { header: reply.header, fetch: reply.fetch }
+}
+
+/// `cloud_capability_answer`: [`KeepRequest`] without the state, which this process holds.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerRequest {
+    pub team: String,
+    #[serde(deserialize_with = "ms")]
+    pub sent_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub status: u64,
+    #[serde(default)]
+    pub body: Value,
+}
+
+/// What the answer was (for the app's one log line; never the token).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct AnswerReply {
+    pub outcome: &'static str,
+}
+
+/// [`keep`] on the process's held state.
+pub fn answer(request: AnswerRequest) -> AnswerReply {
+    let mut state = held();
+    let reply = keep(&KeepRequest {
+        state: state.clone(),
+        team: request.team,
+        sent_ms: request.sent_ms,
+        now_ms: request.now_ms,
+        status: request.status,
+        body: request.body,
+    });
+    *state = reply.state;
+    AnswerReply { outcome: reply.outcome }
+}
+
+/// `cloud_capability_drop`: the install token was refused, or the account or team changed. Nothing is sent until
+/// a new token is fetched.
+pub fn forget() {
+    *held() = State::default();
+}
+
+/// A whole non-negative number from JSON, written as an integer or (through Swift's `JSONValue`) a float.
+fn whole(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| ms(value.clone()).ok())
+}
+
+/// A time (or status) the app sent as a JSON number: Swift's `JSONValue` keeps numbers as `Double`, so a
+/// whole `1.0e12` is read as well as `1000000000000`; a negative, fractional or non-finite one is refused.
+fn ms<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    let value = f64::deserialize(deserializer)?;
+    if value.is_finite() && value >= 0.0 && value.fract() == 0.0 && value < 9.007_199_254_740_992e15
+    {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "checked above: finite, non-negative, whole and under 2^53"
+        )]
+        return Ok(value as u64);
+    }
+    Err(serde::de::Error::custom("a whole non-negative number"))
+}
+
+/// A token that can go in a header as is: the platform's `cc1.<b64url>.<b64url>` alphabet, no
+/// longer than it keeps.
+fn header_safe(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= MAX_TOKEN_CHARS
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 #[cfg(test)]

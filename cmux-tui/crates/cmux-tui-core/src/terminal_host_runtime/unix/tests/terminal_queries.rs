@@ -82,7 +82,7 @@ impl QueryHost {
     fn reply_to(&mut self, query: &[u8]) -> Vec<u8> {
         self.cursor += 1;
         let command = ParserCommand::Output {
-            bytes: query.to_vec(),
+            frame: Arc::new(Frame::new(MessageKind::Output, query.to_vec())),
             source_cursor: self.cursor,
             accounted_bytes: 0,
         };
@@ -96,7 +96,7 @@ impl QueryHost {
     fn output(&mut self, bytes: &[u8]) -> u64 {
         self.cursor += 1;
         let command = ParserCommand::Output {
-            bytes: bytes.to_vec(),
+            frame: Arc::new(Frame::new(MessageKind::Output, bytes.to_vec())),
             source_cursor: self.cursor,
             accounted_bytes: 0,
         };

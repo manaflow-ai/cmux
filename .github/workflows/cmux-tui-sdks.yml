@@ -40,6 +40,18 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -77,6 +89,18 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   workflow_dispatch:
 
 concurrency:

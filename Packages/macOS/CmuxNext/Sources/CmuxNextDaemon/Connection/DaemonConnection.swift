@@ -316,7 +316,8 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency,
+                                              slowLog: configuration.slowRequestLog)
             opened = transport
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
