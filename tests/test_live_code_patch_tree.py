@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location("patch", os.path.join(ROOT, "scrip
 patch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patch)
 
-VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HomeConversationPage.swift"
+VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HomeHostView.swift"
 GONE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Gone.swift"
 DERIVED = ".build/DerivedData/x/CmuxNextApp.build/DerivedSources/resource_bundle_accessor.swift"
 

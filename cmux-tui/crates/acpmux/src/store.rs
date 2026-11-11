@@ -1518,8 +1518,16 @@ impl LocalStore {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
-        let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let mut file = open_private_append(&path)?;
+        let mut written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        // A last line with no newline (a write cut off by a crash or a failed write): the next
+        // record starts a line of its own. The torn bytes stay an unparsable line every reader
+        // skips; nothing is removed.
+        if written > 0 && !ends_with_newline(&path)? {
+            use std::io::Write as _;
+            file.write_all(b"\n")?;
+            written += 1;
+        }
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
@@ -1596,10 +1604,52 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        w.file.write_all(line)?;
+        if let Err(e) = write_line(&mut w.file, line) {
+            // What part of the line went out would start the next record's line: cut it off,
+            // and reopen at the next append (`open_writer` ends a tail the cut could not remove).
+            let _ = w.file.set_len(w.written);
+            writers.open.remove(id);
+            return Err(e.into());
+        }
         w.written += line.len() as u64;
         Ok(())
     }
+}
+
+/// Whether the file at `path` ends with a newline (an empty file counts as ending one).
+fn ends_with_newline(path: &Path) -> Result<bool> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let mut file = File::open(path)?;
+    if file.seek(SeekFrom::End(0))? == 0 {
+        return Ok(true);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    Ok(last == [b'\n'])
+}
+
+/// One record's line to its segment.
+fn write_line(file: &mut File, line: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    #[cfg(test)]
+    if let Some(cut) = cut_write_for_tests(line) {
+        file.write_all(cut)?;
+        return Err(std::io::Error::other("a write cut off (test seam)"));
+    }
+    file.write_all(line)
+}
+
+/// Tests only: the next log write writes this many bytes of its line, then fails, as a write cut
+/// off by a full disk or an I/O error does. 0: off.
+#[cfg(test)]
+pub(super) static CUT_NEXT_LOG_WRITE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+fn cut_write_for_tests(line: &[u8]) -> Option<&[u8]> {
+    let n = CUT_NEXT_LOG_WRITE.swap(0, std::sync::atomic::Ordering::SeqCst);
+    (n > 0).then(|| line.get(..n.min(line.len())).unwrap_or(line))
 }
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
@@ -2085,6 +2135,9 @@ pub(crate) fn open_private_append(path: &Path) -> Result<File> {
 
 #[cfg(all(test, unix))]
 mod permission_tests;
+
+#[cfg(test)]
+mod torn_tail_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;

@@ -277,7 +277,9 @@ impl Drop for RenderAttachFrameReceiver {
             queue.clear();
         }
         if let Some(render) = self.render.upgrade() {
-            render.lock().unwrap().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+            let mut render = render.lock().unwrap();
+            render.taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+            render.release_when_unviewed();
         }
     }
 }
@@ -299,6 +301,26 @@ pub(super) struct RenderHub {
 }
 
 impl RenderHub {
+    /// With no render viewer left, drops the hub's frame state: the render
+    /// state's row and image caches, the last frame (every cell as a `Cell`
+    /// with its own text) and the cached initial snapshots. A terminal that
+    /// was shown once and then hidden kept them for its whole life, about
+    /// 100 bytes per cell of its screen plus decoded images. The next
+    /// attach builds a full frame from the terminal, as the first one did
+    /// (`attach_render_stream` builds before it reads `latest`); every
+    /// stream's delta state lives with that stream, so none sees a gap.
+    pub(super) fn release_when_unviewed(&mut self) {
+        if !self.taps.is_empty() || self.latest.is_none() {
+            return;
+        }
+        let Ok(state) = RenderState::new() else { return };
+        *self.state = state;
+        self.built_generation = 0;
+        self.latest = None;
+        self.initial_graphics = None;
+        self.final_initial = None;
+    }
+
     pub(super) fn build_attach_initial(
         &mut self,
         term: &Terminal,

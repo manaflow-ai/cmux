@@ -10,6 +10,7 @@ mod deferred_input;
 mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
+mod idle_wait;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;

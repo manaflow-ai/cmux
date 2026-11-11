@@ -88,6 +88,7 @@ ADMISSION_PATHS = {
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
     "backend/apps/api/src/home-attachment-gc.ts",
     "backend/apps/api/src/home-attachment-quota.ts",
     "backend/apps/api/src/home-attachments.ts",
