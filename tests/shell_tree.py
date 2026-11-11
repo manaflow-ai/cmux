@@ -741,6 +741,31 @@ def _data_subs() -> list[tuple[str, bool]]:
     return out
 
 
+# A case pattern's ) inside a substitution never closes it (security review of manaflow-ai/cmuxterm-hq#9338 at
+# 731335fd): a pattern with and without its ( prefix, a nested case, and each substitution form, holding an unsafe
+# write or only a safe name.
+CASE_IN_SUBS = ('mktemp "$(case x in x) echo > /tmp/out.$$;; esac)x.XXXXXX"',)
+
+
+def _case_in_subs() -> list[tuple[str, bool]]:
+    out = [(line, True) for line in CASE_IN_SUBS]
+    for form in ("$(", '"$(', "`", "<("):
+        for pattern in ("x)", "(x)"):
+            for nested in (False, True):
+                for body, unsafe in (("echo > /tmp/out.$$", True), ("echo $USER", False)):
+                    inner = "case x in " + pattern + " " + body + ";; esac"
+                    if nested:
+                        inner = "case y in " + pattern.replace("x", "y") + " " + inner + ";; esac"
+                    if form == "<(":
+                        line = "mktemp <(" + inner + ")/x.XXXXXX"
+                    elif form == '"$(':
+                        line = 'mktemp /tmp/"$(' + inner + ')"x.XXXXXX'
+                    else:
+                        line = 'mktemp "/tmp/' + _wrap(inner, form) + 'x.XXXXXX"'
+                    out.append((line, unsafe))
+    return out
+
+
 # Text the parser must refuse, so it exempts nothing and its name is flagged: not shell bash reads (NOT_SHELL), or
 # nested past MAX_DEPTH. (MAX_DEPTH levels of the same parse, and stay safe.)
 NOT_SHELL = ("mktemp /tmp/a.$$.XXXXXX)", "(mktemp /tmp/a.$$.XXXXXX", 'mktemp "/tmp/a.$$.XXXXXX',
@@ -766,8 +791,8 @@ def _wrap(inner: str, form: str) -> str:
 def corpus() -> list[tuple[str, bool]]:
     """(shell, whether it writes a guessable shared-temp name): nesting depth 0-3 x substitution form x the
     template's quoting x a plain or nested template x where the unsafe write sits (none: the line is safe), then
-    COMMENTS, UNPARSED, NOT_COMMANDS, EXPANSIONS and DATA_SUBS, MAX_DEPTH levels deep, and the MISSES. Whole files
-    are in FILES."""
+    COMMENTS, UNPARSED, NOT_COMMANDS, EXPANSIONS, DATA_SUBS and CASE_IN_SUBS, MAX_DEPTH levels deep, and the
+    MISSES. Whole files are in FILES."""
     out: dict[str, bool] = {}
     templates = {"bare": "/tmp/$USER.XXXXXX", "double": '"${TMPDIR:-/tmp}/$USER.XXXXXX"',
                  "single": "'/tmp/$USER.XXXXXX'"}
@@ -804,7 +829,7 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     for line in UNPARSED:
         out[line] = True
-    for line, unsafe in NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()):
+    for line, unsafe in NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()) + tuple(_case_in_subs()):
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
