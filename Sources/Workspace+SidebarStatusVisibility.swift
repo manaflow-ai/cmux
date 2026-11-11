@@ -41,8 +41,11 @@ extension Workspace {
         }
     }
 
+    /// Clears a reported entry. A row that mirrors state owned elsewhere (see
+    /// ``refreshDerivedStatusEntries()``) comes back while that state still holds.
     func clearStatusEntry(key: String, panelId: UUID?) {
         removeStatusEntry(forKey: key)
+        refreshDerivedStatusEntries()
     }
 
     /// Removes the key and every pane's copy of it, so a later report for the

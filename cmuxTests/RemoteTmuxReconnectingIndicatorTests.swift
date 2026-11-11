@@ -103,10 +103,10 @@ import Testing
         #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
     }
 
-    /// A sidebar reset clears every status row, including one showing "Reconnecting". The
+    /// A sidebar reset or a `clear_status` can remove the row while it shows "Reconnecting". The
     /// connection is still reconnecting and reports no new state, so the row has to be derived
     /// again from the connection rather than stay gone for the rest of the drop.
-    @Test func aSidebarResetDuringAReconnectDerivesTheRowAgain() throws {
+    @Test func removingTheRowDuringAReconnectDerivesItAgain() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
         workspace.isRemoteTmuxMirror = true
@@ -127,7 +127,11 @@ import Testing
         mirror.reconnectingIndicator.clear(workspace: workspace)
 
         workspace.resetSidebarContext(reason: "test")
+        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
 
+        // Clearing the key through the status API is the other way to remove the row.
+        mirror.reconnectingIndicator.clear(workspace: workspace)
+        workspace.clearStatusEntry(key: key, panelId: nil)
         #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
     }
 }

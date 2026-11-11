@@ -5,8 +5,8 @@ extension Workspace {
     static let remoteTmuxReconnectingStatusKey = "remoteTmux.reconnecting"
 
     /// Puts back the status rows that mirror state owned elsewhere, after ``resetSidebarContext(reason:)``
-    /// cleared them: the failed-wake row while its banners are up, and the Reconnecting row while
-    /// the session's connection is still reconnecting.
+    /// or ``clearStatusEntry(key:panelId:)`` removed them: the failed-wake row while its banners are
+    /// up, and the Reconnecting row while the session's connection is still reconnecting.
     func refreshDerivedStatusEntries() {
         refreshAgentWakeFailureStatusEntry()
         remoteTmuxSessionMirror?.refreshReconnectingStatus()
