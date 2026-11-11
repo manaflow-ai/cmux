@@ -450,3 +450,34 @@ for line in sys.stdin:
     drop(harness_in);
     let _ = harness.wait();
 }
+
+/// Bench round 6 N6 (W7-F): `acpmux chats list --folder /tmp/x` said "No chats"
+/// for a chat Claude recorded under `/private/tmp/x` (the folder `/tmp/x`
+/// resolves to on macOS); only the resolved spelling matched. A folder filter
+/// matches a chat recorded under the folder its links resolve to.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn w7f_a_folder_filter_finds_a_chat_recorded_where_its_link_resolves() {
+    let h = home("w7f-folder");
+    let real = h.0.join("real");
+    std::fs::create_dir_all(real.join("proj/sub")).unwrap();
+    let link = h.0.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let projects = h.0.join(".claude/projects");
+    let recorded = real.join("proj");
+    write_session(&projects, A, &[user(A, recorded.to_str().unwrap(), "the code word")]);
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let want = vec![format!("claude-code:{A}")];
+
+    let by_link = c.ok("_acpmux/chats", json!({"folder": link.join("proj")})).await;
+    assert_eq!(by_link["ready"], true);
+    assert_eq!(keys(&by_link), want, "{by_link}");
+    // A parent folder through the link matches too, and the resolved one still does.
+    assert_eq!(keys(&c.ok("_acpmux/chats", json!({"folder": link})).await), want);
+    assert_eq!(keys(&c.ok("_acpmux/chats", json!({"folder": recorded})).await), want);
+    // A folder beside it does not.
+    let other = c.ok("_acpmux/chats", json!({"folder": link.join("proj/sub")})).await;
+    assert!(keys(&other).is_empty(), "{other}");
+}

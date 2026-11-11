@@ -70,13 +70,13 @@ pub(super) fn push(
     request(Op::GitPush, selectors, flags, params)
 }
 
-/// `git worktree create [--name <name>] [--base <revision>]`.
+/// `git worktree create [--name <name>] [--branch <branch>] [--base <revision>]`.
 pub(super) fn worktree_create(
     flags: &mut Flags,
     selectors: &Selectors,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for field in ["name", "base"] {
+    for field in ["name", "branch", "base"] {
         if let Some(value) = flags.take(field) {
             params.insert(field.into(), Value::String(value));
         }

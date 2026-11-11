@@ -130,7 +130,10 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         };
         let mut pruned = false;
         for worktree in &repo.worktrees {
-            if !options.only.is_empty() && !options.only.iter().any(|p| p == &worktree.path) {
+            // Either spelling of a linked folder (`~/.cmux/worktrees` or the
+            // `worktrees.noindex` folder git lists) names it.
+            let named = |p: &PathBuf| cmux_git::worktree::same_folder(p, &worktree.path);
+            if !options.only.is_empty() && !options.only.iter().any(named) {
                 continue;
             }
             if worktree.prunable {

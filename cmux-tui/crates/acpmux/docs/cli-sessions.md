@@ -10,6 +10,8 @@ with examples; `--json` on any command prints the raw response.
 | --- | --- |
 | Start a session and give it a first prompt, without opening the TUI | `acpmux new -m codex -n fix-27310 -d "Fix the failing test"` |
 | Start one in its own worktree on a brief that reports back | `acpmux new -n fix-27310 --worktree ~/Projects/cmux@origin/main --prompt-file ~/notes/brief.md --report-to coord -d` |
+| The same on a branch you name (not `cmux/<name>`) | `acpmux new -n r6a --worktree ~/Projects/cmux --branch r6a -d "Fix the flaky test"` |
+| Remove that worktree and its branch when done | `acpmux worktree remove r6a` |
 | Start one from inside a session that is not its child (its turns never show there) | `acpmux new -n scratch --no-parent -d "Look into the flaky test"` |
 | Run one prompt and print only the final reply | `acpmux run -m claude "Summarize the open TODOs"` |
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |

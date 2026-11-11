@@ -79,11 +79,17 @@ pub struct NewArgs {
     #[arg(long)]
     pub prompt_id: Option<String>,
     /// Start in the git worktree named by --name of REPO's repository,
-    /// `~/.cmux/worktrees/<project>/<name>` on branch `cmux/<name>` from BASE
-    /// (a ref or commit; default REPO's current branch). Made when missing,
-    /// reused when there; implies --reuse. Replaces --cwd.
+    /// `~/.cmux/worktrees/<project>/<name>` on branch `cmux/<name>` (or
+    /// --branch) from BASE (a ref or commit; default REPO's current branch).
+    /// Made when missing, reused when there; implies --reuse. Replaces --cwd.
+    /// `acpmux worktree remove NAME` removes it.
     #[arg(long, value_name = "REPO[@BASE]")]
     pub worktree: Option<String>,
+    /// With --worktree: the worktree's branch, as given, instead of
+    /// `cmux/<name>`. A new one starts at BASE; one that exists is checked out
+    /// as it is (no @BASE then) and stays when the worktree is removed.
+    #[arg(long, value_name = "BRANCH", requires = "worktree")]
+    pub branch: Option<String>,
     /// Read the first prompt from this file (after any prompt words), now; `-`
     /// reads stdin. A missing or empty file fails before anything starts.
     #[arg(long, value_name = "FILE")]

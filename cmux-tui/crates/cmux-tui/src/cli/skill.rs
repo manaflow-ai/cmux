@@ -225,16 +225,18 @@ pub(super) const RECIPES: &[Recipe] = &[
                moving focus; notify posts a notification for your terminal.",
     },
     Recipe {
-        ask: "Make a worktree for feature-x with a workspace in it; remove both when done.",
+        ask: "Make a worktree on branch feature-x with a workspace in it; remove both when done.",
         commands: &[
-            "cmux --json workspace create --worktree feature-x --repo .",
+            "cmux --json workspace create --worktree feature-x --branch feature-x --repo .",
             "cmux --json workspace <ws> close --remove-worktree",
         ],
-        read: "create makes the branch cmux/feature-x in a new git worktree and a workspace \
-               whose terminal starts there: `value.workspace_id`, `value.terminal_id` and \
-               `worktree.root` (its folder). close removes that worktree and its branch, \
-               then closes the workspace; it refuses (closing nothing) while the worktree has \
-               uncommitted or unpushed work, unless `--discard`.",
+        read: "create makes the branch feature-x (`--branch`; without it `cmux/feature-x`) in a \
+               new git worktree and a workspace whose terminal starts there: \
+               `value.workspace_id`, `value.terminal_id` and `worktree.root` (its folder, \
+               `~/.cmux/worktrees/<project>/feature-x`). close removes that worktree, the branch \
+               create made and the empty project folder, then closes the workspace; it refuses \
+               (closing nothing) while the worktree has uncommitted or unpushed work, and the \
+               message names `--discard`, which removes it anyway and loses that work.",
     },
     Recipe {
         ask: "Clean up what you opened.",

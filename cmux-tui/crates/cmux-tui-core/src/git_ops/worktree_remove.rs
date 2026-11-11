@@ -1,11 +1,15 @@
 //! `git.worktree.remove`: a worktree chat's cleanup. The linked worktree's
 //! folder goes (`git worktree remove`, run from the main checkout), with its
 //! ignored files, and so does its branch when `git.worktree.create` made it
-//! (`cmux/<name>` with a recorded base), with the branch's settings.
+//! (`cmux_git::worktree::branch_goes_with_worktree`: only a branch it made,
+//! by its `cmuxCreated` mark), with the branch's settings; a branch that was
+//! there before stays.
 //!
-//! Work that lives only there keeps it: uncommitted changes (tracked or
+//! Work that lives only there keeps it (`cmux_git::worktree::work_kept`, the
+//! same check `acpmux worktree remove` makes): uncommitted changes (tracked or
 //! untracked files) and commits on no other branch and no remote, on a
-//! detached HEAD or on the branch that goes. `discard` removes it anyway. It
+//! detached HEAD or on the branch that goes; the refusal names `--discard`.
+//! `discard` removes it anyway. It
 //! is checked again right before the folder and before the branch go, so a
 //! commit made meanwhile is never lost without `discard`: a branch with new
 //! commits stays. The main checkout and other worktrees are never touched.
@@ -18,6 +22,10 @@
 //! worktree. The worktree was clean when the removal began, so what the
 //! teardown leaves there goes with it; commits found nowhere else still
 //! keep it. Its ports go back once it is gone.
+//!
+//! The reply names the worktree as `git.worktree.create` printed it, under
+//! the `~/.cmux/worktrees` link rather than its `.noindex` folder, and the
+//! project folder in the worktree root goes with its last worktree.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,18 +37,14 @@ use super::checkpoint::ledger;
 use super::journal::Journal;
 use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
-use super::worktree::BRANCH_PREFIX;
-use super::{
-    MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository, worktree_recipe, worktree_setup,
-};
+use super::{MAX_SMALL_OUTPUT_BYTES, Repository, worktree_recipe, worktree_setup};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_git::worktree::{self as shared, KeptWork};
 use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.worktree.remove";
-/// The uncommitted paths a refusal lists.
-const MAX_LISTED_FILES: usize = 20;
 
 /// A started removal, as the journal keeps it.
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,17 +91,22 @@ pub(super) fn dispatch(
         };
         // Resolved while the folder is still there: the ports are kept by it.
         let resolved_root = worktree_setup::resolved(&attempt.root);
+        let home = crate::platform::home_dir();
+        let printed_root = super::printed(target.given(), &attempt.root);
         let result = remove(&target.repository, &attempt);
         if result.is_ok() {
             worktree_setup::removed(target.git_dir(), &resolved_root);
+            if let Some(home) = &home {
+                shared::remove_empty_project_folder(home, &attempt.root);
+            }
         }
         if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
             journal.finish();
         }
         let branch_deleted = result?;
         let mut value = json!({
-            "root": attempt.root.to_string_lossy(),
-            "main_root": attempt.main_root.to_string_lossy(),
+            "root": printed_root,
+            "main_root": super::printed(target.given(), &attempt.main_root),
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {
@@ -136,13 +145,9 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
             let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
             head.strip_prefix("refs/heads/").map(str::to_string)
         });
-    let delete_branch = branch.as_deref().is_some_and(|branch| {
-        let setting = format!("branch.{branch}.cmuxBase");
-        branch.starts_with(BRANCH_PREFIX)
-            && repository
-                .run(&["config", "--get", setting.as_str()], MAX_SMALL_OUTPUT_BYTES)
-                .is_ok()
-    });
+    let delete_branch = branch
+        .as_deref()
+        .is_some_and(|branch| shared::branch_goes_with_worktree(repository, branch));
     let attempt = Attempt {
         root: repository.root.clone(),
         main_root,
@@ -162,50 +167,25 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
 fn guard(repository: &Repository, attempt: &Attempt) -> Result<(), ResourceError> {
     // One deadline for every run here, the submodule search included.
     let repository = &repository.within(deadline());
-    let arguments = [
-        "status",
-        "--porcelain",
-        "-z",
-        "--untracked-files=all",
-        "--no-renames",
-        "--ignore-submodules=none",
-    ];
-    // Submodules stay in the status (a changed one is work to keep, even one
-    // `submodule.<name>.ignore` hides), so their own filter drivers are
-    // blanked too.
-    let output = repository
-        .with_submodule_filters()
-        .and_then(|repository| repository.run(&arguments, MAX_STATUS_BYTES))
+    let kept = shared::work_kept(repository, attempt.branch.as_deref(), attempt.delete_branch)
         .map_err(|failure| run_failed(OPERATION, &failure))?;
-    let files: Vec<String> = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter_map(|entry| entry.get(3..))
-        .filter(|path| !path.is_empty())
-        .map(|path| String::from_utf8_lossy(path).into_owned())
-        .collect();
-    if !files.is_empty() || output.truncated {
-        let message = "the worktree has uncommitted changes";
-        let listed: Vec<&String> = files.iter().take(MAX_LISTED_FILES).collect();
-        let extra = json!({"files": listed, "count": files.len()});
-        return Err(refused(OPERATION, "uncommitted_changes", message, extra));
-    }
-    unpushed(repository, attempt)
+    kept.map_or(Ok(()), |kept| Err(kept_refusal(&kept)))
 }
 
 /// Refused while the worktree has commits that only its HEAD reaches.
 fn unpushed(repository: &Repository, attempt: &Attempt) -> Result<(), ResourceError> {
-    if attempt.branch.is_some() && !attempt.delete_branch {
-        return Ok(());
-    }
-    let count = only_here(repository, "HEAD", attempt.branch.as_deref())?;
-    if count > 0 {
-        let at = attempt.branch.as_deref().unwrap_or("the detached HEAD");
-        let message = format!("{at} has {count} commits on no other branch or remote");
-        let extra = json!({"branch": attempt.branch, "count": count});
-        return Err(refused(OPERATION, "unpushed_commits", message, extra));
-    }
-    Ok(())
+    let kept = shared::unpushed(repository, attempt.branch.as_deref(), attempt.delete_branch)
+        .map_err(|failure| run_failed(OPERATION, &failure))?;
+    kept.map_or(Ok(()), |kept| Err(kept_refusal(&kept)))
+}
+
+/// The refusal for work the removal keeps; its message names `--discard`.
+fn kept_refusal(kept: &KeptWork) -> ResourceError {
+    let extra = match kept {
+        KeptWork::Uncommitted { files, count, .. } => json!({"files": files, "count": count}),
+        KeptWork::Unpushed { branch, count } => json!({"branch": branch, "count": count}),
+    };
+    refused(OPERATION, kept.reason(), kept.message(), extra)
 }
 
 /// How many of `revision`'s commits are on no branch but `branch` and on no
@@ -215,17 +195,8 @@ fn only_here(
     revision: &str,
     branch: Option<&str>,
 ) -> Result<u64, ResourceError> {
-    let exclude = branch.map(|branch| format!("--exclude={branch}"));
-    let mut arguments = vec!["rev-list", "--count", revision, "--not"];
-    arguments.extend(exclude.as_deref());
-    arguments.extend(["--branches", "--remotes"]);
-    let output = repository
-        .run(&arguments, MAX_SMALL_OUTPUT_BYTES)
-        .map_err(|failure| run_failed(OPERATION, &failure))?;
-    String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().map_err(|_| {
-        let message = "git rev-list --count answered no count";
-        refused(OPERATION, "git_failed", message, Value::Null)
-    })
+    shared::commits_only_on(repository, revision, branch)
+        .map_err(|failure| run_failed(OPERATION, &failure))
 }
 
 /// Removes the worktree (unless a timed-out run already did) and then its
@@ -281,22 +252,11 @@ fn registered(git: &UserGit<'_>, root: &Path) -> Result<Option<String>, Resource
         let message = "git worktree list failed";
         return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
     }
-    let wanted = resolved(root);
+    let wanted = shared::resolved(root);
     Ok(run
         .stdout
         .split(|byte| *byte == b'\n')
         .filter_map(|line| line.strip_prefix(b"worktree "))
         .map(|path| String::from_utf8_lossy(path).into_owned())
-        .find(|path| resolved(Path::new(path)) == wanted))
-}
-
-/// `path` with symlinks resolved, through its parent once it is gone.
-fn resolved(path: &Path) -> PathBuf {
-    if let Ok(path) = std::fs::canonicalize(path) {
-        return path;
-    }
-    match (path.parent().and_then(|parent| std::fs::canonicalize(parent).ok()), path.file_name()) {
-        (Some(parent), Some(name)) => parent.join(name),
-        _ => path.to_path_buf(),
-    }
+        .find(|path| shared::resolved(Path::new(path)) == wanted))
 }

@@ -2,6 +2,8 @@
 //! `status` and `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
+use super::worktree_help::git_worktree_help_en;
+
 pub(super) const BROWSER_HELP: &str = "\
 USAGE
   cmux browser open <url> [--workspace <selector>] [--screen <selector>]
@@ -188,8 +190,11 @@ USAGE
   cmux space close <name> [--json]
 ";
 
-pub(super) const GIT_HELP: &str = "\
-USAGE
+/// The command lines of `cmux git --help`, shared by the English and the
+/// Japanese help (`help_ja.rs`): commands are typed as they are.
+macro_rules! git_usage_lines {
+    () => {
+        "\
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
     [--patch] [--max-patch-bytes <n>]
@@ -212,7 +217,7 @@ USAGE
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
     [--set-upstream | --no-set-upstream] [--expected-head <commit>]
-  cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
+  cmux git worktree create [TARGET] [--name <name>] [--branch <branch>] [--base <revision>]
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
   cmux git worktree setup [TARGET] [--since <offset>]
@@ -220,7 +225,16 @@ USAGE
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 
-TARGET
+"
+    };
+}
+
+pub(super) use git_usage_lines;
+
+pub(super) const GIT_HELP: &str = concat!(
+    "USAGE\n",
+    git_usage_lines!(),
+    "TARGET
   --path <path>          A file or folder in the repository
   --workspace <selector> The working directory of the workspace's current terminal
   --screen <selector>    ... of the screen's current terminal
@@ -285,27 +299,9 @@ paths, every tracked change with --all (and untracked files with
 commit to the branch of the same name, never forced, and sets its upstream
 when it has none. --expected-head refuses when HEAD moved since you read it.
 
-worktree create makes a worktree for a chat at ~/.cmux/worktrees/<project>/<name>
-on a new branch cmux/<name> from --base (the current branch by default), and
-records the base as branch.cmux/<name>.cmuxBase. A taken name gets the next free
-suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
-as it is.
-
-worktree apply, run in such a worktree, brings everything it changed since its
-recorded base (commits, edits and new files; not submodules) to the main checkout
-as uncommitted changes. HEAD and the index stay; it is refused when the main
-checkout has changes of its own (or untracked files) at those paths, or when the
-work does not apply cleanly there.
-
-worktree remove, run in such a worktree, removes it (with its ignored files) and
-the cmux/<name> branch worktree create made. It is refused while the worktree has
-uncommitted changes or commits on no other branch or remote, unless --discard.
-The main checkout is never removed. Before it goes, the project's teardown runs.
-
-worktree setup shows the project's worktree recipe (.worktreeinclude,
-.cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
-its setup: state, port and output (from byte --since).
-
+",
+    git_worktree_help_en!(),
+    "
 comments are the diff page's review comments, kept by the session host for a
 worktree root (--root, the current directory by default; give the worktree's
 top folder, as the diff page does). list prints them. save adds the comment
@@ -313,7 +309,8 @@ object (filePath, side, startLine, endLine, message, ...), or replaces the
 saved one whose id it names; the session host sets createdAt and updatedAt.
 delete removes the named comments; --versions-json maps an id to the updatedAt
 you read, so a comment edited since then is kept.
-";
+"
+);
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
 pub(super) fn edit_distance(left: &str, right: &str) -> usize {

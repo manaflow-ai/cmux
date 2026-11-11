@@ -85,6 +85,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                  --prompt-file ~/notes/brief.md --report-to coord -d",
             ),
             (
+                "Start an agent in its own worktree on the branch r6a (not cmux/r6a)",
+                "acpmux new -n r6a --worktree ~/Projects/cmux --branch r6a -d \"Fix the flaky test\"",
+            ),
+            (
                 "Start a session from inside an agent that is not its child (no turn cards here)",
                 "acpmux new -n scratch --no-parent -d \"Look into the flaky test\"",
             ),

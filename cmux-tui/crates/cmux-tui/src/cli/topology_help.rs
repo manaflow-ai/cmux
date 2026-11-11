@@ -1,14 +1,19 @@
 //! `cmux workspace|pane|tab|terminal --help`, kept out of `cli.rs` for its
 //! line budget.
 
-pub(super) const WORKSPACE_HELP: &str = "\
-USAGE
+use super::worktree_help::workspace_worktree_help_en;
+
+/// The command lines of `cmux workspace --help`, shared by the English and
+/// the Japanese help (`help_ja.rs`): commands are typed as they are.
+macro_rules! workspace_usage_lines {
+    () => {
+        "\
   cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
-  cmux workspace create --worktree <name> [--repo <path>] [--base <revision>] [--name <value>] [--focus]
-    [--shell <script> | -- <argv...>]
+  cmux workspace create --worktree <name> [--repo <path>] [--branch <branch>] [--base <revision>]
+    [--name <value>] [--focus] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close [--report-closed-ids]
   cmux workspace <selector> close --remove-worktree [--discard]
@@ -50,14 +55,19 @@ USAGE
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
+"
+    };
+}
 
-create --worktree <name> makes a git worktree of the repository --repo is in
-(default: the current folder) on a new branch cmux/<name>, in
-~/.cmux/worktrees/<project>/<name>, and a workspace named <name> whose
-terminal starts there; --json has the workspace ids and the worktree as
-worktree (root is its folder). close --remove-worktree removes that worktree
-and its branch (refused with uncommitted or unpushed work unless --discard),
-then closes the workspace.
+pub(super) use workspace_usage_lines;
+
+pub(super) const WORKSPACE_HELP: &str = concat!(
+    "USAGE\n",
+    workspace_usage_lines!(),
+    "
+",
+    workspace_worktree_help_en!(),
+    "\
 close with --others, --to-right, --to-left or --all closes the selected
 workspace's siblings (the session's workspaces, the home one never) as one
 closed group: one `cmux closed reopen` restores them all. The same flags on
@@ -111,7 +121,8 @@ SELECTORS
   object when cmux knows the caller, and the focused one otherwise (a shell
   outside cmux, or --socket/--session naming another session, where caller is
   refused; --session naming the caller's own session keeps it).
-";
+"
+);
 
 pub(super) const PANE_HELP: &str = "\
 USAGE

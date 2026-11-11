@@ -168,12 +168,9 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
         ));
     }
     if chosen == 0 {
-        let current = std::env::current_dir()
+        // As the shell typed it, `.` and `..` taken as text: cmux prints that spelling.
+        let path = cmux_git::worktree::typed_folder(path.as_deref().map(std::path::Path::new))
             .map_err(|error| UsageError::new(format!("current directory: {error}")))?;
-        let path = match path {
-            Some(path) => current.join(path),
-            None => current,
-        };
         params.insert("path".into(), Value::String(path.to_string_lossy().into_owned()));
     }
     Ok(selectors)

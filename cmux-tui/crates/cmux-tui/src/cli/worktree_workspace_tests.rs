@@ -455,3 +455,33 @@ fn w5q_worktree_close_counts_only_terminals_whose_lifecycle_says_they_run() {
         ["term_running", "term_launching"]
     );
 }
+
+/// Bench round 6 N5 (W7-F): `workspace create --worktree r6a --branch r6a`
+/// makes the worktree on branch `r6a` (not `cmux/r6a`): `--branch` goes to
+/// `git worktree create`, not to the workspace.
+#[test]
+fn w7f_worktree_create_passes_the_branch_to_the_worktree_not_the_workspace() {
+    let root = std::env::temp_dir().join("cmux-worktree-workspace-w7f-branch");
+    std::fs::create_dir_all(&root).expect("temp folder");
+    let root_text = root.to_string_lossy().into_owned();
+    let daemon = FakeDaemon::new(vec![
+        ("git.worktree.create", Ok(worktree_answer(&root_text))),
+        ("workspace.create", Ok(created_answer())),
+    ]);
+    let parsed = parse_create(&strings(&[
+        "--worktree",
+        "r6a",
+        "--branch",
+        "r6a",
+        "--repo",
+        "/cmux-test-no-such-dir/repo",
+    ]));
+    assert!(parsed.is_ok(), "--branch must parse: {:?}", parsed.err());
+    let request = parsed.expect("parsed");
+    create(&daemon, &request, "key-w7f").expect("created");
+    assert_eq!(daemon.params("git.worktree.create")["branch"], "r6a");
+    assert_eq!(daemon.params("git.worktree.create")["name"], "r6a");
+    let workspace = daemon.params("workspace.create");
+    assert!(workspace.get("branch").is_none(), "{workspace}");
+    assert_eq!(workspace["name"], "r6a");
+}

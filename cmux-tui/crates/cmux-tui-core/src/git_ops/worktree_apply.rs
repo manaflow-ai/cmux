@@ -80,7 +80,7 @@ pub(super) fn dispatch(
         }
         result?;
         let value = json!({
-            "main_root": attempt.main_root.to_string_lossy(),
+            "main_root": super::printed(target.given(), &attempt.main_root),
             "files": attempt.files,
         });
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
