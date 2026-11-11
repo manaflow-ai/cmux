@@ -65,6 +65,7 @@ import argparse
 import bisect
 import contextvars
 import copy
+import functools
 import importlib.util
 import io
 import json
@@ -139,9 +140,16 @@ SHAPE_CHARS = 200
 # One read per source per judgement (review of cmux#41151 at bfa0db5f, F1): an excuse path may ask a source twice (the
 # app FFI pin rule's whole-log and rollup readings each prove a published base pin: its release files and compile
 # evidence), and a second network read that fails (a 503) must never overturn a proof the first one made. judge()
-# opens one memo per judgement; every network read below (rate_limit_aware's json, blob and GraphQL reads, the
-# release files and the compile receipts) is answered from it after its first read, a failed one too: one source gives
-# one answer per judgement (a file one read found absent is never found on a second), and a 503 is not asked twice.
+# opens one memo per judgement, and every network entry point is answered from it after its first read, a failed one
+# too: one source gives one answer per judgement (a file one read found absent is never found on a second), and a 503
+# is not asked twice. The entry points (review of cmux#41266 at 8fafe451, F1: source_text's git read was outside it):
+#   gh       GitHub.run's reads (`gh api` REST and GraphQL, `gh run view`), and rate_limit_aware's json, blob and
+#            GraphQL reads, so a client that is not GitHub (the tests' fakes) is read once too;
+#   git      git_text (a fetch and a `git show`), and source_text as a whole (git, then GraphQL);
+#   release  ffi_release_file (the release download, then the release-assets API);
+#   receipt  compile_receipt (the receipts host);
+#   artifact GitHub.artifact_file (by range, or the zip whole).
+# tests/test_base_red_excuse.py's OneReadPerJudgement wraps each of them and fails on a key read twice in a judgement.
 # Outside a judgement (a direct call, a test of one reader) every read goes out, as before.
 JUDGEMENT_READS: contextvars.ContextVar = contextvars.ContextVar("judgement_reads", default=None)
 
@@ -161,6 +169,27 @@ def read_once(key: tuple, read: Callable[[], object]):
     if not ok:
         raise found
     return copy.deepcopy(found)
+
+
+def once_per_judgement(kind: str, key: Callable[..., tuple] | None = None):
+    """A network entry point read once per judgement (read_once) under (KIND, KEY(*args) or args, kwargs): KEY drops an
+    argument that names no source (a client, a method's self)."""
+    def wrap(function):
+        @functools.wraps(function)
+        def read(*args, **kwargs):
+            named = key(*args, **kwargs) if key is not None else args
+            return read_once((kind, *named, *sorted(kwargs.items())), lambda: function(*args, **kwargs))
+        return read
+    return wrap
+
+
+def gh_read(args: list[str]) -> bool:
+    """Whether gh ARGS only reads: `gh api` with no other method than GET (a GraphQL query included), or `gh run view`."""
+    if args[:2] == ["run", "view"]:
+        return True
+    if args[:1] != ["api"] or any(arg in ("-X", "--method") or arg.startswith("--method=") for arg in args):
+        return False
+    return not (args[1:2] == ["graphql"] and any(arg.startswith("query=mutation") for arg in args))
 
 
 def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
@@ -256,6 +285,12 @@ def escape_flag_unknown(stderr: str) -> bool:
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
+    def run(self, args: list[str]) -> str:
+        """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
+        if not gh_read(args):
+            return _evidence.GitHub.run(self, args)
+        return read_once(("gh", *args), lambda: _evidence.GitHub.run(self, args))
+
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
@@ -309,6 +344,7 @@ class GitHub(_evidence.GitHub):
             return None
         return run if isinstance(run, int) else None
 
+    @once_per_judgement("artifact", lambda self, repo, artifact, member: (repo, int(artifact), member))
     def artifact_file(self, repo: str, artifact: int, member: str) -> str | None:
         """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file.
 
@@ -437,13 +473,10 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
-def git_text(repo: str, ref: str, path: str) -> str | None:
-    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
-
-    A bare repo per REPO under source_cache(), fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`),
-    so a read costs one ref fetch and the one blob `git show` asks for, and no GitHub API quota at all. The fetch goes
-    to a ref of this process's own, so two runs reading different bases at once never read each other's."""
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or ref.startswith("-") or not ref:
+def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
+    """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
+    when it cannot be."""
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         return None
     where = source_cache() / (repo.replace("/", "__") + ".git")
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
@@ -452,33 +485,64 @@ def git_text(repo: str, ref: str, path: str) -> str | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    if not (where / "HEAD").is_file():
+        where.mkdir(parents=True, exist_ok=True)
+        if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
+                          timeout=GIT_SECONDS).returncode:
+            return None
+    for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
+                       ("remote.origin.partialclonefilter", "blob:none")):
+        if git("config", key, value).returncode:
+            return None
+    return git
+
+
+@once_per_judgement("git fetch")
+def git_commit(repo: str, ref: str) -> str | None:
+    """The commit REF names in REPO, fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`) into
+    git_cache(REPO), or None when git cannot answer. Once per ref per judgement: every file read at REF (git_text)
+    is shown from the one fetch. The fetch goes to a ref of this process's own, so two runs reading different bases at
+    once never read each other's; it is removed after, and the commit stays in the repo for `git show`."""
+    if ref.startswith("-") or not ref:
+        return None
     mine = f"refs/base-red-excuse/{os.getpid()}"
+    git = None
     try:
-        if not (where / "HEAD").is_file():
-            where.mkdir(parents=True, exist_ok=True)
-            if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
-                              timeout=GIT_SECONDS).returncode:
-                return None
-        for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
-                           ("remote.origin.partialclonefilter", "blob:none")):
-            if git("config", key, value).returncode:
-                return None
-        if git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
-               f"+{ref}:{mine}").returncode:
+        git = git_cache(repo)
+        if git is None or git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
+                              f"+{ref}:{mine}").returncode:
             return None
-        shown = git("show", f"{mine}:{path}")
-        if shown.returncode:
-            return None
-        return shown.stdout.decode()
+        named = git("rev-parse", "--verify", f"{mine}^{{commit}}")
+        commit = named.stdout.decode().strip() if not named.returncode else ""
+        return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else None
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
     finally:
-        try:
-            git("update-ref", "-d", mine)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        if git is not None:
+            try:
+                git("update-ref", "-d", mine)
+            except (OSError, subprocess.SubprocessError):
+                pass
 
 
+@once_per_judgement("git")
+def git_text(repo: str, ref: str, path: str) -> str | None:
+    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+
+    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
+    and the one blob `git show` asks for, and no GitHub API quota at all."""
+    commit = git_commit(repo, ref)
+    if commit is None:
+        return None
+    try:
+        git = git_cache(repo)
+        shown = git("show", f"{commit}:{path}") if git is not None else None
+        return shown.stdout.decode() if shown is not None and not shown.returncode else None
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+
+
+@once_per_judgement("source", lambda repo, ref, path, github: (repo, ref, path))
 def source_text(repo: str, ref: str, path: str, github) -> str:
     """PATH's text in REPO at REF: git first (git_text, no API quota), then GitHub's GraphQL blob (GitHub.blob).
     Never the REST contents API, which an agent host's gh shim refuses as a source read (glaeda-gh's API-source
@@ -1755,7 +1819,7 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     if passed is not None:
         return f"the {COMPILE_PASS_STATUS} status"
     try:
-        receipt = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
+        receipt = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
         # The receipts host is down or slow (cmux#40722, 2026-11-10: "TimeoutError: The read operation timed out"):
         # the poster's status above was the other way to know, and it holds no pass. Refused, naming both.
@@ -1819,6 +1883,7 @@ class ReceiptUnreachable(Refused):
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
+@once_per_judgement("receipt")
 def compile_receipt(repo: str, sha: str) -> dict | None:
     """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
     answer refuses: an unread receipt is no verdict."""
@@ -1852,7 +1917,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
     "fail", else Refused. When the receipts host is unreachable, GitHub decides (github_compile_red)."""
     try:
-        head = read_once(("receipt", repo, sha), lambda: compile_receipt(repo, sha))
+        head = compile_receipt(repo, sha)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (head or {}).get("state") != "fail":
@@ -1863,7 +1928,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
     try:
-        at_base = read_once(("receipt", repo, merge_base), lambda: compile_receipt(repo, merge_base))
+        at_base = compile_receipt(repo, merge_base)
     except ReceiptUnreachable as down:
         return github_compile_red(repo, base, sha, name, github, down)
     if (at_base or {}).get("state") != "fail":
@@ -1873,7 +1938,7 @@ def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> 
     now = ""
     if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
         try:
-            at_tip = read_once(("receipt", repo, tip), lambda: compile_receipt(repo, tip)) or {}
+            at_tip = compile_receipt(repo, tip) or {}
             now = f"; {base} {tip[:12]} reads {at_tip.get('state') or 'no receipt'}"
         except Refused:
             now = ""
@@ -2370,6 +2435,7 @@ def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
         return None
 
 
+@once_per_judgement("release")
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
     """File NAME of the published release TAG of REPO, read anonymously from its release download (no API quota), or
     None when it is not published (404, or a release without it). A download that fails otherwise is read through
@@ -2403,9 +2469,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
-    source = read_once(("release", repo, tag, "SOURCE_SHA"), lambda: ffi_release_file(repo, tag, "SOURCE_SHA"))
-    sums = (read_once(("release", repo, tag, "SHA256SUMS"), lambda: ffi_release_file(repo, tag, "SHA256SUMS"))
-            if source is not None else None)
+    source = ffi_release_file(repo, tag, "SOURCE_SHA")
+    sums = ffi_release_file(repo, tag, "SHA256SUMS") if source is not None else None
     if source is None or sums is None:
         return None, f"the pinned release {tag} is not published (its {'SOURCE_SHA' if source is None else 'SHA256SUMS'} is 404)"
     if source.strip() != pin:
@@ -5288,8 +5353,6 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
 def one_judgement(function):
     """FUNCTION (judge) run in one judgement's read memo (JUDGEMENT_READS): every source is read once, however many
     excuse paths ask it. A judgement inside another (a derived status's parts) shares the outer one's."""
-    import functools
-
     @functools.wraps(function)
     def run(*args, **kwargs):
         if JUDGEMENT_READS.get() is not None:
