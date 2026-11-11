@@ -32,11 +32,15 @@ CEILING = {
 # The old debt the per-function allowlist started from (cmux#41271, 2026-11-11), counted per rule without the hang
 # guards: a new finding is fixed at the test (a recorded clock, a real completion signal, the n-vs-4n scaling ratio),
 # never listed. Only ever lower these, as tests are fixed and their entries go (--strict fails a stale one).
+# The merge of feat-cmux-next at 803350b99d8 carried its own grandfathered entries in: one sleep-then-assert
+# (#41179's seeded arm) and the wall-clock-window rule's three (#40918), and dropped the two assert-on-duration
+# entries #41320 fixed.
 DEBT_CEILING = {
-    "sleep-then-assert": 247,
-    "assert-on-duration": 170,
+    "sleep-then-assert": 248,
+    "assert-on-duration": 168,
     "yield-count-poll": 41,
     "live-network-host": 3,
+    "wall-clock-window": 3,
 }
 
 

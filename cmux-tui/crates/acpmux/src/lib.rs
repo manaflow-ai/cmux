@@ -155,6 +155,7 @@ pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;
+pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
 pub mod review_brief;
