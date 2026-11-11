@@ -1350,7 +1350,7 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
 /// bytes that the flush did not write are dropped, not given back.
 #[cfg(unix)]
 #[test]
-fn a_failed_write_of_a_cancelled_creation_keeps_the_refusal_of_its_id() {
+fn a_failed_write_of_a_cancelled_creating_input_keeps_the_refusal_of_its_id() {
     let (mux, surface, _host) =
         hosted_typing_surface("hosted-input-port-cancel-write-failed", true);
     let pty = surface.as_pty().expect("a terminal");
