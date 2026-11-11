@@ -7,7 +7,7 @@
 //! - while one git request runs, the connection's later requests (a
 //!   `git.status` of a shown view, a liveness `ping`, a list) are read and
 //!   answered;
-//! - the whole daemon runs at most [`GIT_RUNS`] git requests at one time;
+//! - the whole daemon runs at most [`GIT_RUNS`] git reads at one time;
 //! - equal reads that wait share one run;
 //! - a mutation keeps its place in its connection's order;
 //! - a git that passes its limit is ended, its request gets an error and its
@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// The daemon's bound (`git_lane::MAX_RUNS`): git requests that run at one time.
+/// The daemon's bound (`git_lane::MAX_READ_RUNS`): git reads that run at one time.
 const GIT_RUNS: usize = 4;
 
 /// The longest a step of a test waits for something that must come.
