@@ -12,7 +12,7 @@ public protocol CloudLinkResolver: Sendable {
     /// Opens (or reuses) the machine's link for one connect. `intent` is the
     /// connect's idempotency key, new for each connect. Throws ``CloudLinkError``.
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket
-    /// Ends the machine's link (machine removed, sign-out, quit).
+    /// Ends the machine's link (machine removed or paused, sign-out, quit). A later `open` starts it again.
     func close(_ key: CloudLinkKey) async
     /// Why the link refused a connection since the last connect, when it says (a carrier dial's step).
     func refusal(_ key: CloudLinkKey) async -> CloudLinkError?
