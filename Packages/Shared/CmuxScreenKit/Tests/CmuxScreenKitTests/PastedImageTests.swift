@@ -10,8 +10,10 @@ import UniformTypeIdentifiers
 /// location in it.
 struct PastedImageTests {
     /// Where a test photo was taken: GPS metadata the sent image must not carry.
-    static let gps: [CFString: Any] = [kCGImagePropertyGPSLatitude: 37.7749, kCGImagePropertyGPSLatitudeRef: "N",
-                                       kCGImagePropertyGPSLongitude: 122.4194, kCGImagePropertyGPSLongitudeRef: "W"]
+    static var gps: [CFString: Any] {
+        [kCGImagePropertyGPSLatitude: 37.7749, kCGImagePropertyGPSLatitudeRef: "N",
+         kCGImagePropertyGPSLongitude: 122.4194, kCGImagePropertyGPSLongitudeRef: "W"]
+    }
 
     /// A `width` x `height` image encoded as `type`: its stored top-left quarter red, the rest
     /// blue (a transparent corner at the bottom right with `alpha`), with `orientation` (EXIF) and,
