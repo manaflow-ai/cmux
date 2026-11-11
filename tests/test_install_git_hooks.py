@@ -1480,6 +1480,48 @@ mkdir -p node_modules/.bin
         self.assertNotEqual(clash.returncode, 0)
         self.git("merge", "--abort")
 
+        # The order is merged too: side-effect imports run in it, so theirs moving one wins
+        # over ours leaving it, and a namespace one side renamed is the new name.
+        effects = 'import "./reset.css";\nimport "./polyfill";\nimport * as A from "./a";\n'
+        branch("effects-base", effects + body)
+        effects_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_text('import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n' + body)
+        self.commit_all("reorder and rename")
+        self.git("checkout", "--quiet", "-b", "effects-ours", effects_base)
+        app.write_text(effects + 'import { q } from "./q";\n' + body)
+        self.commit_all("add q")
+        merged = self.git("merge", "--no-edit", "effects-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(app.read_text(), 'import "./polyfill";\nimport "./reset.css";\nimport * as B from "./a";\n'
+                                          'import { q } from "./q";\n' + body)
+
+        # Left to the line merge, and so still conflicts: a name added as a value on one side and
+        # a type on the other (declared twice), a statement one side changed and the other
+        # deleted, a line that is not an import put among them (a directive), and CRLF files.
+        for name, ours_text, theirs_text in (
+            ("value-type", head.replace("a, b", "a, b, C"), head.replace("a, b", "a, b, type C")),
+            ("change-delete", head.replace("a, b", "a, b, c"), head.replace('import { a, b } from "./ab";\n', "")),
+            ("directive", head.replace("a, b", "a, b, c"), '"use client";\n' + head.replace("a, b", "a, b, d")),
+        ):
+            branch(name + "-a", ours_text + 'import { old } from "./old";\n' + body)
+            branch(name + "-b", theirs_text + 'import { old } from "./old";\n' + body)
+            clash = self.git("merge", "--no-edit", name + "-a", check=False)
+            self.assertNotEqual(clash.returncode, 0, name)
+            self.git("merge", "--abort")
+        crlf = lambda text: text.replace("\n", "\r\n").encode()
+        self.git("checkout", "--quiet", "-b", "crlf-base", base)
+        app.write_bytes(crlf(head + body))
+        self.commit_all("crlf base")
+        crlf_base = self.git("rev-parse", "HEAD").stdout.strip()
+        app.write_bytes(crlf(head.replace("a, b", "a, b, c") + body))
+        self.commit_all("crlf c")
+        self.git("checkout", "--quiet", "-b", "crlf-d", crlf_base)
+        app.write_bytes(crlf(head.replace("a, b", "a, b, d") + body))
+        self.commit_all("crlf d")
+        clash = self.git("merge", "--no-edit", "crlf-base", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
         # The imports merge and a line both sides changed in the body stays a conflict.
         branch("body-a", head.replace("a, b", "a, b, x") + 'import { old } from "./old";\n' + body.replace("null", "1"))
         branch("body-b", head.replace("a, b", "a, b, y") + 'import { old } from "./old";\n' + body.replace("null", "2"))

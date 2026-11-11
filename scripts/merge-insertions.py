@@ -198,12 +198,16 @@ def parses(path: str, text: bytes) -> bool:
 # were only that. So a .ts or .tsx file's leading imports merge per statement and per name:
 # a name either side added is kept, one either side removed is dropped, and the rest of the
 # file is the ordinary merge below. Anything the reader does not know (a comment inside a
-# statement, a default import both sides changed) leaves the whole file to that merge.
+# statement, a default import both sides changed, CRLF, a line among the imports that is not
+# one) leaves the whole file to that merge, so it is never worse than the line merge.
 IMPORT_FILE = re.compile(r"\.(ts|tsx|mts|cts)$")
 IMPORT_STATEMENT = re.compile(
     r"import\s+(type\s+)?(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\*\s+as\s+([A-Za-z_$][\w$]*)|\{([^{}]*)\})?\s*"
     r"from\s*([\"'])([^\"']+)\5;?", re.S)
 SIDE_EFFECT_IMPORT = re.compile(r"import\s*([\"'])([^\"']+)\1;?")
+# `import type from "t"` is a default import named `type`, which the pattern would read as
+# the type-only keyword with nothing imported.
+DEFAULT_NAMED_TYPE = re.compile(r"import\s+type\s*(,|from\b)")
 PRINT_WIDTH = 120  # config/vite-plus/check.ts
 
 
@@ -217,18 +221,23 @@ class Import:
             self.kind = "side"
             return
         match = IMPORT_STATEMENT.fullmatch(text.strip())
-        if not match or "//" in text or "/*" in text:
+        if not match or "//" in text or "/*" in text or DEFAULT_NAMED_TYPE.match(text.strip()):
             raise ValueError(text)
         self.type_only = match.group(1) or ""
         self.default, self.namespace, self.quote, self.module = match.group(2), match.group(3), match.group(5), match.group(6)
         self.names = [" ".join(name.split()) for name in (match.group(4) or "").split(",") if name.strip()]
         self.kind = "type" if self.type_only else "namespace" if self.namespace else "value"
 
-    def render(self, default, names) -> str:
+    def binds(self) -> list[str]:
+        """The local names the statement declares."""
+        names = [name.split()[-1] for name in self.names]
+        return names + [name for name in (self.default, self.namespace) if name]
+
+    def render(self, default, namespace, names) -> str:
         head = "import " + self.type_only + (default or "")
         tail = f' from {self.quote}{self.module}{self.quote};'
-        if self.namespace:
-            return head + ("" if not default else ", ") + "* as " + self.namespace + tail + "\n"
+        if namespace:
+            return head + ("" if not default else ", ") + "* as " + namespace + tail + "\n"
         if not names:
             return head + tail + "\n"
         joiner = ", " if default else ""
@@ -240,7 +249,10 @@ class Import:
 
 def split_imports(text: str) -> tuple[list[Import], str] | None:
     """The leading import statements (each with the comments and blank lines above it) and the
-    rest of the file, or None when a statement there is not one the merge reads."""
+    rest of the file, or None when a statement there is not one the merge reads, or when an
+    import follows the first other line: a side that put a line (a directive, a block comment,
+    an export) among the imports would move the ones below it into its body, where the per-name
+    merge cannot see them."""
     lines = text.splitlines(keepends=True)
     imports: list[Import] = []
     lead: list[str] = []
@@ -263,6 +275,8 @@ def split_imports(text: str) -> tuple[list[Import], str] | None:
         except ValueError:
             return None
         lead, i = [], j + 1
+    if any(re.match(r"import[\s{*\"']", line) for line in lines[i:]):
+        return None
     return imports, "".join(lead) + "".join(lines[i:])
 
 
@@ -285,8 +299,7 @@ def three_way(base, ours, theirs):
 
 
 def merge_imports(base: list[Import], ours: list[Import], theirs: list[Import]) -> str | None:
-    """One import header from three, or None when a statement both sides changed alike
-    cannot be settled per name."""
+    """One import header from three, or None when the three cannot be settled per name."""
     def whole(imports):
         return "".join(statement.lead + statement.text for statement in imports)
     b, o, t = (keyed(side) for side in (base, ours, theirs))
@@ -297,34 +310,58 @@ def merge_imports(base: list[Import], ours: list[Import], theirs: list[Import]) 
         counts = {sum(1 for k in side if k[:2] == (module, kind)) for side in (b, o, t)}
         if len(counts) > 1 and max(counts) > 1:
             return None
-    order = list(o)
-    for index, key in enumerate(t):
-        if key in o:
+    # The statements' order is a three-way merge too (side-effect imports run in it): the side
+    # that moved statements sets it, and both moving them is a conflict.
+    shared = [k for k in b if k in o and k in t]
+    sequence = {name: [k for k in side if k in shared] for name, side in (("b", b), ("o", o), ("t", t))}
+    if sequence["o"] == sequence["b"]:
+        first, second = t, o
+    elif sequence["t"] in (sequence["b"], sequence["o"]):
+        first, second = o, t
+    else:
+        return None
+    order = list(first)
+    for index, key in enumerate(second):
+        if key in first:
             continue
-        before = [k for k in list(t)[:index] if k in order]
+        before = [k for k in list(second)[:index] if k in order]
         order.insert(order.index(before[-1]) + 1 if before else 0, key)
+    # A statement each side added under the same comment or blank line would carry it twice.
+    added_leads = [any(k not in b and side[k].lead for k in side) for side in (o, t)]
+    if all(added_leads):
+        return None
     out = []
+    binds: list[str] = []
     try:
         for key in order:
             sides = [side.get(key) for side in (b, o, t)]
-            if sides[0] and (not sides[1] or not sides[2]) and (sides[1] or sides[2]).text == sides[0].text:
-                continue  # one side removed the statement, the other left it as it was
+            if sides[0] and (not sides[1] or not sides[2]):
+                kept_side = sides[1] or sides[2]
+                if kept_side is None or (kept_side.lead + kept_side.text == sides[0].lead + sides[0].text):
+                    continue  # removed by one side (or both), left as it was by the other
+                raise ValueError("removed by one side, changed by the other")
             names = [set(s.names) if s else set() for s in sides]
             dropped = (names[0] - names[1]) | (names[0] - names[2])
             kept = [n for n in (sides[1].names if sides[1] else []) + (sides[2].names if sides[2] else []) if n not in dropped]
             kept = list(dict.fromkeys(kept))
             default = three_way(*(s.default if s else None for s in sides))
+            namespace = three_way(*(s.namespace if s else None for s in sides))
             lead = three_way(*(s.lead if s else None for s in sides)) or ""
             shape = next(s for s in (sides[1], sides[2]) if s)
-            if not kept and not default and shape.kind != "side" and not shape.namespace:
+            if not kept and not default and not namespace and shape.kind != "side":
                 continue
             for side in (sides[1], sides[2]):
-                if side and side.names == kept and side.default == default:
-                    out.append(lead + side.text)
+                if side and side.names == kept and side.default == default and side.namespace == namespace:
+                    statement = side.text
                     break
             else:
-                out.append(lead + shape.render(default, kept))
+                statement = shape.render(default, namespace, kept)
+            out.append(lead + statement)
+            binds += Import(lead, statement).binds()
     except ValueError:
+        return None
+    # Both sides importing one name (`B` and `type B`, or from two modules) declares it twice.
+    if len(binds) != len(set(binds)):
         return None
     merged = "".join(out)
     # Read back what was written: a header the reader cannot parse again is no result.
@@ -339,9 +376,13 @@ def merge_typescript(base: str, ours: str, theirs: str, path: str, size: int) ->
     the whole-file merge."""
     texts = []
     for name in (base, ours, theirs):
+        with open(name, "rb") as handle:
+            raw = handle.read()
+        # The header is rebuilt with LF endings, so a CRLF file keeps the line merge.
+        if b"\r" in raw or raw.startswith(b"\xef\xbb\xbf"):
+            return None
         try:
-            with open(name, encoding="utf-8") as handle:
-                texts.append(handle.read())
+            texts.append(raw.decode("utf-8"))
         except UnicodeDecodeError:
             return None
     parts = [split_imports(text) for text in texts]
@@ -355,8 +396,8 @@ def merge_typescript(base: str, ours: str, theirs: str, path: str, size: int) ->
         bodies = []
         for label, part in zip(("base", "ours", "theirs"), parts):
             body = os.path.join(scratch, label)
-            with open(body, "w", encoding="utf-8") as handle:
-                handle.write(part[1])
+            with open(body, "wb") as handle:
+                handle.write(part[1].encode("utf-8"))
             bodies.append(body)
         result, remaining = merge_lines(bodies[1], bodies[0], bodies[2], path, size)
     return header.encode("utf-8") + result, remaining
