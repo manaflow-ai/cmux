@@ -1626,6 +1626,7 @@ function TranscriptView({
     moveAtOnce = false,
     held = false,
     arrived = false,
+    sent = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -1641,7 +1642,7 @@ function TranscriptView({
     // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
     if (before && now !== undefined && !moveAtOnce && !turnEnding)
-      chase.shift(thread.current, now - before.top, below, held, arrived);
+      chase.shift(thread.current, now - before.top, below, held, arrived, sent);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -3817,7 +3818,8 @@ function TranscriptView({
             if (arrivedAtTail(oldRows, rows)) arrivedAt.current = now;
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived);
+            // A send's own rows rise on the send motion, one clock with the bubble's entrance.
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows && !held);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
@@ -4486,7 +4488,7 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows);
+        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, true);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
@@ -4649,7 +4651,14 @@ function TranscriptView({
     // release too, and a layout change landing at the end inside it is not the reader's.
     const down = readerDown.current;
     const readerMovedDown = down !== undefined && performance.now() - down.at <= READER_SCROLL_MS;
-    const readerReachedBottom = !programmatic && readerMovedDown && next > was.top + 0.5 && measured.atLatest;
+    // The scroller's own end counts too (Leo, 2026-11-11: "I scroll down to the bottom. I have to,
+    // like, scroll down again because it didn't realize"): a row that lands as the reader gets
+    // there (the thinking row, a tooltip's room) puts the layout's end past the offset the browser
+    // could still reach, and a later wheel at the end scrolls nothing, so no scroll event came to
+    // arm it.
+    const atEnd = next >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
+    const readerReachedBottom =
+      !programmatic && readerMovedDown && next > was.top + 0.5 && (measured.atLatest || atEnd);
     scrolledTo.current = {
       top: next,
       atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
@@ -4844,6 +4853,19 @@ function TranscriptView({
       const downInput = readerDownInput(event, pointer, touch);
       if (movingUp) readerDown.current = undefined;
       else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
+      // Down at the scroller's end, where the browser scrolls nothing and sends no scroll event: the
+      // reader is at the latest row, so it follows again from here.
+      if (
+        downInput &&
+        !followingRef.current &&
+        jumpTarget.current === undefined &&
+        node.clientHeight > 0 &&
+        node.scrollTop >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX
+      ) {
+        scrolledTo.current = { top: node.scrollTop, atLatest: true };
+        followRef.current(true, "reader-end");
+        followRequest.current = intent.request();
+      }
       if (event?.type === "pointerdown") {
         pointerY = (event as PointerEvent).clientY;
       } else if (pointer) pointerY = pointer.clientY;
