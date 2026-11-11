@@ -987,18 +987,66 @@ const W6D_CLAUDE_OUTPUT: &str = concat!(
     "printf '\\033]7501;state=blocked:kind=auth:app=claude-code\\033\\\\'; sleep 30",
 );
 
-/// Runs [`W6D_CLAUDE_OUTPUT`] in a new terminal. `hooks` reports Claude's
-/// hook events for it: `SessionStart` first, `PermissionRequest` after its
-/// desktop notification, `Stop` after its done record. Returns the titles
-/// of the terminal's notifications, sorted, once the sign-in wait (posted
-/// last, and posted under every rule) arrived.
-fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
+/// What Gemini CLI could print at one tool permission wait: a desktop
+/// notification (OSC 9) and an OSC 7501 record, then a sign-in wait.
+const W6D_GEMINI_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]9;Gemini CLI needs your permission\\007'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=gemini\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=gemini\\033\\\\'; sleep 30",
+);
+
+/// What another program (`make`) prints in a terminal where Claude's hooks
+/// report: a permission wait, a finished run and a sign-in wait, each an
+/// OSC 7501 record with its own `app`.
+const W6D_OTHER_APP_OUTPUT: &str = concat!(
+    "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=permission:app=make\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=done:app=make\\033\\\\'; read step; ",
+    "printf '\\033]7501;state=blocked:kind=auth:app=make\\033\\\\'; sleep 30",
+);
+
+/// One step of a W6-D stand-in run.
+enum W6dStep {
+    /// The agent's hooks report this native event with this payload.
+    Hook(&'static str, Value),
+    /// The script prints its next line.
+    Print,
+}
+
+/// The Claude hook events and output of one permission request, one
+/// finished turn and one sign-in wait (`W6D_CLAUDE_OUTPUT`).
+fn w6d_claude_steps() -> Vec<W6dStep> {
+    vec![
+        W6dStep::Hook("SessionStart", serde_json::json!({})),
+        W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+        W6dStep::Print,
+        W6dStep::Hook("PermissionRequest", serde_json::json!({"tool_name": "Bash"})),
+        W6dStep::Print,
+        W6dStep::Print,
+        W6dStep::Hook("Stop", serde_json::json!({})),
+        W6dStep::Print,
+    ]
+}
+
+/// Runs `script` in a new terminal and does `steps`: a hook step reports
+/// the native event from the hook source `hooks` (nothing when `None`), a
+/// print step lets the script print its next line. Returns the titles of
+/// the terminal's notifications, sorted, once `last_title` (posted last,
+/// and posted under every rule) arrived.
+fn w6d_notification_titles(
+    name: &str,
+    script: &str,
+    hooks: Option<&str>,
+    steps: Vec<W6dStep>,
+    last_title: &str,
+) -> Vec<String> {
     // A real PTY: the test surface runtime of `Mux::new_for_test` starts no
     // process, so the stand-in script never printed anything.
     let mux = Mux::new(
         name,
         SurfaceOptions {
-            command: Some(vec!["/bin/sh".into(), "-c".into(), W6D_CLAUDE_OUTPUT.into()]),
+            command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
             ..SurfaceOptions::default()
         },
     );
@@ -1010,32 +1058,34 @@ fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
         assert!(Instant::now() < ready, "the script never started; screen: {:?}", screen());
         std::thread::sleep(Duration::from_millis(10));
     }
-    let hook = |event: &str, sequence: u64, native: Value| {
-        if hooks {
-            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
-                "claude",
-                event,
-                Some(&terminal_id.to_string()),
-                native,
-            )
-            .unwrap();
-            mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    let mut sequence = 0;
+    let mut printed = false;
+    for step in steps {
+        match step {
+            W6dStep::Hook(event, native) => {
+                let Some(source) = hooks else { continue };
+                sequence += 1;
+                let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                    source,
+                    event,
+                    Some(&terminal_id.to_string()),
+                    native,
+                )
+                .unwrap();
+                mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+            }
+            W6dStep::Print => {
+                // A terminal's notifications are at least 1 s apart (its
+                // rate limit): each step after the first must pass it, as
+                // the agent's real output does.
+                if printed {
+                    std::thread::sleep(Duration::from_millis(1_100));
+                }
+                printed = true;
+                surface.write_bytes(b"\n").unwrap();
+            }
         }
-    };
-    // A terminal's notifications are at least 1 s apart (its rate limit):
-    // each step must pass it, as Claude's real output does.
-    let next_step = || {
-        std::thread::sleep(Duration::from_millis(1_100));
-        surface.write_bytes(b"\n").unwrap();
-    };
-    hook("SessionStart", 1, serde_json::json!({}));
-    hook("UserPromptSubmit", 2, serde_json::json!({}));
-    surface.write_bytes(b"\n").unwrap();
-    hook("PermissionRequest", 3, serde_json::json!({"tool_name": "Bash"}));
-    next_step();
-    next_step();
-    hook("Stop", 4, serde_json::json!({}));
-    next_step();
+    }
     let titles = || {
         let mut titles = mux
             .resource_notifications(32)
@@ -1047,9 +1097,7 @@ fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
         titles
     };
     let deadline = Instant::now() + Duration::from_secs(20);
-    while !titles().iter().any(|title| title == "claude-code needs sign-in")
-        && Instant::now() < deadline
-    {
+    while !titles().iter().any(|title| title == last_title) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
     let titles = titles();
@@ -1066,7 +1114,13 @@ fn w6d_notification_titles(name: &str, hooks: bool) -> Vec<String> {
 #[test]
 fn w6d_a_claude_terminal_with_hooks_posts_one_notification_per_agent_event() {
     assert_eq!(
-        w6d_notification_titles("w6d-notify-once-hooks", true),
+        w6d_notification_titles(
+            "w6d-notify-once-hooks",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            w6d_claude_steps(),
+            "claude-code needs sign-in",
+        ),
         ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
     );
 }
@@ -1076,12 +1130,70 @@ fn w6d_a_claude_terminal_with_hooks_posts_one_notification_per_agent_event() {
 #[test]
 fn w6d_a_terminal_without_agent_hooks_keeps_its_own_notifications() {
     assert_eq!(
-        w6d_notification_titles("w6d-notify-once-no-hooks", false),
+        w6d_notification_titles(
+            "w6d-notify-once-no-hooks",
+            W6D_CLAUDE_OUTPUT,
+            None,
+            w6d_claude_steps(),
+            "claude-code needs sign-in",
+        ),
         [
             "Claude Code",
             "claude-code is done",
             "claude-code needs approval",
             "claude-code needs sign-in"
         ],
+    );
+}
+
+/// W6-D review (w6d-rev BLOCK): Gemini's hooks report its session and turns
+/// but post no permission notification (its tool permission callback is
+/// `Notification`, an `agent.state.changed`). A permission wait it reports
+/// by OSC 9 or by an OSC 7501 record must still post, or the person never
+/// learns of it.
+#[test]
+fn w6d_b_hooked_agent_without_a_permission_hook_keeps_its_permission_notifications() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-gemini-hooks",
+            W6D_GEMINI_OUTPUT,
+            Some("gemini"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("BeforeAgent", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Hook(
+                    "Notification",
+                    serde_json::json!({"notification_type": "ToolPermission"})
+                ),
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "gemini needs sign-in",
+        ),
+        ["Gemini CLI needs your permission", "gemini needs approval", "gemini needs sign-in"],
+    );
+}
+
+/// W6-D review (w6d-rev BLOCK): Claude's hooks post Claude's permission
+/// waits and finished turns, not those of another program in the same
+/// terminal. An OSC 7501 record whose `app` is not Claude still posts.
+#[test]
+fn w6d_b_claude_hooks_keep_another_programs_status_notifications() {
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-other-app",
+            W6D_OTHER_APP_OUTPUT,
+            Some("claude"),
+            vec![
+                W6dStep::Hook("SessionStart", serde_json::json!({})),
+                W6dStep::Hook("UserPromptSubmit", serde_json::json!({})),
+                W6dStep::Print,
+                W6dStep::Print,
+                W6dStep::Print,
+            ],
+            "make needs sign-in",
+        ),
+        ["make is done", "make needs approval", "make needs sign-in"],
     );
 }
