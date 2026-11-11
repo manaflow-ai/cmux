@@ -336,7 +336,8 @@ final class TopHomePageView: NSView {
     /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeArchivedChiefs/openable(_:listed:)``).
     static func chief(_ home: HomeService) -> String? {
         HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)
-            .openable(home.defaultChiefConversation, listed: home.homeStore.rows)
+            .openable(home.defaultChiefConversation, listed: home.homeStore.rows,
+                      participants: { home.participants(of: $0).map(\.id) })
     }
 
     /// The shown conversation is one the owner's own inbox does not have:

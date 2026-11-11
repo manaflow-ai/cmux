@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
 use fs4::FileExt;
@@ -196,14 +197,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
-/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
-/// power loss keeps each acknowledged commit. Unit tests open hundreds of
-/// throwaway registries in one process and never cut power: there, a plain
-/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
-/// result they check, while F_FULLFSYNC serialized the device across all test
-/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
-/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
-/// integration test's daemon, keep F_FULLFSYNC.
+/// The registry runs with `synchronous=NORMAL` in WAL mode
+/// (`wal_durability.rs`): a commit is in the WAL when it returns, which a
+/// crash, kill or restart of the daemon keeps; only a power loss or kernel
+/// panic can take acknowledged commits back, always a suffix. `fullfsync`
+/// makes the syncs SQLite still does (each WAL checkpoint, and the close)
+/// flush the device cache on macOS (F_FULLFSYNC), so a checkpoint never
+/// copies frames into the database before they are on the disk. Unit tests
+/// open hundreds of throwaway registries in one process and never cut power:
+/// there, a plain fsync keeps every ordering and restart result they check,
+/// while F_FULLFSYNC serialized the device across all test threads
+/// (notification_reads_survive_restart_and_eviction_prunes_them: 19.3 s on a
+/// fleet Mac, 0.18 s on Linux). Daemon binaries, including every integration
+/// test's daemon, keep F_FULLFSYNC.
 #[cfg(not(test))]
 const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
 #[cfg(test)]
@@ -2418,16 +2424,21 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
+/// Prepared statements each registry connection keeps compiled
+/// (`Connection::prepare_cached`, least recently used out first). The journal
+/// append, hook and journal read paths run the same few dozen statements for
+/// every agent hook; compiling them each time was about a fifth of the
+/// daemon's SQLite time on that path. A statement costs a few KiB.
+pub(crate) const REGISTRY_STATEMENT_CACHE_CAPACITY: usize = 128;
+
 fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
     #[cfg(windows)]
-    {
-        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
-    }
+    let connection = Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?;
     #[cfg(not(windows))]
-    {
-        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
-    }
+    let connection = Connection::open_with_flags(path.as_ref(), flags)?;
+    connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
+    Ok(connection)
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
@@ -2485,6 +2496,7 @@ impl WorkspaceRegistry {
 
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
+        connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
         Self::initialize(
             connection,
             session_name.to_string(),
