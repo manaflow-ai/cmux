@@ -1491,9 +1491,10 @@ refused send's localized message (all that human mode prints) names the
 dialog's kind, its `msg`, the keys that deny it and `--force`. A blocked
 `wait --until idle` answers `state: "blocked"` and exits 4. A `blocked` that only
 the screen-detection plugin guessed (agent record `source` `plugin`) is no
-dialog only when all of these hold: the hooks cmux installs for that harness
-report its dialogs (one asks for approval, such as Claude's and Codex's
-`PermissionRequest`, and none is a `Notification` that ends a turn); the
+dialog only when all of these hold: the harness's hooks are verified to report
+its dialogs (today Claude Code and Codex, whose `PermissionRequest` fires at
+the dialog; their installed hooks must still have it, and none may be a
+`Notification` that ends a turn); the
 newest own report of that agent's live session (its hook records of the same
 harness and session, then its OSC 7501 records newer than those) is idle or
 working; and the bottom 16 non-blank rows of the screen show its input box,
@@ -1501,8 +1502,8 @@ with no dialog options and no startup dialog. The plugin can read a screen
 just before the agent redraws it and then not read it again. Then `wait
 --until idle` is idle and `send` is not refused; `agent list` and the
 record's own `status` word still say `blocked`. In every other case the
-block holds: an agent whose hooks report no dialog (Kiro, Qoder, Cursor,
-Gemini, Qwen), whose `Notification` ends a turn (Copilot, CodeBuddy,
+block holds: an agent whose hooks report no dialog or are not verified to
+(Kiro, Qoder, Cursor, Gemini, Qwen, Muse, Rovo Dev), whose `Notification` ends a turn (Copilot, CodeBuddy,
 Factory), or with no own report in its live session (an earlier agent's or
 session's records never count). Option rows may start with a cursor
 (`❯`, `>`, `›`) or a radio mark (`●` selected, `○`). cmux never

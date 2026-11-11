@@ -710,6 +710,8 @@ mod tests {
             ("kiro", vec![record("hook", "kiro", "idle", "1500")]),
             ("qwen", vec![record("hook", "claude", "done", "500")]),
             ("copilot", vec![record("hook", "copilot", "idle", "1500")]),
+            // Muse installs PermissionRequest, but when it fires is not verified.
+            ("muse", vec![record("hook", "muse", "idle", "1500")]),
         ];
         for (harness, mut agents) in cases {
             agents.push(record("plugin", harness, "blocked", "1902"));

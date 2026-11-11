@@ -242,19 +242,27 @@ pub(in crate::cli) fn own_report_state(
     }
 }
 
-/// Whether the hooks cmux installs for `harness` report its dialogs: one
-/// of them asks for approval (cmux-tui-core
-/// `agent_hook_event_requests_approval`: Claude's and Codex's
-/// `PermissionRequest`, shown as `blocked`), and none is a `Notification`
-/// that ends a turn (Copilot-compatible runtimes, idle while a dialog
-/// waits). Derived from the installed hooks and their mapping, so it
-/// cannot drift from what the hooks do.
+/// Harnesses whose approval hook is verified to fire when the permission
+/// dialog shows (Claude Code's and Codex's `PermissionRequest`), not only
+/// when a tool starts. Muse's `PermissionRequest` and Rovo Dev's
+/// `on_tool_permission` are not verified, so they stay out (fail closed).
+const DIALOG_HOOKS_VERIFIED: &[&str] = &["claude", "codex"];
+
+/// Whether the hooks cmux installs for `harness` report its dialogs: the
+/// harness is verified ([`DIALOG_HOOKS_VERIFIED`]), one of its hooks asks
+/// for approval (cmux-tui-core `agent_hook_event_requests_approval`, shown
+/// as `blocked`), and none is a `Notification` that ends a turn
+/// (Copilot-compatible runtimes, idle while a dialog waits). The last two
+/// come from the installed hooks and their mapping, so a hook change that
+/// drops the approval event turns this off.
 pub(in crate::cli) fn hooks_report_dialogs(harness: &str) -> bool {
     let notification_ends_turn = |source: &str, event: &str| {
         event.eq_ignore_ascii_case("notification")
             && cmux_tui_core::agent_hook_event_completes_turn(source, event)
     };
-    harness_hooks_report(harness, cmux_tui_core::agent_hook_event_requests_approval)
+    let canonical = super::super::agent_vocabulary::harness_name(harness);
+    DIALOG_HOOKS_VERIFIED.contains(&canonical.as_str())
+        && harness_hooks_report(harness, cmux_tui_core::agent_hook_event_requests_approval)
         && !harness_hooks_report(harness, notification_ends_turn)
 }
 
