@@ -53,7 +53,7 @@ import {
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
-import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -942,6 +942,7 @@ export function ModelPicker(props: ModelPickerProps) {
         id: entry.id,
         name: entry.name,
         accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
+        ...(entry.kind === CLAUDE_STDIO_KIND ? { ultracode: true } : {}),
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),

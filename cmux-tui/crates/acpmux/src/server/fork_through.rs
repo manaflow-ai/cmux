@@ -225,7 +225,7 @@ mod tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert("hb/peer-chat-1".into(), row);
+        hub.remote_sessions.write().insert("hb/peer-chat-1".into(), row);
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert("hb".to_owned(), peer);

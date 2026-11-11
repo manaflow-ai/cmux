@@ -73,6 +73,13 @@ extension UpdaterService {
         send(.installRequested)
     }
 
+    /// Reads the feed and the pulled list now while an update waits on Update Ready, so a Restart
+    /// to Update soon after decides at once (``StagedUpdateRefresh/prefetch(updater:)``). Called
+    /// when cmux becomes active; a no-op otherwise.
+    public func prefetchForInstallClick() {
+        stagedRefresh.prefetch(updater: self)
+    }
+
     /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
@@ -202,7 +209,7 @@ extension UpdaterService {
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
-        stagedRefresh.follow(phase, updater: self)
+        stagedRefresh.follow(phase, previous: previous, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
         // A pulled running build read while a check ran is followed once the check ends.

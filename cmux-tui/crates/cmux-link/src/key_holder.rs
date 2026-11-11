@@ -14,6 +14,14 @@
 //! lock when its holder exits, crash and `kill -9` included, so a pid record
 //! whose lock is not held is stale and never counts as held.
 //!
+//! The reverse also happens: the lock is held and no record names a holder.
+//! `flock` belongs to the open file description, and a child forked while the
+//! lock was held shares it until it execs or exits, so a holder's drop does
+//! not always free the lock at once. A holder writes its record right after it
+//! takes the lock and removes it before it lets go, so a lock nobody claims is
+//! such a leftover descriptor (or a holder about to write its record): a taker
+//! waits a short, bounded time for it instead of reading `KeyHeld`.
+//!
 //! Where the lock lives: the build's acpmux home, where the key that becomes
 //! the one key (`node.wg.key`) is kept. `ACPMUX_HOME` wins; otherwise a
 //! release or channel build uses `~/.acpmux` and a tagged DEV build its own
@@ -29,11 +37,18 @@
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// The lock file, in the lock directory.
 pub const LOCK_FILE: &str = "wg-key.lock";
 /// The holder's pid, written once the lock is taken.
 pub const PID_FILE: &str = "wg-key.pid";
+
+/// How long a taker waits for a lock that is held while no record names a holder. A forked
+/// child holds the descriptor from its fork to its exec, milliseconds on an idle machine.
+const UNCLAIMED_WAIT: Duration = Duration::from_secs(2);
+/// How often that wait looks again.
+const UNCLAIMED_STEP: Duration = Duration::from_millis(5);
 
 /// A WireGuard private key file this module guards.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,18 +126,13 @@ pub struct KeyHolder {
 }
 
 impl KeyHolder {
-    /// Take the key lock in `dir` (created owner-only when missing), never
-    /// blocking.
+    /// Take the key lock in `dir` (created owner-only when missing). A lock a
+    /// holder's record names is refused at once; a lock nobody claims is waited
+    /// for, up to [`UNCLAIMED_WAIT`] (the module documentation says why).
     pub fn acquire(dir: &Path) -> Result<Self, KeyHolderError> {
         create_private_dir(dir)?;
         let lock = open_private(&dir.join(LOCK_FILE), true)?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => {
-                return Err(KeyHolderError::KeyHeld { pid: recorded_pid(dir) });
-            }
-            Err(TryLockError::Error(error)) => return Err(error.into()),
-        }
+        take(&lock, dir)?;
         write_pid(dir, std::process::id())?;
         Ok(Self { dir: dir.to_path_buf(), _lock: lock })
     }
@@ -165,10 +175,31 @@ pub fn holder(dir: &Path) -> io::Result<Option<Option<u32>>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    match lock.try_lock() {
+    match take(&lock, dir) {
         Ok(()) => Ok(None),
-        Err(TryLockError::WouldBlock) => Ok(Some(recorded_pid(dir))),
-        Err(TryLockError::Error(error)) => Err(error),
+        Err(KeyHolderError::KeyHeld { pid }) => Ok(Some(pid)),
+        Err(KeyHolderError::Io(error)) => Err(error),
+    }
+}
+
+/// Take the OS lock on `lock`, the lock file in `dir`. Held with a record: `KeyHeld` with
+/// that pid, at once. Held with no record: a descriptor a forked child of a past holder has
+/// not closed yet, or a holder that is about to write its record, so it looks again every
+/// [`UNCLAIMED_STEP`] until the lock is free, a record appears, or [`UNCLAIMED_WAIT`] passed.
+fn take(lock: &File, dir: &Path) -> Result<(), KeyHolderError> {
+    let started = Instant::now();
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::Error(error)) => return Err(error.into()),
+        }
+        let pid = recorded_pid(dir);
+        if pid.is_some() || started.elapsed() >= UNCLAIMED_WAIT {
+            return Err(KeyHolderError::KeyHeld { pid });
+        }
+        // A bounded wait for another process to close a descriptor: nothing signals that.
+        std::thread::sleep(UNCLAIMED_STEP);
     }
 }
 
@@ -244,6 +275,40 @@ mod tests {
         let record = std::fs::read_to_string(dir.join(PID_FILE)).unwrap();
         assert_eq!(record, format!("{}\n", std::process::id()));
         drop(holder);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A child forked while the lock was held keeps the lock's descriptor until it execs or
+    /// exits, so the holder's drop does not free the lock at once. No record names a holder
+    /// then: the next taker waits for the descriptor to go and never reads `KeyHeld`. (A
+    /// process that spawns children, as acpmux does for every agent, forks at any moment:
+    /// `machine_tunnel`'s rekey tests read `key_held` with no pid for a lock this process had
+    /// dropped, cmux-tui spec inventory run 42960856401.)
+    #[cfg(unix)]
+    #[test]
+    fn a_descriptor_a_forked_child_still_holds_after_the_drop_is_waited_out() {
+        let dir = tempfile_dir("forked-child");
+        let first = KeyHolder::acquire(&dir).unwrap();
+        // SAFETY: the child calls only async-signal-safe functions (nanosleep, _exit).
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            let wait = libc::timespec { tv_sec: 0, tv_nsec: 300_000_000 };
+            // SAFETY: as above; `wait` outlives the call and the child never returns.
+            unsafe {
+                libc::nanosleep(&wait, std::ptr::null_mut());
+                libc::_exit(0);
+            }
+        }
+        drop(first);
+        assert!(!dir.join(PID_FILE).exists(), "the record outlived its holder");
+        let free = holder(&dir);
+        let again = KeyHolder::acquire(&dir);
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe { libc::waitpid(child, &mut status, 0) };
+        assert_eq!(free.unwrap(), None, "a descriptor nobody claims read as a holder");
+        again.expect("the lock is free once its holder dropped it");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

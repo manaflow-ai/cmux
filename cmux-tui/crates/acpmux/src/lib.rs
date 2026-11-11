@@ -41,6 +41,7 @@ pub mod catalog;
 pub mod chat_fork;
 pub mod chats;
 pub mod claude_auth;
+mod claude_cloud_auth;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
@@ -76,6 +77,22 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+#[cfg(unix)]
+pub mod github_mcp;
+/// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
+/// never offered, and the command says so.
+#[cfg(not(unix))]
+pub mod github_mcp {
+    pub const SERVER_NAME: &str = "github";
+
+    pub fn available() -> bool {
+        false
+    }
+
+    pub async fn run() -> anyhow::Result<()> {
+        anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
 pub mod github_status;
 pub mod goal;
 pub mod hand;
@@ -87,6 +104,7 @@ pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
+pub(crate) mod home_fs;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -101,11 +119,15 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
+pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
+#[cfg(test)]
+mod lost_home_race_tests;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
@@ -150,6 +172,7 @@ pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;
+pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
 pub mod review_brief;
@@ -165,6 +188,8 @@ pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
 pub mod sender_harness;
+pub mod sender_program;
+pub mod sender_token;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;

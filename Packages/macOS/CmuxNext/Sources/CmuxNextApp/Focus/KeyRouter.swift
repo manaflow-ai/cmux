@@ -51,6 +51,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
     let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
+    var pageKeys = BrowserPageKeySequence() // `gg` among the letters pages leave alone (``routePageKey(_:from:)``)
     init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
          heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
         (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
@@ -123,7 +124,7 @@ final class KeyRouter: BrowserKeyRouting {
             // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
             let printable = Self.isPrintable(event)
             guard printable || facts.primaryInputClaimsKey, Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
-            if printable, facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
+            if printable, facts.pageInputPending, focus.resolved.mayQueueTyping { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }
         return decide(event, focus: focus, context: keyContext(for: focus, facts: facts), facts: facts)
@@ -337,6 +338,7 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: FocusState.Resolved?
     var deliveringTypeAhead: String?
+    var typeAheadTail = TypeAheadTail<HeldTypeAheadKey>() // Return and the keys after it, waiting behind a page's queued text
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).

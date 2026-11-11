@@ -442,6 +442,14 @@ def apt_turn(step: Step):
         APT_TURN.release()
 
 
+ANNOTATION = ("::warning ", "::warning::", "::notice ", "::notice::")
+
+
+def passed_step_annotations(output: str) -> list[str]:
+    """The `::warning`/`::notice` lines a passing step printed (a warn-only lint), for GitHub to show."""
+    return [line for line in output.splitlines() if line.startswith(ANNOTATION)]
+
+
 def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
     """Run one step in its own session and reap whatever it leaves behind.
 
@@ -702,8 +710,12 @@ def main(argv: list[str]) -> int:
                     if result.ok is False:
                         print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
                         print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                    elif args.verbose and result.ok:
-                        print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                    elif result.ok:
+                        if args.verbose:
+                            print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                        # A warn-only step passes and its output is dropped; its annotations still reach the run.
+                        for line in passed_step_annotations(result.output):
+                            print(line, flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()

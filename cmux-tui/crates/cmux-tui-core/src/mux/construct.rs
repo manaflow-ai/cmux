@@ -295,6 +295,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_before_commit: Mutex::new(None),
             #[cfg(test)]
+            browser_adopt_before_rollback: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             state_commit_after_apply: Mutex::new(None),
@@ -302,6 +304,8 @@ impl Mux {
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            journal_stream_before_ring_switch: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -444,6 +448,7 @@ impl Mux {
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
+            tree_reply_flight: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
