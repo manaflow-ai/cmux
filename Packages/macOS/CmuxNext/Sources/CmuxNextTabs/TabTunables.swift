@@ -175,11 +175,12 @@ public nonisolated enum TabTunables {
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
     // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
-    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    // trailing controls. The split button (cmux classic's `+ ⌄`, Lucas 2026-11-11) is the default; the tab bar
+    // playground's Trailing Buttons page compares them.
     public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
-        default: .glyphs, code: "TabTunables.trailingButtons")
+        default: .split, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,

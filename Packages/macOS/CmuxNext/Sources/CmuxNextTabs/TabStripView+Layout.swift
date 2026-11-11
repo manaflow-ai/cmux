@@ -369,7 +369,7 @@ extension TabStripView {
         applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: false))
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
-        let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
+        let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
         // Square, centered on the tabs: it keeps its size when the tabs are shorter.
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         let buttonFrom = newTabButton.frame.origin

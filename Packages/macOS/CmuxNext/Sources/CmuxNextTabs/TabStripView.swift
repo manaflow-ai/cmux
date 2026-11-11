@@ -69,10 +69,17 @@ public final class TabStripView: NSView {
     public internal(set) var trailingButtons = TabTunables.trailingButtons.value
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
+    /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
+    /// tab; then 2 px less, so 2 pt at Default).
+    var newTabLeadingGap: CGFloat { Metrics.space1 }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
-        // Circles: the ⌄ takes the +'s square, so both circles are one diameter.
-        return metrics.newTabButtonWidth + (trailingButtons == .circles ? metrics.newTabButtonWidth : Metrics.smallIconSize + Metrics.space2)
+        // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
+        switch trailingButtons {
+        case .circles: return metrics.newTabButtonWidth * 2
+        case .split: return metrics.newTabButtonWidth + TabTrailingButtons.splitChevronWidth(plusWidth: metrics.newTabButtonWidth)
+        case .plates, .glyphs, .merged: return metrics.newTabButtonWidth + Metrics.smallIconSize + Metrics.space2
+        }
     }
     var windowControlsInset: CGFloat = 0
     /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
@@ -283,6 +290,9 @@ public final class TabStripView: NSView {
             if opensNewTabMenuOnPress { showNewTabMenu() }
             else { model.send(.newTab(after: nil)) }
         }
+        // The split look's two segments tint together: either one under the pointer gives the other its soft fill.
+        newTabButton.onHoverChange = { [weak newTabMenuButton] hovering in newTabMenuButton?.siblingHovered = hovering }
+        newTabMenuButton.onHoverChange = { [weak newTabButton] hovering in newTabButton?.siblingHovered = hovering }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
@@ -491,6 +501,7 @@ public final class TabStripView: NSView {
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         trailingButtons = TabTunables.trailingButtons.value
         newTabButton.hoverStyle = trailingButtons.hoverStyle
+        newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
         newTabMenuButton.style = trailingButtons
         newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         hoverCard.tokensChanged()
@@ -523,7 +534,7 @@ public final class TabStripView: NSView {
         let leading = CornerFlush.current.isOn ? 0 : padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
-        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
+        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
