@@ -2097,5 +2097,58 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "_acpmux/presets with the approval fields passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/presets may not carry set (the page only approves)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s",
+    "set": {
+     "name": "night",
+     "policy": "bypass"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/presets may not carry clear (the page only approves)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s",
+    "clear": true
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  }
 ]

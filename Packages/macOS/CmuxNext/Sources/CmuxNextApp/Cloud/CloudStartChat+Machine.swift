@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
@@ -83,6 +84,7 @@ extension CloudStartChat {
         }
         if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
+                if let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))

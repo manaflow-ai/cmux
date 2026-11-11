@@ -40,6 +40,7 @@ main() {
   trap 'back_to_start; rm -rf "${work:-}"' EXIT
   # The run's own area rules, copied before a checkout can change them.
   cp "$here/autofix-areas.sh" "$work/areas.sh"
+  cp "$here/base-autofix-ffi-pin.sh" "$work/ffi-pin.sh"
   # --depth only where the checkout is already shallow (the CI checkout): in a full clone it would make every
   # worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py).
   depth=()
@@ -82,7 +83,10 @@ read_tip() {
 moved() { # <from> <to>
   local changed areas
   [[ "$1" != "$2" ]] || return 1
-  if changed="$(git diff --name-only --no-renames "$1" "$2")" && areas="$("$work/areas.sh" <<<"$changed")"; then
+  # A re-pin of CCmuxAppFFI moves the exports too (base-autofix-ffi-pin.sh); both commits are fetched.
+  if changed="$(git diff --name-only --no-renames "$1" "$2")" \
+    && changed+=$'\n'"$(bash "$work/ffi-pin.sh" "$1" "$2")" \
+    && areas="$("$work/areas.sh" <<<"$changed")"; then
     grep -qx 'actions=true' <<<"$areas"
   else
     echo "::warning::cannot read what ${1:0:12}..${2:0:12} changed; counting the action exports' inputs as moved" >&2

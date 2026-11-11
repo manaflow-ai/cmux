@@ -198,14 +198,16 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
             if !path.is_file() {
                 let written = crate::config::refuse_lost_home(&path)
                     .map_err(std::io::Error::other)
-                    .and_then(|()| std::fs::create_dir_all(dir()))
+                    // Through the folder this daemon holds (`home_fs`): a home replaced after
+                    // the check never gets the image.
+                    .and_then(|()| crate::home_fs::create_dir_all(&dir(), 0o777))
                     .and_then(|()| {
                         // Written aside and renamed, so a reader never sees half an image.
                         let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
                         let written = write_owner_only(&partial, &bytes)
-                            .and_then(|()| std::fs::rename(&partial, &path));
+                            .and_then(|()| crate::home_fs::rename(&partial, &path));
                         if written.is_err() {
-                            let _ = std::fs::remove_file(&partial);
+                            let _ = crate::home_fs::remove_file(&partial);
                         }
                         written
                     });
@@ -222,11 +224,10 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
 /// Writes a new file only its owner reads (0600 on Unix).
 fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(bytes)
+    let mut file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable

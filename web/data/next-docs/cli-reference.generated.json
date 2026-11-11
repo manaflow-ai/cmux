@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 861,
-    "mcp": 777
+    "verbs": 862,
+    "mcp": 778
   },
   "nouns": [
     {
@@ -4364,6 +4364,13 @@
           "id": "sidebar.spaces.show",
           "mcp": true,
           "mcpTool": "app_sidebar_show_spaces"
+        },
+        {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
         },
         {
           "command": "cmux sidebar toggle-item-archive",
