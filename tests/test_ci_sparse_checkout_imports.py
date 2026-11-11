@@ -948,11 +948,15 @@ def full_run(
 def _audit_live(root: Path, key: tuple[str, ...], cwd: str | None) -> bool:
     """Whether an audit entry matches a live call of its file when it runs from `cwd`, read by the same
     dynamic_calls (so the same relative-path resolution) that find_misses uses for that run. With the
-    working directory unknown (None), a load the entry names cannot be resolved, so it is not stale:
-    that run is already unverifiable."""
+    working directory unknown (None), where a load call points cannot be resolved, but the call itself
+    is known: the entry is live only while the file has a load call that names its file from some
+    working directory (a folder on the way to it), and that run is already unverifiable."""
     path_ops, loads, calls = dynamic_calls(root, key[0], cwd)
     if len(key) == 2:
-        return cwd is None or key[1] in loads
+        if cwd is not None:
+            return key[1] in loads
+        folders = key[1].split("/")[:-1]
+        return any(key[1] in dynamic_calls(root, key[0], "/".join(folders[:i]))[1] for i in range(len(folders) + 1))
     live_calls = {(c, t) for c, _, t in calls} | {(op[3], op[5]) for op in path_ops}
     return (key[1], normal_audit_key(key)[2]) in live_calls
 
@@ -1293,22 +1297,33 @@ class _Shell:
     shopt, CDPATH, a trap that can run mid-step, a here-doc (after its line), or a line that does not
     lex. Structure comes only from unquoted operators (_shell_tokens).
 
-    It tracks the possible (directory, last status) pairs through an and-or list: a cd may fail, so
-    it changes the directory only for what runs after it succeeds; `a && cd x` or `a || cd x` may skip
-    it. A list whose last pipeline fails ends the step under errexit (bash -e, GitHub's default), so
-    its failing branch does not go on; with errexit off it does. When a list ends, two possible
-    directories make it unknown. A ( ... ) restores the directory at its matching ), across lines;
-    a cd in a pipeline of two or more commands or in the background changes nothing."""
+    It tracks the possible (directory, last status, dies) states through an and-or list: a cd may
+    fail, so it changes the directory only for what runs after it succeeds; `a && cd x` or `a || cd x`
+    may skip it. A list whose last pipeline fails ends the step under errexit (bash -e, GitHub's
+    default), so its failing branch does not go on; with errexit off it does. Bash ignores errexit
+    for everything to the left of && or ||, after !, and in an if/while/until condition, nested
+    groups and subshells included. Inside a group or subshell it is not yet known whether the group
+    is one of those, so a failing branch goes on there, marked with the group's depth: if that
+    group, or one around it, turns out to be left of && or ||, or after !, the mark is cleared and
+    the branch is real; at the top level a marked branch is dropped. In a condition nothing is
+    marked. When a list ends, two possible directories make it
+    unknown. A ( ... ) restores the directory at its matching ), across lines; a cd in a pipeline of
+    two or more commands or in the background changes nothing."""
 
     def __init__(self, cwd: str | None, root: Path, errexit: bool = True) -> None:
         self.root = root
         self.errexit = errexit
-        self.states: tuple[tuple[str | None, bool], ...] = ((cwd, True),)
+        # (cwd, ok, dies): dies is 0, or the depth of the outermost group a failure under errexit
+        # happened in; that branch ended the step unless a group at that depth or above it turns out
+        # to be left of && or ||, after ! or in a condition.
+        self.states: tuple[tuple[str | None, bool, int], ...] = ((cwd, True, 0),)
         self.op: str | None = None  # "&&" or "||" before the next pipeline, None at a list's start
         self.tail: tuple[tuple, tuple, bool] | None = None  # the list's last pipeline: (outcomes, skipped, negated)
         self.frames: tuple[tuple, ...] = ()
         self.command: list[_Tok] = []
-        self.group: tuple | None = None  # what a { ... } or block just closed with: (cwd,), or () if it ended the step
+        self.group: tuple | None = None  # the states a { ... } or block just closed with
+        self.ended: tuple = self.states  # the states the last list ended with, its last status kept
+        self.ignore = False  # errexit is ignored here: in an if/while/until condition
         self.pipe: list[tuple[list[_Tok], tuple | None]] = []
         self.negate = False
         self.cds = 0  # cd commands read, so a block knows whether it held one
@@ -1327,11 +1342,20 @@ class _Shell:
         return self._collapse(self.states)
 
     def _collapse(self, states) -> str | None:
-        found = {cwd for cwd, _ in states}
+        found = {state[0] for state in states}
         return None if self.lost or len(found) != 1 else found.pop()
 
+    def _merge(self, states, keep_status: bool = False) -> tuple:
+        """One state per (dies) mark, or per (status, dies) with `keep_status`; two directories in one
+        make it unknown."""
+        out = []
+        for ok, dies in dict.fromkeys((state[1] if keep_status else True, state[2]) for state in states):
+            same = [s for s in states if s[2] == dies and (not keep_status or s[1] == ok)]
+            out.append((self._collapse(same), ok, dies))
+        return tuple(out)
+
     def _split(self) -> tuple[tuple, tuple]:
-        """(states the next pipeline runs in, states that skip it)."""
+        """(states the next pipeline runs in, states that skip it), as (cwd, ok, dies)."""
         if self.op is None:
             return self.states, ()
         want = self.op == "&&"
@@ -1382,8 +1406,8 @@ class _Shell:
                 landed = _resolve_dir(arg.text, cwd, self.root)
         return [(landed, True), (cwd, False)]
 
-    def _end_pipeline(self, background: bool = False) -> bool:
-        """False when the check gives up."""
+    def _end_pipeline(self, background: bool = False, suppressed: bool = False) -> bool:
+        """False when the check gives up. `suppressed`: the pipeline is left of && or ||."""
         pipe, self.pipe = self.pipe, []
         negated, self.negate = self.negate, False
         if not pipe:
@@ -1404,15 +1428,22 @@ class _Shell:
                 if re.fullmatch(r"[-+][A-Za-z]*e[A-Za-z]*", flag) or (flag in ("-o", "+o") and following == "errexit"):
                     self.errexit = flag.startswith("-")
         outcomes: list[tuple[str | None, bool]] = []
-        for cwd, _ in runs:
+        for cwd, _, dies in dict.fromkeys(runs):
             if alone and group is not None:
-                outcomes += [(group[0], True), (group[0], False)] if group else []
+                outcomes += group
             elif alone and command:
-                outcomes += self._outcomes(command, cwd)
+                outcomes += [(where, ok, dies) for where, ok in self._outcomes(command, cwd)]
             else:
-                outcomes += [(cwd, True), (cwd, False)]
+                outcomes += [(cwd, True, dies), (cwd, False, dies)]
+        depth = len(self.frames)
+        if suppressed or negated:  # errexit was off for everything in there
+            outcomes = [(cwd, ok, 0 if dies > depth else dies) for cwd, ok, dies in outcomes]
+        elif depth == 0:  # it was on: the branches that failed in there ended the step
+            outcomes = [state for state in outcomes if not state[2]]
+        else:  # it was on in there; whether it is out here, the enclosing groups will say
+            outcomes = [(cwd, ok, min(dies, depth)) for cwd, ok, dies in outcomes]
         if negated:
-            outcomes = [(cwd, not ok) for cwd, ok in outcomes]
+            outcomes = [(cwd, not ok, dies) for cwd, ok, dies in outcomes]
         self.tail = (tuple(outcomes), skipped, negated)
         self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         return True
@@ -1420,35 +1451,46 @@ class _Shell:
     def _end_list(self) -> None:
         if self.tail is not None:
             outcomes, skipped, negated = self.tail
-            if self.errexit and not negated:  # the last pipeline failing ends the step
-                outcomes = tuple(s for s in outcomes if s[1])
+            if self.errexit and not self.ignore and not negated:  # the last pipeline failing ends the step
+                if self.frames:  # unless a group around it turns out to be conditional: mark it
+                    depth = len(self.frames)
+                    outcomes = tuple(
+                        (cwd, ok, dies if ok else min(dies or depth, depth)) for cwd, ok, dies in outcomes
+                    )
+                else:
+                    outcomes = tuple(s for s in outcomes if s[1])
             self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         self.tail = None
-        if self.states:
-            self.states = ((self.cwd, True),)
+        self.ended = self._merge(self.states, keep_status=True)
+        self.states = self._merge(self.states)
         self.op = None
 
     def _open(self, kind: str) -> None:
         runs = self._split()[0]
-        saved = (self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit, self.negate, self.cds)
+        saved = (
+            self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit, self.negate,
+            self.cds, self.ended, self.ignore,
+        )
         self.frames += ((kind, saved),)
-        self.states, self.op, self.tail = ((self._collapse(runs), True),), None, None
+        self.states, self.op, self.tail = self._merge(runs), None, None
+        self.ended = self.states
         self.command, self.pipe, self.negate = [], [], False
 
     def _close(self) -> None:
-        kind, (states, op, tail, command, pipe, errexit, negate, cds) = self.frames[-1]
+        kind, (states, op, tail, command, pipe, errexit, negate, cds, ended, ignore) = self.frames[-1]
         self.frames = self.frames[:-1]
-        inner, ended = self.cwd, not self.states
-        start = self._collapse(self._split_of(states, op))
+        inner = self.ended
+        start = self._merge(self._split_of(states, op))
         self.states, self.op, self.tail = states, op, tail
-        self.command, self.pipe, self.negate = list(command), list(pipe), negate
+        self.command, self.pipe, self.negate, self.ended, self.ignore = list(command), list(pipe), negate, ended, ignore
         if kind == "sub":
             self.errexit = errexit
             self.command = [_SUBSHELL_COMMAND]  # it leaves the directory as it was
         elif kind == "block":  # if / loop: unknown after a cd inside, else as it started
-            self.group = (start if self.cds == cds else None,)
-        else:  # a { ... } group: where its list ended, or nowhere when it ended the step
-            self.group = () if ended else (inner,)
+            where = {cwd if self.cds == cds else None for cwd, _, _ in start}
+            self.group = tuple((cwd, ok, dies) for cwd in where for ok in (True, False) for _, _, dies in start)
+        else:  # a { ... } group: the states its last list ended with (none when it ended the step)
+            self.group = inner
 
     @staticmethod
     def _split_of(states, op) -> tuple:
@@ -1510,7 +1552,7 @@ class _Shell:
                 return found
             if tok.text in ("|", "|&"):
                 continue
-            if not self._end_pipeline(background=tok.text == "&"):
+            if not self._end_pipeline(background=tok.text == "&", suppressed=tok.text in ("&&", "||")):
                 self.lost = True
                 return None
             if tok.text in ("&&", "||"):
@@ -1539,12 +1581,16 @@ class _Shell:
         word = tok.text
         if word in ("if", "while", "until", "for"):
             self._open("block")
+            self.ignore = self.ignore or word != "for"  # a condition: errexit is ignored in it
         elif word in ("fi", "done"):
             if top != "block":
                 return False
             self._close()
         elif word in ("then", "do", "else", "elif"):
-            return top == "block"
+            if top != "block":
+                return False
+            outer_ignore = self.frames[-1][1][-1]
+            self.ignore = True if word == "elif" else outer_ignore
         elif word == "{":
             self._open("group")
         elif word == "}":
