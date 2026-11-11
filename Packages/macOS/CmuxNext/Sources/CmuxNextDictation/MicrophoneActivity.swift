@@ -116,7 +116,7 @@ public final class MicrophoneActivity {
     }
 
     private func start() {
-        claims.observe(self) { [weak self] in self?.reapply() }
+        claims.observe(self) { [weak self] in self?.claimsChanged() }
         source.start { [weak self] event in self?.receive(event) }
     }
 
@@ -128,6 +128,14 @@ public final class MicrophoneActivity {
         meterEnded = false
         reading = nil
         state = .idle
+    }
+
+    /// cmux's own dictation took or gave back the microphone. A claim hides the mark and closes the
+    /// meter at once (from the last reading). A release before 14.2 waits for the fresh read: the
+    /// last reading saw cmux's own input as a running device, so it would show a false outside mark.
+    private func claimsChanged() {
+        if claims.isHeld || reading?.namesProcesses == true { reapply() }
+        refresh()
     }
 
     private func receive(_ event: SourceEvent) {
@@ -322,8 +330,8 @@ final class CoreAudioMicrophoneSource: MicrophoneActivitySource {
         func start(_ deliver: @escaping @Sendable (MicrophoneActivity.SourceEvent) -> Void) {
             queue.async { [self] in
                 state.withLock { $0.deliver = deliver }
-                if listens { listen() }
-                readNow()
+                // Listening reads once (its device scan queues the read); without it, read now.
+                if listens { listen() } else { readNow() }
             }
         }
 

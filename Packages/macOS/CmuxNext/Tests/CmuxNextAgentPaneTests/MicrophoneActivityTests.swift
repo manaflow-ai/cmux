@@ -82,8 +82,12 @@ import Testing
         #expect(activity.state.active)
         claims.claim(dictation) {}
         #expect(activity.state == .idle)
+        // The release re-reads: cmux's own input stopped, so the device no longer runs.
+        source.next = .idle
+        let reads = source.reads
         claims.release(dictation)
-        #expect(activity.state.active)
+        #expect(source.reads == reads + 1)
+        #expect(activity.state == .idle)
         activity.unwatch(owner)
     }
 
@@ -104,7 +108,9 @@ import Testing
     /// thread. Here the read blocks until the test lets it go, and the main actor runs on: watching
     /// returns at once, the watcher hears the read when it ends, and the refreshes asked for while
     /// it blocked made one more read, not one each.
-    @Test func aSlowCoreAudioReadNeverHoldsTheMainActor() async {
+    /// If the read ran on the main actor, `watch` would wait on the gate forever: the time limit
+    /// turns that into a failure.
+    @Test(.timeLimit(.minutes(1))) func aSlowCoreAudioReadNeverHoldsTheMainActor() async {
         let gate = DispatchSemaphore(value: 0), log = ReadLog()
         let outside = MicrophoneActivity.State(active: true, bundleId: "com.electron.wispr-flow", name: "Wispr Flow")
         let source = CoreAudioMicrophoneSource(read: {
