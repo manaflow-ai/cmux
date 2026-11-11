@@ -665,11 +665,17 @@ pub fn end_left_behind(start_nonce: &str) {
 #[cfg(not(unix))]
 pub fn end_left_behind(_start_nonce: &str) {}
 
-/// Remove a dead host's record, lock and socket.
+/// Remove a dead host's record, lock and socket. The record and socket only while the record
+/// still names that host (`names_this_host`): a newer host of the same chat (a prompt started one
+/// while adoption came to this stale record) owns them then, and its record watch would end it
+/// once its record went. Its own lock always goes: its name holds its nonce.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
-    let _ = std::fs::remove_file(record_path(dir, &record.session_id));
+    let path = record_path(dir, &record.session_id);
+    if names_this_host(&path, &record.start_nonce) {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&record.socket);
+    }
     let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
-    let _ = std::fs::remove_file(&record.socket);
 }
 
 /// Whether the record file at `path` names the host incarnation `nonce`. A
