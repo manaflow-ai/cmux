@@ -4,7 +4,7 @@
 // ran whatever. the ran thing basiclly replcaes the thinking usually"). His chat had a `cp` still
 // running in an earlier run while the agent messaged others: the row read "Ran cp …" with
 // "⌃B to run in background" beside it, and the line at the bottom read "Thinking".
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
@@ -14,6 +14,17 @@ import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor"
 import { RunInBackgroundContext } from "../src/agent-session/acpmux/conversation/runInBackground";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { callsToHold, linedCallOf, withoutHeldCalls } from "../src/agent-session/acpmux/conversation/turnEndHold";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

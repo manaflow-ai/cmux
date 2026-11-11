@@ -61,7 +61,9 @@ priority = 50
 # on F_FULLFSYNC, which macOS runs one at a time for the whole device, so
 # every other test daemon's commits queue in front of theirs. They run in the
 # timing-alone group and take every test thread, so no other test runs beside
-# them; their budgets do not change. Add a test
+# them; their budgets do not change. Since #40830 the chat tab test
+# (state::group_update_latency_tests) asserts lock turns, not wall time; it
+# stays in this group because it runs 48 busy sessions for 8 s. Add a test
 # only when its subject is latency; a test that fails under load for another
 # reason (a shared resource, a race) gets that cause fixed instead.
 [test-groups]

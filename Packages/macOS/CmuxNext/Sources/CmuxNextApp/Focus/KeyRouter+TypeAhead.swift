@@ -52,15 +52,6 @@ extension KeyRouter {
         return ChromiumPasteAndMatchStyleRoute().target(for: action, found: found, in: window)
     }
 
-    /// Pages whose keys may wait for their document: agent pages (the new
-    /// tab page, chats) and React pages (CmuxNextPages).
-    nonisolated static func mayQueueTyping(_ resolved: FocusState.Resolved) -> Bool {
-        switch resolved {
-        case .agentPage, .page: true
-        default: false
-        }
-    }
-
     /// A printable key on a page that cannot take typing yet: queue it for
     /// that page, in order; it goes to the page's focused primary input
     /// when the page reports it ready. Delete edits the queue; another key
@@ -70,12 +61,20 @@ extension KeyRouter {
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content else { return false }
         let focus = controller.focus.state
-        guard Self.mayQueueTyping(focus.resolved), let pane = focus.resolved.pane,
+        guard focus.resolved.mayQueueTyping, let pane = focus.resolved.pane,
               let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
         let surface = String(describing: ObjectIdentifier(readiness))
-        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface
+        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface)
         let otherPage = keyInOtherPage(window, controller: controller)
         let facts = Facts(pageInputPending: !readiness.isReady || waiting, keyInOtherPage: otherPage)
+        // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.
+        if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
+            decided.add(event)
+            typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface)
+            if typeAheadFocus == nil { typeAheadFocus = focus.resolved }
+            readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
+            return true
+        }
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .typeAhead else {
             // A key in another page's window edits nothing queued for this one.
             guard waiting, !otherPage else { return false }
@@ -92,11 +91,7 @@ extension KeyRouter {
         decided.add(event)
         typeAhead.append(event.characters ?? "", surface: surface, now: .now)
         typeAheadFocus = focus.resolved
-        readiness.onReady = { [weak self, weak readiness] in
-            guard let self, let readiness else { return }
-            flushTypeAhead(surface, into: readiness)
-        }
-        if readiness.isReady { flushTypeAhead(surface, into: readiness) }
+        readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
         return true
     }
 
@@ -119,7 +114,10 @@ extension KeyRouter {
     /// one is delivered follow it. Deletes typed while it was on its way go
     /// right after it, before any text queued later.
     func flushTypeAhead(_ surface: String, into readiness: PageInputReadiness) {
-        guard deliveringTypeAhead == nil, let text = typeAhead.take(surface: surface, now: .now) else { return }
+        guard deliveringTypeAhead == nil else { return }
+        // Nothing more is on its way: the keys held behind the text run now, as typed (out of the tail first, so none is held again).
+        guard let text = typeAhead.take(surface: surface, now: .now) else { return typeAheadTail.settle(surface: surface).forEach { key in if let window = key.window { heldKeyReplay(key.event, window, self) } } }
+        typeAheadTail.textWasTaken(surface: surface)
         deliveringTypeAhead = surface
         let expectedEpoch = readiness.focusEpoch
         // task-owner: one queued insertion into the page, then its Deletes; the next flush runs after it
@@ -129,6 +127,7 @@ extension KeyRouter {
                 // The original element disappeared or refused the insert; discard Deletes tied
                 // to that failed text so they cannot hit a later focused field.
                 self.typeAhead.takeDeletes()
+                self.typeAheadTail.drop() // a Return alone would act on a field its text never reached
                 self.deliveringTypeAhead = nil
                 return
             }
@@ -157,6 +156,7 @@ extension KeyRouter {
             // chord/Return cannot clear edits that must follow that text.
             typeAhead.dropPendingText()
         }
+        typeAheadTail.drop()
         typeAheadFocus = nil
     }
 

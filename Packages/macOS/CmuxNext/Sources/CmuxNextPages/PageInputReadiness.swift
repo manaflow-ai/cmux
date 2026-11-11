@@ -241,3 +241,11 @@ public final class PageInputReadiness {
         }
     }
 }
+
+extension PageInputReadiness {
+    /// Runs `work` each time the page turns ready for typing (it replaces ``onReady``), and now when it already is.
+    public func whenReady(_ work: @escaping () -> Void) {
+        onReady = work
+        if isReady { work() }
+    }
+}

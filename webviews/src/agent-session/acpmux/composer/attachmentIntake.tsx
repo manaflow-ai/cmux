@@ -20,7 +20,8 @@ import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
 import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { isVideoAttachment, useVideoReading } from "./videoAttachments";
+import { isVideoAttachment } from "./videoAttachments";
+import { chipVideoRatio, videoShapeStyle } from "./videoShape";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
@@ -192,7 +193,7 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
-  const shape = chip.image ? imageShape(chip.size) : undefined;
+  const shape = chip.image ? imageShape(chip.size) : chip.video ? videoShapeStyle(chip.videoShape) : undefined;
   const style =
     shape || (chip.preview && square)
       ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
@@ -205,6 +206,7 @@ function PendingChip({
       <div
         className={`acpmux-attachment ${kind} acpmux-attachment-failed`}
         aria-label={name}
+        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
@@ -230,6 +232,7 @@ function PendingChip({
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
       // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
       {...(chip.image && shape ? { "data-sized": "" } : {})}
+      {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
       {...(chip.preview && square ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
@@ -350,7 +353,6 @@ export function AttachmentChip({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoReading = useVideoReading(attachment.id);
   const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
@@ -531,12 +533,12 @@ export function AttachmentChip({
     return (
       <>
         {menu(
-          videoReading ? undefined : play,
+          play,
           <VideoAttachmentTile
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}
-            reading={!attachment.video && videoReading}
+            shape={chipVideoRatio(attachment)}
             remove={remove}
             onPlay={play}
             unplayable={videoPlayer.unplayable}
