@@ -7,7 +7,7 @@ import Testing
 
 /// https://github.com/manaflow-ai/cmux/issues/39956: at Default density the sidebar draws the Codex desktop sidebar's
 /// rows (30 pt, no gap, 8 pt content padding, 10 pt corner; measured in https://github.com/manaflow-ai/cmux/issues/28793),
-/// every other density keeps its own; one list is headed "Workspaces"; titles take a softer ink that still reads on
+/// every other density keeps its own; one list has no heading; titles take a softer ink that still reads on
 /// every fill; and the neutral fills are Codex's.
 @MainActor @Suite(.serialized)
 struct SidebarCodexMatchTests {
@@ -67,25 +67,26 @@ struct SidebarCodexMatchTests {
         }
     }
 
-    // MARK: The list heading
+    // MARK: No list heading
 
-    @Test func oneListIsHeadedWorkspaces() throws {
-        var o = SidebarLayoutOptions()
-        (o.flattensMachines, o.headsWorkspaceList) = (true, true)
-        let m = SidebarLayoutMetrics.standard
-        let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: m, options: o)
-        let heading = try #require(layout.rows.first)
-        #expect(heading.key == .listHeader(.workspaces))
-        let a = try #require(layout.row(for: .workspace(WorkspaceID("a"))))
-        #expect(a.y == heading.maxY + m.rowSpacing, "the first row follows the heading")
-        // Off, a filter, or nothing to head: no heading.
-        o.headsWorkspaceList = false
-        #expect(!SidebarLayout.make(sections: [Self.machine(["a"])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
-        o.headsWorkspaceList = true
-        o.filterMatches = [WorkspaceID("a")]
-        #expect(!SidebarLayout.make(sections: [Self.machine(["a"])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
-        o.filterMatches = nil
-        #expect(!SidebarLayout.make(sections: [Self.machine([])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
+    /// The default one list has no "Workspaces" heading (removed 2026-11-10): its first row starts at the top
+    /// padding, right under the top band (Home), and the rows below follow at the list's own pitch. Built from the
+    /// model's own options, as the sidebar lays out.
+    @Test(arguments: [DensityPreset.cozy, .compact, .comfortable])
+    func oneListHasNoHeading(_ density: DensityPreset) throws {
+        try Self.at(density) {
+            let model = SidebarModel(sections: [Self.machine(["a", "b"])])
+            let o = model.listOptions()
+            #expect(o.flattensMachines, "the default sidebar is one list")
+            let m = SidebarLayoutMetrics.standard
+            let layout = SidebarLayout.make(sections: model.sections, metrics: m, options: o)
+            #expect(!layout.rows.contains { if case .listHeader = $0.key { true } else { false } })
+            let first = try #require(layout.rows.first)
+            #expect(first.key == .workspace(WorkspaceID("a")), "the list starts with its first workspace")
+            #expect(first.y == m.topPadding, "no heading's height above the first row")
+            let b = try #require(layout.row(for: .workspace(WorkspaceID("b"))))
+            #expect(b.y == first.maxY + m.rowSpacing)
+        }
     }
 
     @Test func headingsAreTheRowSizeAtTheRegularWeight() {
