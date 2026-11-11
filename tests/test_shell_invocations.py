@@ -80,6 +80,122 @@ FIXTURES = [
 ]
 
 
+# Shell modes and wrappers (#40846 F1): bash runs each with `./sign.sh` an executable that logs `sign.sh` to a marker
+# file when it runs (an absolute path, so `env -i` and `exec -c` keep it), and `a` an executable on PATH. Fixture:
+# (script, whether bash runs sign.sh, whether must_run() may credit it). A mode that does not run the first operand
+# as a script is never certain; a fixture bash runs but the model calls uncertain must still be allowed by may_run.
+SCRIPT_FIXTURES = [
+    ("bash ./sign.sh", True, True),
+    ("bash -e ./sign.sh", True, True),
+    ("bash -eux ./sign.sh 2>/dev/null", True, True),
+    ("bash --noprofile --norc ./sign.sh", True, True),
+    ("bash -- ./sign.sh", True, True),
+    ("bash - ./sign.sh", True, True),
+    ("sh ./sign.sh", True, True),
+    ("bash -n ./sign.sh", False, False),
+    ("sh -n ./sign.sh", False, False),
+    ("bash -en ./sign.sh", False, False),
+    ("bash -s ./sign.sh </dev/null", False, False),
+    ("bash -s ./sign.sh <<'EOF'\nEOF", False, False),
+    ("bash -c ./sign.sh", True, False),
+    ("bash -c 'echo hi' ./sign.sh >/dev/null", False, False),
+    ("bash -i ./sign.sh 2>/dev/null", True, False),
+    ("bash --rcfile ./sign.sh </dev/null", False, False),
+    ("bash --rcfile ./sign.sh -i </dev/null 2>/dev/null", True, False),
+    ("bash --rcfile /dev/null ./sign.sh", True, False),
+    ("bash -o noexec ./sign.sh", False, False),
+    ("bash -o errexit ./sign.sh", True, False),
+    ("bash +o errexit ./sign.sh", True, False),
+    ("bash -eo noexec ./sign.sh", False, False),
+    ("bash -O extglob ./sign.sh", True, False),
+    ("bash <<'EOF'\n./sign.sh\nEOF", True, False),
+    ("echo ./sign.sh | bash", True, False),
+    ("env ./sign.sh", True, True),
+    ("env -i ./sign.sh", True, True),
+    ("env -u HOME X=1 ./sign.sh", True, True),
+    ("env -- ./sign.sh", True, True),
+    ("env --chdir=/ ./sign.sh 2>/dev/null", False, False),
+    ("env -C / ./sign.sh 2>/dev/null", False, False),
+    ("env -S './sign.sh'", True, False),
+    ("env bash -n ./sign.sh", False, False),
+    ("nice ./sign.sh", True, True),
+    ("nice -n 5 ./sign.sh", True, True),
+    ("nice -5 ./sign.sh", True, True),
+    ("nice -n 1 env ./sign.sh", True, True),
+    ("nohup ./sign.sh >/dev/null 2>&1", True, True),
+    ("nohup bash -n ./sign.sh >/dev/null 2>&1", False, False),
+    ("timeout 10 ./sign.sh", True, False),
+    ("timeout -s KILL -k 1 10 ./sign.sh", True, False),
+    ("timeout 10 bash -n ./sign.sh", False, False),
+    ("stdbuf -oL ./sign.sh", True, True),
+    ("setsid -w ./sign.sh", True, False),
+    ("command ./sign.sh", True, True),
+    ("command -v ./sign.sh >/dev/null", False, False),
+    ("command -V ./sign.sh >/dev/null", False, False),
+    ("time ./sign.sh 2>/dev/null", True, True),
+    ("time -p ./sign.sh 2>/dev/null", True, True),
+    ("builtin ./sign.sh 2>/dev/null", False, False),
+    ("a\nexec ./sign.sh", True, True),
+    ("exec -a renamed ./sign.sh", True, True),
+    ("exec -c ./sign.sh", True, True),
+    ("FLAGS=-n\nbash $FLAGS ./sign.sh", False, False),
+    ("FLAGS=-e\nbash $FLAGS ./sign.sh", True, False),
+]
+
+
+def run_with_marker(script: str) -> tuple[bool, set[str]]:
+    """Whether bash ran ./sign.sh, and the PATH stubs it ran."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        log = root / "ran"
+        log.touch()
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        for name, path in (("sign.sh", root / "sign.sh"), ("a", bin_dir / "a")):
+            path.write_text(f"#!/bin/sh\necho {name} >> '{log}'\n")
+            path.chmod(0o755)
+        environment = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"}
+        subprocess.run(["bash", "--noprofile", "--norc", "-c", script], cwd=root, env=environment,
+                       capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+        ran = set(log.read_text().split())
+        return "sign.sh" in ran, ran - {"sign.sh"}
+
+
+class ShellModesAndWrappersAgainstBash(unittest.TestCase):
+    def test_every_mode_is_certain_only_when_bash_runs_the_script(self) -> None:
+        for script, runs, credited in SCRIPT_FIXTURES:
+            with self.subTest(script):
+                ran, _ = run_with_marker(script)
+                self.assertEqual(ran, runs, f"the fixture is wrong about bash: {script!r}")
+                must = any(words[:1] == ["sign.sh"] for words in must_run(script))
+                if must:
+                    self.assertTrue(ran, f"must_run() credits ./sign.sh, which bash did not run: {script!r}")
+                if ran:
+                    self.assertTrue(may_run_program(script, "sign.sh"),
+                                    f"may_run() misses ./sign.sh, which bash ran: {script!r}")
+                self.assertEqual(must, credited, f"must_run() {'credits' if must else 'misses'} {script!r}")
+
+    def test_the_reviewer_cases(self) -> None:
+        # #40846 F1: neither runs the signer, so a certificate job with either is no signer step.
+        for script in ("bash -n scripts/ci/release-signer/sign-app.sh app",
+                       "bash -s scripts/ci/release-signer/sign-app.sh app"):
+            with self.subTest(script):
+                self.assertEqual(must_run(script), [])
+                self.assertTrue(may_run_program(script, "scripts/ci/release-signer/sign-app.sh"))
+
+    def test_wrappers_without_a_real_bash_fixture_are_never_certain(self) -> None:
+        # sudo may refuse or run as another user; ionice may be absent; neither is credited, but the program it
+        # names may run.
+        for script in ("sudo ./sign.sh", "sudo -n -u root -- ./sign.sh", "ionice -c 3 ./sign.sh"):
+            with self.subTest(script):
+                self.assertEqual(must_run(script), [])
+                self.assertTrue(may_run_program(script, "sign.sh"))
+        for script in ("sudo -s ./sign.sh", "sudo -i", "sudo --unknown ./sign.sh", "ionice -p 1 ./sign.sh"):
+            with self.subTest(script):
+                self.assertEqual(must_run(script), [])
+                self.assertTrue(may_run_program(script, "anything"))
+
+
 def stub_prelude(log: Path) -> str:
     return "".join(f'{name}() {{ echo {name} >> "{log}"; }}\n' for name in STUBS)
 
@@ -128,6 +244,7 @@ class AgainstBash(unittest.TestCase):
 
     def test_a_shell_running_a_script_reports_the_script(self) -> None:
         self.assertEqual(must_run("bash -e ./sign.sh app"), [["sign.sh", "app"]])
+        self.assertEqual(must_run("env X=1 nice -n 5 bash -e ./sign.sh app"), [["sign.sh", "app"]])
 
     def test_an_unlexable_script_may_run_anything_after_the_point_it_stopped(self) -> None:
         self.assertEqual(must_run("a\necho 'oops\nsign"), [["a"]])
