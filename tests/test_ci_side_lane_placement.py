@@ -1975,5 +1975,127 @@ class SingleHostRoute(unittest.TestCase):
                 self.assertEqual(lines["blacksmith_6_jobs"], " fast-tier swift-canary ")
 
 
+class AppFfiBuildPlacement(unittest.TestCase):
+    """app-ffi-release.yml's build takes the route a feat-cmux-next push's Release compile takes (PLACEMENT=promote).
+
+    On 2026-11-10 vars.CI_NEXT_PROMOTE_POOL was unset and every FFI build queued on blacksmith-6vcpu-macos-26
+    behind PR CI for 11 to 66 minutes, while feat-cmux-next stayed red until its re-pin landed. The build now
+    takes an idle promote runner, else a free Blacksmith slot (12 vCPU, then 6), never a side mini, and only the
+    fallback queue when the cascade places nothing. The placement step's env and the build's runs-on are
+    evaluated from the workflow itself, so a workflow edit reaches the test.
+    """
+
+    PROMOTE = "glaeda-promote-side-trusted-std-xcode-26.6"
+    LARGE = "blacksmith-12vcpu-macos-26"
+
+    def workflow(self) -> dict:
+        return yaml.safe_load((WORKFLOWS / "app-ffi-release.yml").read_text())
+
+    def context(self, *, promote: str, attempt: str = "1", event: str = "push") -> dict:
+        context = github_context(event, ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                 CI_NEXT_PROMOTE_POOL=promote)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
+        context["steps"] = {"route-token": {"outputs": {"token": "t"}}}
+        return context
+
+    def route(self, runners: list[dict], *, promote: str = "", free: tuple[int, int] = (5, 10), attempt: str = "1",
+              event: str = "push", ran: bool = True, queued: int = 0) -> tuple[str, dict[str, str]]:
+        """(the build's runs-on, the placement's outputs) for `runners` and `free` (12 vCPU, 6 vCPU) Blacksmith slots."""
+        workflow = self.workflow()
+        context = self.context(promote=promote, attempt=attempt, event=event)
+        step = next(step for step in workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
+        self.assertEqual(step["run"].strip(), "python3 scripts/ci/side_lane_placement.py")
+        values = {key: evaluate(value, context) if "${{" in str(value) else value for key, value in step["env"].items()}
+        values = {key: "" if value is None else str(value) for key, value in values.items()}
+        lines: dict[str, str] = {}
+        if ran:
+            cap = placement.cascade.CAPACITY
+            live = {label: cap[label] - slots for label, slots in zip((placement.cascade.LARGE, placement.cascade.SMALL), free)}
+            waiting = {label: queued if label == placement.cascade.SMALL else 0 for label in live}
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values.update(GITHUB_OUTPUT=str(output), GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_RUN_ATTEMPT=attempt)
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(live, waiting, None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        outputs = {key: evaluate(value, {**context, "steps": {"place": {"outcome": "success" if ran else "skipped",
+                                                                         "outputs": lines}}})
+                   for key, value in workflow["jobs"]["placement"]["outputs"].items()}
+        build = {**context, "needs": {"placement": {"outputs": {key: "" if value is None else str(value)
+                                                                for key, value in outputs.items()}}}}
+        return evaluate(workflow["jobs"]["build"]["runs-on"], build), lines
+
+    def test_an_idle_promote_runner_takes_the_build(self):
+        idle = runner("cmux14", labels=(self.PROMOTE,))
+        label, lines = self.route([idle, runner("mini-a-glaeda-3")], promote=self.PROMOTE)
+        self.assertEqual(label, self.PROMOTE)
+        self.assertNotIn("app-ffi-build", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
+
+    def test_no_promote_pool_takes_a_free_blacksmith_slot_never_an_idle_side_mini(self):
+        # The variable unset (2026-11-10), with an idle side mini: the side mini runs PR code, so it never
+        # takes a build whose artifact is published; the free 12 vCPU slot does.
+        label, lines = self.route([runner("mini-a-glaeda-3")], promote="")
+        self.assertEqual(label, self.LARGE)
+        self.assertEqual(lines["blacksmith_12_jobs"], " app-ffi-build ")
+        self.assertNotIn("app-ffi-build", lines.get("owned_jobs", ""))
+        self.assertEqual(lines["promote_runner"], "")
+
+    def test_a_busy_or_offline_promote_runner_takes_a_free_blacksmith_slot(self):
+        for why, promote in {"busy": runner("cmux14", busy=True, labels=(self.PROMOTE,)),
+                             "offline": runner("cmux14", status="offline", labels=(self.PROMOTE,))}.items():
+            with self.subTest(why=why):
+                label, lines = self.route([promote], promote=self.PROMOTE)
+                self.assertEqual(label, self.LARGE)
+                self.assertEqual(lines["promote_runner"], "")
+
+    def test_with_only_a_6_vcpu_slot_free_it_takes_that_slot(self):
+        busy = runner("cmux14", busy=True, labels=(self.PROMOTE,))
+        label, lines = self.route([busy], promote=self.PROMOTE, free=(0, 3))
+        self.assertEqual(label, FALLBACK)
+        self.assertEqual(lines["blacksmith_6_jobs"], " app-ffi-build ")
+
+    def test_no_free_slot_keeps_the_6_vcpu_fallback(self):
+        label, lines = self.route([], promote="", free=(0, 0))
+        self.assertEqual(label, FALLBACK)
+        self.assertEqual(lines["blacksmith_12_jobs"], "")
+
+    def test_a_busy_promote_pool_with_no_free_slot_keeps_the_promote_pool(self):
+        # 6 vCPU full and backed up past the overflow's backlog: the promote pool's queue holds only this build.
+        busy = runner("cmux14", busy=True, labels=(self.PROMOTE,))
+        label, lines = self.route([busy], promote=self.PROMOTE, free=(0, 0),
+                                  queued=placement.cascade.OVERFLOW_BACKLOG)
+        self.assertEqual(lines["promote_runner"], "")
+        self.assertEqual(label, self.PROMOTE)
+
+    def test_a_build_re_run_alone_never_reads_attempt_1s_placement(self):
+        # A re-run of the build alone keeps attempt 1's placement outputs (placed_attempt 1).
+        workflow = self.workflow()
+        context = self.context(promote=self.PROMOTE, attempt="2")
+        context["needs"] = {"placement": {"outputs": {"promote_runner": self.PROMOTE, "placed_attempt": "1",
+                                                      "blacksmith_12_jobs": " app-ffi-build ",
+                                                      "blacksmith_6_jobs": ""}}}
+        self.assertEqual(evaluate(workflow["jobs"]["build"]["runs-on"], context), FALLBACK)
+
+    def test_a_placement_that_did_not_run_keeps_the_earlier_route(self):
+        label, _ = self.route([], promote=self.PROMOTE, ran=False)
+        self.assertEqual(label, self.PROMOTE)
+        label, _ = self.route([], promote="", ran=False)
+        self.assertEqual(label, FALLBACK)
+
+    def test_a_re_run_never_takes_the_promote_pool(self):
+        idle = runner("cmux14", labels=(self.PROMOTE,))
+        label, lines = self.route([idle], promote=self.PROMOTE, attempt="2")
+        self.assertEqual(lines["promote_runner"], "")
+        self.assertNotEqual(label, self.PROMOTE)
+
+    def test_the_build_runs_whatever_the_placement_did(self):
+        build = self.workflow()["jobs"]["build"]
+        self.assertEqual(build["needs"], "placement")
+        self.assertIn("!cancelled()", build["if"])
+
+
 if __name__ == "__main__":
     unittest.main()

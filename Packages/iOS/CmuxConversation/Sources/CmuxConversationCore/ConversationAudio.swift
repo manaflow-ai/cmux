@@ -206,6 +206,8 @@ public final class ConversationAudioRecorder: NSObject {
             replay = try ConversationWAV.decode(contentsOf: url)
         }
         replayOffset = 0
+        // Cancelled while the permission prompt was up: never open the microphone.
+        try Task.checkCancellation()
         try beginSegment()
     }
 

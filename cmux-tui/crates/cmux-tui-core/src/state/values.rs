@@ -12,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 
 use super::store::resource_upsert;
+use super::workspace_extras::workspace_extras;
 use crate::resource::SessionPublicId;
 use crate::workspace_registry::resource_store::{load_resource_topology, load_tab_with_focus};
 use crate::workspace_registry::{meta_value, required_meta};
@@ -31,113 +32,14 @@ fn merge_extra(value: &mut Value, fields: Map<String, Value>) {
     }
 }
 
+/// The state fields of one workspace: the batch read with one id, so a value has the same fields
+/// however it is decorated.
 fn workspace_extra(
     connection: &Connection,
     workspace_id: &str,
 ) -> anyhow::Result<Map<String, Value>> {
-    let mut fields = Map::new();
-    let presentation = connection
-        .query_row(
-            "SELECT p.title, p.color, p.icon, p.description, p.task_status
-             FROM resource_workspaces AS rw
-             JOIN workspace_presentation AS p ON p.workspace_key = rw.workspace_key
-             WHERE rw.public_id = ?1",
-            [workspace_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )
-        .optional()?;
-    if let Some((title, color, icon, description, task_status)) = presentation {
-        // `workspace-description-v1` and `workspace-status-v1`: absent until set.
-        let fields_of = [
-            ("title", title),
-            ("color", color),
-            ("icon", icon),
-            ("description", description),
-            ("task_status", task_status),
-        ];
-        for (name, value) in fields_of {
-            if let Some(value) = value {
-                fields.insert(name.into(), json!(value));
-            }
-        }
-    }
-    let ephemeral = connection
-        .query_row(
-            "SELECT ephemeral FROM workspace_state WHERE workspace_id = ?1",
-            [workspace_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        .is_some_and(|value| value != 0);
-    if ephemeral {
-        fields.insert("ephemeral".into(), json!(true));
-    }
-    // `workspace-kind-v1`: absent for a normal workspace.
-    if let Some((kind, app)) = super::home_store::workspace_kind(connection, workspace_id)? {
-        fields.insert("kind".into(), json!(kind));
-        // `app-screens-v1`: the app of an app workspace.
-        if let Some(app) = app {
-            fields.insert("app".into(), json!(app));
-        }
-    }
-    // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: absent until the user chose one.
-    if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
-        fields.insert("agent_folder".into(), json!(path));
-    }
-    workspace_name_extra(connection, workspace_id, &mut fields)?;
-    // The workspace's key: what its terminals and agent chats carry as
-    // `CMUX_WORKSPACE_ID` (cx-ncc.96: `cmux agents chat` scopes chats by it).
-    let key = connection
-        .query_row(
-            "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
-            [workspace_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(key) = key {
-        // `workspace-created-by-v1`: absent for a workspace made before it.
-        if let Some(created_by) = super::created_by::snapshot(connection, &key)? {
-            fields.insert("created_by".into(), created_by);
-        }
-        fields.insert("key".into(), json!(key));
-    }
-    Ok(fields)
-}
-
-/// `workspace-name-source-v1`: who chose the name and its revision (a
-/// decimal string, like a tab's), read from the one stored row.
-fn workspace_name_extra(
-    connection: &Connection,
-    workspace_id: &str,
-    fields: &mut Map<String, Value>,
-) -> anyhow::Result<()> {
-    let provenance = connection
-        .query_row(
-            "SELECT w.name_source, w.name_revision
-             FROM resource_workspaces AS rw
-             JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
-             WHERE rw.public_id = ?1",
-            [workspace_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?;
-    if let Some((source, revision)) = provenance {
-        let (source, revision) =
-            crate::workspace_registry::workspace_name_store::stored_name_provenance(
-                &source, revision,
-            )?;
-        fields.insert("name_source".into(), json!(source));
-        fields.insert("name_revision".into(), json!(revision.to_string()));
-    }
-    Ok(())
+    let mut extras = workspace_extras(connection, &[workspace_id])?;
+    Ok(extras.remove(workspace_id).unwrap_or_default())
 }
 
 fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String, Value>> {
@@ -312,18 +214,41 @@ pub(crate) fn decorate_value(
     Ok(())
 }
 
-/// Decorate every ordinary upsert of a change batch.
+/// `change` is an upsert of a `resource` value.
+fn is_upsert_of(change: &Value, resource: &str) -> bool {
+    let field = |name: &str| change.get(name).and_then(Value::as_str);
+    field("kind") == Some("upsert") && field("resource") == Some(resource)
+}
+
+/// Decorate every ordinary upsert of a change batch. The workspace upserts are read together, with
+/// a fixed number of statements for all of them (`state/workspace_extras.rs`): a close states each
+/// workspace after the closed one again.
 pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> anyhow::Result<()> {
     let Some(changes) = changes.as_array_mut() else { return Ok(()) };
     if !super::store::state_tables_ready(connection)? {
         return Ok(());
     }
+    let workspaces = {
+        let ids = changes
+            .iter()
+            .filter(|change| is_upsert_of(change, "workspace"))
+            .filter_map(|change| change.get("value")?.get("id")?.as_str())
+            .collect::<Vec<_>>();
+        workspace_extras(connection, &ids)?
+    };
     for change in changes {
         if change["kind"] != "upsert" {
             continue;
         }
         let resource = change["resource"].as_str().unwrap_or_default().to_string();
-        if let Some(value) = change.get_mut("value") {
+        let Some(value) = change.get_mut("value") else { continue };
+        if resource == "workspace" {
+            let id = value.get("id").and_then(Value::as_str);
+            let fields = id.and_then(|id| workspaces.get(id)).cloned();
+            if let Some(fields) = fields {
+                merge_extra(value, fields);
+            }
+        } else {
             decorate_value(connection, &resource, value)?;
         }
     }

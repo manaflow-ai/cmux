@@ -448,7 +448,7 @@ jobs:
           TARGET: staging
         run: |
           set -euo pipefail
-          # "not run" is a pass for cloud-journey-ci.sh; here it would promote an unproven relay.
+          # cloud-journey-ci.sh fails on an empty pair too; this names what it holds back.
           if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
             echo "::error title=Relay staging gate::environment cmux-next-vm-image-dev has no CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD; production is not deployed"
             exit 1
