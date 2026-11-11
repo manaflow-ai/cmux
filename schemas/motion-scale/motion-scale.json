@@ -11,9 +11,9 @@
     "for": "one turn of every spinner, app and pages alike: a calm turn, the reference spinner's (Leo 2026-11-07: \"Let's have all our spinners go at that speed.\")"
   },
   "send": {
-    "ms": 180,
+    "ms": 0,
     "ease": [0.16, 1, 0.3, 1],
-    "for": "a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: \"it's all just one unified motion\"), on the standard step's 180 ms like the settle (Leo 2026-11-09: \"the animations end to end need to just resolve faster\"); scaled with the move step by ui.animationSpeed"
+    "for": "a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: \"that slow settle animation is just so bad. Like, just do it.\"); 0 at every ui.animationSpeed"
   },
   "easeOut": [0, 0, 0.58, 1],
   "spring": {

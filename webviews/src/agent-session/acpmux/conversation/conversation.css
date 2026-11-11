@@ -5660,6 +5660,9 @@ a.cv-sha:focus-visible {
  * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
  * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
  * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
+ * The scale's send step is 0 today (Leo 2026-11-11: "that slow settle animation is just so bad.
+ * Like, just do it."), Reduce Motion included: the bubble, the thinking row and the thread are in
+ * place in the frame the composer empties; these rules play only for a page that sets the token.
  * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
  * on an ancestor); the product's is `reveal`. */
 @keyframes cv-send-reveal {
