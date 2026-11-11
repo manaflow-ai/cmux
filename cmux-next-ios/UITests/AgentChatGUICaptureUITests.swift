@@ -96,7 +96,12 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 // Expanded (96 pt) with the keyboard, then the keyboard goes down with no draft:
                 // the composer collapses to its capsule, and the transcript's dock must follow it.
                 self.openComposer(app)
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+                // The composer's own swipe-down takes the keyboard (a tap on the transcript
+                // could open a row's card instead).
+                let field = app.textViews["chat.composer.field"].firstMatch
+                let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)))
+                XCTAssertTrue(app.navigationBars.buttons["More"].firstMatch.exists, "still on the chat (\(look))")
                 let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
                 XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "the keyboard went down (\(look))")
                 self.pause(2)
