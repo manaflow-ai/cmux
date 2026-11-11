@@ -966,7 +966,7 @@
 .wn-goback {
   position: sticky;
   bottom: 0;
-  z-index: 1;
+  z-index: var(--layer-raised);
   margin-top: var(--ds-space-2);
   padding: var(--ds-space-2) var(--ds-space-2) 0;
   border-top: 1px solid var(--page-separator);

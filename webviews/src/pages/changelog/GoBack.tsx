@@ -54,7 +54,10 @@ export function GoBack({
   useEffect(() => {
     if (!shown || builds || fixedBuilds || !actions.builds) return;
     let live = true;
-    void actions.builds().then((rows) => live && setBuilds(rows), () => live && setBuilds([]));
+    void actions.builds().then(
+      (rows) => live && setBuilds(rows),
+      () => live && setBuilds([]),
+    );
     return () => {
       live = false;
     };
@@ -77,7 +80,14 @@ export function GoBack({
       title={goBack.kept ? strings.t("updates.goBack.keptHelp") : strings.t("updates.goBack.downloadHelp")}
     >
       <svg className="wn-goback-glyph" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-        <path d="M4.5 3 2 5.5 4.5 8M2.4 5.5h4.6a3 3 0 0 1 0 6H6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M4.5 3 2 5.5 4.5 8M2.4 5.5h4.6a3 3 0 0 1 0 6H6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
       <span className="wn-goback-label">
         {busy && now.build === undefined ? strings.t("updates.goBack.going") : goBack.title}
@@ -85,21 +95,21 @@ export function GoBack({
     </button>
   ) : null;
   const disclosure = look !== "list" && actions.builds && (
-    <button
-      type="button"
-      className="wn-goback-more"
-      aria-expanded={shown}
-      onClick={() => setOpen(!shown)}
-    >
+    <button type="button" className="wn-goback-more" aria-expanded={shown} onClick={() => setOpen(!shown)}>
       {strings.t("updates.goBack.otherBuilds")}
-      <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" data-open={shown ? "" : undefined}>
+      <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" data-open={shown ? "" : undefined}>
         <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
     </button>
   );
   return (
     <section className="wn-goback" data-look={look} aria-label={strings.t("updates.goBack.section")}>
-      {look === "header" ? null : <div className="wn-goback-row">{entry}{disclosure}</div>}
+      {look === "header" ? null : (
+        <div className="wn-goback-row">
+          {entry}
+          {disclosure}
+        </div>
+      )}
       {now.kind === "failed" && (
         <p className="wn-goback-failure" role="alert">
           {now.message}
@@ -137,7 +147,12 @@ export function GoBackHeaderLink({
 }) {
   if (!goBack || !actions.goBack) return null;
   return (
-    <button type="button" className="wn-notes-whatsnew wn-goback-headlink" onClick={() => void actions.goBack!()} title={goBack.title}>
+    <button
+      type="button"
+      className="wn-notes-whatsnew wn-goback-headlink"
+      onClick={() => void actions.goBack!()}
+      title={goBack.title}
+    >
       {strings.t("updates.goBack.short")}
     </button>
   );
@@ -166,7 +181,11 @@ function BuildRow({
         ? strings.t("updates.goBack.kept")
         : null;
   return (
-    <li className="wn-goback-build" data-installed={row.installed ? "" : undefined} data-previous={previous ? "" : undefined}>
+    <li
+      className="wn-goback-build"
+      data-installed={row.installed ? "" : undefined}
+      data-previous={previous ? "" : undefined}
+    >
       <div className="wn-goback-build-head">
         <span className="wn-goback-build-name">{cardVersion(row.version)}</span>
         <span className="wn-goback-build-date">{buildDay(row.date, strings.language)}</span>
