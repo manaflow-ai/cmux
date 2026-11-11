@@ -162,6 +162,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
+      # and .github/ (an allowlist with reasons that only shrinks).
+      - name: Validate no guessable shared-temp names
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_noclobber_sweep.py
+
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -1581,6 +1587,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
 
+      # The rule reads main's scripts/ci/delivery_workflows.py, as the workflow does.
+      - name: Validate the nightly-next supersede drops an older run that holds the tip's group and never started
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scripts/ci/delivery_workflows.py > "$RUNNER_TEMP/delivery_workflows.py"
+          NIGHTLY_RULES_PY="$RUNNER_TEMP/delivery_workflows.py" python3 tests/test_nightly_next_supersede.py
+
       - name: Validate the run artifact download waits through a refused GitHub call
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact_retries.py
@@ -1900,6 +1915,14 @@ jobs:
       - name: Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_owned_minis_only.py
+
+      - name: Validate the nightly runner preflight fails a run whose routing label has no online runner
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_runner_preflight.py
+
+      - name: Validate every App token step names only inputs the action declares, and some permission
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_steps.py
 
       - name: Validate nightly-next signs and publishes on cmux15 first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
