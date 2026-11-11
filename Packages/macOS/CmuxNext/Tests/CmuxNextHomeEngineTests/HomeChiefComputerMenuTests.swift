@@ -3,7 +3,7 @@ import Testing
 
 /// The card's Computer picker: this Chief's computer and This Mac first, the account's other
 /// machines under a heading, tooling's own machines out of the list.
-@Suite struct HomeChiefComputerMenuTests {
+@MainActor @Suite struct HomeChiefComputerMenuTests {
     private typealias Row = HomeChiefComputerMenu.Row
     private let thisMac = Row.computer(title: HomeEngineStrings.computerThisMac, target: nil)
     private let others = Row.heading(HomeEngineStrings.computerOthers)
