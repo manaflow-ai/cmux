@@ -1,10 +1,12 @@
 //! The folders a push makes on the machine, and what it knows of them without asking.
 //!
-//! A folder this push made was empty when it was made, and nothing else writes into a
-//! push's folder while it runs: what is inside it is what this push put there. So a
-//! folder below one this push made needs no `fs.stat` (nothing can be in the way), no
-//! `fs.list` (it holds nothing yet) and no symlink check, and it can be made later, with
-//! the other new folders, several at once ([`make`]). Before this, a copy into a new
+//! A folder this push made was empty when it was made, so a folder below it needs no
+//! `fs.stat` and no `fs.list` (it holds nothing of the machine's yet), and it can be made
+//! later, with the other new folders, several at once ([`make`]). The machine is not
+//! trusted: it could swap one of them for a symlink while the push runs. So this holds only
+//! with no-follow writes (`fs-write-nofollow-v1`), where the machine refuses any write
+//! whose path has a symlink in it; a push without them asks as before and
+//! [`Folders::mark_made`] is never called. Before this, a copy into a new
 //! folder asked the machine three to five questions one after another for each of its
 //! folders before it wrote its first file: 4,706 folders of a cmux checkout sat at
 //! "0 of 46,516 files" for over twenty minutes on a Cloud link.
@@ -17,8 +19,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use super::remote::{self, Remote};
 
 /// The folders a push made or found, and the ones it still has to make.
-#[derive(Default)]
 pub(super) struct Folders {
+    /// The machine refuses writes through a symlink (no-follow writes): only then is a
+    /// folder this push made taken as holding nothing of the machine's.
+    trusted: bool,
     /// Made by this push (now or in [`Self::waiting`]): empty when made.
     made: BTreeSet<String>,
     /// Found on the machine as folders.
@@ -28,10 +32,20 @@ pub(super) struct Folders {
 }
 
 impl Folders {
+    /// `no_follow`: the machine takes no-follow writes ([`Remote::no_follow`]).
+    pub(super) fn new(no_follow: bool) -> Self {
+        Self {
+            trusted: no_follow,
+            made: BTreeSet::new(),
+            found: BTreeSet::new(),
+            waiting: Vec::new(),
+        }
+    }
+
     /// Whether `folder` is one this push made, or is below one: nothing of the machine's is
     /// in it or on the way to it below that folder.
     pub(super) fn ours(&self, folder: &str) -> bool {
-        self.made_above(folder).is_some()
+        self.trusted && self.made_above(folder).is_some()
     }
 
     /// The folders from `folder` up to (not with) the nearest one this push made, `folder`
@@ -62,7 +76,7 @@ impl Folders {
         if self.made.contains(folder) || self.found.contains(folder) {
             return Ok(());
         }
-        if let Some(below) = self.made_above(folder) {
+        if let Some(below) = self.made_above(folder).filter(|_| self.trusted) {
             // Parents first, so [`make`] makes each after the folder it is in.
             for missing in below.into_iter().rev() {
                 self.made.insert(missing.to_owned());
@@ -76,7 +90,7 @@ impl Folders {
         }
         let (parent, name) = remote::split(folder)?;
         self.ensure(remote, parent)?;
-        if self.made.contains(parent) {
+        if self.trusted && self.made.contains(parent) {
             // Its parent was made (or waits): it waits too, after it.
             self.made.insert(folder.to_owned());
             self.waiting.push(folder.to_owned());

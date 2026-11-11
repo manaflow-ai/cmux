@@ -215,8 +215,6 @@ struct Job {
     /// What is at the target, from its folder's listing, when every write
     /// is no-follow; None: asked right before the write.
     found: Option<Option<String>>,
-    /// In a folder this push made ([`folders`]): nothing of the machine's is on the way.
-    ours: bool,
 }
 
 /// What a push needs to save its record partway.
@@ -401,7 +399,7 @@ fn write_checked(
         return write_found(remote, &job.target, found.as_deref(), &job.file, &mut ignored);
     }
     let (parent, _) = remote::split(&job.target)?;
-    if !job.ours && through_link(remote, remote_root, parent, seen)? {
+    if through_link(remote, remote_root, parent, seen)? {
         return Err(LinkInTheWay.into());
     }
     write_with_progress(remote, &job.target, &job.file, &mut ignored)
@@ -770,8 +768,7 @@ pub(super) fn copy_folder_with_progress(
             remote.mkdir_all(parent)?;
         }
         let bytes = size(&file)?;
-        let job =
-            Job { relative, target: at, file, sha256: String::new(), bytes, found: None, ours: false };
+        let job = Job { relative, target: at, file, sha256: String::new(), bytes, found: None };
         if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
     }
     let mut written = 0u64;
@@ -1114,10 +1111,12 @@ fn push_inner(
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect_negotiated(socket)?;
-    // A folder this push makes holds nothing of the machine's ([`folders`]).
-    let fresh = remote.kind(remote_root)?.is_none();
+    // A folder this push makes holds nothing of the machine's ([`folders`]), as long
+    // as the machine refuses a write through a symlink swapped in since: with
+    // no-follow writes it does, and nothing in such a folder is asked about.
+    let fresh = remote.no_follow() && remote.kind(remote_root)?.is_none();
     remote.mkdir_all(remote_root)?;
-    let mut folders = folders::Folders::default();
+    let mut folders = folders::Folders::new(remote.no_follow());
     if fresh {
         folders.mark_made(remote_root);
     }
@@ -1248,8 +1247,8 @@ fn push_inner(
             tally.unchanged(relative, pushed, bytes);
             continue;
         }
-        // Inside a folder this push made, nothing of the machine's is in the
-        // way, and nothing is there yet ([`folders`]): no question to ask.
+        // Inside a folder this push made (only with no-follow writes), nothing
+        // of the machine's is there yet ([`folders`]): no question to ask.
         let ours = folders.ours(parent);
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
@@ -1269,7 +1268,7 @@ fn push_inner(
         };
         folders.ensure(&mut remote, parent)?;
         let job =
-            Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found, ours };
+            Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
         if via_store {
             deferred.push(job);
         } else if bytes > ALONE_BYTES {
