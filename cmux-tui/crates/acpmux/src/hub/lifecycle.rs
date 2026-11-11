@@ -1639,6 +1639,14 @@ impl Hub {
         }
     }
 
+    /// How many requests wait on the agent of the session `key` now; None when it has none
+    /// running.
+    pub async fn agent_pending_requests(&self, key: &str) -> Option<usize> {
+        let session = self.resolve(key).ok()?;
+        let child = session.child.lock().await.clone()?;
+        Some(child.pending_requests().await)
+    }
+
     pub(super) async fn child_for(
         self: &Arc<Self>,
         session: &Arc<Session>,

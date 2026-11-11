@@ -1269,6 +1269,11 @@ impl ChildAgent {
         self.ended_on_purpose.load(Ordering::SeqCst)
     }
 
+    /// How many requests wait on this agent's answer now (as `Peer::pending_requests`).
+    pub async fn pending_requests(&self) -> usize {
+        self.pending.lock().await.map.len()
+    }
+
     /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
     /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
     pub async fn fail_pending(&self) {
