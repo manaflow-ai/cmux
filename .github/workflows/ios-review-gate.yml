@@ -318,7 +318,8 @@ jobs:
             -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
             CMUX_MOBILE_APPLE_SIGN_IN=YES \
-            build-for-testing 2>&1 | tee "$RESULTS/build.log" | grep -E 'error:|BUILD' || true
+            build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
+          # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
       - name: Walk the reviewer path on each device
         run: |
@@ -493,8 +494,9 @@ jobs:
           done
           while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
           if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
-          python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}"
-          code=$?
+          # Actions runs `bash -e`: take the verdict's status without exiting.
+          code=0
+          python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || code=$?
           echo "blocking=$(grep -oE '[0-9]+ blocking' review-gate.md | head -n1 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           if [ "$code" -ne 0 ] && [ "$ADVISORY" = true ]; then
             # The verdict judges the whole app at this commit, not the change
