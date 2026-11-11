@@ -1,26 +1,32 @@
-import AppKit
+public import AppKit
 
 /// Repaints a view when its window becomes or resigns key, so a keyboard-focus
 /// tint or ring shows only in the key window, as AppKit's focus ring did
-/// (cx-wqn5). Block observers on `queue: .main` (see `PointerHover`'s
+/// (cx-wqn5), and an app scene's progress bar fills grey in a window that is not key. Block observers on `queue: .main` (see `PointerHover`'s
 /// `KeyWindowObserver`, #18771).
 @MainActor
-final class KeyWindowRepaint {
+public final class KeyWindowRepaint {
     private weak var view: NSView?
     private var tokens: [any NSObjectProtocol] = []
 
-    init(_ view: NSView) {
+    /// Creates the repaint for `view`; it observes nothing until ``track()``.
+    /// - Parameter view: The view to mark for display; held weakly.
+    public init(_ view: NSView) {
         self.view = view
     }
 
     /// Whether a view with keyboard focus shows it: its window is key (or it
     /// has no window yet, which draws nothing).
-    static func showsFocus(_ view: NSView, focused: Bool) -> Bool {
+    /// - Parameters:
+    ///   - view: The focused view.
+    ///   - focused: Whether it has keyboard focus.
+    /// - Returns: Whether to draw its focus.
+    public static func showsFocus(_ view: NSView, focused: Bool) -> Bool {
         focused && (view.window?.isKeyWindow ?? true)
     }
 
     /// Call from the view's `viewDidMoveToWindow()`.
-    func track() {
+    public func track() {
         for token in tokens { NotificationCenter.default.removeObserver(token) }
         tokens = []
         guard let window = view?.window else { return }
