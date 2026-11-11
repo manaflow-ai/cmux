@@ -300,9 +300,6 @@ public final class TabStripView: NSView {
             if opensNewTabMenuOnPress { showNewTabMenu() }
             else { model.send(.newTab(after: nil)) }
         }
-        // The split look's two segments tint together: either one under the pointer gives the other its soft fill.
-        newTabButton.onHoverChange = { [weak newTabMenuButton] hovering in newTabMenuButton?.siblingHovered = hovering }
-        newTabMenuButton.onHoverChange = { [weak newTabButton] hovering in newTabButton?.siblingHovered = hovering }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)

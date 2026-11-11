@@ -16,8 +16,8 @@ public nonisolated enum TabTrailingButtons: String, Sendable, CaseIterable, Tuna
     /// `glyphs` without the ⌄: the + and the ⋮ only (the ⋮ menu and the +'s hold and right-click keep the pane types).
     case merged
     /// cmux classic's split button (Lucas 2026-11-11, a shot of classic's `+ ⌄`): the + and a narrower ⌄ side by
-    /// side as one rounded control; under the pointer both segments take a soft fill and the hovered one the hover
-    /// fill (the default).
+    /// side as one control with a button's corner and a fill at rest; the hovered segment's fill rises (Lucas
+    /// 2026-11-12, a + in a filled rounded square). The default.
     case split
 
     public var tunableTitle: String {

@@ -14,7 +14,6 @@ final class NewTabButtonView: NSView {
         didSet {
             guard oldValue != isHovered else { return }
             updateColors(animated: true)
-            onHoverChange?(isHovered)
             if isHovered {
                 if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
             }
@@ -30,16 +29,10 @@ final class NewTabButtonView: NSView {
         didSet { if oldValue != hoverStyle { needsLayout = true; updateColors(animated: false) } }
     }
     /// The + is the leading segment of the split look's `+ ⌄` (``TabTrailingButtons/split``): its fill spans its
-    /// frame with the group's leading corners rounded, and shows softly while the ⌄ is hovered.
+    /// frame with the group's leading corners rounded (``splitCornerRadius``) and shows at rest (``splitFill``).
     var splitSegment = false {
         didSet { if oldValue != splitSegment { needsLayout = true; updateColors(animated: false) } }
     }
-    /// The ⌄ beside it is under the pointer (the split look's shared hover).
-    var siblingHovered = false {
-        didSet { if oldValue != siblingHovered { updateColors(animated: true) } }
-    }
-    /// The pointer came onto (true) or left (false) the +.
-    var onHoverChange: ((Bool) -> Void)?
     /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
     /// shows at once; the tooltip draws it after its text.
     var shortcut: (() -> String?)?
@@ -94,7 +87,8 @@ final class NewTabButtonView: NSView {
         fillLayer.frame = split ? square : showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
         // A circle in the circles look, one diameter with the ⌄ and the ⋮; else the tabs' shape. The split look
         // rounds only the group's leading corners: the ⌄ beside it rounds the trailing ones.
-        fillLayer.cornerRadius = hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius
+        fillLayer.cornerRadius = split ? Self.splitCornerRadius
+            : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius
         fillLayer.maskedCorners = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : Self.allCorners
         glyphLayer.frame = bounds
         // The add buttons' one + (`Metrics.addGlyphExtent`), the sidebar's New Workspace size.
@@ -142,7 +136,7 @@ final class NewTabButtonView: NSView {
                 // New-tab is a plain glyph action. Its hover/press state is carried by the glyph,
                 // never by a rounded plate behind the +; the circles look adds one circle. Its own menu holds the pressed state.
                 fillLayer.backgroundColor = splitSegment && !showsChevron
-                    ? Self.splitFill(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered)?.cgColor
+                    ? Self.splitFill(hovering: hovering, pressed: pressed).cgColor
                     : hoverStyle == .circle ? ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor : nil
                 glyphLayer.strokeColor = Self.glyphInk(hovering: hovering, pressed: pressed).cgColor
                 glyphLayer.lineWidth = Self.glyphLineWidth(pressed: pressed)
@@ -163,13 +157,16 @@ final class NewTabButtonView: NSView {
 
     static let allCorners: CACornerMask = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
 
-    /// A split segment's fill (cmux classic's): the hover fill under the pointer or the pressed fill while held, half
-    /// the hover fill while the other segment is hovered, else none. Call inside the view's theme scope.
-    static func splitFill(hovering: Bool, pressed: Bool, siblingHovered: Bool) -> NSColor? {
-        if hovering || pressed { return ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed)) }
-        guard siblingHovered else { return nil }
-        return ChromeHover.fillColor(.init(hovering: true)).map { $0.withAlphaComponent($0.alphaComponent / 2) }
+    /// A split segment's fill: the hover fill at rest, as a resting tile's (Lucas 2026-11-12, a shot of a + in a filled
+    /// rounded square), the raised hover fill under the pointer, the pressed fill while held. Call inside the view's
+    /// theme scope.
+    static func splitFill(hovering: Bool, pressed: Bool) -> NSColor {
+        ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed), rest: Palette.hoverFill) ?? Palette.hoverFill
     }
+
+    /// The split control's corner: a button's (``Metrics/controlCornerRadius``), not the tab's, so the `+ ⌄` reads as
+    /// a rounded square pair, not a pill (Lucas 2026-11-12: "as a pill but that rounding").
+    static var splitCornerRadius: CGFloat { Metrics.controlCornerRadius }
 
     /// The trailing controls' glyph ink: secondary at rest, primary on hover, the lit ink while pressed or while its
     /// menu is open. The ⌄ beside the + draws with it too. Call inside the view's theme scope.
