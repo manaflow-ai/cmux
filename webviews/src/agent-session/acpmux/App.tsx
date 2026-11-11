@@ -151,6 +151,7 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { liveAsk } from "./liveAsk";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
 import {
@@ -1808,10 +1809,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
     () =>
-      applySwitch(
-        catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-        switchView,
-        catalog,
+      liveAsk(
+        applySwitch(
+          catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+          switchView,
+          catalog,
+        ),
       ),
     [clientSnapshot, switchView, catalog],
   );
