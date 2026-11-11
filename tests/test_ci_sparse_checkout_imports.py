@@ -2074,6 +2074,9 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     # Review of #41088: a compound command's own redirection failing is not a status ! inverts:
     # bash takes the || branch here.
     ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", None),
+    # the generator's finds at a2a71b13 (the same tree as 338d1230), the same class
+    ("while false; do set +e; done ; : > /\n! set +e || ! { exit 1; } > / || cd lib\n( set -e ) > /dev/null\npython3 x", False, "x", None),  # seed 42021
+    ("! true || cd missing > / && { exit\n}\n! { if ! set -e; then { true && set +e; } > / && ! while false; do : > /; done\nfi > /dev/null ; exit 1\n} > / || ! set +e || ! cd ..\npython3 x", True, "x", None),  # seed 66672
     # Outside the grammar: the directory is unknown from there on.
     ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
     ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
