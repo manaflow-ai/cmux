@@ -367,7 +367,7 @@ def refusal(reply):
     """The error of a reply: its code, and its text with each absolute path cut out (the data
     is generated; a path would name the host's folders)."""
     error = reply.get("error") or {}
-    text = re.sub(r"(?<![\w.])/[\w.\-]+(?:/[\w.\- ]+)*", "<path>",
+    text = re.sub(r"(?<![\w.])/[\w.\-]+(?:/[\w.\-]+)+", "<path>",
                   str(error.get("message") or ""))
     return {"error": str(error.get("code")), "message": text[:400]}
 
