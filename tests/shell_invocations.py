@@ -13,6 +13,12 @@ A caller asks one of two questions and the two fail closed in opposite direction
   shell, eval of a variable, a sourced file). Use it where a script is blamed for what a command may do
   (tests/test_ci_release_publish_tag_gate.py: "may this publish"), and count [] as yes.
 - gh_api_request(args): the method and endpoint `gh api` sends, read the way gh reads its flags.
+- first_operand(args, options): where a tool's subcommand is, read with its option grammar, so an option's value is
+  never taken for a subcommand.
+
+What an expansion's body runs (`${..}`, `$((..))`, an array subscript, an unquoted heredoc body) is read by the
+shared parser tests/shell_tree.py, to any depth; a body it cannot read stops the lexer, so what follows may run
+anything.
 
 An Invocation is `certain` only when nothing in or before the simple command is beyond this lexer: a command or
 process substitution (`$(..)`, backticks, `<(..)`), an arithmetic or parameter expansion in its program word, a
@@ -35,6 +41,8 @@ from __future__ import annotations
 
 import re
 from typing import NamedTuple
+
+import shell_tree  # the shared parser (tests/shell_tree.py): what an expansion's body runs is read from its tree
 
 # Longest first: the first operator in this list that matches at a position is the one read there.
 _OPERATORS = ("<<<", "<<-", "<<", "<&", "<>", "<", ">>", "&>>", "&>", ">&", ">|", ">", "&&", "&", "||", "|&", "|",
@@ -194,34 +202,65 @@ def _backtick_close(text: str, index: int) -> int | None:
     return None
 
 
-def _body_subs(body: str) -> list[str] | None:
-    """The scripts of the `$(..)` and backtick substitutions an unquoted heredoc body expands; None if one is
-    unfinished."""
-    found = []
-    i = 0
-    while i < len(body):
-        if body[i] == "\\":
-            i += 2
-        elif body.startswith("$((", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
+def _backtick_script(body: str) -> str:
+    """The script a backtick substitution runs: inside backticks a backslash before $, ` or another backslash is
+    removed first, so `` `echo \\$(a)` `` runs $(a)."""
+    return re.sub(r"\\([$`\\])", r"\1", body)
+
+
+def _tree_subs(source: str, words: list) -> list[str] | None:
+    """The scripts of the command and process substitutions in WORDS (shell_tree Words of SOURCE), at any depth of
+    parameter expansion, arithmetic and array subscript; one inside another is in its outer script. None when a
+    ${..@P} (prompt expansion, which runs the substitutions in a variable's value) is among them."""
+    found: list[str] = []
+    for word in words:
+        if word is None:
+            continue
+        for part in _expansions(word.parts):
+            if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
                 return None
-            i = end
-        elif body.startswith("$(", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
-                return None
-            found.append(body[i + 2:end - 1])
-            i = end
-        elif body[i] == "`":
-            end = _backtick_close(body, i)
-            if end is None:
-                return None
-            found.append(body[i + 1:end - 1])
-            i = end
-        else:
-            i += 1
+        for sub in shell_tree.subs(word.parts):
+            if sub.form == "`":
+                found.append(_backtick_script(source[sub.start + 1:sub.end - 1]))
+            else:
+                found.append(source[sub.start + 2:sub.end - 1])
     return found
+
+
+def _expansions(parts: list):
+    for part in parts:
+        if isinstance(part, (shell_tree.Param, shell_tree.Arith)):
+            yield part
+            yield from _expansions(part.parts)
+
+
+def _expansion_subs(text: str, in_double: bool) -> list[str] | None:
+    """The scripts of the substitutions a `${..}` or `$((..))` expansion (TEXT, whole) runs, read by shell_tree in
+    the quoting it is in (inside double quotes a ${ }'s single quote is literal). None when shell_tree cannot read
+    it: the caller then stops, so whatever follows may run anything (fail closed)."""
+    source = f'"{text}"' if in_double else text
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    if len(script.commands) != 1 or len(script.commands[0].words) != 1 or script.commands[0].redirects:
+        return None
+    return _tree_subs(source, script.commands[0].words)
+
+
+def _body_subs(body: str) -> list[str] | None:
+    """The scripts of the substitutions an unquoted heredoc body expands, at any depth of expansion, read by
+    shell_tree as a here-document; None if it cannot read one."""
+    lines = body.split("\n")
+    delimiter = "SHELL_INVOCATIONS_EOF"
+    while delimiter in lines:
+        delimiter += "_"
+    source = f": <<{delimiter}\n{body}\n{delimiter}\n"
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    return _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
 
 
 def _skip_heredoc_bodies(text: str, index: int, pending: list[tuple[str, bool, bool]],
@@ -288,13 +327,18 @@ def lex(text: str) -> Lexed:
             if end is None:
                 return None
             dynamic = True
-            subs.append(text[at + 1:end - 1])
+            subs.append(_backtick_script(text[at + 1:end - 1]))
             buf.append("\x00")
             return end
         if text.startswith("$((", at):
             end = _match_close(text, at, "$(")
             if end is None:
                 return None
+            # `$(( $(a) + 1 ))` runs `a` (#41398 review F1): the substitutions inside arithmetic are commands.
+            inner = _expansion_subs(text[at:end], in_double)
+            if inner is None:
+                return None
+            subs.extend(inner)
             dynamic = True
             buf.append("\x00")
             return end
@@ -310,8 +354,9 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "${")
             if end is None:
                 return None
-            # `${x:-$(a)}` runs `a` (#41133 review F2): the substitutions inside a parameter expansion are commands.
-            inner = _body_subs(text[at + 2:end - 1])
+            # `${x:-$(a)}` runs `a` (#41133 review F2), and so does `${x:-$(( $(a) ))}` or `${arr[$(a)]}` (#41398
+            # review F1): every substitution inside a parameter expansion, at any depth, is a command.
+            inner = _expansion_subs(text[at:end], in_double)
             if inner is None:
                 return None
             subs.extend(inner)
@@ -757,6 +802,49 @@ def gh_api_request(args: list[str]) -> GhApiRequest:
     if unknown:
         method = None
     return GhApiRequest(method, endpoint)
+
+
+class Options(NamedTuple):
+    """A tool's option grammar before its subcommand: the options that take a value (`-p X`, `-pX`, `--package X`,
+    `--package=X`) and those that take none. Short ones may cluster (`-vq`, `-Ro/r`)."""
+    values: frozenset[str] = frozenset()
+    flags: frozenset[str] = frozenset()
+
+
+def first_operand(args: list[str], options: Options) -> int | None:
+    """The index in ARGS of the first operand (the subcommand), read with OPTIONS: an option's value is never an
+    operand, and `--` ends the options. len(ARGS) when there is none; None when an option before it is one the
+    grammar does not know, or a word bash only knows at run time, so its position cannot be read (fail closed)."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if _unreadable(word):
+            return None
+        if word == "--":
+            return index + 1
+        if word == "-" or not word.startswith("-"):
+            return index
+        if word in options.flags:
+            index += 1
+            continue
+        if word in options.values:
+            index += 2
+            continue
+        if word.startswith("--"):
+            if "=" in word and word.split("=", 1)[0] in options.values:
+                index += 1
+                continue
+            return None
+        for at in range(1, len(word)):
+            option = "-" + word[at]
+            if option in options.values:
+                index += 1 if at < len(word) - 1 else 2
+                break
+            if option not in options.flags:
+                return None
+        else:
+            index += 1
+    return len(args)
 
 
 # Past this many levels of one command running another, what it runs counts as unreadable.

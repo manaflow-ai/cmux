@@ -14,7 +14,8 @@ What counts as publishing is read from the step, not its name:
 - a command it may run, direct or wrapped (tests/shell_invocations.may_run_nested: a substitution, eval, `bash -c`,
   xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
   (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
-  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (classified by action first: any --sign or -s signs,
+  `npm|pnpm|yarn|bun|cargo publish`, `twine upload` (each subcommand read by position with its tool's option grammar,
+  so an option's value such as `--dir upload` is no subcommand), `codesign` (classified by action first: any --sign or -s signs,
   whatever else it has; only a verify or display with no sign is read-only), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
   file), which may publish;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
@@ -44,7 +45,7 @@ from typing import Any, Callable, Mapping, NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from shell_invocations import gh_api_request, may_run_nested  # noqa: E402
+from shell_invocations import Options, first_operand, gh_api_request, may_run_nested  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
 
@@ -113,27 +114,131 @@ def gated(expression: Any, policy: Policy) -> bool:
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 
 
+def _options(values: str = "", flags: str = "") -> Options:
+    return Options(frozenset(values.split()), frozenset(flags.split()))
+
+
+# Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
+# subcommand is the first operand after them, so an option's value (`--dir upload`, `-p publish`) is never read as
+# one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing.
+GH_ROOT = _options(flags="-h --help --version")
+GH_RELEASE = _options("-R --repo", "-h --help")
+GH_RELEASE_WRITES = frozenset({"create", "upload", "edit", "delete", "delete-asset"})
+PACKAGE_MANAGERS = {
+    "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
+                    "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
+                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help"),
+    "pnpm": _options("-C --dir -F --filter --registry --tag --access --otp --reporter --loglevel "
+                     "--workspace-concurrency",
+                     "-r --recursive -w --workspace-root -s --silent --dry-run --no-git-checks --frozen-lockfile "
+                     "--provenance -h --help"),
+    "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
+    "bun": _options("--cwd -c --config", "--silent -h --help"),
+    "cargo": _options("--color --config -Z -C --explain",
+                      "-v -vv --verbose -q --quiet --locked --offline --frozen -h --help -V --version --list"),
+}
+# Scripts that run another subcommand by name: `npm run publish` runs the package's publish script.
+RUNS_SCRIPT = frozenset({"run", "run-script"})
+TWINE = _options(flags="--no-color -h --help --version")
+PYTHON = _options("-W -X", "-b -bb -B -d -E -h -i -I -O -OO -P -q -R -s -S -u -v -V -x")
+XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache")
+
+
+def subcommand(args: list[str], options: Options) -> tuple[str | None, list[str]]:
+    """The subcommand of ARGS read by position with OPTIONS, and the words after it. None when its position cannot
+    be read or the word is not readable (a caller counts that as publishing); "" when there is none."""
+    index = first_operand(args, options)
+    if index is None:
+        return None, []
+    if index >= len(args):
+        return "", []
+    word = args[index]
+    return (None if "$" in word or "\x00" in word or "`" in word else word), args[index + 1:]
+
+
+def _package_publishes(program: str, args: list[str]) -> bool:
+    if program == "cargo" and args[:1] and args[0].startswith("+"):
+        args = args[1:]  # `cargo +stable publish`: a toolchain before the subcommand
+    command, rest = subcommand(args, PACKAGE_MANAGERS[program])
+    if command is None or command == "publish":
+        return True
+    if command in RUNS_SCRIPT and program != "cargo":
+        script, _ = subcommand(rest, Options())
+        return script is None or script == "publish"
+    if program == "yarn" and command == "workspace":
+        return _package_publishes(program, rest[1:])  # `yarn workspace NAME COMMAND`
+    if program == "yarn" and command == "npm":
+        script, _ = subcommand(rest, Options())
+        return script is None or script == "publish"
+    if program == "yarn" and command == "workspaces":
+        return "publish" in rest  # `yarn workspaces foreach ... npm publish`: its own grammar; any publish counts
+    return False
+
+
+def _python_module(args: list[str]) -> tuple[str | None, list[str]]:
+    """The module `python ARGS` runs with -m (`-m twine`, `-mtwine`, `-Im twine`), and its arguments; "" for none,
+    None when an option before it is unknown."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if word in ("-m",):
+            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+        if not word.startswith("-") or word in ("-", "--") or word.startswith("-c"):
+            return "", []
+        if word in PYTHON.flags:
+            index += 1
+            continue
+        if word in PYTHON.values:
+            index += 2
+            continue
+        letters = word[1:]
+        if "m" in letters and all("-" + letter in PYTHON.flags for letter in letters[:letters.index("m")]):
+            module = letters[letters.index("m") + 1:]
+            if module:
+                return module, args[index + 1:]
+            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+        return None, []
+    return "", []
+
+
 def publishing_command(words: list[str]) -> bool:
     if not words:
         return False
     program, rest = Path(words[0]).name, words[1:]
     if program == "gh":
-        if rest[:1] == ["release"] and rest[1:2] and rest[1] in {"create", "upload", "edit", "delete", "delete-asset"}:
+        command, rest = subcommand(rest, GH_ROOT)
+        if command is None:
             return True
-        if rest[:1] != ["api"]:
+        if command == "release":
+            action, _ = subcommand(rest, GH_RELEASE)
+            return action is None or action in GH_RELEASE_WRITES
+        if command != "api":
             return False
-        request = gh_api_request(rest[1:])
+        request = gh_api_request(rest)
         # No endpoint it can read (xargs feeds it, a variable holds it): it may be a release path.
         return request.writes and (request.endpoint is None or bool(RELEASE_PATH.search(request.endpoint)))
-    if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
-        return "publish" in rest[:2]
-    if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
-        return "upload" in rest
+    if program in PACKAGE_MANAGERS:
+        return _package_publishes(program, rest)
+    if program.startswith("python"):
+        module, rest = _python_module(rest)
+        if module is None:
+            return "twine" in rest or any("twine" in word for word in words[1:])
+        if module != "twine":
+            return False
+        program = "twine"
+    if program == "twine":
+        command, _ = subcommand(rest, TWINE)
+        return command is None or command == "upload"
     if program == "codesign":
         return codesign_signs_or_writes(rest)
     if program == "productsign":
         return True
-    return program == "xcrun" and "notarytool" in rest
+    if program == "xcrun":
+        if any(word in ("-f", "--find") for word in rest):
+            return False  # `xcrun --find TOOL` prints a path and runs nothing
+        command, _ = subcommand(rest, XCRUN)
+        return command == "notarytool" or (command is None and "notarytool" in rest)
+    return False
 
 
 def codesign_signs_or_writes(args: list[str]) -> bool:
