@@ -51,6 +51,13 @@ pub(super) struct SessionEventStreamStart {
     /// What this stream sent of its terminals; at the start, what the
     /// replayed batches of a resume carry.
     sent: SentTerminals,
+    /// The stream resumed with a live position: its client has live items
+    /// this stream did not send. A batch that commits after the resume can
+    /// carry a record built before one of them (a journal writer receipt
+    /// that came late, `workspace_registry/registry_intent.rs`), so the
+    /// stream checks again each terminal a batch upserts, also the first
+    /// time.
+    resumed_live: bool,
     /// The live changes whose terminal record this stream could not read (a
     /// registry read error), each with its live sequence. Nothing was sent
     /// for them, so no cursor says a live position at or after the oldest.
@@ -170,6 +177,7 @@ pub(super) fn prepare_session_event_stream(
 
     let mut initial_items = Vec::new();
     let mut sent = SentTerminals::default();
+    let mut resumed_with_live = false;
     let last_revision;
     let opened_cursor;
     match requested_cursor {
@@ -264,6 +272,7 @@ pub(super) fn prepare_session_event_stream(
                     // older than a live item the client has: the stream
                     // checks each terminal such a batch upserts again.
                     live_sequence = resumed_live;
+                    resumed_with_live = resumed_live > 0;
                     sent = replayed;
                     last_revision = page.head_revision;
                     opened_cursor =
@@ -335,6 +344,7 @@ pub(super) fn prepare_session_event_stream(
             live_sequence,
             live_cursor,
             sent,
+            resumed_live: resumed_with_live,
             unread: Vec::new(),
         },
     ))
@@ -554,10 +564,12 @@ fn value_hash(value: &Value) -> u64 {
 }
 
 /// Remember, for each terminal a committed batch changes, the value the
-/// client now has. `replayed`: the batch is one a resume replays, so each
-/// terminal it upserts is checked again (its live facts are the commit's,
-/// not the newest).
-fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals, replayed: bool) {
+/// client now has. `check_first`: check again also a terminal this stream
+/// sent no value of. True for a batch a resume replays and for each batch of
+/// a stream that resumed with a live position: the batch's live facts are
+/// its commit's, and the client can have a live item with newer ones that
+/// this stream did not send.
+fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals, check_first: bool) {
     for change in changes.as_array().map(Vec::as_slice).unwrap_or_default() {
         if change.field("resource").as_str() != Some("terminal") {
             continue;
@@ -572,7 +584,7 @@ fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals, replayed:
             // older than a live item already sent: check it again.
             let again = match sent.hashes.insert(id.clone(), hash) {
                 Some(previous) => previous != hash,
-                None => replayed,
+                None => check_first,
             };
             if again {
                 sent.committed.push(id);
@@ -629,7 +641,7 @@ fn send_committed(
         for batch in page.batches {
             let cursor = stream.cursor(mux, &page.generation, batch.revision, stream.live_sequence);
             let revision = batch.revision;
-            note_committed_terminals(&batch.changes, &mut stream.sent, false);
+            note_committed_terminals(&batch.changes, &mut stream.sent, stream.resumed_live);
             let item = match delta_item(mux, client, &page.generation, &cursor, batch) {
                 Ok(item) => item,
                 Err(error) => {
