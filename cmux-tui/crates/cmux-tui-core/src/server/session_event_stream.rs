@@ -51,6 +51,12 @@ pub(super) struct SessionEventStreamStart {
     /// What this stream sent of its terminals; at the start, what the
     /// replayed batches of a resume carry.
     sent: SentTerminals,
+    /// The live changes whose terminal record this stream could not read (a
+    /// registry read error), each with its live sequence. Nothing was sent
+    /// for them, so no cursor says a live position at or after the oldest.
+    /// The stream reads such a terminal again at its next live change and
+    /// after the next commit.
+    unread: Vec<(u64, TerminalPublicId)>,
 }
 
 /// A stream cursor: the registry `generation` and `revision` and, for a
@@ -70,11 +76,25 @@ impl SessionEventStreamStart {
     /// The cursor of an item at `revision` for a client that has the live
     /// changes through the sequence `live`.
     fn cursor(&self, mux: &Mux, generation: &str, revision: u64, live: u64) -> Value {
+        // A cursor never says the client has a live change that was not
+        // sent: it stays before the oldest one the stream could not read.
+        let live = match self.unread.iter().map(|(sequence, _)| *sequence).min() {
+            Some(unread) => live.min(unread.saturating_sub(1)),
+            None => live,
+        };
         stream_cursor(
             generation,
             revision,
             self.live_cursor.then(|| mux.terminal_live_position(live)),
         )
+    }
+
+    /// The stream could not read `terminal`'s record for its live change
+    /// `sequence`. One entry per terminal: a newer change replaces the
+    /// terminal's older one, as in the live log.
+    fn note_unread(&mut self, sequence: u64, terminal: TerminalPublicId) {
+        self.unread.retain(|(_, unread)| *unread != terminal);
+        self.unread.push((sequence, terminal));
     }
 }
 
@@ -315,6 +335,7 @@ pub(super) fn prepare_session_event_stream(
             live_sequence,
             live_cursor,
             sent,
+            unread: Vec::new(),
         },
     ))
 }
@@ -404,7 +425,10 @@ pub(super) fn run_session_event_stream(
         while let Some(terminal) = stream.sent.committed.pop() {
             match send_live_terminal(mux, client, writer, &mut stream, &mut reader, &terminal, None)
             {
-                Sent::Current => {}
+                // Unread: the client keeps the batch's value until the
+                // terminal's next change. No live change was skipped, so
+                // the cursors stay right.
+                Sent::Current | Sent::Unread => {}
                 Sent::Ended => break 'stream,
                 Sent::Closed => return,
             }
@@ -420,6 +444,26 @@ pub(super) fn run_session_event_stream(
                 Sent::Current => {}
                 Sent::Ended => break 'stream,
                 Sent::Closed => return,
+            }
+            // The registry changed: read again the terminals the stream
+            // could not read. Only here, so a read that keeps failing costs
+            // one read per commit, not one per wake. A record that is read
+            // leaves `unread` (`send_live_terminal`), and its item's cursor
+            // is the stream's position.
+            for (_, terminal) in stream.unread.clone() {
+                match send_live_terminal(
+                    mux,
+                    client,
+                    writer,
+                    &mut stream,
+                    &mut reader,
+                    &terminal,
+                    None,
+                ) {
+                    Sent::Current | Sent::Unread => {}
+                    Sent::Ended => break 'stream,
+                    Sent::Closed => return,
+                }
             }
         }
         if live == stream.live_sequence {
@@ -441,6 +485,12 @@ pub(super) fn run_session_event_stream(
                 Some(sequence),
             ) {
                 Sent::Current => stream.live_sequence = sequence,
+                // The stream goes on to the next change; its cursors stay
+                // before this one until its record was sent.
+                Sent::Unread => {
+                    stream.note_unread(sequence, terminal);
+                    stream.live_sequence = sequence;
+                }
                 Sent::Ended => break 'stream,
                 Sent::Closed => return,
             }
@@ -454,6 +504,9 @@ pub(super) fn run_session_event_stream(
 enum Sent {
     /// The stream is open and has everything the step had to send.
     Current,
+    /// The stream is open and the step sent nothing: the terminal's record
+    /// could not be read (a registry read error).
+    Unread,
     /// The step sent the stream's end; the caller finishes the stream.
     Ended,
     /// The client is gone and the stream is finished.
@@ -628,6 +681,9 @@ fn send_committed(
 /// `mark`: the live sequence of the change this item is for; the item's
 /// cursor says that position. `None` for a check after a committed batch:
 /// the cursor keeps the stream's position.
+///
+/// [`Sent::Unread`] when the record could not be read: nothing was sent. The
+/// caller of a live change keeps it in `SessionEventStreamStart::unread`.
 fn send_live_terminal(
     mux: &Arc<Mux>,
     client: u64,
@@ -642,7 +698,10 @@ fn send_live_terminal(
         let (revision, value) = match read {
             Ok(Some(read)) => read,
             // Closed or not running: its delete or its exit is a commit.
-            Ok(None) => return Sent::Current,
+            Ok(None) => {
+                stream.unread.retain(|(_, unread)| unread != terminal);
+                return Sent::Current;
+            }
             Err(error) if reader.is_some() => {
                 eprintln!("cmux-tui: session.events: live terminal reader: {error:#}");
                 *reader = None;
@@ -650,7 +709,7 @@ fn send_live_terminal(
             }
             Err(error) => {
                 eprintln!("cmux-tui: session.events: live terminal read: {error:#}");
-                return Sent::Current;
+                return Sent::Unread;
             }
         };
         if revision <= stream.last_revision {
@@ -662,6 +721,8 @@ fn send_live_terminal(
             ended => return ended,
         }
     };
+    // The record is read: the client gets it now, or has an equal one.
+    stream.unread.retain(|(_, unread)| unread != terminal);
     let hash = value_hash(&value);
     if stream.sent.hashes.insert(terminal.clone(), hash) == Some(hash) {
         return Sent::Current;
