@@ -461,7 +461,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -1351,15 +1351,17 @@ jobs:
                   "unit_tests": "false",
               }
 
+          # .get: a scope with partial outputs leaves some names out (each is an invalid entry above), and the call below
+          # still has to name every failed child.
           required = {
               "web-subarea-scope": scope_required,
-              "web-typecheck": inputs["web"] == "true" and subareas["typecheck"] == "true",
-              "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
-              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
-              "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
-              "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
-              "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
-              "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
+              "web-typecheck": inputs["web"] == "true" and subareas.get("typecheck") == "true",
+              "web-production-build": inputs["web"] == "true" and subareas.get("production_build") == "true",
+              "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
+              "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
+              "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
+              "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }
           results.update({job: needs[job]["result"] for job in sorted(required)})
           exit_with_verdict(results, "Web status", {job for job, is_required in required.items() if not is_required})

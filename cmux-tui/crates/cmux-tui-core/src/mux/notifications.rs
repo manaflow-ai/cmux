@@ -36,39 +36,6 @@ impl Mux {
         self.surface_notifications_in_state(&state)
     }
 
-    pub(super) fn surface_notifications_in_state(
-        &self,
-        state: &State,
-    ) -> HashMap<SurfaceId, SurfaceNotification> {
-        let placement_notifications = self.placement_notifications.lock().unwrap();
-        let terminal_notifications = self.terminal_notifications.lock().unwrap();
-        let mut result = HashMap::new();
-        for (surface_id, surface) in &state.surfaces {
-            let notification = match surface.terminal_public_id() {
-                Some(terminal_id) => terminal_notifications.get(terminal_id),
-                None => placement_notifications.get(surface_id),
-            };
-            if let Some(notification) = notification {
-                result.insert(*surface_id, *notification);
-            }
-        }
-        // A terminal tab with no runtime surface yet (its host still adopts
-        // after a restart, 81577dcd4b3) keeps its terminal's marker through
-        // the tab's content binding, which exists before the adoption: the
-        // ring and the workspace's unread count never blink out.
-        for (surface_id, content) in &state.resource_indexes.content_ids {
-            if state.surfaces.contains_key(surface_id) {
-                continue;
-            }
-            if let ContentPublicId::Terminal(terminal_id) = content
-                && let Some(notification) = terminal_notifications.get(terminal_id)
-            {
-                result.insert(*surface_id, *notification);
-            }
-        }
-        result
-    }
-
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
@@ -800,6 +767,14 @@ impl Mux {
                 let mut reads = self.notification_reads.lock().unwrap();
                 for id in &cleared {
                     reads.remove(id);
+                }
+            }
+            {
+                // A cleared row is never evicted, so its post goes here or never.
+                let mut posts =
+                    self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+                for id in &cleared {
+                    posts.remove(id);
                 }
             }
             let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();

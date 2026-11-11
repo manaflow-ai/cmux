@@ -35,6 +35,8 @@ import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
@@ -74,6 +76,12 @@ export type SettingsPageVariant = VariantBase & {
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -339,6 +347,8 @@ export type CloudPageVariant = VariantBase & {
   retention?: import("../pages/cloud/ops").CloudRetention;
   /** The plan's machines cap (paused ones count): a create past it is refused with a cap offer. */
   machinesCap?: number;
+  /** The running machines the platform calls idle: a create at the running limit pauses one. */
+  idle?: string[];
   /** The machine the cap refusal names to free (`details.free_up`). */
   freeUp?: { machine: string; name: string | null; reason: string };
   /** The caller is not a team admin: saving the team's cleanup numbers is refused. */

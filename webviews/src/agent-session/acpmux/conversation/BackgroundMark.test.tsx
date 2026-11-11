@@ -16,6 +16,7 @@ import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
+  prefetchBackgroundTaskOutput,
   readBackgroundTaskOutput,
   tailLines,
   type BackgroundTaskOutputReader,
@@ -41,7 +42,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -435,6 +436,121 @@ test("a known process id wins over a reused tool call id", async () => {
   };
   const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
   expect(output.output).toBe("s1/old");
+});
+
+test("a finished task is read once; a read that failed or found it running is read again", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const lists: string[] = [];
+  let state = "running";
+  let fail = false;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s1",
+    source: {
+      listProcesses: async () => {
+        lists.push(state);
+        if (fail) throw new Error("daemon away");
+        return { processes: [{ id: "s1/p", toolCallId: "bg", harness: "claude", state, exitCode: 0 }] };
+      },
+      tailProcess: async () => ({ data: bytes(`done\n`), fromByte: 0 }),
+    },
+  };
+  // Asked twice at once: one read.
+  const [first, again] = await Promise.all([
+    prefetchBackgroundTaskOutput(reader, "bg"),
+    prefetchBackgroundTaskOutput(reader, "bg"),
+  ]);
+  expect(first).toBe(again);
+  expect(first.running).toBe(true);
+  // Running when read: its end may not be written yet, so the next ask reads again.
+  state = "exited";
+  expect((await prefetchBackgroundTaskOutput(reader, "bg")).running).toBeUndefined();
+  // Ended: kept.
+  await prefetchBackgroundTaskOutput(reader, "bg");
+  expect(lists).toEqual(["running", "exited"]);
+  // A failed read answers empty and is not kept.
+  fail = true;
+  expect(await prefetchBackgroundTaskOutput(reader, "other")).toEqual({ unread: true });
+  fail = false;
+  await prefetchBackgroundTaskOutput(reader, "other");
+  expect(lists).toEqual(["running", "exited", "exited", "exited"]);
+});
+
+test("a click after a read-ahead that found the task still running reads again and opens the final output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let state = "running";
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-race",
+    source: {
+      listProcesses: async () => ({
+        processes: [{ id: "s-race/p", toolCallId: "bg-race", harness: "claude", state, exitCode: 0 }],
+      }),
+      tailProcess: async () => ({
+        data: bytes(state === "running" ? "partial\n" : "partial\nall done\n"),
+        fromByte: 0,
+      }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-race", command: "cargo test", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  // Focus reads ahead (as a hover does), and that read finds the task still running.
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  state = "exited";
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("all done");
+});
+
+test("a click after a read-ahead that failed reads again and opens the output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let away = true;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-away",
+    source: {
+      listProcesses: async () => {
+        if (away) throw new Error("daemon away");
+        return {
+          processes: [{ id: "s-away/p", toolCallId: "bg-away", harness: "claude", state: "exited", exitCode: 0 }],
+        };
+      },
+      tailProcess: async () => ({ data: bytes("back again\n"), fromByte: 0 }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-away", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  away = false;
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("back again");
+});
+
+test("a drag across the note's line does not open it", async () => {
+  const { reader } = registry([]);
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-drag", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  const line = container.querySelector("button.cv-bgtask")!;
+  await settle();
+  await act(async () => {
+    line.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+    line.dispatchEvent(
+      new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1, clientX: 30, clientY: 10 }),
+    );
+  });
+  // Let the read the press asked for answer (an unguarded click would open the note then).
+  await settle();
+  await settle();
+  expect(line.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a live tail keeps the last lines and removes terminal control escapes", () => {

@@ -1401,7 +1401,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers one retry button.",
+      note: 'A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers only its ×. The composer refused it, so a retry would fail the same way and none shows (Leo, 2026-11-07: "idk why we even show the retry symbol then").',
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
@@ -1424,7 +1424,8 @@ export default agentPaneEntry({
           return Boolean(
             failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
-            failed.querySelectorAll(".acpmux-attachment-retry").length === 1,
+            failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
+            !failed.querySelector(".acpmux-attachment-retry"),
           );
         });
       },
@@ -1562,7 +1563,7 @@ export default agentPaneEntry({
       },
     },
     "video-reading": {
-      note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
+      note: 'Leo, 2026-11-11: "if you\'re literally just pointing to a file path, why would it ever take time to load anything anyways?". A dropped screen recording while the host still reads its poster: its play tile, in the shape it will have, is ready to send as its path at once; the poster fills it when the read lands (composer/videoAttachments.ts).',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -1577,7 +1578,7 @@ export default agentPaneEntry({
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image.acpmux-attachment-pending"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread"));
       },
     },
     "attachment-loading": {

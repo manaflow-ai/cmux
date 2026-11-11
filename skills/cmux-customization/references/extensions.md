@@ -6,6 +6,11 @@ in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
 still missing, and four copy-paste folders that work as written.
 
+An extension of its own (an id `local/NAME` beside the customize app, built from
+TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code
+and errors ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+
 ## Start from a template
 
 Each folder in [`../templates/`](../templates/) is a complete customize app
@@ -72,6 +77,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 |---|---|---|
 | A sidebar section | `implements["cmux.section/1"]`, region `top`, `middle` or `bottom`; `cmux apps place` | none |
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
+| A New Tab widget | `implements["cmux.newtab.widget/1"]`, `options.size` `small` or `wide`; the person places it (Edit New Tab > Add Widgets); at most 64 nodes; mounted only when placed, from the page's open to its close, also while the page is hidden ([the clock recipe](../../../examples/extensions/clock/README.md)) | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |

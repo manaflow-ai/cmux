@@ -129,6 +129,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
+          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
+          # fast gate's critical path ahead of the gates themselves.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/runners.json
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -141,6 +148,9 @@ jobs:
           PR: ${{ inputs.pr }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          # A dispatch on the branch carries its tip at dispatch time: the base, with no REST read.
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
           BRANCH: feat-cmux-next
         run: |
           set -euo pipefail
@@ -205,6 +215,10 @@ jobs:
             if [[ "$base_ref" != "$BRANCH" || "$state" != open ]]; then
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
+            fi
+            if [[ -z "$base" && "${DISPATCH_REF:-}" == "refs/heads/$BRANCH" && "${DISPATCH_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              # The tip the merger dispatched against; reading the branch again spent the shared REST quota.
+              base=$DISPATCH_SHA
             fi
             if [[ -z "$base" ]]; then
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?

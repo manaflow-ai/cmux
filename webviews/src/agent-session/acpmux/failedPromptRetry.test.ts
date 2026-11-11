@@ -5,6 +5,7 @@
 // "Not sent. Press Retry to send it." with no reason, so Retry, refused the same way, looked dead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { resetKeptTailsForTests } from "./tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -19,6 +20,9 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 afterAll(() => {
+  // Closing each pane kept its chat's tail for the next client; a later file's chat would open
+  // from it instead of reading the mock daemon.
+  resetKeptTailsForTests();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

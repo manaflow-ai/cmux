@@ -605,6 +605,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompt_coach",
+      "params": {
+        "$ref": "#/types/PromptCoachParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -726,6 +734,18 @@
     {
       "kind": "request",
       "name": "_acpmux/bg/stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/plan",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/start",
       "params": true,
       "result": true
     },
@@ -2213,6 +2233,7 @@
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
+        "senderToken": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -4789,6 +4810,17 @@
           "type": "string"
         }
       ]
+    },
+    "PromptCoachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "coachId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "ProtocolParams": {
       "additionalProperties": false,

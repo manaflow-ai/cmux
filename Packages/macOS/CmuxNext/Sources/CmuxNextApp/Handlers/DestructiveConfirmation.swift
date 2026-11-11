@@ -110,9 +110,9 @@ enum DestructiveConfirmation {
             return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
         case .killProcess?:
             // A process Kill Process refuses is not asked about: the handler says why.
-            let key = services.taskManager.process(invocation["process"]?.stringValue)
-            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
-            let question = services.taskManager.prompt(for: key)
+            let key = services.taskManager.hub.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.hub.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.hub.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
         case .deleteChief?:
             // A Chief not listed (or the default one) is refused by the action with its reason.
@@ -121,7 +121,7 @@ enum DestructiveConfirmation {
                           button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case .leaveConversation?:
             // The group's name in the question; a conversation not listed is refused by the action.
-            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownConversation(services)
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)

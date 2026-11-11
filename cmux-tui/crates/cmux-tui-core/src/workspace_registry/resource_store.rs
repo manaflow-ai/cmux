@@ -5,13 +5,16 @@ use crate::resource::{NotificationPublicId, TerminalPublicId};
 pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
+mod terminal_live;
 mod topology_load;
 use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
+pub(crate) use terminal_live::{LiveTerminalRows, query_live_terminal};
 pub(crate) use topology_load::{
-    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+    load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
+    load_tab_with_focus, load_terminal_tabs, load_topology_frame,
 };
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -48,6 +51,19 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
+
+/// Indexes every open adds to a registry of any age (each `IF NOT EXISTS`,
+/// so older builds keep opening it). The live panes of one screen were read
+/// by scanning every pane row: once per screen at each open (the resource
+/// invariants), so an open at 4,000 workspaces spent 0.5 s there, and once
+/// per create (its stored subtree).
+pub(crate) fn create_lookup_indexes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS live_resource_panes_by_screen
+           ON resource_panes(screen_id) WHERE deleted_revision IS NULL;",
+    )?;
+    Ok(())
+}
 
 pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -480,6 +496,7 @@ pub(crate) fn migrate_resource_agent_projections(
          FROM ranked
          JOIN resource_terminals AS terminal
            ON terminal.public_id = ranked.terminal_id
+          AND terminal.deleted_revision IS NULL
          WHERE ranked.terminal_rank = 1
          ON CONFLICT(terminal_id) DO UPDATE SET
            result_json = excluded.result_json,
@@ -600,12 +617,13 @@ fn advance_agent_hook_apply_cursor_transaction(
     sequence: u64,
 ) -> anyhow::Result<()> {
     let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
-    let changed = transaction.execute(
-        "UPDATE resource_agent_hook_apply_cursor
+    let changed = transaction
+        .prepare_cached(
+            "UPDATE resource_agent_hook_apply_cursor
          SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
          WHERE id = 1",
-        [sequence],
-    )?;
+        )?
+        .execute([sequence])?;
     anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
     Ok(())
 }
@@ -645,16 +663,24 @@ impl WorkspaceRegistry {
             .iter()
             .find(|subject| subject.kind == "terminal")
             .map(|subject| subject.id.as_str());
-        transaction.execute(
-            "INSERT INTO resource_agent_hook_pending(
+        transaction
+            .prepare_cached(
+                "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
              ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
                terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json",
-            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
-        )?;
+            )?
+            .execute(params![
+                producer_id,
+                origin,
+                idempotency_key,
+                terminal_id,
+                i64::try_from(sequence)?,
+                ingress_json
+            ])?;
         Ok(())
     }
 
@@ -749,11 +775,13 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection.get().execute(
-            "DELETE FROM resource_agent_hook_pending
+        self.connection
+            .get()
+            .prepare_cached(
+                "DELETE FROM resource_agent_hook_pending
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            params![producer_id, origin, idempotency_key],
-        )?;
+            )?
+            .execute(params![producer_id, origin, idempotency_key])?;
         Ok(())
     }
 
@@ -838,7 +866,7 @@ impl WorkspaceRegistry {
         let before =
             before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
-        let mut statement = db.prepare(
+        let mut statement = db.prepare_cached(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2
@@ -1382,20 +1410,7 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT terminal_id, public_id
-             FROM resource_terminals
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .map(|row| {
-                let (terminal_id, public_id) = row?;
-                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
-            })
-            .collect()
+        load_live_terminal_resource_ids(&self.connection.get())
     }
 
     /// Resolve the immutable resource-to-host relationship, including after
@@ -1911,6 +1926,10 @@ pub enum RegistryLayoutNode {
         ratio: f32,
         first: Box<RegistryLayoutNode>,
         second: Box<RegistryLayoutNode>,
+        /// The split's divider is hidden (`split-divider-visibility-v1`).
+        /// Absent in layouts stored before it, which load as visible.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        divider_hidden: bool,
     },
     Stack {
         panes: Vec<PanePublicId>,
@@ -1940,6 +1959,28 @@ pub struct RegistryTab {
     pub name_revision: u64,
     pub browser_url: Option<String>,
     pub terminal_id: Option<String>,
+}
+
+/// Each live terminal resource of `connection` with its durable host:
+/// `(host id, terminal id)`, in creation order. The registry's read and a
+/// committed read (a `terminal.list` with no scope, which takes no registry
+/// lock) share it.
+pub(crate) fn load_live_terminal_resource_ids(
+    connection: &Connection,
+) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
+    let mut statement = connection.prepare(
+        "SELECT terminal_id, public_id
+         FROM resource_terminals
+         WHERE deleted_revision IS NULL
+         ORDER BY created_revision ASC, public_id ASC",
+    )?;
+    statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .map(|row| {
+            let (terminal_id, public_id) = row?;
+            Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2051,7 +2092,6 @@ pub struct ResourceEventBatch {
 pub struct ResourceEventPage {
     pub generation: String,
     pub head_revision: u64,
-    pub oldest_revision: Option<u64>,
     pub batches: Vec<ResourceEventBatch>,
 }
 
@@ -2237,7 +2277,7 @@ fn validate_layout_node<'a>(
                 anyhow::bail!("pane {pane} appears twice in one layout");
             }
         }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
             if !splits.insert(split) {
                 anyhow::bail!("duplicate split public id: {split}");
             }
@@ -2673,9 +2713,13 @@ pub(crate) fn prune_unchanged_resource_changes(
                 | ResourceChange::SetTabOrder { .. }
         )
     };
+    let mut workspace_rows = None;
     let mut kept = Vec::with_capacity(patch.changes.len());
     for change in &patch.changes {
-        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+        kept.push(
+            !is_order(change)
+                && !resource_change_is_stored(transaction, &mut workspace_rows, change)?,
+        );
     }
     let mut workspace_order = false;
     let mut screen_parents = HashSet::<String>::new();
@@ -2739,15 +2783,16 @@ pub(crate) fn prune_unchanged_resource_changes(
         let keep = kept
             || match change {
                 ResourceChange::SetWorkspaceOrder { .. } => {
-                    workspace_order || !resource_change_is_stored(transaction, change)?
+                    workspace_order
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetScreenOrder { workspace_id, .. } => {
                     screen_parents.contains(workspace_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetTabOrder { pane_id, .. } => {
                     tab_parents.contains(pane_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 _ => false,
             };
@@ -2771,8 +2816,17 @@ fn content_tab_panes(
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn resource_change_is_stored(
-    transaction: &Transaction<'_>,
+const STORED_WORKSPACE_ROW: &str =
+    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+            w.name_source, w.name_revision
+     FROM resource_workspaces rw
+     JOIN workspaces w ON w.workspace_key = rw.workspace_key
+     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
+       AND rw.deleted_revision IS NULL AND w.tombstoned = 0";
+
+fn resource_change_is_stored<'t>(
+    transaction: &'t Transaction<'_>,
+    workspace_rows: &mut Option<rusqlite::Statement<'t>>,
     change: &ResourceChange,
 ) -> anyhow::Result<bool> {
     Ok(match change {
@@ -2781,26 +2835,25 @@ fn resource_change_is_stored(
                 workspace.name_source,
                 workspace.name_revision,
             )?;
-            let stored = transaction
-                .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
-                            w.name_source, w.name_revision
-                     FROM resource_workspaces rw
-                     JOIN workspaces w ON w.workspace_key = rw.workspace_key
-                     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
-                       AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
-                    params![workspace.public_id.as_str(), workspace.key],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, Option<i64>>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
-                        ))
-                    },
-                )
+            // One statement for every workspace upsert of the patch: a
+            // projection restates each live workspace, so preparing it per
+            // upsert was most of a create's cost at thousands of them.
+            if workspace_rows.is_none() {
+                *workspace_rows = Some(transaction.prepare(STORED_WORKSPACE_ROW)?);
+            }
+            let stored = workspace_rows
+                .as_mut()
+                .context("the stored workspace row statement was just prepared")?
+                .query_row(params![workspace.public_id.as_str(), workspace.key], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(
                 |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
@@ -3946,7 +3999,51 @@ fn tombstone_resource_terminal(
          WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
         params![revision, terminal_id],
     )?;
+    end_agent_record_of_terminal(transaction, public_id)?;
     tombstone_resource_identity(transaction, public_id, revision)
+}
+
+/// A closed terminal has no agent record (`spec/resource-api-v2.md`, "Agent": one projection
+/// row per live terminal, deleted in the transaction that tombstones the terminal). The hook
+/// fence of the terminal goes with it: `commit_agent_projection_with_hook_state` refuses a
+/// report for a terminal that is not live, so no late hook needs the fence. The session id that
+/// resumes the chat is in the journal's history fold, not in these rows.
+fn end_agent_record_of_terminal(
+    transaction: &Transaction<'_>,
+    public_id: &str,
+) -> anyhow::Result<()> {
+    transaction
+        .execute("DELETE FROM resource_agent_projections WHERE terminal_id = ?1", [public_id])?;
+    transaction
+        .execute("DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1", [public_id])?;
+    Ok(())
+}
+
+/// Delete the agent records and hook fences that no live terminal owns, one time at the open of
+/// the registry, in the open's schema transaction. Builds before the tombstone ended the record
+/// left one row for each closed terminal that had an agent, and nothing deleted them; the
+/// open-time repair (`repair_dangling_terminal_resources`) also tombstones terminals with its
+/// own statement. After this, a reader needs no live-terminal filter.
+///
+/// Cost: one scan of each table with one primary-key probe of `resource_terminals` for each
+/// row, so O(agent records), not O(terminals).
+pub(crate) fn prune_agent_records_of_closed_terminals_at_open(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    for table in ["resource_agent_projections", "resource_agent_hook_state"] {
+        transaction.execute(
+            &format!(
+                "DELETE FROM {table}
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM resource_terminals AS terminal
+                   WHERE terminal.public_id = {table}.terminal_id
+                     AND terminal.deleted_revision IS NULL
+                 )"
+            ),
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 fn tombstone_resource_browser(

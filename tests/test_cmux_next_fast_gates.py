@@ -32,6 +32,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
@@ -164,7 +171,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
         self.assertIn('--head "$HEAD_SHA" --base "$BASE"', prepare["run"])
 
-    def resolve_dispatch(self, *, fields=None, error=None, failures=0, graphql_fields=None):
+    def resolve_dispatch(self, *, fields=None, error=None, failures=0, graphql_fields=None, event=None):
         """Execute the real resolver with bounded API and sleep stubs."""
         body = step_named(job(workflow(), "resolve")["steps"], "Resolve")["run"]
         with tempfile.TemporaryDirectory(prefix="fast-gates-resolve-") as tmp:
@@ -201,11 +208,28 @@ class WorkflowShape(unittest.TestCase):
                 "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
                 .replace("|", "\t"),
                 "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+                **(event or {}),
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
             return (result, calls.read_text().splitlines(),
                     waits.read_text().splitlines() if waits.exists() else [],
                     output.read_text() if output.exists() else "")
+
+    def test_dispatch_on_the_branch_takes_its_own_sha_as_the_base(self):
+        """A dispatch on feat-cmux-next carries the tip the merger dispatched against (github.sha); the
+        resolver reads the pull request only, not the branch again over the shared REST quota."""
+        result, calls, _, output = self.resolve_dispatch(
+            event={"DISPATCH_REF": "refs/heads/feat-cmux-next", "DISPATCH_SHA": "e" * 40})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("/pulls/28116", json.loads(calls[0])[1])
+        self.assertIn("base=" + "e" * 40, output)
+        # Another ref's sha is not the branch tip: it is read.
+        result, calls, _, output = self.resolve_dispatch(
+            event={"DISPATCH_REF": "refs/heads/main", "DISPATCH_SHA": "e" * 40})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("base=" + "b" * 40, output)
 
     def test_dispatch_api_failure_surfaces_the_github_error(self):
         result, calls, waits, output = self.resolve_dispatch(
@@ -598,7 +622,7 @@ class ScriptBehavior(unittest.TestCase):
         self.pr_head = commit(seed, {"scripts/cmux-next/marker.txt": "head\n", "pr.txt": "pr\n"}, "pr change")
         git(seed, "checkout", "-q", "feat-cmux-next")
         self.tip = commit(seed, {"tip.txt": "tip\n"}, "another merge on the base")
-        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        git_fixture_env.init_repo(self.remote, "--bare")
         git(seed, "push", "-q", str(self.remote), "feat-cmux-next", f"pr:refs/pull/7/head")
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
@@ -1185,9 +1209,11 @@ class WebviewsChecksGate(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q", "-b", "feat-cmux-next")
-        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        # Imported by name: the one module object every test reads (tests/test_script_module_loads.py).
+        if str(WEBVIEWS_CHECKS.parent) not in sys.path:
+            sys.path.insert(0, str(WEBVIEWS_CHECKS.parent))
+        import fast_gate_webviews_checks
+        self.module = fast_gate_webviews_checks
 
     def findings(self, by_check: dict[str, str], message: str) -> str:
         files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}

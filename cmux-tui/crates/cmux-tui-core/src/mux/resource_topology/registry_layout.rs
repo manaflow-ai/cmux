@@ -90,7 +90,7 @@ pub(super) fn registry_layout_node(
                 .cloned()
                 .with_context(|| format!("pane {pane} has no public identity"))?,
         },
-        Node::Split { id, dir, ratio, a, b } => RegistryLayoutNode::Split {
+        Node::Split { id, dir, ratio, a, b, divider_hidden } => RegistryLayoutNode::Split {
             split: state
                 .resource_indexes
                 .split_ids
@@ -105,6 +105,7 @@ pub(super) fn registry_layout_node(
             ratio: *ratio,
             first: Box::new(registry_layout_node(state, a)?),
             second: Box::new(registry_layout_node(state, b)?),
+            divider_hidden: *divider_hidden,
         },
         Node::Stack { panes, expanded } => RegistryLayoutNode::Stack {
             panes: panes
@@ -165,6 +166,38 @@ pub(super) fn set_layout_split_ratio(
     };
     anyhow::ensure!(changed, "unknown split");
     layout.creation_order_auto_layout = None;
+    Ok(())
+}
+
+/// `split-divider-visibility-v1`: hide or show split `split`'s divider in
+/// `layout`, in the column tree that owns it and in the screen's compat
+/// projection. A viewport column boundary or a row boundary is refused: the
+/// projection rebuilds those splits, so the flag would not stay.
+pub(super) fn set_layout_divider_hidden(
+    layout: &mut ScreenLayoutSnapshot,
+    split: SplitId,
+    hidden: bool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !layout
+            .layout_columns
+            .iter()
+            .any(|column| column.id == split || column.is_row_split(split)),
+        "split {split} is a viewport column or row boundary"
+    );
+    let found = if layout.layout_columns.is_empty() {
+        layout.root.set_divider_hidden(split, hidden).is_some()
+    } else {
+        let found = layout
+            .layout_columns
+            .iter_mut()
+            .any(|column| column.root.set_divider_hidden(split, hidden).is_some());
+        if found {
+            layout.root.set_divider_hidden(split, hidden);
+        }
+        found
+    };
+    anyhow::ensure!(found, "unknown split");
     Ok(())
 }
 

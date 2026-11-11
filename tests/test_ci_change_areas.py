@@ -19,7 +19,13 @@ from unittest.mock import patch
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -62,27 +68,13 @@ MACOS_JOBS = (
     "release-build",
 )
 
-spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
-assert spec and spec.loader
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-
-WEB_SUBAREAS_HELPER = ROOT / "scripts" / "ci" / "web_subareas.py"
-web_subareas_spec = importlib.util.spec_from_file_location("web_subareas", WEB_SUBAREAS_HELPER)
-assert web_subareas_spec and web_subareas_spec.loader
-web_subareas = importlib.util.module_from_spec(web_subareas_spec)
-sys.modules[web_subareas_spec.name] = web_subareas
-web_subareas_spec.loader.exec_module(web_subareas)
-
-SELECT_PACKAGE_TESTS_HELPER = ROOT / "scripts" / "ci" / "select_package_tests.py"
-select_package_tests_spec = importlib.util.spec_from_file_location(
-    "select_package_tests", SELECT_PACKAGE_TESTS_HELPER
-)
-assert select_package_tests_spec and select_package_tests_spec.loader
-select_package_tests = importlib.util.module_from_spec(select_package_tests_spec)
-sys.modules[select_package_tests_spec.name] = select_package_tests
-select_package_tests_spec.loader.exec_module(select_package_tests)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import detect_ci_change_areas as module  # noqa: E402
+import web_subareas  # noqa: E402
+import select_package_tests  # noqa: E402
 
 TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
 validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
@@ -3112,11 +3104,11 @@ def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
     workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
     pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
     assert "      - Packages/macOS/CmuxNext/**" in pull
-    spec = importlib.util.spec_from_file_location("cmux_next_route", ROOT / "scripts/ci/cmux_next_route.py")
-    assert spec is not None and spec.loader is not None
-    router = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = router
-    spec.loader.exec_module(router)
+    # The module every other test imports, not a second copy in sys.modules: a copy here made
+    # test_cmux_next_route.py's LinuxLaneTests patch it while route() read the first one.
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_route as router
     for path in (
         "Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushPayload.swift",
         "Packages/iOS/CmuxMobilePairedMac/Package.swift",
@@ -4931,6 +4923,19 @@ def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
     )
     assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
     assert "summary red: Web status:" in result.stdout, result.stdout
+
+
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
 
 
 def test_web_status_allows_unrouted_skips() -> None:
