@@ -170,8 +170,12 @@ test("an original that fails before its chip's first render keeps its Retry", as
   // once): its commit's layout phase starts the second image, its passive effects run after.
   scope.IS_REACT_ACT_ENVIRONMENT = false;
   void handle.current!.attach([png("second.png")], true, "paste");
-  // Its preview is made meanwhile (nothing else is held), and it is not staged: it waits on the host.
-  await until(() => answerPaths !== undefined && encoded >= 2 * perImage);
+  // It is not staged: it waits on the host's answer. Its preview may wait on that answer too, so the
+  // test waits only for the question, not for the preview. The answer is given from the strip's
+  // commit below, and from it on the preview, the staging and the failed upload are all microtasks
+  // (the decode and the upload are faked with no timers), so they still land before that commit's
+  // passive effects.
+  await until(() => answerPaths !== undefined);
   expect(handle.current!.attachments.map((chip) => chip.name)).toEqual(["first.png"]);
   trace.length = 0;
   armed = true;
@@ -182,6 +186,8 @@ test("an original that fails before its chip's first render keeps its Retry", as
   await act(async () => {});
 
   expect(started).toBe(true);
+  // The second image was read in full: its preview and thumbnail were made.
+  expect(encoded).toBeGreaterThanOrEqual(2 * perImage);
   // The race: the strip's commit saw only the first image, its passive effects ran after the second
   // was staged with its original failed (the decode it waited on went on in that commit's layout).
   // (An earlier render's passive effects may land before the armed layout; what counts is the one after.)
