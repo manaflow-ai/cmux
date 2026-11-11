@@ -222,6 +222,120 @@ struct Pending {
     /// Answers that arrived with nobody waiting (a replayed answer to a
     /// request of the previous daemon); `await_response` takes them.
     orphans: std::collections::VecDeque<(String, Result<Value, RpcError>)>,
+    /// Requests whose client cancelled them (`request_cancel.rs`): their answers, which may
+    /// still come, are dropped on purpose and logged, never taken as orphans.
+    cancelled: crate::request_cancel::Cancelled,
+}
+
+impl Pending {
+    /// The waiter of answer `id`; None when nobody waits, and a cancelled request's late answer
+    /// is then dropped and logged.
+    fn take(&mut self, id: &Id) -> Option<oneshot::Sender<Result<Value, RpcError>>> {
+        let k = key(id);
+        let tx = self.map.remove(&k);
+        if tx.is_none() {
+            self.cancelled.take_late(&k, "agent");
+        }
+        tx
+    }
+}
+
+/// Where a cancelled request's `$/cancel_request` goes: the ACP agent's stdin, or its host.
+/// A translated harness (Claude stream-json, Codex app-server) has no such message.
+enum CancelSink {
+    Direct(mpsc::Sender<(String, Option<Fence>)>),
+    Hosted(Arc<crate::agent_host::link::Link>),
+    None,
+}
+
+impl CancelSink {
+    /// Tells the agent `note`, waiting for room in a full queue rather than dropping it.
+    async fn send(self, note: Message) {
+        match self {
+            Self::Direct(tx) => {
+                let _ = tx.send((note.to_line(), None)).await;
+            }
+            Self::Hosted(link) => {
+                let _ = link.line(note.to_value()).await;
+            }
+            Self::None => {}
+        }
+    }
+}
+
+/// A request to the agent that its client may cancel (`request_cancel.rs`): dropped before its
+/// answer under a cancel, it takes its pending entry out, remembers the id so the late answer is
+/// dropped on purpose, and only then tells the agent with `$/cancel_request` (review F1 of
+/// #41285: an answer that took the entry first went to a waiter that is gone, and is dropped as
+/// late here, with no cancel sent). Dropped for any other reason it does nothing, unless
+/// `forget_on_drop` (`request_within`): then its entry goes, as on its timeout.
+struct Abandoned {
+    pending: Arc<Mutex<Pending>>,
+    sink: CancelSink,
+    id: i64,
+    method: String,
+    armed: bool,
+    forget_on_drop: bool,
+}
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let k = key(&Value::from(self.id));
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        if !crate::request_cancel::requested() {
+            if !self.forget_on_drop {
+                return;
+            }
+            match self.pending.try_lock() {
+                Ok(mut p) => {
+                    p.map.remove(&k);
+                }
+                Err(_) => {
+                    if let Some(rt) = &runtime {
+                        let pending = self.pending.clone();
+                        rt.spawn(async move { pending.lock().await.map.remove(&k) });
+                    }
+                }
+            }
+            return;
+        }
+        let method = std::mem::take(&mut self.method);
+        let sink = std::mem::replace(&mut self.sink, CancelSink::None);
+        let note = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": self.id}),
+        );
+        // Whether the agent still owes the answer: then it hears the cancel.
+        let forget = move |p: &mut Pending| {
+            let owed = p.map.remove(&k).is_some();
+            p.cancelled.remember(k.clone(), method);
+            if !owed {
+                p.cancelled.take_late(&k, "agent");
+            }
+            owed
+        };
+        let Some(rt) = runtime else { return };
+        match self.pending.try_lock() {
+            Ok(mut p) => {
+                if forget(&mut p) {
+                    drop(p);
+                    rt.spawn(sink.send(note));
+                }
+            }
+            Err(_) => {
+                let pending = self.pending.clone();
+                rt.spawn(async move {
+                    let owed = forget(&mut *pending.lock().await);
+                    if owed {
+                        sink.send(note).await;
+                    }
+                });
+            }
+        }
+    }
 }
 
 const ORPHAN_ANSWERS: usize = 64;
@@ -903,8 +1017,11 @@ impl ChildAgent {
         } = spawned;
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<(String, Option<Fence>)>(256);
-        let pending =
-            Arc::new(Mutex::new(Pending { map: HashMap::new(), orphans: Default::default() }));
+        let pending = Arc::new(Mutex::new(Pending {
+            map: HashMap::new(),
+            orphans: Default::default(),
+            cancelled: Default::default(),
+        }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Arc::new(Mutex::new(child)),
@@ -1145,7 +1262,7 @@ impl ChildAgent {
                     for msg in msgs {
                         match msg {
                             Message::Response { id, result, error } => {
-                                let tx = pending.lock().await.map.remove(&key(&id));
+                                let tx = pending.lock().await.take(&id);
                                 if let Some(tx) = tx {
                                     let _ = tx.send(match error {
                                         Some(e) => Err(e),
@@ -1267,6 +1384,11 @@ impl ChildAgent {
     /// Whether [`Self::end_on_purpose`] ran.
     pub fn ended_on_purpose(&self) -> bool {
         self.ended_on_purpose.load(Ordering::SeqCst)
+    }
+
+    /// How many requests wait on this agent's answer now (as `Peer::pending_requests`).
+    pub async fn pending_requests(&self) -> usize {
+        self.pending.lock().await.map.len()
     }
 
     /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
@@ -1514,7 +1636,7 @@ impl ChildAgent {
                     }
                     // Immediate local answer: feed it back as if claude replied.
                     if let Message::Response { id, result, error } = reply
-                        && let Some(tx) = self.pending.lock().await.map.remove(&key(&id))
+                        && let Some(tx) = self.pending.lock().await.take(&id)
                     {
                         let _ = tx.send(match error {
                             Some(e) => Err(e),
@@ -1542,7 +1664,7 @@ impl ChildAgent {
             }
             match m {
                 Message::Response { id, result, error } => {
-                    if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
+                    if let Some(tx) = self.pending.lock().await.take(&id) {
                         let _ = tx.send(match error {
                             Some(e) => Err(e),
                             None => Ok(result.unwrap_or(Value::Null)),
@@ -1630,6 +1752,17 @@ impl ChildAgent {
         self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
     }
 
+    /// Where a cancelled request's `$/cancel_request` goes ([`Abandoned`]).
+    fn cancel_sink(&self) -> CancelSink {
+        if let Some(h) = &self.hosted {
+            CancelSink::Hosted(h.link())
+        } else if self.translator.is_some() || self.codex.is_some() {
+            CancelSink::None
+        } else {
+            CancelSink::Direct(self.stdin_tx.clone())
+        }
+    }
+
     /// Send a request and wait for its response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.request_with_hook(method, params, None, || {}).await
@@ -1675,6 +1808,14 @@ impl ChildAgent {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        let mut abandoned = Abandoned {
+            pending: self.pending.clone(),
+            sink: self.cancel_sink(),
+            id,
+            method: method.to_owned(),
+            armed: true,
+            forget_on_drop: false,
+        };
         let msg = Message::request(id, method, params);
         let answer = async {
             // Dropped before its message is handed on (a turn that ends first): it is cut, so
@@ -1717,6 +1858,7 @@ impl ChildAgent {
             answer = answer => answer,
             () = cut => Err(RpcError::internal(FENCE_CUT)),
         };
+        abandoned.armed = false;
         if answer.is_err() {
             // Not written by now, it never is: its answer is not awaited.
             if let Some(f) = fence {
@@ -1739,12 +1881,25 @@ impl ChildAgent {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        // Dropped before its answer (review F4 of #41285): its entry goes, and under its client's
+        // cancel the agent hears it too, as for `request`.
+        let mut abandoned = Abandoned {
+            pending: self.pending.clone(),
+            sink: self.cancel_sink(),
+            id,
+            method: method.to_owned(),
+            armed: true,
+            forget_on_drop: true,
+        };
         let msg = Message::request(id, method, params);
         if let Err(e) = self.write(&msg).await {
+            abandoned.armed = false;
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
             return Some(Err(RpcError::internal(e.to_string())));
         }
-        match tokio::time::timeout(limit, rx).await {
+        let answer = tokio::time::timeout(limit, rx).await;
+        abandoned.armed = false;
+        match answer {
             Ok(answer) => Some(
                 answer
                     .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
@@ -2075,7 +2230,11 @@ impl ChildAgent {
             map.insert(key(&id), tx);
             responses.push(rx);
         }
-        let pending = Arc::new(Mutex::new(Pending { map, orphans: Default::default() }));
+        let pending = Arc::new(Mutex::new(Pending {
+            map,
+            orphans: Default::default(),
+            cancelled: Default::default(),
+        }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Arc::new(Mutex::new(None)),
@@ -2311,7 +2470,7 @@ impl ChildAgent {
                         let mut p = self.pending.lock().await;
                         if let Some(tx) = p.map.remove(&key(&id)) {
                             let _ = tx.send(answer);
-                        } else {
+                        } else if !p.cancelled.take_late(&key(&id), "agent host") {
                             if p.orphans.len() >= ORPHAN_ANSWERS {
                                 p.orphans.pop_front();
                             }
@@ -2864,5 +3023,113 @@ mod fence_tests {
         let settled = first.is_settled();
         agent.kill().await;
         assert!(settled, "a message its unstarted writer had queued was left unsettled");
+    }
+}
+
+/// Review findings F1 and F4 of #41285 on a cancelled agent request (`request_cancel.rs`).
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn pending() -> Arc<Mutex<Pending>> {
+        Arc::new(Mutex::new(Pending {
+            map: HashMap::new(),
+            orphans: Default::default(),
+            cancelled: Default::default(),
+        }))
+    }
+
+    /// F1: the agent's answer comes between the cancel and the cleanup of its entry (the pending
+    /// map was busy as the request was dropped). It reaches a waiter that is gone, so it is
+    /// dropped and logged as late, never lost unlogged, and an agent that already answered hears
+    /// no cancel.
+    #[tokio::test]
+    async fn an_answer_between_the_cancel_and_the_cleanup_is_dropped_as_late() {
+        let pending = pending();
+        let (waiter, waiting) = oneshot::channel();
+        pending.lock().await.map.insert(key(&Value::from(7)), waiter);
+        let (stdin, mut written) = mpsc::channel(8);
+        let abandoned = Abandoned {
+            pending: pending.clone(),
+            sink: CancelSink::Direct(stdin),
+            id: 7,
+            method: "session/set_mode".into(),
+            armed: true,
+            forget_on_drop: false,
+        };
+        let mut busy = pending.lock().await;
+        let (cancel, cancelled) = oneshot::channel();
+        cancel.send(()).unwrap();
+        let served = crate::request_cancel::until_cancelled(cancelled, async move {
+            let _abandoned = abandoned;
+            let _waiting = waiting;
+            std::future::pending::<()>().await
+        })
+        .await;
+        assert!(served.is_none(), "the request gave up");
+        // The reader takes the answer's entry while the cleanup waits for the map.
+        let late = busy.take(&Value::from(7)).expect("the entry is still there");
+        assert!(late.send(Ok(json!({}))).is_err(), "its waiter is gone");
+        drop(busy);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while pending.lock().await.cancelled.dropped == 0 && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let p = pending.lock().await;
+        assert_eq!(p.cancelled.dropped, 1, "dropped as late, and logged");
+        assert!(p.cancelled.is_empty(), "no id kept for an answer that came");
+        assert!(p.map.is_empty());
+        drop(p);
+        assert!(written.try_recv().is_err(), "an agent that answered hears no cancel");
+    }
+
+    /// F4: `request_within` dropped by its client's cancel forgets its pending entry and tells the
+    /// agent, as `request` does, instead of holding the agent request until it answers.
+    #[tokio::test]
+    async fn a_cancelled_request_within_forgets_its_entry_and_tells_the_agent() {
+        let hold = std::env::temp_dir().join(format!("amx-within-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&hold).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let profile: HarnessProfile = serde_json::from_value(json!({
+            "argv": ["python3", fake],
+            "env": {"FAKE_SET_MODE_HOLD": hold.display().to_string()},
+        }))
+        .unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let agent =
+            ChildAgent::spawn("acp", &profile, &std::env::temp_dir(), tx, tap).await.unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = agent.clone();
+        let task = tokio::spawn(async move {
+            let within = std::time::Duration::from_secs(120);
+            let ask = asking.request_within(
+                "session/set_mode",
+                json!({"sessionId": "s", "modeId": "m"}),
+                within,
+            );
+            crate::request_cancel::until_cancelled(cancelled, ask).await
+        });
+        let read = |name: &str| std::fs::read_to_string(hold.join(name)).unwrap_or_default();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+        while read("held").trim() != "1" {
+            assert!(tokio::time::Instant::now() < deadline, "the agent never held the request");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(agent.pending_requests().await, 1);
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+        while read("cancels").is_empty() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(agent.pending_requests().await, 0, "no entry left behind");
+        let cancels: Vec<Value> =
+            serde_json::from_str(&read("cancels")).expect("the agent heard one cancel");
+        assert_eq!(cancels.len(), 1, "{cancels:?}");
+        agent.kill().await;
+        let _ = std::fs::remove_dir_all(&hold);
     }
 }
