@@ -2036,13 +2036,14 @@ function TranscriptView({
   // While a drag flows the rows keep the width they were placed at: nothing is estimated or placed
   // again until the width holds (`flowWidth`, the render's copy of `liveResize.flow`).
   const scaledRowWidth = flowWidth ?? transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
-  /// Whether the last render was a flowing one: its commit's rows are at a width it did not place
-  /// at, so no height is read until a render that does not flow commits, even when the flow ended
-  /// in between (an end from inside a commit renders only after it).
+  /// Whether the last commit was a flowing one: its rows are at a width it did not place at, so no
+  /// height is read until a render that does not flow commits, even when the flow ended in between
+  /// (an end from inside a commit renders only after it).
   const renderedFlowing = useRef(false);
   const flowing = flowWidth !== undefined;
-  // Written as the render commits, before any layout effect or ref of that commit (the rows' own
-  // among them) reads it: an insertion effect runs first in a commit.
+  // Written as the render commits, before any layout effect's setup and any ref attach of that
+  // commit (the rows' own among them): every reader runs from one of those, an observer or a timer.
+  // A layout effect's CLEANUP of that commit runs before this write and still sees the commit before.
   useInsertionEffect(() => {
     renderedFlowing.current = flowing;
     sessionIdRef.current = sessionId;
@@ -2694,8 +2695,9 @@ function TranscriptView({
       else if (lastEstimate.current?.partial) settleResize();
     };
     if (live.rearm) {
+      // The run before had a settle on the way: it keeps its time, LIVE_RESIZE_MS after the last width.
       live.rearm = false;
-      timer = setTimeout(settle, LIVE_RESIZE_MS);
+      timer = setTimeout(settle, Math.max(0, live.at + LIVE_RESIZE_MS - performance.now()));
     }
     /// A new width from the box's observer or the page's show (never the first measure). A second
     /// width within LIVE_RESIZE_MS is a live resize: its frames measure the rows in view, and the
