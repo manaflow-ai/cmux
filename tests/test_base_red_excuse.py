@@ -5129,6 +5129,8 @@ class SparseTreeReads(unittest.TestCase):
             self.assertTrue(tree.files("cmux-tui", ".toml"))  # trees are there: the paths are listed
             with self.assertRaisesRegex(git_tree.NeedsFullTree, "this check needs a full tree"):
                 tree.text("cmux-tui/Cargo.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # a link it cannot read is unknown, never "not a file"
+                tree.is_file("workspace.toml")
             with self.assertRaises(git_tree.NeedsFullTree):  # never a Refused a caller reads as a missing file
                 tree_blob(tree)(REPO, HEAD, "cmux-tui/Cargo.toml")
 

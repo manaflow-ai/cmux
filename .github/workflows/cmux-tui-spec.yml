@@ -22,6 +22,7 @@ on:
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
       - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
