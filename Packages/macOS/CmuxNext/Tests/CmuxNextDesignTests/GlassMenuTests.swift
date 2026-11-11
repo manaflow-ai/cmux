@@ -51,4 +51,61 @@ import Testing
         #expect(size.width >= GlassMenuListView.minWidth)
         #expect(size.height == MenuMetrics.highlightInset * 2 + GlassMenuMaterial.rowHeight * 2 + GlassMenuListView.separatorHeight)
     }
+
+    /// Review F1 of #41538: an empty menu, or one of separators only, has no rows (it never
+    /// removes from an empty list).
+    @Test func anEmptyOrSeparatorOnlyMenuHasNoRows() {
+        #expect(GlassMenuRow.rows(of: NSMenu()).isEmpty)
+        let separators = NSMenu()
+        separators.addItem(.separator())
+        separators.addItem(.separator())
+        #expect(GlassMenuRow.rows(of: separators).isEmpty)
+    }
+
+    private static func key(_ characters: String, _ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                                      windowNumber: 0, context: nil, characters: characters,
+                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
+    }
+
+    /// Review F2 of #41538: a shortcut pressed while the menu is open finds its row, as an open
+    /// NSMenu runs it (⌘, opens Settings), in a submenu too; a disabled row or other modifiers do not.
+    @Test func aShortcutFindsItsRowWhileTheMenuIsOpen() throws {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(NSText.copy(_:)), keyEquivalent: ",")
+        let help = menu.addItem(withTitle: "Help", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        let shortcuts = sub.addItem(withTitle: "Keyboard Shortcuts", action: #selector(NSText.copy(_:)), keyEquivalent: "/")
+        help.submenu = sub
+        let off = menu.addItem(withTitle: "Off", action: #selector(NSText.copy(_:)), keyEquivalent: "k")
+        off.isEnabled = false
+        #expect(GlassMenuRow.item(matching: try Self.key(",", .command), in: menu) === settings)
+        #expect(GlassMenuRow.item(matching: try Self.key("/", .command), in: menu) === shortcuts)
+        #expect(GlassMenuRow.item(matching: try Self.key(",", [.command, .option]), in: menu) == nil)
+        #expect(GlassMenuRow.item(matching: try Self.key("k", .command), in: menu) == nil)
+
+        let list = GlassMenuListView()
+        var pressed: NSEvent?
+        list.onKeyEquivalent = { event in
+            pressed = event
+            return GlassMenuRow.item(matching: event, in: menu) != nil
+        }
+        #expect(list.performKeyEquivalent(with: try Self.key(",", .command)))
+        #expect(pressed?.charactersIgnoringModifiers == ",")
+    }
+
+    /// Review F3 of #41538: a mixed row draws the mixed mark, not nothing.
+    @Test func aMixedRowDrawsTheMixedMark() throws {
+        let menu = NSMenu()
+        let mixed = menu.addItem(withTitle: "Some", action: nil, keyEquivalent: "")
+        mixed.state = .mixed
+        menu.addItem(withTitle: "Plain", action: nil, keyEquivalent: "")
+        let list = GlassMenuListView()
+        list.load(GlassMenuRow.rows(of: menu))
+        let row = try #require(list.view(at: 0) as? PopupRowView)
+        #expect(row.trailingView is ThemedImageView)
+        #expect((list.view(at: 1) as? PopupRowView)?.trailingView == nil)
+    }
 }

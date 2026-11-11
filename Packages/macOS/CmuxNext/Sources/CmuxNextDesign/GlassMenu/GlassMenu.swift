@@ -55,6 +55,7 @@ public final class GlassMenu {
         list.onOpenSubmenu = { [weak self] index in self?.openSubmenu(index, fromKeyboard: true) }
         list.onHoverRow = { [weak self] index in self?.hovered(index) }
         list.onBack = { [weak self] in self?.closeLayer() }
+        list.onKeyEquivalent = { [weak self] event in self?.runKeyEquivalent(event) ?? false }
     }
 
     /// Whether the menu is on screen.
@@ -125,6 +126,14 @@ public final class GlassMenu {
         guard let row = list.row(at: index), let item = row.item, item.isEnabled else { return }
         if item.submenu != nil { return openSubmenu(index, fromKeyboard: true) }
         root.finish(runs: item)
+    }
+
+    /// Runs the root menu's item whose key equivalent `event` presses; false when none does.
+    func runKeyEquivalent(_ event: NSEvent) -> Bool {
+        let root = root
+        guard let item = GlassMenuRow.item(matching: event, in: root.menu) else { return false }
+        root.finish(runs: item)
+        return true
     }
 
     private func openSubmenu(_ index: Int, fromKeyboard: Bool) {
@@ -215,8 +224,31 @@ struct GlassMenuRow {
                 rows.append(GlassMenuRow(item: item))
             }
         }
-        if rows.last?.item == nil { rows.removeLast() }
+        if let last = rows.last, last.item == nil { rows.removeLast() }
         return rows
+    }
+
+    /// The enabled, visible item of `menu` (or of one of its submenus) whose key equivalent `event`
+    /// presses, as `NSMenu.performKeyEquivalent(with:)` finds it: the same key, ignoring case, and
+    /// the same Command, Option, Control and Shift (an uppercase key equivalent implies Shift).
+    static func item(matching event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+        guard event.type == .keyDown, let pressed = event.charactersIgnoringModifiers?.lowercased(), !pressed.isEmpty
+        else { return nil }
+        let relevant: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        let flags = event.modifierFlags.intersection(relevant)
+        for item in menu.items where !item.isHidden && !item.isSeparatorItem {
+            if let submenu = item.submenu {
+                submenu.update()
+                if let found = Self.item(matching: event, in: submenu) { return found }
+                continue
+            }
+            let key = item.keyEquivalent
+            guard !key.isEmpty, item.isEnabled, key.lowercased() == pressed else { continue }
+            var wanted = item.keyEquivalentModifierMask.intersection(relevant)
+            if key != key.lowercased() { wanted.insert(.shift) }
+            if wanted == flags { return item }
+        }
+        return nil
     }
 
     /// `item`'s shortcut as the menu draws it (⌘, for Settings), or nil without one.
@@ -245,6 +277,8 @@ final class GlassMenuListView: NSView {
     var onOpenSubmenu: (Int) -> Void = { _ in }
     var onHoverRow: (Int) -> Void = { _ in }
     var onBack: () -> Void = {}
+    /// A key equivalent of one of the menu's items was pressed while the menu had the keys.
+    var onKeyEquivalent: (NSEvent) -> Bool = { _ in false }
 
     private var rows: [GlassMenuRow] = []
     private var views: [NSView] = []
@@ -308,6 +342,7 @@ final class GlassMenuListView: NSView {
     private func trailing(_ item: NSMenuItem) -> NSView? {
         if item.submenu != nil { return symbol("chevron.right", ink: .tertiary) }
         if item.state == .on { return symbol("checkmark", ink: .primary) }
+        if item.state == .mixed { return symbol("minus", ink: .primary) }
         return GlassMenuRow.shortcut(item).map(PopupRowView.shortcut)
     }
 
@@ -372,8 +407,14 @@ final class GlassMenuListView: NSView {
         case 124: if let highlighted { onOpenSubmenu(highlighted) }  // Right
         case 123: onBack()  // Left (Escape is the popup host's: it closes the whole menu)
         case 36, 76, 49: if let highlighted { onPick(highlighted) }  // Return, Enter, Space
-        default: super.keyDown(with: event)
+        default: if !onKeyEquivalent(event) { super.keyDown(with: event) }
         }
+    }
+
+    /// A shortcut pressed while the menu is open runs its row, as it does in an open `NSMenu`
+    /// (⌘, opens Settings), instead of going nowhere.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        onKeyEquivalent(event) || super.performKeyEquivalent(with: event)
     }
 
 }
