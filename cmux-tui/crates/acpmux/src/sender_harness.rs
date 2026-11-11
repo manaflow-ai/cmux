@@ -86,6 +86,10 @@ pub struct Chain {
     pub harness: Option<(String, u32)>,
     /// The bundle's name (`Claude.app`) and path.
     pub app: Option<(String, String)>,
+    /// The file name of the first tool an app only ships that the walk went past (`Python`, for
+    /// Xcode's python): no app's own code ([`app_bundle`]), yet a program, so a send under it is a
+    /// tool's and never the person's plain shell ([`from_chain`]).
+    pub shipped: Option<String>,
 }
 
 /// The claim this process makes, from its environment and, when that is silent or names two
@@ -210,16 +214,18 @@ pub fn ai_agent(env: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     Some(claim)
 }
 
-/// A claim from a process chain: a known harness binary, or an app bundle that is not a terminal
-/// (a shell under a terminal is the person's).
+/// A claim from a process chain: a known harness binary, an app bundle that is not a terminal (a
+/// shell under a terminal is the person's), or else a tool an app ships that the walk went past.
 pub fn from_chain(chain: &Chain) -> Option<Value> {
     let app = chain.app.as_ref().map(|(name, _)| name.as_str());
     let mut claim = match &chain.harness {
         Some((harness, pid)) => json!({"harness": harness, "pid": pid}),
-        None => {
-            let app = app.filter(|a| !is_terminal(a))?;
-            json!({"harness": app.trim_end_matches(".app")})
-        }
+        None => match app.filter(|a| !is_terminal(a)) {
+            Some(app) => json!({"harness": app.trim_end_matches(".app")}),
+            // A tool an app ships (Xcode's python) is named by its own file, not the app: still a
+            // program's send, as when the walk stopped at the app that ships it.
+            None => json!({"harness": chain.shipped.as_deref()?}),
+        },
     };
     put(&mut claim, "source", json!("process"));
     if let Some(app) = app {
@@ -461,6 +467,9 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
         // (cmux.app's bin/acpmux resolves to bin/cmux).
         if found.app.is_none() && p.pid != pid && name != "acpmux" {
             found.app = app_bundle(&p.exe);
+            if found.app.is_none() && found.shipped.is_none() && p.exe.contains(".app/") {
+                found.shipped = Some(name.to_owned());
+            }
         }
         if found.harness.is_none() {
             found.harness = HARNESS_BINARIES

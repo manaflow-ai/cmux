@@ -41,6 +41,11 @@ pub const VERIFIED_BY_KEY: &str = "verifiedBy";
 /// matched. Never taken from a client.
 pub const CHECKED_KEY: &str = "senderTokenChecked";
 
+/// The feature a daemon lists at `initialize` when it takes the token out of every request
+/// ([`take`]). A CLI presents the token only to such a daemon ([`withhold_unless`]): an older one
+/// would keep it in its outbox and forward it to peers.
+pub const FEATURE: &str = "senderToken";
+
 /// Random bytes in the token.
 const BYTES: usize = 32;
 /// Longest presented token read, in bytes; a longer one is no token.
@@ -98,6 +103,15 @@ pub fn take(params: &mut Value) -> Option<Presented> {
         }
     }
     found
+}
+
+/// `params` without its token unless the daemon it goes to listed [`FEATURE`] (`supported`):
+/// a daemon from before the token keeps unknown fields in what it stores and forwards (review of
+/// #41064 at 8cc17ed2, F2). Every copy is removed, as [`take`] removes them.
+pub fn withhold_unless(params: &mut Value, supported: bool) {
+    if !supported {
+        let _ = take(params);
+    }
 }
 
 /// The token file in `home`.

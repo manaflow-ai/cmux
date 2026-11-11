@@ -119,3 +119,19 @@ fn constant_time_compare_agrees_with_eq() {
     assert!(!same(b"abc", b"ab"));
     assert!(same(b"", b""));
 }
+
+#[test]
+fn a_daemon_that_does_not_take_the_token_is_never_sent_it() {
+    let token = "a".repeat(64);
+    let sent = || {
+        json!({"_meta": {"acpmux": {"fromAgent": "outbox-relay", (META_KEY): token}},
+               "request": {"_meta": {"acpmux": {(META_KEY): token}}}})
+    };
+    let mut old = sent();
+    withhold_unless(&mut old, false);
+    assert!(!old.to_string().contains(&token), "{old}");
+    assert_eq!(old.pointer("/_meta/acpmux/fromAgent"), Some(&json!("outbox-relay")));
+    let mut new = sent();
+    withhold_unless(&mut new, true);
+    assert_eq!(new, sent());
+}

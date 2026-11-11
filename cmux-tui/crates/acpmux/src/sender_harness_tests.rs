@@ -69,9 +69,10 @@ fn codex_is_read_from_its_thread() {
 #[test]
 fn a_codex_run_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t")];
-    let codex_nearer = || Chain { harness: Some(("codex".into(), 10)), app: None };
+    let codex_nearer = || Chain { harness: Some(("codex".into(), 10)), app: None, shipped: None };
     assert_eq!(detect(&env(&both), codex_nearer).unwrap()["harness"], "codex");
-    let claude_nearer = || Chain { harness: Some(("claude-code".into(), 10)), app: None };
+    let claude_nearer =
+        || Chain { harness: Some(("claude-code".into(), 10)), app: None, shipped: None };
     assert_eq!(detect(&env(&both), claude_nearer).unwrap()["harness"], "claude-code");
     assert_eq!(detect(&env(&both), Chain::default).unwrap()["harness"], "codex");
 }
@@ -119,15 +120,17 @@ fn linux_command_names_find_the_harness() {
 
 #[test]
 fn an_assistant_app_is_claimed_but_a_terminal_is_the_persons() {
-    let duet =
-        Chain { harness: None, app: Some(("Duet.app".into(), "/Applications/Duet.app".into())) };
+    let duet = Chain {
+        app: Some(("Duet.app".into(), "/Applications/Duet.app".into())),
+        ..Chain::default()
+    };
     assert_eq!(
         from_chain(&duet).unwrap(),
         json!({"harness": "Duet", "source": "process", "app": "Duet.app"})
     );
     for app in ["Terminal.app", "iTerm.app", "Ghostty.app", "cmux.app", "cmux DEV next.app"] {
         let terminal =
-            Chain { harness: None, app: Some((app.into(), format!("/Applications/{app}"))) };
+            Chain { app: Some((app.into(), format!("/Applications/{app}"))), ..Chain::default() };
         assert_eq!(from_chain(&terminal), None, "{app}");
     }
     assert_eq!(detect(&env(&[]), Chain::default), None, "the person's plain shell");
@@ -173,6 +176,7 @@ fn the_daemon_records_what_the_peer_pids_chain_shows_beside_the_claim() {
     let walked = Chain {
         harness: Some(("claude-code".into(), 30)),
         app: Some(("Claude.app".into(), "/Applications/Claude.app".into())),
+        shipped: None,
     };
     let signer = |path: &str| {
         (path == "/Applications/Claude.app")
@@ -320,7 +324,8 @@ fn the_shipped_cli_resolved_to_cmux_is_not_where_a_send_came_from() {
 fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t-1")];
     let client = json!({"name": "claude-ai"});
-    let under = |harness: &str| Chain { harness: Some((harness.into(), 7)), app: None };
+    let under =
+        |harness: &str| Chain { harness: Some((harness.into(), 7)), app: None, shipped: None };
     let claim = of_mcp(&env(&both), || under("codex"), Some(&client)).unwrap();
     assert_eq!(claim["harness"], "codex");
     let claim = of_mcp(&env(&both), Chain::default, Some(&client)).unwrap();
@@ -385,7 +390,7 @@ fn a_tool_an_app_ships_is_not_that_app() {
 }
 
 #[test]
-fn the_relay_under_xcodes_python_claims_no_app_and_the_walk_goes_on() {
+fn the_relay_under_xcodes_python_claims_no_app_but_stays_a_programs_send() {
     let table = [
         proc(50, 40, "/usr/local/bin/acpmux"),
         proc(
@@ -395,8 +400,23 @@ fn the_relay_under_xcodes_python_claims_no_app_and_the_walk_goes_on() {
         ),
     ];
     let walked = chain(of(&table), 50);
-    assert_eq!(walked, Chain::default());
-    assert_eq!(from_chain(&walked), None, "no app, no harness: no claim");
+    assert_eq!(walked, Chain { shipped: Some("Python".into()), ..Chain::default() });
+    // Still a program's send, never the person's plain shell (review of #41064 at 8cc17ed2, F1):
+    // named by the tool, not by the app that ships it.
+    assert_eq!(
+        from_chain(&walked),
+        Some(json!({"harness": "Python", "source": "process"})),
+        "a tool an app ships is a program's send"
+    );
+    // Under a terminal, too: the walk stopped at Xcode before, a claim all the same.
+    let under_terminal = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(40, 30, "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+        proc(30, 1, "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"),
+    ];
+    let walked = chain(of(&under_terminal), 50);
+    assert_eq!(walked.shipped.as_deref(), Some("python3"));
+    assert_eq!(from_chain(&walked).unwrap()["harness"], "python3");
     // The same python under Claude desktop's shell still finds Claude.app above it.
     let under_claude = [
         proc(50, 40, "/usr/local/bin/acpmux"),

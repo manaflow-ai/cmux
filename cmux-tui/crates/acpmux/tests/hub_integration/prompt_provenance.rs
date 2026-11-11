@@ -1685,6 +1685,10 @@ async fn a_named_sender_is_verified_by_the_host_token() {
     send("p-notice", json!({"notice": notice("outbox-relay"), "senderToken": token})).await;
     send("p-unnamed", json!({"senderToken": token})).await;
     send("p-unnamed-plain", json!({})).await;
+    // The outbox relay's own send as the CLI makes it under Xcode's python: no app, but the tool it
+    // ran under (`sender_harness::from_chain`, review of #41064 at 8cc17ed2, F1).
+    let tool = json!({"harness": "Python", "source": "process"});
+    send("p-tool", json!({"senderToken": token, "senderHarness": tool})).await;
     send("p-wrong", json!({"fromAgent": "outbox-relay", "senderToken": wrong})).await;
     send("p-none", json!({"fromAgent": "outbox-relay"})).await;
     // The Web's token is dropped unread: a page cannot verify a name.
@@ -1729,6 +1733,9 @@ async fn a_named_sender_is_verified_by_the_host_token() {
         "{unnamed} vs {plain}"
     );
     assert!(unnamed.pointer("/_meta/provenance/verifiedBy").is_none(), "{unnamed}");
+    let tool = owner.user_message(&receiver, "p-tool").await;
+    assert_eq!(tool.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{tool}");
+    assert!(tool.pointer("/_meta/provenance/verifiedBy").is_none(), "{tool}");
     for id in ["p-wrong", "p-none", "p-web", "p-forged"] {
         let message = owner.user_message(&receiver, id).await;
         let p = &message["_meta"]["provenance"];
@@ -1737,8 +1744,8 @@ async fn a_named_sender_is_verified_by_the_host_token() {
         let record = acpmux::prompt_provenance::sender_record(Some(p), None, None);
         assert_ne!(record["verification"], "verified", "{id}: {record}");
     }
-    // None of the named ones is the person's, verified or not.
-    for id in ["p-named", "p-notice", "p-wrong", "p-none", "p-web"] {
+    // None of the named ones is the person's, verified or not, nor a tool's unnamed send.
+    for id in ["p-named", "p-notice", "p-wrong", "p-none", "p-web", "p-tool"] {
         let message = owner.user_message(&receiver, id).await;
         assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
         assert!(message.pointer("/_meta/provenance").is_some(), "{id}: {message}");

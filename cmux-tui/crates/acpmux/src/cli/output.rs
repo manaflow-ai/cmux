@@ -357,7 +357,11 @@ async fn queue_prompt_once(
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer, provenance);
+    let mut params = prompt.params(id, text, steer, provenance);
+    crate::sender_token::withhold_unless(
+        &mut params,
+        client.daemon_lists(crate::sender_token::FEATURE),
+    );
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     loop {
         tokio::select! {
@@ -640,7 +644,11 @@ async fn stream_prompt_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer, None);
+    let mut params = prompt.params(id, text, steer, None);
+    crate::sender_token::withhold_unless(
+        &mut params,
+        client.daemon_lists(crate::sender_token::FEATURE),
+    );
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
@@ -1048,6 +1056,10 @@ async fn collect_once(
     if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
         mux.set(READS_REPLY_META, json!(true));
     }
+    crate::sender_token::withhold_unless(
+        &mut params,
+        client.daemon_lists(crate::sender_token::FEATURE),
+    );
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
