@@ -23,7 +23,7 @@ import Foundation
 ///   `message.send`, `message.edit`, `message.retract`, `reaction.add`,
 ///   `reaction.remove`, `read_cursor.set`. Messages use the local owner's JSON
 ///   (``ChiefWire``), which the Cloud shares.
-public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unchecked Sendable {
+public final class ChiefCloudBackend: ConversationReconnectingBackend, ChiefLiveSource, @unchecked Sendable {
     let core: Core
     public let liveFeed: ChiefLiveFeed
 

@@ -184,7 +184,8 @@ import {
   type EmojiMatch,
   type EmojiShortcodes,
 } from "./emojiShortcodes";
-import { COMPOSER_LABELS } from "./composerModel";
+import { COMPOSER_LABELS, slashMenuEmptyLabel } from "./composerModel";
+import { SlashMenuEmpty } from "./SlashMenu";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -498,6 +499,8 @@ type Props = {
   /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
   /// (MachineLinkStatus.tsx).
   onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
+  /// Try Again in the `/` menu when the chat's command list could not be read (`commandsFailed`).
+  onRetryCommands?(): void;
 };
 
 /// The composer, drawn again only when a prop it is handed changes: its event handlers hold their
@@ -596,6 +599,7 @@ function ComposerFrame({
   placeholder,
   onOpenContext,
   onReconnectMachine,
+  onRetryCommands,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -1320,6 +1324,8 @@ function ComposerFrame({
   const query = typedSlash?.query;
   const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
+  // The chat's command list could not be read: the menu's empty line offers Try Again.
+  const retryCommands = snapshot.commandsFailed && onRetryCommands ? onRetryCommands : undefined;
   const slashNames = useSlashNames(commands);
 
   // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
@@ -2112,6 +2118,12 @@ function ComposerFrame({
       setDismissed(text);
       return;
     }
+    // A list that could not be read offers Try Again; Tab runs it (Return still sends the text).
+    if (matches.length === 0 && retryCommands && event.key === "Tab" && plain) {
+      event.preventDefault();
+      retryCommands();
+      return;
+    }
     if (matches.length === 0) return;
     const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || (control && (event.key === "j" || event.key === "k"))) {
@@ -2831,7 +2843,8 @@ function ComposerFrame({
                   key={query}
                   matches={matches}
                   active={selected}
-                  empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                  empty={t(slashMenuEmptyLabel(commands, snapshot.commandsPending, snapshot.commandsFailed))}
+                  {...(retryCommands ? { onRetry: retryCommands } : {})}
                   fast={fastModeState(snapshot.summary?.configOptions)}
                   onHover={setActive}
                   onPick={pick}
@@ -2993,6 +3006,7 @@ function SlashMenu({
   matches,
   active,
   empty,
+  onRetry,
   fast,
   onHover,
   onPick,
@@ -3000,6 +3014,8 @@ function SlashMenu({
   matches: SlashMatch[];
   active: number;
   empty: string;
+  /// The list could not be read: the empty line offers Try Again.
+  onRetry?: () => void;
   /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
   fast?: "on" | "off";
   onHover(index: number): void;
@@ -3079,7 +3095,7 @@ function SlashMenu({
       className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
       rowClassName="acpmux-slash-row"
-      empty={<div className="acpmux-slash-empty">{empty}</div>}
+      empty={<SlashMenuEmpty text={empty} {...(onRetry ? { onRetry } : {})} />}
       window={virtual ? view : undefined}
       itemAttributes={(_, index) => ({
         "aria-posinset": String(index + 1),

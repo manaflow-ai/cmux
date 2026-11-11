@@ -27,10 +27,13 @@ enum MacScreenHomeParts {
         MacScreenStack.make(.vertical, spacing: 12, alignment: .leading, insets: NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14))
     }
 
-    /// A note in the secondary ink, padded, as wide as its card.
-    static func note(_ text: String) -> NSView {
+    /// A note in the secondary ink, padded, as wide as its card; `action` (Try Again, Sign In)
+    /// sits under the text in the same padded column, so it shares the note's inset and leading edge.
+    static func note(_ text: String, action: NSView? = nil) -> NSView {
         let column = cardColumn()
+        column.spacing = 8
         MacScreenStack.addFullWidth(MacScreenText(text, font: MacScreenType.body, ink: \.secondary, wraps: true), to: column)
+        if let action { column.addArrangedSubview(action) }
         return column
     }
 

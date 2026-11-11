@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
-import { SettingsStore } from "./store";
+import { SettingsStore, type PartSchedule } from "./store";
 import { setLocale } from "./strings";
 
 // React DOM decides once, when its module first evaluates, whether it runs in a DOM (native
@@ -44,12 +44,14 @@ export async function renderPage(
     path?: string;
     locale?: string;
     setup?: (provider: MockSettingsProvider) => void;
+    /** The host parts' read deadline (store.ts `PART_READ_DEADLINE_MS`) and its timer. */
+    partDeadline?: { ms?: number; schedule?: PartSchedule };
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
   const mock = createMockClient(options.mock);
   options.setup?.(mock.provider);
-  const store = new SettingsStore(mock.client);
+  const store = new SettingsStore(mock.client, options.partDeadline ? { partDeadline: options.partDeadline } : {});
   await act(async () => {
     await store.start();
   });

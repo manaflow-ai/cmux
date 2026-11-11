@@ -455,8 +455,48 @@ public final class FeedStore {
     /// Whether the Mac's events have been read on the current link. Until
     /// then an empty Feed is unknown, not empty (live mode starts at
     /// `.connecting`; mock mode is always `.live`).
-    public var syncState: SyncState = .live
+    public var syncState: SyncState = .live {
+        didSet { syncStateDidChange() }
+    }
     public enum SyncState: Hashable, Sendable { case connecting, live }
+    /// `.connecting` lasted `connectDeadline` without the Mac's events: with
+    /// nothing kept, the Feed says the Macs are offline (with Retry), not
+    /// "Connecting…" forever. The Mac's events arriving (`.live`) clear it.
+    public private(set) var connectTimedOut = false
+    /// How long the Feed waits at `.connecting` before `connectTimedOut`.
+    public nonisolated static let connectDeadline: Duration = .seconds(15)
+    /// Times the connect deadline; tests inject a manual clock.
+    @ObservationIgnored public var connectClock: any Clock<Duration> = ContinuousClock()
+    @ObservationIgnored private var connectDeadlineTask: Task<Void, Never>?
+
+    private func syncStateDidChange() {
+        connectDeadlineTask?.cancel()
+        connectDeadlineTask = nil
+        if connectTimedOut { connectTimedOut = false }
+        guard syncState == .connecting else { return }
+        armConnectDeadline()
+    }
+
+    private func armConnectDeadline() {
+        connectDeadlineTask?.cancel()
+        let clock = connectClock
+        connectDeadlineTask = Task { [weak self] in
+            do { try await clock.sleep(for: FeedStore.connectDeadline) } catch { return }
+            guard !Task.isCancelled, let self, self.syncState == .connecting else { return }
+            self.connectDeadlineTask = nil
+            self.connectTimedOut = true
+        }
+    }
+
+    /// Retry from the offline state: back to "Connecting…" with a fresh
+    /// deadline while the Macs' feeds open again.
+    public func retryConnecting(reconnect: @MainActor () async -> Void = {}) async {
+        if syncState == .connecting {
+            connectTimedOut = false
+            armConnectDeadline()
+        }
+        await retry(reconnect: reconnect)
+    }
     public var mutedWorkspaces: Set<String> = [] {
         didSet { if mutedWorkspaces != oldValue { refreshDerived() } }
     }

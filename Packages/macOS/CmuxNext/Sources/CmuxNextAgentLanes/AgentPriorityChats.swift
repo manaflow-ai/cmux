@@ -96,6 +96,13 @@ public final class AgentPriorityChats {
     /// `complete` for the machines a `Snapshot` came from.
     public func complete(_ snapshot: Snapshot) -> Bool { complete(snapshot.machines) }
 
+    /// Whether a chat list was read: some store of this Mac delivered its page (it is live, or it
+    /// was before its watch went down). Before, an empty list says nothing (the Priority view shows
+    /// loading, not "No agent chats right now"). Read inside an observation scope, it follows `live`.
+    public func listed() -> Bool {
+        stores.contains { $0.live || $0.beforeGap != nil }
+    }
+
     private func complete(_ remote: [SidebarPriorityMachine]) -> Bool {
         stores.allSatisfy { $0.live || $0.socketPath == nil } && remote.allSatisfy(\.live)
     }

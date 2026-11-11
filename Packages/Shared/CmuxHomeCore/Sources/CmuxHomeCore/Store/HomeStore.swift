@@ -139,6 +139,9 @@ public final class HomeStore {
     /// been delivered".
     @ObservationIgnored var possiblySent: Set<IdempotencyKey> = []
     @ObservationIgnored var offlineDeadlines: [IdempotencyKey: Task<Void, Never>] = [:]
+    /// The deadline of each open transcript's first read (`armFirstPageDeadline`): a read that
+    /// never answers ends in the first page's failed state instead of loading forever.
+    @ObservationIgnored var firstPageDeadlines: [ConversationID: Task<Void, Never>] = [:]
     /// The periodic prune loop, and the pass running now. `prepare` waits
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
@@ -194,6 +197,9 @@ public final class HomeStore {
 
     /// Attachment uploads in flight at once, per send.
     public static let uploadConcurrency = 3
+
+    /// How long a transcript's first read may take before the view shows its error with Retry.
+    public static let firstPageDeadline: Duration = .seconds(10)
 
     /// Messages fetched when a conversation opens.
     public static let tailSize = 60
@@ -263,6 +269,8 @@ public final class HomeStore {
         pruneLoop = nil
         cancelBackoffs()
         cancelOfflineDeadlines()
+        for deadline in firstPageDeadlines.values { deadline.cancel() }
+        firstPageDeadlines.removeAll()
         for job in uploads.values { job.task?.cancel() }
         connection = .offline(since: Date())
         let waiters = turnWaiters.values

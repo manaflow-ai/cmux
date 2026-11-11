@@ -38,7 +38,12 @@ public final class ScreenSharingViewer: Identifiable {
     public nonisolated var id: String { hostID }
     public nonisolated let hostID: String
     public let hostName: String
-    public private(set) var phase: Phase = .idle
+    /// Set only by the viewer itself; the setter is internal so tests can assign a phase again.
+    public internal(set) var phase: Phase = .idle {
+        // Only a real change of phase starts a new wait: assigning the same phase again must not
+        // push its deadline back (a new request re-arms on purpose, `request(_:)`).
+        didSet { if phase != oldValue { armGoAheadDeadline() } }
+    }
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
     public private(set) var lastScope: SessionScope = .full
@@ -63,6 +68,13 @@ public final class ScreenSharingViewer: Identifiable {
     @ObservationIgnored private var requestTask: Task<Void, Never>?
     /// A denial or end the hub pushed before the request's HTTP answer named its session.
     @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
+    /// How long the viewer waits for the Mac's go-ahead (the hub's answer to the
+    /// request, then the ticket after approval) before it says it couldn't reach the Mac.
+    /// Waiting for the Mac's person to approve has no limit (they may be away).
+    public nonisolated static let goAheadDeadline: Duration = .seconds(30)
+    /// Times `goAheadDeadline`; tests inject a manual clock.
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    @ObservationIgnored private var goAheadTask: Task<Void, Never>?
 
     init(hostID: String, hostName: String, hub: DeviceHub, preferences: ScreenSharingPreferences) {
         self.hostID = hostID
@@ -102,7 +114,10 @@ public final class ScreenSharingViewer: Identifiable {
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
+        let sameWait = phase == .requesting(scope)
         phase = .requesting(scope)
+        // A new request is a new wait, even when the phase reads the same as the last one's.
+        if sameWait { armGoAheadDeadline() }
         let hub = hub, hostID = hostID, requestSession = requestSession, endSession = endSession, sessionLeft = sessionLeft
         requestTask = Task { [weak self] in
             // The call runs in its own task, which cancelling this one does not cancel: the hub may
@@ -264,6 +279,41 @@ public final class ScreenSharingViewer: Identifiable {
     func earlyPush(sessionID: String, denied: Bool, reason: String?) {
         guard case let .requesting(scope) = phase else { return }
         earlyOutcomes[sessionID] = denied ? .declined(scope) : .ended(reason: reason)
+    }
+
+    // MARK: Go-ahead deadline
+
+    /// Each phase that waits on the hub or the Mac (requesting, approved) gets
+    /// `goAheadDeadline`; any change of phase cancels the last one.
+    private func armGoAheadDeadline() {
+        goAheadTask?.cancel()
+        goAheadTask = nil
+        switch phase {
+        case .requesting, .approved: break
+        default: return
+        }
+        let waiting = phase, clock = clock
+        goAheadTask = Task { [weak self] in
+            do { try await clock.sleep(for: ScreenSharingViewer.goAheadDeadline) } catch { return }
+            guard !Task.isCancelled, let self, self.phase == waiting else { return }
+            self.goAheadTimedOut()
+        }
+    }
+
+    /// No go-ahead in time: the session (if the hub made one) ends, and the card
+    /// says the Mac couldn't be reached, with Try Again.
+    func goAheadTimedOut() {
+        let scope: SessionScope
+        switch phase {
+        case let .requesting(requested), let .approved(_, requested): scope = requested
+        default: return
+        }
+        let id = sessionID
+        // A request still out ends the session its late answer names (see `request`).
+        cancelPending(endingSession: false)
+        stopStream()
+        phase = .refused(.other, requested: scope)
+        if let id { end(id, reason: ScreenSharingEndReason.viewerDisconnected.rawValue) }
     }
 
     // MARK: Internals

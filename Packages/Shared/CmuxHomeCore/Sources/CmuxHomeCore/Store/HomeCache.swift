@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// On disk it is a small index (`home.json`: the inbox, unsent sends, drafts, scroll anchors and
 /// the list of cached windows) plus one file per opened conversation's window
-/// (`home-windows/<conversation>.json`, its newest ``windowLimit`` messages). A write is
+/// (`home-windows/<conversation>.json`, its newest ``windowLimit`` messages). Closed chats keep
+/// theirs too, as a least-recently-closed list bounded by ``keptLimit`` and ``keptByteLimit``. A write is
 /// proportional to the change, not to the store: the actor keeps what it last wrote and rewrites
 /// the index only when it changed and only the windows that changed (speed-of-sound-DESIGN.md
 /// 3.5). Encoding and writing run on the actor, never on the caller's main actor, which hands
@@ -21,6 +22,11 @@ public import Foundation
 public actor HomeCache {
     /// Messages kept per opened conversation.
     public static let windowLimit = 200
+    /// Closed chats whose transcripts stay on disk (the mirror's kept transcripts), newest closed first.
+    public static let keptLimit = HomeMirror.keptLimit
+    /// The bytes the closed chats' window files may take together: the newest that fit stay, the
+    /// older ones are removed (32 MiB).
+    public static let keptByteLimit = 32 << 20
 
     /// Writes one file (data, then its URL): the default replaces it atomically (a temporary file renamed over
     /// it, so a process end mid-write never leaves a torn file) and makes it owner-only.
@@ -53,6 +59,8 @@ public actor HomeCache {
         var index: HomeCacheSnapshot?
         /// Each window file's messages (the kept tail), compared with a new state's tail.
         var windows: [ConversationID: [Message]] = [:]
+        /// Each window file's size in bytes, for the closed chats' byte bound.
+        var sizes: [ConversationID: Int] = [:]
     }
 
     /// - Parameters:
@@ -133,13 +141,17 @@ public actor HomeCache {
             return false
         }
         var complete = true
+        var state = state
+        let encoded = boundKept(&state, written: written)
         for (id, messages) in state.windows {
             let kept = Array(messages.suffix(Self.windowLimit))
             if written.windows[id] == kept { continue }
-            if (try? writeFile(Self.encoder().encode(kept), windowURL(id))) != nil {
+            if let data = encoded[id] ?? (try? Self.encoder().encode(kept)), (try? writeFile(data, windowURL(id))) != nil {
                 written.windows[id] = kept
+                written.sizes[id] = data.count
             } else {
                 written.windows[id] = nil
+                written.sizes[id] = nil
                 complete = false
             }
         }
@@ -154,8 +166,41 @@ public actor HomeCache {
         for id in written.windows.keys where state.windows[id] == nil {
             try? FileManager.default.removeItem(at: windowURL(id))
             written.windows[id] = nil
+            written.sizes[id] = nil
         }
         return complete
+    }
+
+    /// Keeps the closed chats of `state` that fit: newest closed first, at most ``keptLimit`` of
+    /// them and ``keptByteLimit`` bytes of window files together; the first that does not fit and
+    /// every older one leave `state` (their files are removed). Returns the files it encoded to
+    /// measure, so the write does not encode them again.
+    private func boundKept(_ state: inout HomeCacheState, written: Written) -> [ConversationID: Data] {
+        var encoded: [ConversationID: Data] = [:]
+        var keep: [ConversationID] = []
+        var bytes = 0
+        var full = false
+        for id in state.kept.reversed() {
+            guard let messages = state.windows[id] else { continue }
+            let tail = Array(messages.suffix(Self.windowLimit))
+            var size: Int?
+            if written.windows[id] == tail, let known = written.sizes[id] {
+                size = known
+            } else if let data = try? Self.encoder().encode(tail) {
+                encoded[id] = data
+                size = data.count
+            }
+            if !full, let size, keep.count < Self.keptLimit, bytes + size <= Self.keptByteLimit {
+                keep.append(id)
+                bytes += size
+            } else {
+                full = true
+                state.windows[id] = nil
+                encoded[id] = nil
+            }
+        }
+        state.kept = keep.reversed()
+        return encoded
     }
 
     /// What is on disk before this launch's first write: the index and its windows. A
@@ -166,7 +211,10 @@ public actor HomeCache {
         written.index = index
         let named = Set(index?.windowIDs ?? [])
         for id in named {
-            if let messages = readWindow(id) { written.windows[id] = messages }
+            guard let data = try? Data(contentsOf: windowURL(id)),
+                  let messages = try? JSONDecoder().decode([Message].self, from: data) else { continue }
+            written.windows[id] = messages
+            written.sizes[id] = data.count
         }
         let files = (try? FileManager.default.contentsOfDirectory(at: windowsDirectory, includingPropertiesForKeys: nil)) ?? []
         let namedFiles = Set(named.map { windowURL($0).lastPathComponent })

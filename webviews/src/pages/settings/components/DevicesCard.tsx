@@ -10,6 +10,7 @@ import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
+import { PartReadState } from "./PartReadState";
 import type {
   DevicesDevice,
   DevicesJoinState,
@@ -25,7 +26,7 @@ import type {
 
 export function DevicesCard() {
   const store = useStore();
-  const { devices, host } = useSettingsState();
+  const { devices, devicesRead, host } = useSettingsState();
   const join = host?.devices_join ?? null;
   // Like Accounts: the host reads again when the card mounts (a stable callback ref runs once per mount).
   const mounted = useCallback(
@@ -38,6 +39,8 @@ export function DevicesCard() {
     <div className="devices" data-card="devices" ref={mounted}>
       {devices && <DevicesBody state={devices} join={join} />}
       {!devices && join && <JoinGroup join={join} />}
+      {/* Not read yet: a placeholder holds the card's place; a failed read says so with Try Again. */}
+      {!devices && <PartReadState card="devices" read={devicesRead} onRetry={() => void store.refreshDevices()} />}
     </div>
   );
 }

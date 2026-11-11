@@ -50,7 +50,7 @@ struct SidebarPriorityRowActions {
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown, .place, .answer: nil
+        case .open, .setCollapsed, .toggleShown, .place, .answer, .retryLoad: nil
         }
     }
 

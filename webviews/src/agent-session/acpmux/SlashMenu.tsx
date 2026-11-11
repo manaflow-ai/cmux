@@ -6,16 +6,41 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { useT } from "./i18n";
 import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 
+/// The `/` menu's line when nothing is listed. With `onRetry` (the command list could not be read)
+/// it offers Try Again beside the error; Tab runs it from the keyboard (Composer, NewTabScreen).
+export function SlashMenuEmpty({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  const t = useT();
+  return (
+    <div className="acpmux-slash-empty">
+      <span>{text}</span>
+      {onRetry && (
+        <button
+          type="button"
+          className="acpmux-slash-retry"
+          // The prompt keeps focus: a click retries without taking the caret out of the field.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onRetry}
+        >
+          {t("composer.retryCommands")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SlashMenu({
   matches,
   active,
   empty,
+  onRetry,
   onHover,
   onPick,
 }: {
   matches: SlashMatch[];
   active: number;
   empty: string;
+  /// The list could not be read: the empty line offers Try Again.
+  onRetry?: () => void;
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
@@ -48,7 +73,7 @@ export function SlashMenu({
       className="ui-popup ui-glass acpmux-slash-menu"
       id="acpmux-slash-menu"
       rowClassName="acpmux-slash-row"
-      empty={<div className="acpmux-slash-empty">{empty}</div>}
+      empty={<SlashMenuEmpty text={empty} {...(onRetry ? { onRetry } : {})} />}
       renderItem={(match) => (
         <>
           <span className="acpmux-slash-name">

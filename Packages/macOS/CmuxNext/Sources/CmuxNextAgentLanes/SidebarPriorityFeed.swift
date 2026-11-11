@@ -37,15 +37,19 @@ public final class SidebarPriorityFeed {
         public var toggleShown: @MainActor () -> Void
         /// Session ids in actual open tabs, read inside the panel observation.
         public var openedSessions: @MainActor () -> Set<String>
+        /// Try Again after "Couldn't load agent chats.": the chat lists' watches connect again now.
+        public var retryLoad: @MainActor () -> Void
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
                     rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
-                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] },
+                    retryLoad: @escaping @MainActor () -> Void = {}) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
             self.openedSessions = openedSessions
+            self.retryLoad = retryLoad
         }
     }
 
@@ -57,11 +61,17 @@ public final class SidebarPriorityFeed {
     /// Bumped when a snooze ends or an idle chat ages out, so the rows redraw with no other change.
     private let clock = PriorityClock()
     private let nextChange = DemandTimer(owner: "sidebar-priority-next-change")
+    /// How long the view waits for a first chat list before it says it couldn't load the chats.
+    static let loadDeadline: Duration = .seconds(10)
+    /// Armed while no chat list was read; its fire turns loading into "Couldn't load agent chats."
+    private let loadTimer: DemandTimer
+    private let loadState = PriorityLoadState()
 
-    public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats) {
+    public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats, clock: any Clock<Duration> = ContinuousClock()) {
         self.settings = settings
         self.hooks = hooks
         self.chats = chats
+        loadTimer = DemandTimer(owner: "sidebar-priority-load-deadline", clock: clock)
     }
 
     /// The window's Allow and Deny on its answerable rows and Needs You items (``SidebarApprovals``);
@@ -119,8 +129,25 @@ public final class SidebarPriorityFeed {
             entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
             return entry
         }
+        let loaded = !entries.isEmpty || chats.listed()
+        let timedOut = loadState.timedOut
+        followLoadDeadline(loaded: loaded, timedOut: timedOut)
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
-                                    collapsed: state.collapsed, shortcut: hooks.shortcut())
+                                    collapsed: state.collapsed, shortcut: hooks.shortcut(),
+                                    loaded: loaded, loadFailed: timedOut)
+    }
+
+    /// Never "Loading agent chats…" forever (ui-state-fixes round 2): with no list read the
+    /// deadline runs once; past it the panel says it couldn't load them. A list read later
+    /// (`loaded`) wins over it, and a list read ends a pending deadline.
+    private func followLoadDeadline(loaded: Bool, timedOut: Bool) {
+        if loaded {
+            loadTimer.cancel()
+        } else if !timedOut {
+            loadTimer.scheduleIfIdle(after: Self.loadDeadline) { @MainActor [weak self] in
+                self?.loadState.timedOut = true
+            }
+        }
     }
 
     /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a
@@ -133,7 +160,16 @@ public final class SidebarPriorityFeed {
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
+        case .retryLoad: retryLoad()
         }
+    }
+
+    /// Try Again after "Couldn't load agent chats.": loading shows again under a fresh deadline
+    /// (the next `panel` arms it) while the chat lists' watches connect again.
+    private func retryLoad() {
+        loadTimer.cancel()
+        loadState.timedOut = false
+        hooks.retryLoad()
     }
 
     /// Wakes at the next change no lane or mark makes (a snooze end, an idle chat aging out), and
@@ -151,6 +187,12 @@ public final class SidebarPriorityFeed {
             scheduleNextChange(chats.snapshot())
         }
     }
+}
+
+/// Whether the first chat list missed its deadline; observed, so the fire redraws the panel.
+@Observable @MainActor
+final class PriorityLoadState {
+    var timedOut = false
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.

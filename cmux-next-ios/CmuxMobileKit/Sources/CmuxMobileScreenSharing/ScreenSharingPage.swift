@@ -207,13 +207,12 @@ struct ScreenSharingViewerScreen: View {
     @ViewBuilder private var card: some View {
         switch viewer.phase {
         case .idle, .requesting, .approved:
-            EmptyState(symbol: "desktopcomputer", title: "Connecting to \(viewer.hostName)…",
-                       secondaryTitle: "Cancel", secondary: close)
+            ScreenSharingProgressCard(title: "Connecting to \(viewer.hostName)…", secondaryTitle: "Cancel", secondary: close)
         case .waitingForApproval:
             EmptyState(symbol: "hand.raised", title: "Waiting for \(viewer.hostName)",
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)
         case .streaming:
-            EmptyState(symbol: "desktopcomputer", title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
+            ScreenSharingProgressCard(title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
         case .declined:
             EmptyState(symbol: "hand.raised.slash", title: "\(viewer.hostName) declined",
                        message: "Someone at the Mac said Deny.", primaryTitle: "Ask Again", primary: retry,
@@ -227,6 +226,31 @@ struct ScreenSharingViewerScreen: View {
                        message: LocalizedStringKey(ScreenSharingEndCopy.message(reason, host: viewer.hostName)),
                        primaryTitle: "Connect Again", primary: retry, secondaryTitle: "Close", secondary: close)
         }
+    }
+}
+
+/// A card for work in progress (connecting, starting the stream): the empty
+/// state's layout with the cmux spinner where its still symbol would be.
+struct ScreenSharingProgressCard: View {
+    let title: LocalizedStringKey
+    let secondaryTitle: LocalizedStringKey
+    let secondary: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            CmuxSpinner()
+                .accessibilityIdentifier("screenSharing.progress")
+            Text(title)
+                .font(theme.type.emptyTitle)
+                .foregroundStyle(theme.colors.label)
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+            TextCTA(secondaryTitle, action: secondary)
+                .padding(.top, 20)
+        }
+        .frame(maxWidth: 300)
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

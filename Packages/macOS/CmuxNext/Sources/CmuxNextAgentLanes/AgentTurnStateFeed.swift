@@ -89,6 +89,16 @@ public final class AgentTurnStateFeed {
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
+    /// Connects now instead of at the end of the backoff (a person's Try Again on a list that never
+    /// came); nothing while the watch is open.
+    public func reconnectNow() {
+        guard subscription == nil else { return }
+        reconnect?.cancel()
+        reconnect = nil
+        watchedDirectory = nil
+        connect()
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread

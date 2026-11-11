@@ -55,13 +55,65 @@ extension HomeStore {
         guard let window = mirror.windows[id], !window.reachedStart, let first = window.firstSeq,
               pager.beginOlder(id) else { return }
         defer { pager.endOlder(id) }
-        guard let older = try? await source.history(of: id, before: first, limit: Self.pageSize) else { return }
+        guard let older = try? await source.history(of: id, before: first, limit: Self.pageSize) else {
+            // Retryable: the view shows it, and the next `loadOlder` asks again.
+            if mirror.windows[id]?.firstSeq == first, mirror.setOlderFailed(true, in: id) { bumpTranscript(id) }
+            return
+        }
         // The window may have been replaced during the await; a page that no
         // longer joins it is dropped (the next scroll asks again).
         guard mirror.windows[id]?.firstSeq == first else { return }
         if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) {
             bumpTranscript(id)
             requestAgentMessages(id)
+        }
+    }
+
+    /// Where the first page of the open transcript `id` stands (observable through
+    /// `transcriptVersion`): ``TranscriptWindow/FirstPage/loading`` while its first read is out,
+    /// ``TranscriptWindow/FirstPage/failed`` when that read failed (``retryTranscript(_:)`` reads
+    /// again; a reconnect does too). A view draws an empty transcript as an empty conversation (a
+    /// first-run panel) only when it is loaded.
+    public func transcriptFirstPage(_ id: ConversationID) -> TranscriptWindow.FirstPage {
+        _ = transcriptVersion[id]
+        return mirror.windows[id]?.firstPage ?? .loaded
+    }
+
+    /// Whether the last older page of `id` failed (observable through `transcriptVersion`); the
+    /// next ``loadOlder(_:)`` asks again and clears it when the page comes.
+    public func olderMessagesFailed(in id: ConversationID) -> Bool {
+        _ = transcriptVersion[id]
+        return mirror.windows[id]?.olderFailed ?? false
+    }
+
+    /// Reads the open transcript `id` again after its first read failed (a view's Retry). The task
+    /// ends when the read does; nothing happens when the transcript is shown nowhere. A first
+    /// read that is still out (it hung past its deadline) is not asked again: the view shows
+    /// loading again under a fresh deadline, and that read's page still lands.
+    @discardableResult
+    public func retryTranscript(_ id: ConversationID) -> Task<Void, Never> {
+        guard pager.isShown(id), mirror.windows[id] != nil else { return Task {} }
+        if let running = pager.runningLoad(id) {
+            if mirror.retryFirstPage(id) { bumpTranscript(id) }
+            armFirstPageDeadline(id)
+            return running
+        }
+        return load(id)
+    }
+
+    /// Arms the deadline of `id`'s first read while its first page is loading: past
+    /// ``firstPageDeadline`` the first page is failed (the view's error with Retry), never loading
+    /// forever. A page that lands later still replaces the error.
+    func armFirstPageDeadline(_ id: ConversationID) {
+        firstPageDeadlines.removeValue(forKey: id)?.cancel()
+        guard mirror.windows[id]?.firstPage == .loading else { return }
+        let clock = self.clock
+        // task-owner: one first-read deadline of transcript `id`; cancelled when the read ends, by a retry and by stop()
+        firstPageDeadlines[id] = Task { [weak self] in
+            do { try await clock.sleep(for: HomeStore.firstPageDeadline) } catch { return }
+            guard let self, !self.stopped else { return }
+            self.firstPageDeadlines[id] = nil
+            if self.mirror.markFirstPageFailed(id) { self.bumpTranscript(id) }
         }
     }
 
@@ -79,7 +131,8 @@ extension HomeStore {
 
     /// Reads the conversation's tail until it is caught up (at most three
     /// gaps per call), only while a view shows it. A failure leaves it
-    /// stale; the next reconnect reads it again.
+    /// stale, and a first page that failed says so (``transcriptFirstPage(_:)``);
+    /// the next reconnect or ``retryTranscript(_:)`` reads it again.
     ///
     /// Shown nowhere, nothing is read: a read would set up what only a
     /// `close` ends (a cloud subscription). Without a window a stale mark
@@ -100,7 +153,11 @@ extension HomeStore {
                 return
             }
             let epoch = pager.epoch(id)
+            // A read after a failed first one: the view shows loading again, not the error.
+            if mirror.retryFirstPage(id) { bumpTranscript(id) }
+            armFirstPageDeadline(id)
             let page = try? await source.snapshot(of: id, tail: Self.tailSize)
+            firstPageDeadlines.removeValue(forKey: id)?.cancel()
             guard !stopped else { return }
             guard pager.isShown(id) else {
                 // Closed while the read ran. The source reads off the main
@@ -113,6 +170,8 @@ extension HomeStore {
             guard pager.epoch(id) == epoch else { continue }
             guard let page else {
                 mirror.markStale(stream)
+                // The first page did not come: an error with Retry, never an empty conversation.
+                if mirror.markFirstPageFailed(id) { bumpTranscript(id) }
                 return
             }
             let outcome = mirror.apply(page: page)

@@ -16,6 +16,8 @@ final class SidebarPriorityPanelView: NSView {
     private let header = SidebarSectionHeaderView()
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
+    /// Try Again after "Couldn't load agent chats." (`SidebarPriorityPanel.loadFailed`), right of the note.
+    let retry = NSButton(title: "", target: nil, action: nil)
     private let scroll = NSScrollView()
     private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
@@ -29,7 +31,7 @@ final class SidebarPriorityPanelView: NSView {
     /// clipping until the later move ends, as the main list's `opens` count does.
     private var placement = 0
     private var opensUntil: [ObjectIdentifier: Int] = [:]
-    private(set) var panel = SidebarPriorityPanel(entries: [])
+    private(set) var panel = SidebarPriorityPanel(entries: [], loaded: false)
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
@@ -60,7 +62,12 @@ final class SidebarPriorityPanelView: NSView {
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
         SystemScrollers.followThin(scroll)
         empty.isHidden = true
-        [header, count, fade, empty].forEach(addSubview)
+        retry.isBordered = false
+        retry.isHidden = true
+        retry.target = self
+        retry.action = #selector(retryClicked)
+        retry.setAccessibilityLabel(Strings.priorityRetry)
+        [header, count, fade, empty, retry].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.priorityTitle)
@@ -78,6 +85,12 @@ final class SidebarPriorityPanelView: NSView {
         guard !panel.entries.isEmpty else { return SidebarDensityTokens.rowHeight }
         return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height($1) }
     }
+
+    /// The line shown with no rows ("No agent chats right now", or loading before the list was
+    /// read); nil while rows show or the panel is folded (tests).
+    var emptyNote: String? { empty.isHidden ? nil : empty.stringValue }
+    /// Whether Try Again shows (after "Couldn't load agent chats."); tests.
+    var offersRetry: Bool { !retry.isHidden }
 
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
     func height(maximum: CGFloat) -> CGFloat {
@@ -97,6 +110,12 @@ final class SidebarPriorityPanelView: NSView {
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
         empty.isHidden = panel.collapsed || !panel.entries.isEmpty
+        // Before the chat list was read the panel does not know there are none.
+        // Past the list's deadline (no acpmux answered) it says so instead of loading forever.
+        empty.stringValue = panel.loaded ? Strings.priorityEmpty : panel.loadFailed ? Strings.priorityLoadFailed : Strings.priorityLoading
+        // The failure offers Try Again: an error with Retry, never a dead end.
+        retry.isHidden = empty.isHidden || !panel.loadFailed
+        if !retry.isHidden { performWithTheme { applyRetryTitle() } }
         fade.isHidden = panel.collapsed
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
@@ -393,8 +412,15 @@ final class SidebarPriorityPanelView: NSView {
         fade.frame = body
         empty.font = SidebarStyle.subtitleFont
         let emptySize = empty.naturalSize
+        let retrySize = retry.isHidden ? .zero : retry.intrinsicContentSize
+        let retryWidth = ceil(retrySize.width)
+        let noteWidth = max(0, b.width - 2 * inset - (retry.isHidden ? 0 : retryWidth + Metrics.space2))
         empty.frame = NSRect(x: inset, y: body.minY + (SidebarDensityTokens.rowHeight - emptySize.height) / 2,
-                             width: max(0, b.width - 2 * inset), height: emptySize.height)
+                             width: min(noteWidth, ceil(emptySize.width)), height: emptySize.height)
+        if !retry.isHidden {
+            retry.frame = NSRect(x: empty.frame.maxX + Metrics.space2, y: body.minY + (SidebarDensityTokens.rowHeight - ceil(retrySize.height)) / 2,
+                                 width: retryWidth, height: ceil(retrySize.height))
+        }
         if document.frame.width != scroll.contentView.bounds.width { placeRows(animated: false) }
     }
 
@@ -402,9 +428,19 @@ final class SidebarPriorityPanelView: NSView {
         performWithTheme {
             count.textColor = Palette.attention
             empty.textColor = Palette.textTertiary
+            applyRetryTitle()
         }
     }
     nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// Try Again in the accent, in the note's font; call inside the theme scope.
+    private func applyRetryTitle() {
+        retry.attributedTitle = NSAttributedString(string: Strings.priorityRetry, attributes: [
+            .font: SidebarStyle.subtitleFont, .foregroundColor: Palette.accent,
+        ])
+    }
+
+    @objc private func retryClicked() { onAction?(.retryLoad) }
 
     /// Rows lay out top down. A row `passesThrough` says takes no clicks: the row under it (or the
     /// document) gets them.

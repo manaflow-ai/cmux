@@ -6,6 +6,24 @@ public struct TranscriptWindow: Hashable, Sendable {
     public private(set) var messages: [Message]
     /// True once `history` returned everything before the first message.
     public var reachedStart: Bool
+    /// Where the window's first page stands. A window opened with nothing to show is
+    /// ``FirstPage/loading`` until its first page is in; a read that failed leaves it
+    /// ``FirstPage/failed`` (a view shows an error with Retry, never an empty conversation).
+    public internal(set) var firstPage: FirstPage = .loaded
+    /// The last older page (`HomeStore.loadOlder`) failed; the next one that comes in clears it.
+    public internal(set) var olderFailed = false
+
+    /// Whether the window's first page was read: a view draws an empty transcript as an empty
+    /// conversation (a Chief's first-run panel, a new chat) only when it is ``loaded``.
+    public enum FirstPage: Hashable, Sendable {
+        /// The first page is in, or the window came from somewhere that needs none (the cache, a
+        /// kept transcript).
+        case loaded
+        /// The first read is out.
+        case loading
+        /// The first read failed; the conversation's content is unknown.
+        case failed
+    }
 
     public init(messages: [Message] = [], reachedStart: Bool = false) {
         self.messages = messages.sorted { $0.seq < $1.seq }
@@ -16,6 +34,7 @@ public struct TranscriptWindow: Hashable, Sendable {
     static func loading() -> TranscriptWindow {
         var window = TranscriptWindow()
         window.reachedStart = false
+        window.firstPage = .loading
         return window
     }
 
@@ -49,6 +68,7 @@ public struct TranscriptWindow: Hashable, Sendable {
         let fresh = older.filter { $0.seq < first }.sorted { $0.seq < $1.seq }
         if let last = fresh.last?.seq, first != .max, last != first - 1 { return false }
         messages.insert(contentsOf: fresh, at: 0)
+        olderFailed = false
         self.reachedStart = reachedStart || (messages.first?.seq ?? 1) <= 1
         return true
     }
@@ -57,6 +77,7 @@ public struct TranscriptWindow: Hashable, Sendable {
     /// the page and loaded history right before it are kept. Returns false
     /// when buffered newer messages do not join the page (a hole: refetch).
     mutating func adopt(page: [Message]) -> Bool {
+        firstPage = .loaded
         let sorted = page.sorted { $0.seq < $1.seq }
         guard let pageFirst = sorted.first?.seq, let pageLast = sorted.last?.seq else {
             if messages.isEmpty { reachedStart = true }

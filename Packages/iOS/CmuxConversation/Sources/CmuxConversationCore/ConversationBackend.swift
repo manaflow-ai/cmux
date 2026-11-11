@@ -118,6 +118,12 @@ extension ConversationBackend {
     }
 }
 
+/// Backends that can end their wait between dials and dial at once (Retry
+/// after the store reports a failed connection) adopt this.
+public protocol ConversationReconnectingBackend: ConversationBackend {
+    func reconnectNow()
+}
+
 /// Backends that carry audio messages adopt this beside `ConversationBackend`.
 public protocol ConversationAudioBackend: ConversationBackend {
     func uploadAudioRecording(_ data: Data, mimeType: String, info: ConversationAudioInfo) async throws -> ConversationAttachment

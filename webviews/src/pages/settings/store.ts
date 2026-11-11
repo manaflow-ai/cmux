@@ -5,7 +5,7 @@
 // ops (lists, accounts, theme levels, actions) go through the page client. This class drives the
 // fetches (start, change events, lazy parts) and owns only the page's UI state: the link to the
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
-import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import { MutationObserver, type QueryClient, type QueryState } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
@@ -95,6 +95,49 @@ export function isUnsupported(error: WireError): boolean {
   return /(^|\.)(unknown_op|unsupported|operation\.unsupported)$/.test(error.code);
 }
 
+/** How far the read of one of the host's parts got: not answered yet, failed, or read. A part that
+ * is read can still be none (the host has no such part, or rejects the op as unsupported). Cards
+ * hold their place while `pending`, show an error with Retry when `failed`, and draw nothing only
+ * when the part is read and none. */
+export type PartRead = "pending" | "failed" | "read";
+
+/** The read state of a query of a host part. A part with data is read even when a later re-read
+ * failed (the card keeps what it shows); a host without the op (unsupported) has none.
+ * `unavailableIsNone`: the part's op answers `cmux.page.unavailable` when the host has no such part
+ * (SettingsPageProvider.swift `host(_:_:)`, a Mac without a device hub); a lost link shows as the
+ * page's own disconnected state, not as this card's error. */
+export function partRead(
+  state: Pick<QueryState, "status" | "error"> | undefined,
+  hasData: boolean,
+  unavailableIsNone = false,
+): PartRead {
+  if (hasData) return "read";
+  if (state?.status === "error") {
+    const error = state.error;
+    const none =
+      error instanceof TransportError &&
+      (isUnsupported(error.wire) || (unavailableIsNone && error.code === "unavailable"));
+    return none ? "read" : "failed";
+  }
+  return state?.status === "success" ? "read" : "pending";
+}
+
+/** How long a host part's read (the host lists, Devices) may go unanswered before its card shows
+ * its failed state with Try Again, never a placeholder forever. A reply that lands later still
+ * fills the card. */
+export const PART_READ_DEADLINE_MS = 10_000;
+
+/** Runs `fire` once after `ms`; the returned function cancels it. Tests pass their own. */
+export type PartSchedule = (fire: () => void, ms: number) => () => void;
+
+const scheduleTimeout: PartSchedule = (fire, ms) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
+
+/** The code a part read past its deadline fails with (`partRead`: failed, not none). */
+export const PART_READ_TIMEOUT = "cmux.settings.part.timeout";
+
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
 export type RowError = { code: string; message: string; detail?: string };
 
@@ -114,12 +157,16 @@ export type SettingsState = {
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
+  /** Whether `host` is null because it is not read yet, its read failed, or the host has none. */
+  hostRead: PartRead;
   /** The Accounts part; null until read, or when the host has none. */
   accounts: AccountsState | null;
   /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
   harnesses: HarnessesState | null;
   /** The Devices part (Settings > Devices); null until read, or when the host has none. */
   devices: DevicesState | null;
+  /** Whether `devices` is null because it is not read yet, its read failed, or the host has none. */
+  devicesRead: PartRead;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -133,9 +180,13 @@ export type CacheView = {
   /** The scope's first read finished (data or error). */
   scopeSettled: boolean;
   host: HostData | undefined;
+  /** The host lists' read state (`partRead`); absent: derived from `host`. */
+  hostRead?: PartRead;
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
+  /** The Devices part's read state (`partRead`); absent: derived from `devices`. */
+  devicesRead?: PartRead;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -176,9 +227,11 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     errors: ui.errors,
     domains: scope?.domains ?? emptyDomains,
     host: cache.host ?? null,
+    hostRead: cache.hostRead ?? partRead(undefined, cache.host !== undefined),
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
+    devicesRead: cache.devicesRead ?? partRead(undefined, cache.devices !== undefined),
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -188,6 +241,10 @@ export type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 export class SettingsStore {
   readonly queryClient: QueryClient;
   readonly transport: SettingsTransport;
+  /** The host parts' read deadline and timer (`nativeWithin`). */
+  private readonly partDeadline: { ms?: number; schedule?: PartSchedule };
+  /** The part reads' deadlines still pending, which dispose() cancels. */
+  private readonly pendingDeadlines = new Set<() => void>();
   private ui: UiState = { connected: true, errors: new Map() };
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
@@ -207,8 +264,14 @@ export class SettingsStore {
 
   constructor(
     private readonly client: SettingsClient,
-    options: { transport?: SettingsTransport; queryClient?: QueryClient } = {},
+    options: {
+      transport?: SettingsTransport;
+      queryClient?: QueryClient;
+      /** The host parts' read deadline (`PART_READ_DEADLINE_MS`) and its timer; tests pass their own. */
+      partDeadline?: { ms?: number; schedule?: PartSchedule };
+    } = {},
   ) {
+    this.partDeadline = options.partDeadline ?? {};
     this.transport = options.transport ?? pageTransport(client);
     this.queryClient = options.queryClient ?? createSettingsQueryClient();
     // Each key's read, so a cache observer (useSettingsState) and a refetch know how to read it.
@@ -216,7 +279,7 @@ export class SettingsStore {
       queryFn: this.scopeQuery().queryFn,
     });
     this.queryClient.setQueryDefaults(settingsKeys.host, {
-      queryFn: () => this.native("cmux.settings.host.lists"),
+      queryFn: () => this.nativeWithin("cmux.settings.host.lists", settingsKeys.host),
     });
     this.queryClient.setQueryDefaults(settingsKeys.accounts, {
       queryFn: () => this.native("cmux.settings.accounts.state"),
@@ -225,7 +288,7 @@ export class SettingsStore {
       queryFn: () => this.native("cmux.settings.harnesses.state"),
     });
     this.queryClient.setQueryDefaults(settingsKeys.devices, {
-      queryFn: () => this.native("cmux.settings.devices.state"),
+      queryFn: () => this.nativeWithin("cmux.settings.devices.state", settingsKeys.devices),
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -808,6 +871,8 @@ export class SettingsStore {
 
   dispose(): void {
     this.disposed = true;
+    for (const cancel of this.pendingDeadlines) cancel();
+    this.pendingDeadlines.clear();
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
@@ -825,13 +890,17 @@ export class SettingsStore {
   /** The cache as the page composes it, read outside React (keyboard commands, tests). */
   cacheView(): CacheView {
     const scopeState = this.queryClient.getQueryState(settingsKeys.scope("user"));
+    const host = this.queryClient.getQueryData<HostData>(settingsKeys.host);
+    const devices = this.queryClient.getQueryData<DevicesData>(settingsKeys.devices);
     return {
       scope: this.queryClient.getQueryData<ScopeData>(settingsKeys.scope("user")),
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
-      host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
+      host,
+      hostRead: partRead(this.queryClient.getQueryState(settingsKeys.host), host !== undefined),
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
-      devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
+      devices,
+      devicesRead: partRead(this.queryClient.getQueryState(settingsKeys.devices), devices !== undefined, true),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -847,6 +916,8 @@ export class SettingsStore {
       last.cache.scope === cache.scope &&
       last.cache.scopeSettled === cache.scopeSettled &&
       last.cache.host === cache.host &&
+      last.cache.hostRead === cache.hostRead &&
+      last.cache.devicesRead === cache.devicesRead &&
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
@@ -1089,6 +1160,30 @@ export class SettingsStore {
   private async fetchNative(queryKey: readonly string[]): Promise<void> {
     if (this.disposed) return;
     await this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).catch(() => undefined);
+  }
+
+  /** A host part's read under its deadline (`PART_READ_DEADLINE_MS`): past it the query fails
+   * (the card's failed state with Try Again, which reads again under a fresh deadline) instead of
+   * holding its placeholder forever. A reply that comes later still fills the card. */
+  private nativeWithin<K extends SettingsOpName>(op: K, queryKey: readonly string[]): Promise<SettingsOps[K][1]> {
+    const reply = this.request(op, {} as SettingsOps[K][0]);
+    return new Promise((resolve, reject) => {
+      let late = false;
+      const cancel = (this.partDeadline.schedule ?? scheduleTimeout)(() => {
+        this.pendingDeadlines.delete(cancel);
+        late = true;
+        reject(new TransportError({ code: PART_READ_TIMEOUT, message: "The read did not answer in time." }));
+      }, this.partDeadline.ms ?? PART_READ_DEADLINE_MS);
+      // dispose() cancels a deadline still pending.
+      this.pendingDeadlines.add(cancel);
+      void reply.then((answer) => {
+        this.pendingDeadlines.delete(cancel);
+        cancel();
+        if (!late) return answer.ok ? resolve(answer.value) : reject(new TransportError(answer.error));
+        // The late answer replaces the error: the card draws what it says.
+        if (answer.ok && !this.disposed) this.queryClient.setQueryData(queryKey, answer.value);
+      });
+    });
   }
 
   /** One of the host's own reads, for its query; rejects with the host's error. */

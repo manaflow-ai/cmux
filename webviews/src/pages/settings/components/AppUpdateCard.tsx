@@ -7,16 +7,17 @@ import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { AppUpdateAction } from "../ops";
 import { ActionRow } from "./ActionRow";
+import { PartReadState } from "./PartReadState";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 export function AppUpdateCard() {
   const store = useStore();
-  const { host } = useSettingsState();
+  const { host, hostRead } = useSettingsState();
   const [running, setRunning] = useState<AppUpdateAction | null>(null);
   const state = host?.app_update;
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(state));
-  if (!state) return null;
+  if (!state) return <PartReadState card="app-update" read={hostRead} onRetry={() => void store.refreshHost()} />;
   const run = async (action: AppUpdateAction) => {
     setRunning(action);
     await store.runAppUpdate(action);

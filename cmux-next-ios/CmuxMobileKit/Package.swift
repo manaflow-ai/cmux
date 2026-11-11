@@ -95,7 +95,7 @@ let package = Package(
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-        ]),
+        ], resources: [.process("Resources")]),
         .target(
             name: "CmuxMobileAuth",
             dependencies: [

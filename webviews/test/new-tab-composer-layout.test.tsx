@@ -203,7 +203,7 @@ test("a deferred chat's later command publication reaches New Tab and a supersed
     id === "old" ? new Promise<typeof goal>((resolve) => (late = resolve)) : Promise.resolve(commands);
   function Pending({ id, revision }: { id: string; revision: object }) {
     const loaded = useSessionCommands(id, revision, read);
-    return <div>{loaded?.map((command) => command.name).join(",")}</div>;
+    return <div>{loaded.commands?.map((command) => command.name).join(",")}</div>;
   }
   act(() => root?.unmount());
   root = createRoot(host);

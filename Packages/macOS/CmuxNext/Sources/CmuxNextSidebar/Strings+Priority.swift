@@ -12,6 +12,18 @@ extension Strings {
     static func priorityAttentionCount(_ count: Int) -> String {
         String(localized: "sidebar.priority.attentionCount", defaultValue: "Needs attention: \(count)", bundle: .module)
     }
+    /// Before any chat list was read: the panel does not know yet whether there are chats.
+    static var priorityLoading: String {
+        String(localized: "sidebar.priority.loading", defaultValue: "Loading agent chats…", bundle: .module)
+    }
+    /// No chat list arrived within its deadline (no acpmux answered); a list that arrives later replaces it.
+    static var priorityLoadFailed: String {
+        String(localized: "sidebar.priority.loadFailed", defaultValue: "Couldn’t load agent chats.", bundle: .module)
+    }
+    /// The action under "Couldn't load agent chats.": reads the chat lists again.
+    static var priorityRetry: String {
+        String(localized: "sidebar.priority.retry", defaultValue: "Try Again", bundle: .module)
+    }
     static var priorityEmpty: String {
         String(localized: "sidebar.priority.empty", defaultValue: "No agent chats right now", bundle: .module)
     }

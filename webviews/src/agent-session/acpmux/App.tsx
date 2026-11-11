@@ -110,7 +110,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
-import { useSessionCommands } from "./newtab/useSessionCommands";
+import { newTabCommandSnapshot, useSessionCommands, type NewTabCommandAsk } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -122,7 +122,6 @@ import {
   projectLabel,
   recentLocalFolders,
   SessionsBy,
-  sessionTitle,
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
@@ -199,7 +198,7 @@ import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
-import { isNewChat, projectName } from "./emptyStateModel";
+import { isNewChat, projectName, shownChatName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
@@ -2589,7 +2588,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
-  const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
+  // An existing chat whose summary is not in yet is not called "New chat" (shownChatName).
+  const chatName = shownChatName(snapshot, t);
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
   // transcript's group cards and the agents pill.
@@ -3494,6 +3494,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.setRunningLimit(sessionId, maxRunning, from) ?? Promise.reject(new Error()),
     [],
   );
+  const retryCommands = useCallback(() => directClient.current?.retryCommands(), []);
   const reconnectMcp = useCallback(
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
@@ -10281,6 +10282,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [],
   );
   const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  // The New Tab page that asked acpmux for a deferred chat's commands, until that chat is known
+  // (commandSession): its `/` menu says "Loading commands…" meanwhile (M7). A refused ask is a
+  // failure with Try Again (the same ask again), never the page's empty list.
+  const [commandsAsked, setCommandsAsked] = useState<{ page: number; harness: string; cwd?: string; failed?: true }>();
+  const askCommands = (page: number, harness: string, cwd?: string) => {
+    const ask = { page, harness, ...(cwd ? { cwd } : {}) };
+    setCommandsAsked(ask);
+    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(() =>
+      setCommandsAsked((asked) => (asked === ask ? { ...ask, failed: true } : asked)),
+    );
+  };
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
@@ -10528,6 +10540,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : { ...composerSnapshot, sessions: newTabSessions },
     [composerSnapshot, newTabSessions],
   );
+  const newTabCommandsAsk: NewTabCommandAsk =
+    commandsAsked?.page === newTabGeneration ? (commandsAsked.failed ? "failed" : "asked") : undefined;
+  const { commands: newTabCommands, failed: newTabCommandsFailed } = pendingCommands;
+  const newTabScreenSnapshot = useMemo(
+    () =>
+      newTabCommandSnapshot(
+        newTabSnapshot,
+        commandSession,
+        { commands: newTabCommands, failed: newTabCommandsFailed },
+        newTabCommandsAsk,
+      ),
+    [newTabSnapshot, commandSession, newTabCommands, newTabCommandsFailed, newTabCommandsAsk],
+  );
+  // New Tab's `/` Try Again: the deferred chat's read again, else the refused ask again.
+  const retryNewTabCommands = () => {
+    if (commandSession) return pendingCommands.retry();
+    if (commandsAsked?.failed && commandsAsked.page === newTabGeneration)
+      askCommands(commandsAsked.page, commandsAsked.harness, commandsAsked.cwd);
+  };
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
     newTabSessions.length === 0 &&
@@ -11529,6 +11560,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             chips={ComposerChips}
             // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
+            // The `/` menu's Try Again when the chat's command list could not be read.
+            onRetryCommands={retryCommands}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
@@ -12410,11 +12443,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   onImportFile={importFile}
                   importError={importError}
                   importSandboxed={sandbox.mode === "sandboxed"}
-                  onCommands={(harness, cwd) => {
-                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
-                      () => undefined,
-                    );
-                  }}
+                  onCommands={(harness, cwd) => askCommands(newTabGeneration, harness, cwd)}
+                  onRetryCommands={retryNewTabCommands}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
@@ -12521,7 +12551,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                     })
                   }
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={newTabScreenSnapshot}
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}

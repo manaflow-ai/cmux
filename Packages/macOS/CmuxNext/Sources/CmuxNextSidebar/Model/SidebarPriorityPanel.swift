@@ -88,12 +88,21 @@ public nonisolated struct SidebarPriorityPanel: Hashable, Sendable {
     public var collapsed: Bool
     /// The toggle action's shortcut as the person sees it ("⌥⌘K"), for the bell's tooltip.
     public var shortcut: String?
+    /// The chat list was read: with no entries the view says there are none only then, and says
+    /// it is loading before (ui-state-fixes M6).
+    public var loaded: Bool
+    /// Not loaded, and no chat list arrived within its deadline (`SidebarPriorityFeed.loadDeadline`):
+    /// the view says it couldn't load the chats instead of loading forever. A later list replaces it.
+    public var loadFailed: Bool
 
-    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil) {
+    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil,
+                loaded: Bool = true, loadFailed: Bool = false) {
         self.entries = entries
         self.shown = shown
         self.collapsed = collapsed
         self.shortcut = shortcut
+        self.loaded = loaded
+        self.loadFailed = !loaded && loadFailed
     }
 
     /// The rows that need the person (the folded header's count and the bell's dot).
@@ -119,4 +128,6 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
+    /// Try Again under "Couldn't load agent chats.": read the chat lists again, under a fresh deadline.
+    case retryLoad
 }

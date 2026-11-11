@@ -54,6 +54,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { slashMenuEmptyLabel } from "../composerModel";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -331,6 +332,8 @@ type Props = NewTabScreenActions & {
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
+  /// Try Again in the `/` menu when the command list could not be read (`commandsFailed`).
+  onRetryCommands?(): void;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
@@ -931,7 +934,11 @@ export function NewTabScreen(props: Props) {
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
-  const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // As in chat (Composer `open`): a `/word` at the start opens the list even with no match, to say
+  // why (slashMenuEmptyLabel: still loading, the agent has none, nothing matches); one further on
+  // opens only on a match, since `/tmp` mid-prompt is the person's text.
+  const commandsOpen =
+    commandAt !== undefined && commandDismissed !== text && (commandAt.leading || commandMatches.length > 0);
   // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
   // or the list closing forgets it (adjusted while rendering, before any key reads it).
   if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
@@ -945,6 +952,8 @@ export function NewTabScreen(props: Props) {
   // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.
   if (!text.trim() && pickedSkills.current.size) pickedSkills.current = new Set();
   const onCommands = props.onCommands;
+  // The command list could not be read: the `/` menu's empty line offers Try Again.
+  const retryCommands = snapshot.commandsFailed ? props.onRetryCommands : undefined;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -1578,7 +1587,7 @@ export function NewTabScreen(props: Props) {
         setCommandDismissed(text);
         return;
       }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && commandMatches.length) {
         event.preventDefault();
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
@@ -1590,14 +1599,21 @@ export function NewTabScreen(props: Props) {
       // arrows chose or one whose name the typed word begins. Shift-Return, Cmd-Return and any other
       // Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+      // A list that could not be read offers Try Again; Tab runs it (Return keeps its meaning).
+      if (plain && event.key === "Tab" && !commandMatches.length && retryCommands) {
+        event.preventDefault();
+        retryCommands();
+        return;
+      }
       const match = commandMatches[commandIndex];
       if (
         plain &&
+        match &&
         (event.key === "Tab" ||
           (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
       ) {
         event.preventDefault();
-        pickCommand(match!.command);
+        pickCommand(match.command);
         return;
       }
     }
@@ -2227,7 +2243,8 @@ export function NewTabScreen(props: Props) {
                 <SlashMenu
                   matches={commandMatches}
                   active={commandIndex}
-                  empty={t("composer.noMatchingCommands")}
+                  empty={t(slashMenuEmptyLabel(snapshot.commands, snapshot.commandsPending, snapshot.commandsFailed))}
+                  {...(retryCommands ? { onRetry: retryCommands } : {})}
                   onHover={setCommandActive}
                   onPick={pickCommand}
                 />
@@ -2305,7 +2322,9 @@ export function NewTabScreen(props: Props) {
                   "data-dictation-listening": dictating && !shell ? "" : undefined,
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
-                    ? `acpmux-slash-${commandIndex}`
+                    ? commandMatches.length
+                      ? `acpmux-slash-${commandIndex}`
+                      : undefined
                     : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
