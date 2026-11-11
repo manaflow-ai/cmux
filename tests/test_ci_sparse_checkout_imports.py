@@ -2139,6 +2139,13 @@ class SparseCheckoutImportTests(unittest.TestCase):
 
 ORACLE_CASES = int(os.environ.get("SPARSE_ORACLE_CASES", "1000"))
 ORACLE_SEED = int(os.environ.get("SPARSE_ORACLE_SEED", "40923"))
+# Ratchet: on seed 40923 and 1000 cases the checker names more files than Python loaded in this many
+# cases (ModuleFinder's over-approximation). A checker that names extra files more often fails;
+# lower it when the checker gets tighter.
+ORACLE_SUPERSET_LIMIT = 1
+# Test hook: the checker also names one file Python did not load (a sloppier checker), to show the
+# ratchet catches it.
+_oracle_extra_file = False
 _ORACLE_FOLDERS = ("scripts/ci", "scripts/a", "scripts/b", "lib", "")
 _ORACLE_NAMES = ("m0", "m1", "m2", "m3", "m4", "tests", "shared")
 _ORACLE_TRACE = (
@@ -2257,8 +2264,21 @@ def _oracle_program(seed: int) -> tuple[dict[str, str], str, dict, str]:
     return files, entry, step, shape
 
 
+def _unverifiable_reason(root: Path, cwd: str | None, entry: str, unresolved: tuple) -> str:
+    """One short reason for an unverifiable run, from its first unresolved call."""
+    rel, call, _line, text = unresolved[0]
+    if call == SEARCH_DOES_NOT_SETTLE:
+        return SEARCH_DOES_NOT_SETTLE
+    where = "the entry script" if rel == entry else "an imported module"
+    path_ops = dynamic_calls(root, rel, cwd)[0]
+    if any(op[3] == call and op[5] == text for op in path_ops):
+        return f"{call} of a fixed folder in {where}, in an order it cannot prove"
+    return f"{call} in {where}, in a form it cannot follow"
+
+
 def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
-    """("verified" | "superset" | "unverifiable" | "invalid" | "divergence", detail) for one case."""
+    """("verified" | "superset" | "unverifiable" | "invalid" | "divergence", detail) for one case: for
+    "superset", the seed and the extra files; for "unverifiable", one short reason."""
     import json
 
     files, entry, step, shape = _oracle_program(seed)
@@ -2292,21 +2312,24 @@ def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
         how = how_it_runs(entry, _job_run_modules(job))
         configs, bad = run_configs(doc, job, entry, how, root)
         if bad:
-            return "unverifiable", "; ".join(bad)
+            return "unverifiable", re.sub(r"'[^']*'|`[^`]*`", "...", bad[0])
         if len(configs) != 1:
             return "divergence", f"{len(configs)} run configs for one run"
         extra, base, cwd = configs[0]
         names = NameProof(root, outside)
         places, _, _, loaded, unresolved = full_run(root, entry, extra, how, frozenset(), names, base, cwd)
         if unresolved:
-            return "unverifiable", repr(unresolved[:2])
+            return "unverifiable", _unverifiable_reason(root, cwd, entry, unresolved)
         checked = {entry} | {p for p in places.values() if not p.endswith("/")} | {f for f, _ in loaded}
+        if _oracle_extra_file:
+            checked |= set(sorted(set(files) - real)[:1])
         if checked != real:
             # More than Python loaded is ModuleFinder's known over-approximation (`from m import sub`
             # after m's __init__ bound a `sub` attribute still counts m/sub.py): it can only ask the
             # list for an extra file. Missing a file Python loaded is a divergence.
-            outcome = "superset" if real < checked else "divergence"
-            return outcome, json.dumps(
+            if real < checked:
+                return "superset", f"seed {seed}: extra {', '.join(sorted(checked - real))}"
+            return "divergence", json.dumps(
                 {"seed": seed, "shape": shape, "run": step, "files": files,
                  "only_checker": sorted(checked - real), "only_python": sorted(real - checked)},
                 indent=1,
@@ -2314,26 +2337,52 @@ def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
         return "verified", ""
 
 
-def run_oracle(cases: int = ORACLE_CASES, seed: int = ORACLE_SEED) -> tuple[Counter, list[str]]:
-    """Counts by outcome over `cases` valid cases, and the divergences' details."""
+class OracleResult:
+    """Outcome counts over exactly `cases` cases that ran, in seed order, with the divergences'
+    details, the supersets (seed and extra files) and the unverifiable reasons by count."""
+
+    def __init__(self) -> None:
+        self.counts: Counter = Counter()
+        self.divergences: list[str] = []
+        self.supersets: list[str] = []
+        self.reasons: Counter = Counter()
+
+    def report(self) -> str:
+        lines = [f"supersets: {len(self.supersets)} (limit {ORACLE_SUPERSET_LIMIT})"]
+        lines += [f"  {line}" for line in self.supersets]
+        lines.append("top unverifiable reasons:")
+        lines += [f"  {n} {reason}" for reason, n in self.reasons.most_common(3)]
+        return "\n".join(lines)
+
+
+def run_oracle(cases: int = ORACLE_CASES, seed: int = ORACLE_SEED) -> OracleResult:
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
     outside = set(sys.stdlib_module_names) | _installed_names()
-    counts: Counter = Counter()
-    divergences: list[str] = []
+    result = OracleResult()
     workers = max(1, os.cpu_count() or 1)
+    done = 0
     with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
         next_seed = seed * 1_000_000
-        while (done := sum(n for outcome, n in counts.items() if outcome != "invalid")) < cases:
+        while done < cases:
             want = cases - done
             batch = range(next_seed, next_seed + max(want + want // 2, workers))
             next_seed = batch.stop
             for outcome, detail in pool.map(_oracle_case, batch, [outside] * len(batch), chunksize=8):
-                counts[outcome] += 1
+                if done == cases:
+                    break  # a fixed case count, in seed order, so the ratchet compares like with like
+                result.counts[outcome] += 1
+                if outcome == "invalid":
+                    continue
+                done += 1
                 if outcome == "divergence":
-                    divergences.append(detail)
-    return counts, divergences
+                    result.divergences.append(detail)
+                elif outcome == "superset":
+                    result.supersets.append(detail)
+                elif outcome == "unverifiable":
+                    result.reasons[detail] += 1
+    return result
 
 
 class SparseCheckoutOracleTests(unittest.TestCase):
@@ -2341,11 +2390,31 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         import time
 
         started = time.monotonic()
-        counts, divergences = run_oracle()
+        result = run_oracle()
         took = time.monotonic() - started
-        print(f"sparse-checkout oracle: {dict(counts)} in {took:.1f}s on {os.cpu_count()} cpus", file=sys.stderr)
-        self.assertEqual(divergences[:3], [], f"{len(divergences)} divergences")
-        self.assertGreaterEqual(counts["verified"], ORACLE_CASES // 4, dict(counts))
+        print(
+            f"sparse-checkout oracle: {dict(result.counts)} in {took:.1f}s on {os.cpu_count()} cpus\n{result.report()}",
+            file=sys.stderr,
+        )
+        self.assertEqual(result.divergences[:3], [], f"{len(result.divergences)} divergences")
+        if (ORACLE_SEED, ORACLE_CASES) == (40923, 1000):
+            self.assertLessEqual(
+                len(result.supersets), ORACLE_SUPERSET_LIMIT,
+                "the checker names files Python did not load more often than before:\n" + "\n".join(result.supersets),
+            )
+        self.assertGreaterEqual(result.counts["verified"], ORACLE_CASES // 4, dict(result.counts))
+
+    def test_fixture_the_superset_ratchet_catches_a_checker_that_names_an_extra_file(self) -> None:
+        # The same oracle, with a checker that also names one file the run did not load: 100 cases
+        # already exceed the limit pinned for 1000.
+        global _oracle_extra_file
+        _oracle_extra_file = True
+        try:
+            result = run_oracle(100)
+        finally:
+            _oracle_extra_file = False
+        self.assertGreater(len(result.supersets), ORACLE_SUPERSET_LIMIT, result.report())
+        self.assertEqual(result.divergences, [])
 
 
 if __name__ == "__main__":
