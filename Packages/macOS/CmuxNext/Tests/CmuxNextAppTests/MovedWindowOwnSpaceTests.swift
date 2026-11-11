@@ -20,7 +20,7 @@ struct MovedWindowOwnSpaceTests {
             let sourceSpace = try #require(services.windows.states[source]?.profileID)
             let spaces = services.machines.local.store.profileIDs.count
             #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: MoveToNewWindowTests.on(.workspace, workspace.id)))
-            func moved() -> WindowState? {
+            @MainActor func moved() -> WindowState? {
                 services.windows.registry.value.owner(of: workspace.id).flatMap { $0 == source ? nil : services.windows.states[$0] }
             }
             try await PinnedPageTests.until({ moved().map { $0.profileID != sourceSpace } == true },
