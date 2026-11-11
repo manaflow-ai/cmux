@@ -344,6 +344,10 @@ fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
     // Apple menu "Systemeinstellungen…" launches a denied app: blocked by the app it names.
     assert!(blocked_in(&guard, Some(0), 1, &["Über diesen Mac", "Systemeinstellungen…", "Sperren"], "Systemeinstellungen…"));
     assert!(blocked_in(&guard, Some(0), 1, &[], "System Settings…"));
+    // macOS adds a note after the name: still the same app.
+    assert!(blocked_in(&guard, Some(0), 1, &[], "System Settings…, 1 update"));
+    assert!(blocked_in(&guard, Some(0), 1, &[], "Systemeinstellungen …, 1 Update"));
+    assert_eq!(roles::menu_name_candidates("System Settings…, 1 update"), vec!["System Settings…, 1 update", "System Settings"]);
     // The rest of the Apple menu stays reachable (the person allows it).
     for t in ["Über diesen Mac", "Bildschirm sperren", "Ruhezustand", "Abmelden …", "Sofort beenden …"] {
         assert!(!blocked_in(&guard, Some(0), 1, &[], t), "{t}");

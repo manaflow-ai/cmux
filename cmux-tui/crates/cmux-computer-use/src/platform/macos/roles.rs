@@ -307,6 +307,23 @@ pub fn menu_app_name(title: &str) -> (&str, bool) {
     (t, false)
 }
 
+/// The app names a menu item title could start with: the whole title, and
+/// the title cut at each "…", "...", ", ", " (" and " – " (one to four
+/// candidates, longest first, each trimmed).
+pub fn menu_name_candidates(title: &str) -> Vec<&str> {
+    let t = title.trim();
+    let mut out = vec![menu_app_name(t).0];
+    for sep in ["\u{2026}", "...", ", ", " (", " \u{2013} ", " - "] {
+        if let Some(i) = t.find(sep) {
+            let head = menu_app_name(&t[..i]).0;
+            if !head.is_empty() && !out.contains(&head) {
+                out.push(head);
+            }
+        }
+    }
+    out
+}
+
 /// Whether a submenu is a launch list: under the Apple menu (Recent Items:
 /// apps, documents, servers) or the app menu (Services), or one where most
 /// items name installed apps (Open With in any app and any language).
@@ -340,10 +357,15 @@ pub fn menu_item_blocked(
     if name.is_empty() {
         return false;
     }
-    let ids = resolve(name);
-    if ids.iter().any(|id| guard.app_blocked(id, name)) || guard.app_blocked("", name) {
-        return true;
+    // Menus add text after an app's name ("System Settings…, 1 update"):
+    // every leading part of the title is checked, so none hides an app.
+    for candidate in menu_name_candidates(ctx.title) {
+        let ids = resolve(candidate);
+        if ids.iter().any(|id| guard.app_blocked(id, candidate)) || guard.app_blocked("", candidate) {
+            return true;
+        }
     }
+    let ids = resolve(name);
     guard.denies_any() && is_launch_list(ctx, resolve) && (ids.is_empty() || version || ids.len() > 1)
 }
 

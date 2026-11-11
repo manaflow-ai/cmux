@@ -257,41 +257,72 @@ pub fn apps_named(name: &str) -> Vec<String> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
-    // (built at, folder index, answers so far: a menu walk asks once per item
-    // and per sibling, so LaunchServices is asked once per name per TTL).
-    type Index = (Instant, HashMap<String, Vec<String>>, HashMap<String, Vec<String>>);
+    struct Index {
+        /// The app folders' modification times when the index was built:
+        /// installing, moving or removing an app changes one of them.
+        folders: Vec<Option<std::time::SystemTime>>,
+        checked: Instant,
+        by_name: HashMap<String, Vec<String>>,
+        /// Answers so far (a menu walk asks once per item and per sibling, so
+        /// LaunchServices is asked once per name per ANSWER_TTL).
+        answers: HashMap<String, Vec<String>>,
+        answered: Instant,
+    }
     static INDEX: OnceLock<Mutex<Option<Index>>> = OnceLock::new();
     let key = name.trim().to_lowercase();
     if key.is_empty() {
         return Vec::new();
     }
     let cell = INDEX.get_or_init(|| Mutex::new(None));
-    {
-        let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.as_ref().is_none_or(|(at, _, _)| at.elapsed() > NAME_INDEX_TTL) {
-            *guard = Some((Instant::now(), build_name_index(), HashMap::new()));
+    let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+    let stale = match guard.as_mut() {
+        None => true,
+        // A few stats, at most once per FOLDER_CHECK.
+        Some(ix) if ix.checked.elapsed() > FOLDER_CHECK => {
+            ix.checked = Instant::now();
+            folder_times() != ix.folders
         }
-        if let Some(hit) = guard.as_ref().and_then(|(_, _, answers)| answers.get(&key)) {
-            return hit.clone();
-        }
-    }
-    let mut ids = {
-        let guard = cell.lock().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().and_then(|(_, index, _)| index.get(&key).cloned()).unwrap_or_default()
+        Some(_) => false,
     };
+    if stale {
+        let now = Instant::now();
+        *guard = Some(Index {
+            folders: folder_times(),
+            checked: now,
+            by_name: build_name_index(),
+            answers: HashMap::new(),
+            answered: now,
+        });
+    }
+    let Some(ix) = guard.as_mut() else { return Vec::new() };
+    if ix.answered.elapsed() > ANSWER_TTL {
+        ix.answers.clear();
+        ix.answered = Instant::now();
+    }
+    if let Some(hit) = ix.answers.get(&key) {
+        return hit.clone();
+    }
+    let mut ids = ix.by_name.get(&key).cloned().unwrap_or_default();
+    drop(guard);
     if let Some(id) = launch_services_id(name.trim())
         && !ids.contains(&id)
     {
         ids.push(id);
     }
-    if let Some((_, _, answers)) = cell.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        answers.insert(key, ids.clone());
+    if let Some(ix) = cell.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        ix.answers.insert(key, ids.clone());
     }
     ids
 }
 
-/// How long the app-name index is reused.
-const NAME_INDEX_TTL: Duration = Duration::from_secs(60);
+/// How often the app folders are checked for changes.
+const FOLDER_CHECK: Duration = Duration::from_secs(5);
+/// How long an answer that includes LaunchServices' lookup is reused.
+const ANSWER_TTL: Duration = Duration::from_secs(60);
+
+fn folder_times() -> Vec<Option<std::time::SystemTime>> {
+    app_folders().iter().map(|d| std::fs::metadata(d).and_then(|m| m.modified()).ok()).collect()
+}
 
 fn app_folders() -> Vec<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = [
