@@ -306,7 +306,9 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         # Several panes show a chat (an earlier cell's Cloud chat opened in its machine's workspace): the
         # pane the first cell used, else the newest listed.
         listed = [p for p in (state.get("agent_panes") or []) if isinstance(p, str)]
-        if listed and not journey.home_pane:
+        # The remembered pane no longer shows an agent tab (a start closed its tab into the machine's
+        # workspace, run 42981215182): the newest listed pane is where the palette opened this chat.
+        if listed and (not journey.home_pane or journey.home_pane not in listed):
             journey.home_pane = listed[-1]
         time.sleep(1)
     journey.home_pane = journey.home_pane or pane
@@ -391,6 +393,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             break
         time.sleep(3)
     cell["outcome"] = outcome or "timeout"
+    if outcome == "started":
+        journey.home_pane = None  # this tab closed into the machine's chat; the next cell finds its own pane
     cell["message"] = clean(message, 300)
     made = new_machines(journey, before, started)
     cell["machines_made"] = made
