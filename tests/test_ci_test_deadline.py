@@ -175,7 +175,8 @@ FAKE = textwrap.dedent(
         # A test that writes a file when the wrapper's cancel reaches it.
         import signal
         def stop(signum, frame):
-            open(sys.argv[2], "w").write(str(signum)); sys.exit(143)
+            # The test ends cleanly on the cancel: the job must still read as cancelled.
+            open(sys.argv[2], "w").write(str(signum)); sys.exit(0)
         signal.signal(signal.SIGTERM, stop)
         out("ready\\ntest waits ... ")
         time.sleep(60)
@@ -266,6 +267,8 @@ class ProcessTests(unittest.TestCase):
             time.sleep(0.1)
         self.assertTrue(marker.exists(), "the test process never got the cancel")
         self.assertEqual(marker.read_text(), str(int(signal.SIGTERM)))
+        # deadline-rev item 4 on #40523: the watchdog exits 128 + the signal, not the test's own status.
+        self.assertEqual(process.returncode, 128 + int(signal.SIGTERM))
 
     def test_the_deadline_comes_from_the_environment_when_no_flag_names_it(self):
         env = {**os.environ, "CMUX_TEST_DEADLINE_SECONDS": "2"}
