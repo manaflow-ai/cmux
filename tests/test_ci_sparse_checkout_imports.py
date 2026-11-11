@@ -1968,6 +1968,161 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
+    def test_fixture_review_40923_f1_a_stdlib_named_import_between_path_changes_is_not_trusted(self) -> None:
+        # insert one; import json; insert two, with json in both folders: Python loads one's json (a
+        # repo file shadows the stdlib), so a list with only two's json must not pass. A json.py file
+        # and a json/ package with __init__.py shadow it alike.
+        script = "import sys\nsys.path.insert(0, 'scripts/one')\nimport json\nsys.path.insert(0, 'scripts/two')\n"
+        expected = [
+            "w.yml run Check out: scripts/ci/sj.py calls sys.path.insert(0, 'scripts/one') (line 2), which "
+            "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+            "w.yml run Check out: scripts/ci/sj.py calls sys.path.insert(0, 'scripts/two') (line 4), "
+            "which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+        ]
+        for form, (one, two) in {
+            "file": ("scripts/one/json.py", "scripts/two/json.py"),
+            "package": ("scripts/one/json/__init__.py", "scripts/two/json/__init__.py"),
+        }.items():
+            with self.subTest(form=form):
+                more = {"scripts/ci/sj.py": script, one: "", two: ""}
+                self.assertEqual(self._misses(self.block("scripts/ci/sj.py", two), more=more), expected)
+
+    # A def's decorators, defaults and annotations run in the scope around it, so a name there is the
+    # enclosing scope's, not the body's: P is a.py where they run, though the body binds P = b.py.
+    ENCLOSING = {
+        "scripts/lib/a.py": "",
+        "scripts/lib/b.py": "",
+    }
+
+    def _enclosing(self, source: str) -> list[str]:
+        more = {**self.ENCLOSING, "scripts/ci/enc.py": "import importlib.util\nP = 'scripts/lib/a.py'\n" + source}
+        return self._misses(self.block("scripts/ci/enc.py", "scripts/lib/b.py"), more=more)
+
+    def _unfollowable(self, line: int) -> list[str]:
+        return [
+            f"w.yml run Check out: scripts/ci/enc.py calls importlib.util.spec_from_file_location('m', P) "
+            f"(line {line}), which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+        ]
+
+    def test_fixture_review_40923_f2_defaults_and_annotations_use_the_enclosing_scope(self) -> None:
+        # P is bound in the module and in f, so it is provable in neither for the default: unverifiable,
+        # never b.py from f's body.
+        body = "    P = 'scripts/lib/b.py'\n    return P\n"
+        call = "importlib.util.spec_from_file_location('m', P)"
+        for label, head in {
+            "default": f"def f(spec={call}):\n",
+            "keyword-only default": f"def f(*, spec={call}):\n",
+            "parameter annotation": f"def f(spec: {call} = None):\n",
+            "return annotation": f"def f() -> {call}:\n",
+        }.items():
+            with self.subTest(form=label):
+                self.assertEqual(self._enclosing(head + body), self._unfollowable(3))
+
+    def test_fixture_review_40923_f2_decorators_use_the_enclosing_scope(self) -> None:
+        source = (
+            "def deco(spec):\n    return lambda fn: fn\n"
+            "@deco(importlib.util.spec_from_file_location('m', P))\n"
+            "def f():\n    P = 'scripts/lib/b.py'\n    return P\n"
+        )
+        self.assertEqual(self._enclosing(source), self._unfollowable(5))
+
+    def test_fixture_review_40923_f2_lambda_defaults_use_the_enclosing_scope(self) -> None:
+        # The lambda binds only `spec`; its default's P is the module's a.py, which must be listed.
+        source = "g = lambda spec=importlib.util.spec_from_file_location('m', P): spec\n"
+        self.assertEqual(
+            self._enclosing(source),
+            ["w.yml run Check out: scripts/ci/enc.py imports scripts/lib/a.py, not in its sparse checkout"],
+        )
+
+    def test_fixture_review_40923_f2_class_bases_and_keywords_use_the_enclosing_scope(self) -> None:
+        # A base, class keyword or class decorator runs where the class is defined: P is the module's
+        # a.py, which must be listed. (A class body is not a scope the check models, so its names
+        # never were the body's; this guards that.)
+        source = (
+            "def keep(cls):\n    return cls\n"
+            "@keep\n"
+            "class C(dict, spec=importlib.util.spec_from_file_location('m', P)):\n"
+            "    def m(self):\n        return 1\n"
+            "class D(importlib.util.spec_from_file_location('m', P).__class__):\n"
+            "    pass\n"
+        )
+        self.assertEqual(
+            self._enclosing(source),
+            ["w.yml run Check out: scripts/ci/enc.py imports scripts/lib/a.py, not in its sparse checkout"],
+        )
+
+    # Shell text is not straight-line code (review of #41017): a ( ... ) restores the directory at its
+    # matching ), across lines and next to other operators; a cd that may not run makes it unknown.
+    # PYTHONPATH=lib is relative to the directory python starts in, the repo root here, where Python
+    # loads lib/witness.py (scripts/ci/witness.py is a decoy the old reading picked).
+    WITNESS = {"scripts/ci/wentry.py": "import witness\n", "scripts/ci/witness.py": "", "lib/witness.py": ""}
+    WITNESS_RUN = "PYTHONPATH=lib python3 -c \"import runpy; runpy.run_path('scripts/ci/wentry.py')\""
+
+    def test_fixture_review_41017_a_subshell_cd_ends_at_its_matching_paren(self) -> None:
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        for label, lines in {
+            "multi-line": ("(", "cd scripts/ci", ")", self.WITNESS_RUN),
+            "next to ;": ("(cd scripts/ci && true); " + self.WITNESS_RUN,),
+        }.items():
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    self._misses(listed, run=self.block(*lines), more=self.WITNESS),
+                    ["w.yml run Check out: scripts/ci/wentry.py imports lib/witness.py, not in its sparse checkout"],
+                )
+
+    def test_fixture_review_41017_a_conditional_cd_makes_the_directory_unknown(self) -> None:
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        self.assertEqual(
+            self._misses(listed, run=self.block("true || cd scripts/ci", self.WITNESS_RUN), more=self.WITNESS),
+            [
+                "w.yml run Check out: scripts/ci/wentry.py runs in a step that sets or reads PYTHONPATH where "
+                "this check cannot follow it",
+                "w.yml run Check out: scripts/ci/wentry.py runs with `python -c` from a working directory this "
+                "check cannot resolve",
+            ],
+        )
+
+    def test_fixture_review_41017_the_shell_directory_in_every_shape(self) -> None:
+        # The directory `python3 x` starts in, after each shape; None is unknown (the run is unverifiable).
+        ci = "scripts/ci"
+        shapes = {
+            "(\ncd scripts/ci\n)\npython3 x": "",
+            "(cd scripts/ci && true); python3 x": "",
+            "x=$(cd scripts/ci && pwd)\npython3 x": "",
+            "cd scripts/ci | cat\npython3 x": "",
+            "cd scripts/ci &\npython3 x": "",
+            "cd scripts/ci\npython3 x": ci,
+            "cd scripts/ci; python3 x": ci,
+            "cd scripts/ci && python3 x": ci,
+            "cd scripts/ci &&\n  python3 x": ci,
+            "cd scripts/ci || exit 1\npython3 x": ci,
+            "{ cd scripts/ci; }\npython3 x": ci,
+            "cd scripts && (cd ci; python3 x)": ci,
+            "true || cd scripts/ci\npython3 x": None,
+            "true && cd scripts/ci\npython3 x": None,
+            "true && { cd scripts/ci; }\npython3 x": None,
+            "if true; then cd scripts/ci; fi\npython3 x": None,
+            "if true; then\n  cd scripts/ci\nfi\npython3 x": None,
+            "case a in a) cd scripts/ci;; esac\npython3 x": None,
+            "for d in a; do cd scripts/ci; done\npython3 x": None,
+            "while false; do\n  cd scripts/ci\ndone\npython3 x": None,
+            "go() { cd scripts/ci; }\npython3 x": None,
+            "function go {\n  cd scripts/ci\n}\npython3 x": None,
+            "set +e\ncd scripts/ci\npython3 x": None,
+            "popd\npython3 x": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ci).mkdir(parents=True)
+            for run, want in shapes.items():
+                with self.subTest(run=run):
+                    got = [
+                        shell.copy().feed(line, lambda c: "python3" in c)
+                        for line, _, _, shell in _run_lines_uncached(run, root, "")
+                        if "python3" in line
+                    ]
+                    self.assertEqual(got, [want])
+
     # Python puts the working directory, not the script's folder, first for `python -m`, `python -c`
     # and stdin; relative path literals name paths from it too. Both tests/ and scripts/ci/tests/ hold
     # a `tests` package.
@@ -2279,9 +2434,17 @@ def _unverifiable_reason(root: Path, cwd: str | None, entry: str, unresolved: tu
 def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
     """("verified" | "superset" | "unverifiable" | "invalid" | "divergence", detail) for one case: for
     "superset", the seed and the extra files; for "unverifiable", one short reason."""
+    files, entry, step, shape = _oracle_program(seed)
+    return _oracle_judge(files, entry, step, outside, seed, shape)
+
+
+def _oracle_judge(
+    files: dict[str, str], entry: str, step: dict, outside: set[str], seed: int | None = None, shape: str = ""
+) -> tuple[str, str]:
+    """_oracle_case's verdict on one program: its files, entry script and run step, run under real
+    Python in a fresh repo and then checked."""
     import json
 
-    files, entry, step, shape = _oracle_program(seed)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve() / "repo"
         for rel, body in files.items():
@@ -2403,6 +2566,25 @@ class SparseCheckoutOracleTests(unittest.TestCase):
                 "the checker names files Python did not load more often than before:\n" + "\n".join(result.supersets),
             )
         self.assertGreaterEqual(result.counts["verified"], ORACLE_CASES // 4, dict(result.counts))
+
+    def test_fixture_oracle_shell_cwd_shapes_are_verified_or_unverifiable(self) -> None:
+        # Review of #41017: real Python runs from the repo root and loads lib/witness.py; a checker that
+        # reads shell text as straight-line code thinks it runs in scripts/ci and names the decoy there.
+        outside = set(sys.stdlib_module_names) | _installed_names()
+        files = {
+            "scripts/ci/wentry.py": "import os\nimport witness\n" + _ORACLE_TRACE,
+            "scripts/ci/witness.py": "",
+            "lib/witness.py": "",
+        }
+        python = "PYTHONPATH=lib python3 -c \"import runpy; runpy.run_path('scripts/ci/wentry.py', run_name='__main__')\""
+        for shape, run, want in (
+            ("multi-line subshell", f"(\ncd scripts/ci\n)\n{python}", "verified"),
+            ("subshell next to ;", f"(cd scripts/ci && true); {python}", "verified"),
+            ("conditional cd", f"true || cd scripts/ci\n{python}", "unverifiable"),
+        ):
+            with self.subTest(shape=shape):
+                outcome, detail = _oracle_judge(files, "scripts/ci/wentry.py", {"run": run}, outside, shape=shape)
+                self.assertEqual(outcome, want, detail)
 
     def test_fixture_the_superset_ratchet_catches_a_checker_that_names_an_extra_file(self) -> None:
         # The same oracle, with a checker that also names one file the run did not load: 100 cases
