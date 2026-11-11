@@ -343,6 +343,17 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     prompt, reply_token = answer_prompt(word)
     sent = journey.pane("compose_send", pane, text=prompt, timeout=60)
     cell["sent"] = sent.get("sent")
+    if sent.get("sent") is not True:
+        # Why the composer kept the draft, read right after Send: its own answer (`blocked`: the send's
+        # gate, when the app says), the chips and Cloud state as drawn, and every notice on the page.
+        after = journey.pane("chat_state", pane)
+        cell["after_send"] = {
+            "compose_send": {k: v for k, v in sent.items() if k != "sent"},
+            "composer": after.get("composer"),
+            "cloudSignedIn": after.get("cloudSignedIn"),
+            "notices": [clean(t, 200) for t in journey.page_text(
+                "[role='alert'], [role='status'], .acpmux-composer-notice, .acpmux-composer-strip")][:8],
+        }
     said_unavailable = said_unavailable_before or any(UNAVAILABLE in t for t in journey.page_text("body"))
     cell["said_unavailable"] = said_unavailable
 
@@ -364,7 +375,9 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             outcome, message = "asked", str((start.get("ask") or {}).get("title") or "")
             break
         if sent.get("sent") is False and not start:
-            outcome, message = "kept", " ".join(journey.page_text("[role='alert'], .acpmux-composer-notice")).strip()
+            outcome = "kept"
+            message = str(sent.get("blocked") or "") or " ".join(
+                journey.page_text("[role='alert'], .acpmux-composer-notice")).strip()
             break
         time.sleep(3)
     cell["outcome"] = outcome or "timeout"
@@ -484,7 +497,8 @@ def grid(cells: list[dict]) -> str:
         mark = "pass" if result == "pass" else ("skip" if result.startswith("skipped") else "**RED**")
         if mark == "skip":
             result = result.removeprefix("skipped: ")
-        said = "Cloud unavailable" if c.get("said_unavailable") else (c.get("team_tag") or "")
+        said = "Cloud unavailable" if c.get("said_unavailable") else (
+            c.get("message") if c.get("outcome") == "kept" else (c.get("team_tag") or ""))
         detail = result if mark != "pass" else ""
         rows.append("| {f} | {a} | {m} | {mark}{d} | {o} | {s} | {chip} | {made} / {left} | {sec} |".format(
             f=c.get("folder"), a=c.get("account"), m=c.get("mode"), mark=mark,

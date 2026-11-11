@@ -1,5 +1,5 @@
 name: Cloud composer journey (nightly's source, tagged DEV app)
-run-name: ${{ format('Cloud composer journey ({0}, nightly {1}){2}', inputs.backend || 'staging', inputs.nightly_build || 'newest', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ format('Cloud composer journey ({0}, {1}){2}', inputs.backend || 'staging', inputs.source_ref != '' && format('source {0}', inputs.source_ref) || format('nightly {0}', inputs.nightly_build || 'newest'), inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # Leo, 2026-11-10: "how did NONE of these work/get tested?", "i already told you to test these", "did you guys
 # not test these". The other Cloud journeys drive the CLI or the API with one small repo; this one drives the
@@ -27,6 +27,11 @@ on:
     inputs:
       nightly_build:
         description: The Nightly feed build to test (digits); empty for the newest
+        required: false
+        default: ""
+        type: string
+      source_ref:
+        description: "Build this commit or branch instead of a nightly's source (a fix's PR head, to prove it here); empty: the nightly's"
         required: false
         default: ""
         type: string
@@ -64,7 +69,7 @@ concurrency:
 jobs:
   resolve:
     # The nightly build and its source commit, from the live feed (no secret).
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.ref == 'refs/heads/feat-cmux-next')
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
@@ -75,8 +80,18 @@ jobs:
         id: pick
         env:
           BUILD: ${{ inputs.nightly_build }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ -n "$SOURCE_REF" ]; then
+            # A given commit or branch (a fix lane's head), not a nightly's: resolved to its full SHA.
+            case "$SOURCE_REF" in *[!A-Za-z0-9._/-]*) echo "::error::source_ref must be a commit or branch name"; exit 1;; esac
+            commit="$(gh api "repos/$GH_REPO/commits/$SOURCE_REF" --jq .sha)"
+            printf 'build=source %s\ncommit=%s\n' "$SOURCE_REF" "$commit" | tee -a "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           case "$BUILD" in *[!0-9]*) echo "::error::nightly_build must be digits"; exit 1;; esac
           curl -fsSL --retry 3 -o feed.xml https://files-next.cmux.com/nightly-next/appcast-arm64.xml
           python3 - "$BUILD" >> "$GITHUB_OUTPUT" <<'PY'
