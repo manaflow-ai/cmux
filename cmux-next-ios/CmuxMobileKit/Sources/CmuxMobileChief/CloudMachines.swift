@@ -32,6 +32,9 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
             return parts.joined(separator: " · ")
         }
 
+        /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 16 GB disk.
+        public static let newMachine = Size(cpu: 2, memoryMB: 4096, diskMB: 16384)
+
         static func gigabytes(_ mb: Int) -> String {
             mb % 1024 == 0 ? "\(mb / 1024) GB" : String(format: "%.1f GB", Double(mb) / 1024)
         }
@@ -193,7 +196,7 @@ public struct CloudMachinePlan: Hashable, Sendable {
     /// plan lists none).
     public var memoryChoicesMB: [Int] {
         let open = memoryOptionsMB.filter { !lockedMemoryOptionsMB.contains($0) }
-        return open.isEmpty ? [CloudMachinesModel.defaultSize.memoryMB ?? 4096] : open.sorted()
+        return open.isEmpty ? [CloudMachine.Size.newMachine.memoryMB ?? 4096] : open.sorted()
     }
 }
 
@@ -208,9 +211,6 @@ public final class CloudMachinesModel {
         case loading, loaded
         case failed(String)
     }
-
-    /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 16 GB disk.
-    public static let defaultSize = CloudMachine.Size(cpu: 2, memoryMB: 4096, diskMB: 16384)
 
     public private(set) var phase: Phase = .loading
     public private(set) var machines: [CloudMachine] = []
@@ -285,7 +285,7 @@ public final class CloudMachinesModel {
 
     /// New Cloud Machine: `cloud.machine.create {name, size}` (or from a snapshot).
     public func create(name: String, memoryMB: Int?, fromSnapshot: String? = nil) async {
-        var size = Self.defaultSize
+        var size = CloudMachine.Size.newMachine
         if let memoryMB { size.memoryMB = memoryMB }
         var params: [String: any Sendable] = ["size": size.json]
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
