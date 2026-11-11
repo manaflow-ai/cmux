@@ -173,6 +173,54 @@ mod owned_child {
         eprintln!("drop of a child ignoring SIGTERM: {took:?}");
     }
 
+    /// A child that left the group (`setsid` in its own process, no fork)
+    /// and ignores SIGTERM is still killed and reaped by the drop, which
+    /// does not hang on it.
+    #[test]
+    fn drop_ends_a_child_that_left_its_group() {
+        let mut child = Command::new("/usr/bin/perl")
+            .args([
+                "-e",
+                "use POSIX; setsid() or die; $SIG{TERM} = 'IGNORE'; $| = 1; print qq(out\\n); sleep 1 while 1",
+            ])
+            .stdout(Stdio::piped())
+            .spawn_owned()
+            .unwrap();
+        let pid = child.id() as i32;
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line, "out\n", "the child left its group");
+        // SAFETY: getsid reads the session of a child this test spawned.
+        assert_eq!(unsafe { libc::getsid(pid) }, pid, "the child leads a session of its own");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            drop(child);
+            let _ = tx.send(started.elapsed());
+        });
+        let took = rx.recv_timeout(GRACE + Duration::from_secs(3));
+        let gone = !alive(pid);
+        kill_pids(&[pid]);
+        let took = took.expect("the drop hung on a child outside its group");
+        assert!(gone, "the child outlived the drop");
+        eprintln!("drop of a child that left its group: {took:?}");
+    }
+
+    /// The builder does not keep the owned group: a later plain `spawn`
+    /// joins no group of an owned child.
+    #[test]
+    fn spawn_owned_does_not_leave_its_group_on_the_builder() {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("300");
+        let owned = command.spawn_owned().unwrap();
+        let mut plain = command.spawn().unwrap();
+        // SAFETY: getpgid reads the group of a child this test spawned.
+        let plain_group = unsafe { libc::getpgid(plain.id() as i32) };
+        plain.kill().unwrap();
+        plain.wait().unwrap();
+        assert_ne!(plain_group, owned.group_id(), "a plain spawn joined the owned group");
+    }
+
     /// A child that ends on SIGTERM is not held for the grace.
     #[test]
     fn drop_of_a_child_that_ends_on_sigterm_is_quick() {

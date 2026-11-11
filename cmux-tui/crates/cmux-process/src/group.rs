@@ -21,7 +21,8 @@
 //! same on both systems.
 //!
 //! Limits: a child that leaves the group (`setsid`, `setpgid`, a daemon
-//! that double-forks into a new session) is not followed; the leftover
+//! that double-forks into a new session) is not followed when this process
+//! dies (the drop still kills the direct child by its pid); the leftover
 //! reaper covers those after the fact. A child spawned on macOS by code that
 //! does not use this crate, in the instant between this crate's `pipe` and
 //! its `fcntl(FD_CLOEXEC)`, can inherit the write end and delay the
@@ -165,7 +166,9 @@ impl OwnedChild {
     }
 
     /// SIGTERM to the group, at most `grace` for the child to end, SIGKILL
-    /// to the group, then reap the child. The drop runs it with [`GRACE`].
+    /// to the group and to the child itself (one that left the group with
+    /// `setsid` is not in it), then reap the child. The drop runs it with
+    /// [`GRACE`].
     pub fn shutdown(&mut self, grace: Duration) {
         #[cfg(unix)]
         if let Some(group) = &self.group {
@@ -176,7 +179,9 @@ impl OwnedChild {
             let _ = group.signal(libc::SIGKILL);
         }
         #[cfg(not(unix))]
-        let _ = (grace, self.child.kill());
+        let _ = grace;
+        // Not reaped yet, so the pid is still the child's.
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
@@ -220,9 +225,12 @@ impl Command {
         #[cfg(unix)]
         {
             let group = ChildGroup::new()?;
-            self.process_group = Some(group.id());
-            let child = self.spawn()?;
-            Ok(OwnedChild { child, group: Some(group) })
+            // Only this spawn joins the group: a later `spawn` of the same
+            // builder must not, nor reuse the id once the group is gone.
+            let earlier = self.process_group.replace(group.id());
+            let child = self.spawn();
+            self.process_group = earlier;
+            Ok(OwnedChild { child: child?, group: Some(group) })
         }
         #[cfg(not(unix))]
         {
