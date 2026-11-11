@@ -3875,10 +3875,22 @@ function TranscriptView({
     // view holds it where it is drawn.
     const lastRow = rows.at(-1);
     const lineStays = oldRows.at(-1)?.id === LIVE_THINKING;
+    // A prompt that comes over the line (a steer sent while a call runs) lets it go: the prompt's
+    // rows rise with it as a send's do, and the pin takes the line again once they rest. Pinned
+    // through it, the line was held back by the prompt's whole height at once, which the chase
+    // brought home in a step (105 px in turn-transition-jumps steer-tools). The reply's own rows
+    // (its text, a call's row) come under the pin as before.
+    // Rows come at the tail (before the live line): O(rows that came), never the chat's length.
+    let rowsCame = false;
+    for (let index = rows.length - 2; index >= Math.max(0, oldRows.length - 2); index -= 1) {
+      const row = rows[index]!;
+      if (row.kind === "user" && row.id !== oldRows[index]?.id) rowsCame = true;
+    }
     const pinLive =
       chasing &&
       followingRef.current &&
       lineStays &&
+      !rowsCame &&
       lastRow?.id === LIVE_THINKING &&
       Boolean(lastRow.below) &&
       turnEndCapture.current === undefined &&
