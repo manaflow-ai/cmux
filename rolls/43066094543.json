@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43066094543",
+  "recorded_at": "2026-11-11T17:22:19Z",
+  "reason": "cmux-tui 115898a6ffab changes the image's cmux-tui (pinned 833c367b6038)",
+  "dry_run": false,
+  "cmux_tui": "115898a6ffab843a3089fb9733209ef70bdbd744",
+  "fixes": [
+    {
+      "sha": "115898a6ffab843a3089fb9733209ef70bdbd744",
+      "mergedAt": "2026-11-11T08:59:06-08:00",
+      "subject": "acpmux: every daemon writer under the home writes through the held home (#41372)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T17:22:19Z",
+    "snapshot_id": "sh-bcc945848af842388ae55f50a6621532",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43066094543): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ba661d7d20adbd09693ca9184da55b680b84ead7",
+    "image": "cloud-native-auto-115898a6-43066094543-1",
+    "revision": "ci-43066094543-1",
+    "at": "2026-11-11T17:22:19Z"
+  },
+  "rolled_back": false
+}
