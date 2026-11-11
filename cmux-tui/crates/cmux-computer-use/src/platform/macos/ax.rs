@@ -422,7 +422,8 @@ impl Walk {
         }
         let mut described: Vec<Element> = Vec::new();
         let mut failure: Option<AXError> = None;
-        let root = Node { ax: bar, top_index: None, menus: 0, siblings: std::rc::Rc::new(Vec::new()) };
+        let root =
+            Node { ax: bar, top_index: None, menus: 0, siblings: std::rc::Rc::new(Vec::new()) };
         let first = self.elements.len();
         let mut kept = 0usize;
         let (slots, truncated) = roles::breadth_first(root, budget, MENU_DEPTH, |n, depth| {
@@ -458,7 +459,9 @@ impl Walk {
                 .unwrap_or_default();
             let is_menu = role == "AXMenu";
             let siblings = if is_menu {
-                std::rc::Rc::new(children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect())
+                std::rc::Rc::new(
+                    children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect(),
+                )
             } else {
                 n.siblings.clone()
             };
@@ -614,7 +617,9 @@ impl ElementCache {
         let max_nodes = options.max_nodes.max(1);
         let bar = options
             .menus
-            .then(|| window.pid().and_then(Ax::application).and_then(|app| app.element("AXMenuBar")))
+            .then(|| {
+                window.pid().and_then(Ax::application).and_then(|app| app.element("AXMenuBar"))
+            })
             .flatten();
         // The menu bar's share of max_nodes is kept back from the window walk,
         // so a large window never crowds the menus out (and the reverse).
@@ -650,7 +655,9 @@ pub fn menu_context(item: &Ax) -> Option<(Option<usize>, usize, Vec<String>)> {
     // Every read here can fail; any failure is None (the caller fails closed).
     let role = |n: &Ax| n.attr("AXRole").map(|v| v.and_then(|v| v.as_string()));
     let kids = |n: &Ax| -> Option<Vec<Ax>> {
-        n.attr("AXChildren").ok().map(|v| v.map(|l| l.items().into_iter().filter_map(Ax::from_cf).collect()).unwrap_or_default())
+        n.attr("AXChildren").ok().map(|v| {
+            v.map(|l| l.items().into_iter().filter_map(Ax::from_cf).collect()).unwrap_or_default()
+        })
     };
     let parent = item.attr("AXParent").ok()?.and_then(Ax::from_cf);
     let siblings = match &parent {
@@ -670,7 +677,9 @@ pub fn menu_context(item: &Ax) -> Option<(Option<usize>, usize, Vec<String>)> {
             Some("AXMenu") => menus += 1,
             Some("AXMenuBarItem") => top_item = Some(node.clone()),
             Some("AXMenuBar") => {
-                let index = top_item.as_ref().and_then(|t| kids(&node).and_then(|k| k.iter().position(|c| c.same(t))));
+                let index = top_item
+                    .as_ref()
+                    .and_then(|t| kids(&node).and_then(|k| k.iter().position(|c| c.same(t))));
                 return Some((index, menus, siblings));
             }
             _ => {}
