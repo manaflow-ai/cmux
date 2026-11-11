@@ -2071,6 +2071,9 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("{ cd scripts/ci && :; }\npython3 x", True, "x", None),
     ("{ cd scripts/ci && :; } || exit 1\npython3 x", True, "x", _CI),
     ("set +e\nset -e\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41088: a compound command's own redirection failing is not a status ! inverts:
+    # bash takes the || branch here.
+    ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", None),
     # Outside the grammar: the directory is unknown from there on.
     ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
     ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
@@ -2297,14 +2300,18 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
 # composes cd (to folders that exist, do not exist, or lie outside the repo), !, { } groups,
 # ( ) subshells, &&, ||, ;, if / else, a redirect that always fails (> /), set -e / set +e and the
 # builtins true, false and :, nested up to depth 3, one python3 call somewhere in it, under bash
-# with and without -e. Every command but python is a builtin, so bash takes one path per python
+# with and without -e. Review of #41088: exit and exit 1 too, a while false loop, and a redirect on a
+# compound command itself ({ }, ( ), if, while), one that fails (> /) or not (> /dev/null), so a
+# compound's own redirection failing is in the grammar, under ! included. Every command but python is a builtin, so bash takes one path per python
 # status. Seeds are fixed, so a disagreement reproduces from its seed.
 
 GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
 _GEN_TARGETS = ("scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a")
 _GEN_SIMPLE = (
     "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
+    "exit", "exit 1",
 )
+_GEN_REDIRECTS = ("", "", "", " > /", " > /dev/null")
 
 
 def _generated_shell(seed: int) -> tuple[str, bool]:
@@ -2319,14 +2326,16 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
     def command(depth: int) -> str:
         r = rng.random()
         if depth < 3 and r < 0.15:
-            return "{ " + and_or_list(depth + 1, 3) + sep() + "}"
+            return "{ " + and_or_list(depth + 1, 3) + sep() + "}" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.27:
-            return "( " + and_or_list(depth + 1, 3) + " )"
+            return "( " + and_or_list(depth + 1, 3) + " )" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.35:
             text = "if " + and_or_list(depth + 1, 2) + sep() + "then " + and_or_list(depth + 1, 3)
             if rng.random() < 0.4:
                 text += sep() + "else " + and_or_list(depth + 1, 3)
-            return text + sep() + "fi"
+            return text + sep() + "fi" + rng.choice(_GEN_REDIRECTS)
+        if depth < 3 and r < 0.38:
+            return "while false; do " + and_or_list(depth + 1, 2) + sep() + "done" + rng.choice(_GEN_REDIRECTS)
         return "\0"
 
     def pipeline(depth: int) -> str:
@@ -2350,7 +2359,10 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
         if index == python:
             out.append("python3 x")
         else:
-            out.append(rng.choice(_GEN_SIMPLE).format(d=rng.choice(_GEN_TARGETS)))
+            choice = rng.choice(_GEN_SIMPLE)
+            if choice.startswith("exit") and rng.random() < 0.5:
+                choice = "true"  # exit, but not so often that python is rarely reached
+            out.append(choice.format(d=rng.choice(_GEN_TARGETS)))
         index += 1
     out.append(text.split("\0")[-1])
     run = "".join(out)
