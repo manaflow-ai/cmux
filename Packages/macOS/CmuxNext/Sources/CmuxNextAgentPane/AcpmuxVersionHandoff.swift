@@ -308,6 +308,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         guard let environment, FileManager.default.fileExists(atPath: environment.socketPath) else { return .noDaemon }
         let status: AcpmuxStatus
         do {
+            // timeout: a hang breaker inside the update quit's 1.5 s (quitLimit); a daemon that does not answer is left to the new build's version handoff, nothing is refused or lost
             status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1))
         } catch AcpmuxStatusClient.Failure.unreachable {
             return .noDaemon
@@ -320,6 +321,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         }
         Self.logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
         do {
+            // timeout: the same hang breaker for the stop request; a missed stop leaves the daemon to the new build's version handoff
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: .seconds(1))
         } catch {
             return .failed(String(describing: error))

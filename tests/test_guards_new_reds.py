@@ -329,5 +329,84 @@ class OneCheckCannotMaskAnother(unittest.TestCase):
         self.assertIn(f"::error title=Guard red on this change::{self.STEP} :: check_hosted", done.stdout)
 
 
+
+class ARatchetFindingCannotMaskAnother(unittest.TestCase):
+    """A ratchet guard (send-path caps, short timeouts, test determinism ...) fails as one step whatever it found.
+    Once one finding turned such a step red on feat-cmux-next, every later pull request that added another landed
+    as "red on the base too": on 2026-11-11 twelve guard steps sat red with findings from a dozen merges (cmux-next
+    guards run 43029632892). Each finding is now a check of its step (scripts/ci/guard_findings.py), named without
+    its line numbers, so a new one is the change's and one that only moved stays the base's."""
+
+    STEP = "Validate test determinism gate"
+
+    def results(self, findings: list[str]) -> dict[str, bool]:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "ratchet.py"
+            script.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(ROOT / 'scripts/ci')!r})\n"
+                "import guard_findings\n"
+                f"found = {findings!r}\n"
+                "for line in found:\n"
+                "    print(line)\n"
+                "guard_findings.report(found)\n"
+                "sys.exit(1 if found else 0)\n",
+                encoding="utf-8",
+            )
+            step = run_ci_guards.Step(self.STEP, f"{sys.executable} -I {script}", {}, None)
+            unit = run_ci_guards.Unit("workflow-guard-tests", "quality-determinism", [step])
+            env = {"PATH": os.environ["PATH"], "HOME": tmp}
+            [result] = run_ci_guards.run_steps(unit, [step], env, "0" * 40, keep_going=True)
+        outcome = {result.step.name: bool(result.ok)}
+        outcome.update({f"{result.step.name}{run_ci_guards.CHECK_SEPARATOR}{c}": ok for c, ok in result.checks.items()})
+        return outcome
+
+    def compare(self, head: dict[str, bool], base: dict[str, bool]) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base)):
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(results))
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
+
+    # Finding text as the determinism gate prints it (`path:line: rule: code`), with a stand-in rule and code.
+    OLD = "Tests/A.swift:25: some-rule: try await wait(for: 200)"
+    MOVED = "Tests/A.swift:31: some-rule: try await wait(for: 200)"
+    NEW = "Tests/B.swift:57: some-rule: try await wait(for: 50)"
+
+    def test_each_finding_is_a_check_named_without_its_line(self):
+        head = self.results([self.OLD, "cmux-tui/src/x.rs: 2 new cap(s): L23 decl: const MAX: u64 = 20;"])
+        self.assertFalse(head[self.STEP])
+        self.assertFalse(head[f"{self.STEP} :: Tests/A.swift: some-rule: try await wait(for: 200)"])
+        self.assertFalse(head[f"{self.STEP} :: cmux-tui/src/x.rs: 2 new cap(s): decl: const MAX: u64 = 20;"])
+
+    def test_a_new_finding_in_a_step_red_on_the_base_is_the_changes(self):
+        done = self.compare(self.results([self.MOVED, self.NEW]), self.results([self.OLD]))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red on this change::" + self.STEP + " :: Tests/B.swift: some-rule",
+                      done.stdout)
+        self.assertIn("::warning title=Guard red on the base too::" + self.STEP + " :: Tests/A.swift: some-rule",
+                      done.stdout)
+
+    def test_a_finding_that_only_moved_stays_the_bases(self):
+        done = self.compare(self.results([self.MOVED]), self.results([self.OLD]))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_outside_the_guard_runner_nothing_is_written(self):
+        import guard_findings  # scripts/ci is on sys.path above
+        self.assertEqual(guard_findings.report([self.OLD], env={}), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "checks.tsv"
+            env = {guard_findings.CHECK_RESULTS_ENV: str(out)}
+            self.assertEqual(guard_findings.report([self.OLD, self.MOVED], env=env), 1, "a moved copy is one finding")
+            self.assertEqual(out.read_text(encoding="utf-8"),
+                             "0\tTests/A.swift: some-rule: try await wait(for: 200)\n")
+            # A guard that scanned another tree (a self-test's fixture repository) reports nothing.
+            other = {**env, "GITHUB_WORKSPACE": str(ROOT)}
+            self.assertEqual(guard_findings.report([self.NEW], env=other, root=tmp), 0)
+            self.assertEqual(guard_findings.report([self.NEW], env=other, root=ROOT), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

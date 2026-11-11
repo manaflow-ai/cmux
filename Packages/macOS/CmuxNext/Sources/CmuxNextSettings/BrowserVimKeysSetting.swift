@@ -4,7 +4,7 @@
 /// and the actions still run from the Command Palette. `configPath` and
 /// `fallback` come from schemas/settings/source/browser.json
 /// (SettingsSchema+Browser.generated.swift).
-public nonisolated enum BrowserVimKeysSetting {
+nonisolated enum BrowserVimKeysSetting {
     /// Absent is on; a value that is not a bool is on plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
