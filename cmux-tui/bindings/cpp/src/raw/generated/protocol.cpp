@@ -2442,6 +2442,9 @@ Result<ConversationPart> Codec<ConversationPart>::decode(const Json& value) {
     }
     const Json* field_preview = value.find("preview");
     if (field_preview) {
+        if (field_preview->is_null()) {
+            return make_error(ErrorCode::decode, "field 'preview' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_preview);
         if (!decoded) return std::move(decoded).error();
         result.preview = std::move(decoded).value();
@@ -7995,6 +7998,9 @@ Result<ResolveTerminalResult> Codec<ResolveTerminalResult>::decode(const Json& v
         return make_error(ErrorCode::decode, "missing required field 'launch_spec'");
     }
     if (field_launch_spec) {
+        if (field_launch_spec->is_null()) {
+            return make_error(ErrorCode::decode, "field 'launch_spec' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_launch_spec);
         if (!decoded) return std::move(decoded).error();
         result.launch_spec = std::move(decoded).value();
@@ -15765,6 +15771,9 @@ Result<TerminalRecord> Codec<TerminalRecord>::decode(const Json& value) {
         return make_error(ErrorCode::decode, "missing required field 'launch_spec'");
     }
     if (field_launch_spec) {
+        if (field_launch_spec->is_null()) {
+            return make_error(ErrorCode::decode, "field 'launch_spec' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_launch_spec);
         if (!decoded) return std::move(decoded).error();
         result.launch_spec = std::move(decoded).value();
@@ -15875,6 +15884,9 @@ Result<TerminalRegistryEvent> Codec<TerminalRegistryEvent>::decode(const Json& v
         return make_error(ErrorCode::decode, "missing required field 'result'");
     }
     if (field_result) {
+        if (field_result->is_null()) {
+            return make_error(ErrorCode::decode, "field 'result' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_result);
         if (!decoded) return std::move(decoded).error();
         result.result = std::move(decoded).value();
@@ -16653,6 +16665,9 @@ Result<WorkspaceMutationResult> Codec<WorkspaceMutationResult>::decode(const Jso
     }
     const Json* field_first_tab = value.find("first_tab");
     if (field_first_tab) {
+        if (field_first_tab->is_null()) {
+            return make_error(ErrorCode::decode, "field 'first_tab' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_first_tab);
         if (!decoded) return std::move(decoded).error();
         result.first_tab = std::move(decoded).value();
@@ -24922,6 +24937,9 @@ Result<DetachClientRequest> Codec<DetachClientRequest>::decode(const Json& value
         return make_error(ErrorCode::decode, "missing required field 'client'");
     }
     if (field_client) {
+        if (field_client->is_null()) {
+            return make_error(ErrorCode::decode, "field 'client' must not be null");
+        }
         auto decoded = decode_value<DetachClientTarget>(*field_client);
         if (!decoded) return std::move(decoded).error();
         result.client = std::move(decoded).value();
@@ -27106,6 +27124,9 @@ Result<MoveTabGroupToSplitRequest> Codec<MoveTabGroupToSplitRequest>::decode(con
         return make_error(ErrorCode::decode, "missing required field 'pane'");
     }
     if (field_pane) {
+        if (field_pane->is_null()) {
+            return make_error(ErrorCode::decode, "field 'pane' must not be null");
+        }
         auto decoded = decode_value<PaneRef>(*field_pane);
         if (!decoded) return std::move(decoded).error();
         result.pane = std::move(decoded).value();
@@ -31401,6 +31422,9 @@ Result<ReopenSavedTabGroupRequest> Codec<ReopenSavedTabGroupRequest>::decode(con
         return make_error(ErrorCode::decode, "missing required field 'pane'");
     }
     if (field_pane) {
+        if (field_pane->is_null()) {
+            return make_error(ErrorCode::decode, "field 'pane' must not be null");
+        }
         auto decoded = decode_value<PaneRef>(*field_pane);
         if (!decoded) return std::move(decoded).error();
         result.pane = std::move(decoded).value();
@@ -31732,6 +31756,9 @@ Result<RestartTabRequest> Codec<RestartTabRequest>::decode(const Json& value) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
     }
     if (field_surface) {
+        if (field_surface->is_null()) {
+            return make_error(ErrorCode::decode, "field 'surface' must not be null");
+        }
         auto decoded = decode_value<TabRef>(*field_surface);
         if (!decoded) return std::move(decoded).error();
         result.surface = std::move(decoded).value();
@@ -39064,6 +39091,9 @@ Result<ConversationDraftEvent> Codec<ConversationDraftEvent>::decode(const Json&
         return make_error(ErrorCode::decode, "missing required field 'item'");
     }
     if (field_item) {
+        if (field_item->is_null()) {
+            return make_error(ErrorCode::decode, "field 'item' must not be null");
+        }
         auto decoded = decode_value<JsonValue>(*field_item);
         if (!decoded) return std::move(decoded).error();
         result.item = std::move(decoded).value();
