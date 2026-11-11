@@ -75,7 +75,7 @@ mod seal_tests;
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
-pub(super) use meta::SETTLE_HOLD;
+pub(super) use meta::on_settle_hold;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
