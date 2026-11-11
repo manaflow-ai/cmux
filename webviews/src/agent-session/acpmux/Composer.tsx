@@ -1491,6 +1491,12 @@ function ComposerFrame({
     attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id);
   /// The person's words: the draft without its attachments' places, for reading a command from.
   const typedWords = () => withoutInlineTokens(unwrapped(), attachmentId);
+  /// typedWords for render, from state alone (render reads no ref): a "/" the command list wrote
+  /// over the draft still counts here, so Run rereads the words when pressed.
+  const shownWords = withoutInlineTokens(
+    text,
+    (id) => attachments.some((chip) => chip.id === id) || pending.some((chip) => chip.id === id),
+  );
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
@@ -2694,11 +2700,12 @@ function ComposerFrame({
         >
           <RunOnAgentsPanel
             catalog={runOnAgents.catalog}
-            prompt={typedWords()}
+            prompt={shownWords}
             runRef={runOnButton}
             onRun={(variants) => {
               // As Send sends it: the field's markdown escapes what was typed; the agents get the text.
               const prompt = (field.current?.agentText(typedWords()) ?? typedWords()).trim();
+              if (!prompt) return Promise.reject(new Error(t("runOn.emptyPrompt")));
               const session = persistedSession.current;
               const written = field.current?.value() ?? textRef.current;
               return runOnAgents.run(prompt, variants).then(() => {

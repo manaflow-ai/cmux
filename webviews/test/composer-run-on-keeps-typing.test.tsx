@@ -165,6 +165,27 @@ test("the prompt it ran goes once the runs started", async () => {
   expect(dom.window.document.querySelector(".acpmux-run-on")).toBeNull();
 });
 
+test("the open panel follows the prompt: emptied, its Run is off and it asks for a prompt", async () => {
+  const ran: string[] = [];
+  await render(async (text) => void ran.push(text));
+  await type("Add a NOTICE");
+  const editor = host.querySelector<HTMLElement>(".acpmux-md")!;
+  await act(async () => {
+    editor.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, altKey: true, bubbles: true }),
+    );
+  });
+  await until(() => !!dom.window.document.querySelector(".acpmux-run-on-run"), "the panel");
+  const run = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-run-on-run")!;
+  expect(run().disabled).toBe(false);
+  // The panel's prompt is read from the composer's state on each render, not from a ref.
+  await act(async () => markdownField()!.writeText("", 0, 0));
+  await until(() => run().disabled, "Run to turn off");
+  expect(dom.window.document.querySelector(".acpmux-run-on")?.textContent).toContain("Type a prompt first");
+  await act(async () => run().click());
+  expect(ran).toEqual([]);
+});
+
 test("words typed after the prompt while the runs start stay, and the sent prompt goes", async () => {
   let started!: () => void;
   const ran: string[] = [];
