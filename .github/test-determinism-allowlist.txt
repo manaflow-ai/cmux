@@ -355,3 +355,4 @@ tests/test_cmux_next_base_tier.py	assert-on-duration	a clock difference held in 
 webviews/test/agent-pane-chat-unavailable.test.ts	assert-on-duration	a clock difference held in a name, first seen when assert-on-duration followed names; move to a scaling ratio or a recorded clock
 tests/test_base_red_excuse.py	assert-on-duration	a clock difference held in a name; cmux#41236 moves it to a scaling ratio, remove this line when it lands
 cmux-tui/crates/acpmux/src/server/chat_window_activity_tests.rs	wall-clock-expiry	the window reads its rows on a blocking thread, which the thread-local store::test_clock does not reach; needs a hub-wide injected clock (follow-up to cmux#41466)
+tests/git_history.py	git-write-without-fixture	fetches missing commits into the real checkout from origin, not a fixture; needs the user's git config for auth
