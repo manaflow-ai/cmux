@@ -73,7 +73,17 @@ impl Burst {
                 // after write is dropped too: SQLite opens a WAL read-write
                 // even for a read-only connection, so it closes "for write"
                 // with no write. Every real write also reports a Modify.
-                if matches!(event.kind, notify::EventKind::Access(_)) {
+                // An extended attribute changes no data either: macOS stamps
+                // one on a WAL as processes open it, so taking it as a change
+                // kept every daemon reading the store (a real write reports
+                // its own data event).
+                if matches!(
+                    event.kind,
+                    notify::EventKind::Access(_)
+                        | notify::EventKind::Modify(notify::event::ModifyKind::Metadata(
+                            notify::event::MetadataKind::Extended
+                        ))
+                ) {
                     return;
                 }
                 self.rescan |= event.need_rescan();
