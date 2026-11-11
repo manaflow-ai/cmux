@@ -1331,10 +1331,13 @@ impl Hub {
                     // queue, as the daemon that wrote it would have run it (`unread_steer.rs`).
                     let mut steer_answers = Vec::new();
                     for (id, logged) in &work.steers {
-                        if logged.is_some() {
+                        let prompt = work.steer_prompts.get(&id.to_string()).cloned();
+                        // Answered in the host's log already: the turn ended while no daemon
+                        // ran, or a shutdown cancelled the last daemon's watch of the answer.
+                        if let Some(logged) = logged {
+                            self.steer_answered_unread(session, prompt.as_deref(), logged);
                             continue;
                         }
-                        let prompt = work.steer_prompts.get(&id.to_string()).cloned();
                         let answer = child.await_response(id.clone()).await;
                         let answer = self.unread_steer_runs_next(session, prompt, answer);
                         if rx.is_some() {
