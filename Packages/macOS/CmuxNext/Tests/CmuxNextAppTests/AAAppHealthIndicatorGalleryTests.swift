@@ -8,11 +8,13 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Stills of app health's sidebar entry (design/app-health.md; #39247): the footer line in its three
-/// treatments (`a-line`, shipped; `b-chip`; `c-dot`) in each state (healthy shows nothing, a restore that
-/// is slow, a part not responding, a queued action alone), and the "Restoring sessions…" card with its
-/// Details, dark and light. The popover's own states are the web gallery's (`ui.app-health`). Written
-/// under `app-health-indicator-gallery/` with `all.png`.
+/// Stills of app health's sidebar entry (design/app-health.md; #39247): the indicator in its three
+/// treatments (`a-overlay`, shipped: the line on its own chip above the footer row; `b-dot`: a badge on the
+/// avatar's corner; `c-hidden`: nothing) in each state (healthy and a part that is only slow show nothing; a
+/// part not responding, being repaired or out of repairs; a queued action alone), and the "Restoring
+/// sessions…" card with its Details, dark and light. Where each sits in the footer row, and that the row
+/// never moves, is SidebarProfileChipTests' and the web gallery's (`ui.app-health.footer-row`); the
+/// popover's own states are `ui.app-health`'s. Written under `app-health-indicator-gallery/` with `all.png`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AAAppHealthIndicatorGalleryTests {
     static let width = SidebarBottomCardSlot.cardWidth(in: 220)
 
@@ -21,14 +23,16 @@ import Testing
     }
 
     static func part(_ label: String, _ state: String) -> JSONValue {
-        ["id": .string(label), "kind": "sessionDaemon", "label": .string(label), "state": .string(state), "detail": "", "canRepair": false, "sinceMs": 0]
+        ["id": .string(label), "kind": "page", "label": .string(label), "state": .string(state), "detail": "", "canRepair": true, "sinceMs": 0]
     }
 
     static let states: [(String, AppHealth.Headline?)] = [
         ("1-healthy", headline([])),
-        ("2-restoring-slow", headline([part("Session service", "slow")])),
+        ("2-slow", headline([part("Agent chat", "slow")])),
         ("3-not-responding", headline([part("Agent chat", "stuck")])),
-        ("4-queued-close", headline([], pending: [["id": "close", "label": "close Background task", "sinceMs": 0]])),
+        ("4-repairing", headline([part("Agent chat", "repairing")])),
+        ("5-needs-repair", headline([part("Agent chat", "failed")])),
+        ("6-queued-close", headline([], pending: [["id": "close", "label": "close Background task", "sinceMs": 0]])),
     ]
 
     /// A footer line in `style` showing `headline`; a healthy one draws as an empty line of the same height.
@@ -36,22 +40,32 @@ import Testing
         let view = AppHealthIndicatorView()
         view.style = style
         view.show(headline)
-        view.isHidden = false
+        view.isHidden = false // a quiet or hidden indicator draws as an empty cell of the same height
         let size = view.fittingSize
         view.frame = NSRect(x: 0, y: 0, width: min(max(size.width, 24), width), height: max(size.height, 18))
         return try AAUpdateDownloadCardGalleryTests.render(view, dark: dark)
     }
 
+    /// Leo, 2026-11-11: "slow indicator on the bottom left is uselsss": a part that is only slow shows
+    /// nothing; the others name the part and what is happening to it.
     @Test func eachStateSaysWhatTheWebIndicatorSays() {
         let view = AppHealthIndicatorView()
         view.show(Self.states[0].1)
         #expect(view.isHidden, "healthy shows nothing")
-        view.show(Self.states[2].1)
-        #expect(!view.isHidden && view.text == "Agent chat: Not responding" && view.tone == .danger)
         view.show(Self.states[1].1)
-        #expect(view.text == "Session service: Slow" && view.tone == .attention)
+        #expect(view.isHidden, "only slow shows nothing")
+        view.show(Self.states[2].1)
+        #expect(!view.isHidden && view.text == "Agent chat isn’t responding" && view.tone == .danger)
         view.show(Self.states[3].1)
+        #expect(view.text == "Repairing Agent chat…" && view.tone == .attention)
+        view.show(Self.states[4].1)
+        #expect(view.text == "Agent chat needs a repair" && view.tone == .danger)
+        view.show(Self.states[5].1)
         #expect(view.text == "Reconnecting; will close Background task when back" && view.tone == .muted)
+        view.style = .hidden
+        #expect(view.isHidden, "the hidden treatment never shows")
+        view.style = .overlay
+        #expect(!view.isHidden)
         var pressed = false
         view.onPress = { pressed = true }
         #expect(view.accessibilityPerformPress() && pressed)
@@ -93,7 +107,7 @@ import Testing
             for (index, style) in AppHealthIndicatorView.Style.allCases.enumerated() {
                 for (state, headline) in Self.states {
                     let image = try Self.line(headline, style: style, dark: dark)
-                    let name = "\(["a-line", "b-chip", "c-dot"][index])-\(state)-\(dark ? "dark" : "light").png"
+                    let name = "\(["a-overlay", "b-dot", "c-hidden"][index])-\(state)-\(dark ? "dark" : "light").png"
                     try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
                     images.append(image)
                 }
