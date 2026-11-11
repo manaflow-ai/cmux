@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextFocusUI
 import CmuxNextTerminal
 
 /// Where a paste command goes when the focused surface has a primary input
