@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42943005508",
+  "recorded_at": "2026-11-11T02:12:22Z",
+  "reason": "cmux-tui 7137c7f4e663 changes the image's cmux-tui (pinned 3a1a0b8020b3)",
+  "dry_run": false,
+  "cmux_tui": "7137c7f4e663ad21bcfbb2ffffcf85c2bdba23ec",
+  "fixes": [
+    {
+      "sha": "875afa609cd7830d26b509a9b274c790077671a9",
+      "mergedAt": "2026-11-10T17:44:53-08:00",
+      "subject": "cmux-tui output store: a respawn reads a snapshot and its tail under the writer's pass lock"
+    },
+    {
+      "sha": "39bd514f161937e2402901db27a5a7a58eaa881f",
+      "mergedAt": "2026-11-10T17:44:53-08:00",
+      "subject": "cmux-tui output store: tests: a respawn that reads a snapshot while the writer replaces it keeps the tail's bytes"
+    },
+    {
+      "sha": "7cccd2ddcf15dba8e4fbf2289574af0a661ee0b5",
+      "mergedAt": "2026-11-10T17:44:53-08:00",
+      "subject": "cmux-tui: adjacent tree-changed events collapse; the apps thread takes only its five kinds"
+    },
+    {
+      "sha": "a5efb2ed662aa9d1c4cbb69d1be128a9485dc33d",
+      "mergedAt": "2026-11-10T17:44:52-08:00",
+      "subject": "cmux-tui: a conversation.events stream subscribes to conversation events only"
+    },
+    {
+      "sha": "0dfe8bba32e28e99d930cc386fd66297dad156ad",
+      "mergedAt": "2026-11-10T17:44:52-08:00",
+      "subject": "cmux-tui: test that a slow conversation.events stream outlives unrelated daemon events"
+    },
+    {
+      "sha": "875aecd441477c7dd90b844e1af4195e22f0ad57",
+      "mergedAt": "2026-11-10T17:44:52-08:00",
+      "subject": "cmux-tui: a revisioned tree delta carries its origin; subscribers no longer read the registry for it"
+    },
+    {
+      "sha": "41d5c612d2a0f39f44c94bc72d9e0e53f5897bb6",
+      "mergedAt": "2026-11-10T17:44:51-08:00",
+      "subject": "cmux-tui: a session.events wake with no new resource event reads only the head"
+    },
+    {
+      "sha": "49a3efaadc8803a9074756f9c0f67ed0c06973d9",
+      "mergedAt": "2026-11-10T17:44:51-08:00",
+      "subject": "cmux-tui: a resource commit clones only the terminals with a directory report waiting"
+    },
+    {
+      "sha": "4a91b2ac4318465e84e7c2c5ad4dd4ecb00c3338",
+      "mergedAt": "2026-11-10T17:44:51-08:00",
+      "subject": "cmux-tui: an outbound line is one write with its newline"
+    },
+    {
+      "sha": "bfbd5920a2b2160e5a6d21b738ecc31470465475",
+      "mergedAt": "2026-11-10T17:44:51-08:00",
+      "subject": "cmux-tui: the idle input reader waits for input, not a 100 ms poll"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T02:12:22Z",
+    "snapshot_id": "sh-700b9760d1d045e4a9bc0fda6e781035",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42943005508): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a725d76e19899db74f0284871fdb93050c6460b0",
+    "image": "cloud-native-auto-7137c7f4-42943005508-1",
+    "revision": "ci-42943005508-1",
+    "at": "2026-11-11T02:12:22Z"
+  },
+  "rolled_back": false
+}
