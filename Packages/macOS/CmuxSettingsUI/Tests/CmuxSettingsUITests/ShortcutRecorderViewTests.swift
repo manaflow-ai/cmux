@@ -101,6 +101,7 @@ struct ShortcutRecorderViewTests {
         try #require(button.isRecording)
         #expect(RecorderHostButton.isCarbonEscapeAssistRegistered)
         #expect(!button.carbonEscapeAssistUnavailable)
+        #expect(!button.title.contains("⌘⎋"))
 
         button.stopRecording()
         #expect(!RecorderHostButton.isCarbonEscapeAssistRegistered)
@@ -134,11 +135,17 @@ struct ShortcutRecorderViewTests {
         defer { button.cancelRecordingIfActive() }
         button.recordsSystemWideHotkey = true
         button.startRecording()
-        try await Task.sleep(for: .milliseconds(50)) // let the one retry run
+        // The retry runs on a later main-loop turn; poll with a deadline instead of a fixed sleep.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !button.carbonEscapeAssistUnavailable, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
 
         #expect(button.isRecording)
         #expect(button.carbonEscapeAssistUnavailable)
         #expect(!RecorderHostButton.isCarbonEscapeAssistRegistered)
+        // The armed recorder tells the user Command-Escape can't be captured.
+        #expect(button.title.contains("⌘⎋"))
     }
 
     @Test func carbonCommandEscapeFireIsIgnoredWhenNotRecording() {

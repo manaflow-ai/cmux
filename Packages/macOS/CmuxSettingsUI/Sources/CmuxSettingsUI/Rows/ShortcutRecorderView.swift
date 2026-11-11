@@ -377,6 +377,7 @@ public final class RecorderHostButton: NSButton {
         if Self.registerCarbonEscapeHotKeys(for: self) { return }
         guard retryOnFailure else {
             carbonEscapeAssistUnavailable = true
+            refreshTitle()
             return
         }
         DispatchQueue.main.async { [weak self] in
@@ -444,7 +445,8 @@ public final class RecorderHostButton: NSButton {
         // while the window was still becoming key.
         guard recorder.isRecording, recorder.recordsSystemWideHotkey else { return false }
 
-        installCarbonEscapeHotKeyHandlerIfNeeded()
+        // Without the handler, a registered hotkey would swallow Command-Escape.
+        guard installCarbonEscapeHotKeyHandlerIfNeeded() else { return false }
         unregisterCarbonEscapeHotKeys()
 
         for (index, modifiers) in carbonEscapeModifierSets().enumerated() {
@@ -479,8 +481,9 @@ public final class RecorderHostButton: NSButton {
     }
 
     /// Installs the shared application-target handler for recorder-only hotkeys, once.
-    private static func installCarbonEscapeHotKeyHandlerIfNeeded() {
-        guard carbonEscapeHotKeyHandler == nil else { return }
+    /// Returns whether the handler is installed.
+    private static func installCarbonEscapeHotKeyHandlerIfNeeded() -> Bool {
+        guard carbonEscapeHotKeyHandler == nil else { return true }
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -496,8 +499,9 @@ public final class RecorderHostButton: NSButton {
         )
         guard status == noErr else {
             carbonEscapeHotKeyHandler = nil
-            return
+            return false
         }
+        return true
     }
 
     private static let carbonEscapeHotKeyEventHandler: EventHandlerUPP = { _, event, _ in
@@ -688,6 +692,12 @@ public final class RecorderHostButton: NSButton {
             if let pendingFirst {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
                 title = String.localizedStringWithFormat(format, shortcutStrokeDisplayString(pendingFirst))
+            } else if carbonEscapeAssistUnavailable, recordingPrompt == nil {
+                // Every other stroke still records; only Command-Escape can't be captured.
+                title = String(
+                    localized: "shortcut.pressShortcut.promptCommandEscapeUnavailable",
+                    defaultValue: "Press shortcut (⌘⎋ unavailable)…"
+                )
             } else {
                 title = recordingPrompt
                     ?? String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
