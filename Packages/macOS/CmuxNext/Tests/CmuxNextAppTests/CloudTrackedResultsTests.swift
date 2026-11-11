@@ -14,9 +14,8 @@ struct CloudTrackedResultsTests {
     nonisolated static let trackedIDs: [ActionID] = [
         "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace",
         "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
-        // A pause or resume the server took seconds to do answered `timeout` (exit 1) after the 2 s
-        // default, though it went on to work.
-        "cloudPauseMachine", "cloudResumeMachine",
+        // cloudPauseMachine and cloudResumeMachine join once the app's pinned FFI release carries their
+        // waits_for_result (cmux-action-catalog cloud.rs); Rust's swift_parity checks the catalog meanwhile.
     ]
 
     static func descriptor(_ id: ActionID) throws -> ActionDescriptor {
