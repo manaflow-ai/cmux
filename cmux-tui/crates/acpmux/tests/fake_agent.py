@@ -1236,6 +1236,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    # "chunks: N" streams N one-word reply chunks, then ends the turn (an ack batch test).
+    if text.startswith("chunks:"):
+        for n in range(int(text[7:])):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"w{n} "}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("big-output:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

@@ -2758,127 +2758,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux daemon"
+            "value": "cmux daemon"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة acpmux"
+            "value": "خدمة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux servis"
+            "value": "cmux servis"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-Dienst"
+            "value": "cmux-Dienst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servicio de acpmux"
+            "value": "Servicio de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Service acpmux"
+            "value": "Service cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servizio acpmux"
+            "value": "Servizio cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux デーモン"
+            "value": "cmux デーモン"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវា acpmux"
+            "value": "សេវា cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 데몬"
+            "value": "cmux 데몬"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa acpmux"
+            "value": "Usługa cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serviço do acpmux"
+            "value": "Serviço do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการ acpmux"
+            "value": "บริการ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hizmeti"
+            "value": "cmux hizmeti"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ acpmux"
+            "value": "Dịch vụ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 守护进程"
+            "value": "cmux 守护进程"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 常駐程式"
+            "value": "cmux 常駐程式"
           }
         }
       }

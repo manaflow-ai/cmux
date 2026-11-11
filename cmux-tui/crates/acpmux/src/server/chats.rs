@@ -91,6 +91,7 @@ pub(super) async fn route(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
@@ -206,7 +207,7 @@ pub(super) async fn route(
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
-        return heap(|| super::requests::handle_request(hub, conn, m, params)).await;
+        return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
         return Err(RpcError::method_not_found(&format!(
