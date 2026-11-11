@@ -20,7 +20,8 @@ The detector, ported from cmuxterm-hq tests/test_noclobber_sweep.py (the same tw
 Tests, comment lines and a mktemp call's template word (the word with XXXXXX in it) do not count; the rest of a line
 with a template is still read. A name the app, its daemons or acpmux pick (APP_NAMES) is theirs to move: a script
 here only names it to them or reads it. A hit that is safe for a reason the grep cannot see goes in ALLOWED with that
-reason, keyed by path and a piece of its line; an entry nothing matches fails, so the list only shrinks.
+reason, keyed by path and a piece of its line holding what the hit found (it approves that hit, never another
+on its line); an entry nothing matches fails, so the list only shrinks.
 """
 from __future__ import annotations
 
@@ -61,7 +62,7 @@ APP_NAMES = {
 ALLOWED = {
     ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
         "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
-    ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-"):
+    ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID"):
         "a docstring naming the bad shape predictable-tmp-path catches",
     ("scripts/check-test-determinism.py", "'_global=\"${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig\""):
         "the detector's own fixture of the bad shape",
@@ -97,7 +98,7 @@ ALLOWED = {
         "control_dir refuses it unless it is a real 700 folder this user owns",
     ("scripts/journeys/ext_marker.py", 'path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"'):
         "made with O_CREAT|O_EXCL, which fails on any entry already there",
-    ("scripts/irx-soak.py", "cmux-irx-journal-mac-{args.tag}.jsonl"):
+    ("scripts/irx-soak.py", "/tmp/cmux-irx-journal-mac-{args.tag}.jsonl"):
         "read only: the journal of the tagged app the runner launched; nothing is written there",
     ("scripts/cmux-next/cloud-chaos.ts", "`/tmp/cmux-chaos-seq-${tag}.txt`"):
         "a path in the Cloud machine's terminal the run made, a single-account VM of its own",
@@ -132,7 +133,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "163a0e14f4edce42d22d2ddde63d2070b679d7dd8cd3ecc7398f5e68f77d3bb7"
+SHELL_TREE_SHA256 = "cc71436f0788a27927a217c135a5e8434390ae6f1c2585adf2ed3fa32ddd35a9"
 
 
 def without_templates(line: str) -> str:
@@ -160,7 +161,9 @@ def skipped(path: str) -> bool:
             or path.endswith(SKIP_SUFFIXES))
 
 
-def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
+def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
+    """(path, line number, the line, what was found): one hit per set -C or guessable name, each with its own text, so
+    an allowance approves that hit and no other on its line."""
     files = subprocess.run(["git", "-C", str(root), "ls-files", "--", *DIRS], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     out = []
@@ -171,21 +174,35 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
             text = (root / path).read_text()
         except (OSError, UnicodeDecodeError):
             continue
+        # A #! line shell_tree cannot resolve is a hit of its own: what reads the file is unknown.
+        if shell_tree.shebang(text) == "unresolved":
+            first = text.split("\n", 1)[0]
+            out.append((path, 1, first, first))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
-            if NOCLOBBER.search(scan) or SHARED_TMP.search(scan):
-                out.append((path, n, code(line).strip() or line.strip()))
+            for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
+                out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
     return out
 
 
-def allowed(path: str, line: str, allowlist=ALLOWED) -> bool:
-    return any(path == ap and piece in line for ap, piece in allowlist) or (not NOCLOBBER.search(line) and app_named(line))
+def approves(entry: tuple[str, str], hit: tuple[str, int, str, str]) -> bool:
+    """Whether the allowance ENTRY ((path, a piece of the line)) is HIT's own: the piece is on its line and holds
+    what the hit found, never only another name beside it."""
+    (path, piece), (p, _, line, found) = entry, hit
+    return p == path and piece in line and found in piece
+
+
+def allowed(hit: tuple[str, int, str, str], allowlist=ALLOWED) -> bool:
+    """An allowance approves HIT, or what it found is a name the app picks (APP_NAMES), never a set -C."""
+    found = hit[3]
+    return any(approves(e, hit) for e in allowlist) or (
+        not NOCLOBBER.match(found) and any(found.startswith(p) for p in APP_NAMES))
 
 
 def unapproved(found, allowlist=ALLOWED) -> list[str]:
     """The hits in FOUND that no entry of ALLOWLIST (or an app name) approves."""
-    return [f"{p}:{n}: {line[:160]}" for p, n, line in found if not allowed(p, line, allowlist)]
+    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2][:160]}" for h in found if not allowed(h, allowlist)]
 
 
 def scratch_hits(files) -> set[str]:
@@ -197,7 +214,7 @@ def scratch_hits(files) -> set[str]:
             (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
             (Path(tmp) / path).write_text(text)
         subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
-        return {p for p, _, _ in hits(Path(tmp))}
+        return {h[0] for h in hits(Path(tmp))}
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -214,12 +231,12 @@ class NoclobberSweep(unittest.TestCase):
         for (path, piece), why in ALLOWED.items():
             with self.subTest(path=path, piece=piece):
                 self.assertGreater(len(why.strip()), 10)
-                self.assertTrue(any(p == path and piece in line for p, _, line in self.found),
+                self.assertTrue(any(approves((path, piece), h) for h in self.found),
                                 f"stale allowance: no line of {path} has {piece!r} any more; remove it")
         for prefix, why in APP_NAMES.items():
             with self.subTest(prefix=prefix):
                 self.assertGreater(len(why.strip()), 10)
-                self.assertTrue(any(prefix in line for _, _, line in self.found), f"stale app name {prefix!r}")
+                self.assertTrue(any(h[3].startswith(prefix) for h in self.found), f"stale app name {prefix!r}")
 
     def test_the_detector_finds_the_classes(self):
         for line in ('set -C; : > "$f"', "(umask 077; set -C; : > x)", "set -o noclobber", "set -eC"):

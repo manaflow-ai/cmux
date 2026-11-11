@@ -45,7 +45,24 @@ MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text i
 # Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
 START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
 # Words before a command's name that are not its name.
-PREFIX_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time", "command", "env", "exec"}
+# Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper, its options
+# that take no argument, those that take one (-n 5, -n5, --adjustment=5), and how many operands come before the
+# command (timeout's DURATION). env's NAME=value words are skipped, and its -S string is split into words.
+WRAPPERS = {
+    "time": ({"-p", "-a", "-v", "-q", "--portability", "--append", "--verbose", "--quiet"},
+             {"-f", "-o", "--format", "--output"}, 0),
+    "env": ({"-i", "-", "-0", "-v", "--ignore-environment", "--null", "--debug"}, {"-u", "-C", "--unset", "--chdir"},
+            0),
+    "nice": (set(), {"-n", "--adjustment"}, 0),
+    "nohup": (set(), set(), 0),
+    "command": ({"-p"}, set(), 0),
+    "exec": ({"-c", "-l"}, {"-a"}, 0),
+    "builtin": (set(), set(), 0),
+    "timeout": ({"-v", "--verbose", "--preserve-status", "--foreground"}, {"-s", "-k", "--signal", "--kill-after"}, 1),
+    "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
+    "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), 0),
+}
+KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
 
 
 class Unparsed(Exception):
@@ -329,18 +346,24 @@ class _Parser:
         s, n = self.s, self.n
         for r, raw in pending:
             delim = re.sub(r"[\"'\\]", "", raw)
+            quoted = bool(re.search(r"[\"'\\]", raw))
             start = i
             while i < n:
                 e = s.find("\n", i)
                 e = n if e < 0 else e
-                line = s[i:e]
+                # Unquoted, a line ending in an odd run of backslashes goes on into the next before it is matched with
+                # the delimiter, as bash reads it.
+                while not quoted and e < n and (len(s[i:e]) - len(s[i:e].rstrip("\\"))) % 2:
+                    e2 = s.find("\n", e + 1)
+                    e = n if e2 < 0 else e2
+                line = s[i:e] if quoted else re.sub(r"\\\n\t*" if r.op == "<<-" else r"\\\n", "", s[i:e])
                 if (line.lstrip("\t") if r.op == "<<-" else line) == delim:
                     body_end, i = i, min(e + 1, n)
                     break
                 i = min(e + 1, n)
             else:
                 body_end = n  # unterminated: the text ends inside the body
-            if re.search(r"[\"'\\]", raw):
+            if quoted:
                 parts = [Lit(self.o[start], self.o[body_end])]
             else:
                 parts, _ = self.parts(start, body_end, "")
@@ -363,8 +386,8 @@ class _Parser:
             if c == "\\":
                 out.append(Lit(self.o[i], self.o[min(i + 2, stop)]))
                 i += 2
-            elif c in "$`":
-                got, i = self.dollar(i) if c == "$" else self.backtick(i)
+            elif c in "$`":  # inside double quotes or a here-document: a ${ }'s single quotes are literal
+                got, i = self.dollar(i, True) if c == "$" else self.backtick(i)
                 out.append(got)
             else:
                 j = i
@@ -415,9 +438,10 @@ class _Parser:
             j += 1
         return [Lit(self.o[i], self.o[j])], j
 
-    def dollar(self, i: int):
+    def dollar(self, i: int, quoted: bool = False):
+        """The expansion at s[i]; QUOTED when it is inside double quotes or a here-document's body."""
         if self.s.startswith(("$(", "${"), i):
-            return self.nested(self.expansion, i)
+            return self.nested(self.expansion, i, quoted)
         return self.expansion(i)
 
     def arith(self, i: int, skip: int) -> tuple[Arith, int]:
@@ -441,7 +465,7 @@ class _Parser:
             j += 1
         raise Unparsed(s)
 
-    def expansion(self, i: int):
+    def expansion(self, i: int, quoted: bool = False):
         s, n = self.s, self.n
         if s.startswith("$((", i):
             return self.arith(i, 3)
@@ -451,7 +475,15 @@ class _Parser:
         if s.startswith("${", i):
             parts, j = [], i + 2
             while j < n and s[j] != "}":
-                got, j = self.piece(j, "}")
+                if quoted and s[j] == "'":  # literal, as bash reads it: a $( ) after it runs
+                    parts.append(Lit(self.o[j], self.o[j + 1]))
+                    j += 1
+                    continue
+                if quoted and s[j] == "$":  # a ${ } inside keeps the quoting it is in
+                    got, j = self.dollar(j, True)
+                    parts.append(got)
+                    continue
+                got, j = self.piece(j, "}'" if quoted else "}")
                 parts += got
             if j >= n:
                 raise Unparsed(s)
@@ -536,15 +568,77 @@ def name(text: str, word: Word) -> str:
     return re.sub(r"[\"'\\]", "", literal(text, word))
 
 
-def template_words(text: str, cmd: Command) -> list[Word]:
-    """CMD's mktemp template words: an argument of a command named mktemp whose literal text has XXXXXX."""
-    words, k = cmd.words, 0
-    while k < len(words) and (name(text, words[k]) in PREFIX_WORDS or
-                              (ASSIGNMENT.match(text, words[k].start) or (None,))[0] is not None):
+def unwrap(argv: list[str]) -> list[str] | None:
+    """The command ARGV runs and its arguments, read through NAME=value words, reserved words (!, if, do, ...) and
+    the command wrappers in WRAPPERS with their options: `time -p env -i X=1 nice -n 5 mktemp t` runs
+    ["mktemp", "t"]. An env -S string is split into words. None when ARGV runs nothing (command -v, an env with no
+    command) or when a wrapper has an option this does not know, so a caller cannot tell what runs."""
+    argv, k = list(argv), 0
+    while k < len(argv):
+        if argv[k] in KEYWORDS or ASSIGNMENT.match(argv[k]):
+            k += 1
+            continue
+        base = argv[k].rsplit("/", 1)[-1]
+        if base not in WRAPPERS:
+            return argv[k:]
+        flags, takes, operands = WRAPPERS[base]
         k += 1
-    if k >= len(words) or name(text, words[k]).rsplit("/", 1)[-1] != "mktemp":
+        while k < len(argv):
+            opt = argv[k]
+            if base == "env" and (opt == "-" or ASSIGNMENT.match(opt)):
+                k += 1  # env's - (as -i) and its NAME=value words
+                continue
+            if not opt.startswith("-") or opt == "-":
+                break
+            k += 1
+            if opt == "--":
+                break
+            if base == "command" and opt in ("-v", "-V"):
+                return None  # it looks the command up and runs nothing
+            if base == "env" and (opt == "--split-string" or opt.startswith(("-S", "--split-string="))):
+                value = opt.split("=", 1)[1] if opt.startswith("--split-string=") else opt[2:] if opt[1] == "S" else ""
+                if not value:
+                    if k >= len(argv):
+                        return None
+                    value, k = argv[k], k + 1
+                argv[k:k] = value.split()
+                continue
+            if opt.startswith("--"):
+                key = opt.split("=", 1)[0]
+                if key in takes:
+                    k += 0 if "=" in opt else 1
+                elif key not in flags or "=" in opt:
+                    return None
+                continue
+            if base == "nice" and opt[1:].isdigit():
+                continue  # nice -5
+            for j in range(1, len(opt)):  # short options, grouped (-cl) or with an argument attached (-n5, -oL)
+                if "-" + opt[j] in takes:
+                    k += 0 if j + 1 < len(opt) else 1
+                    break
+                if "-" + opt[j] not in flags:
+                    return None
+        k += operands
+    return None
+
+
+def words_run(text: str, cmd: Command) -> list[Word] | None:
+    """CMD's words from the command it runs on (unwrap()), its name first: None when that cannot be told, or when
+    the command is inside one of its words (an env -S string)."""
+    argv = ["X=" if ASSIGNMENT.match(text, w.start) else name(text, w) or "\0" for w in cmd.words]
+    run = unwrap(argv)
+    if not run or argv[len(argv) - len(run):] != run:
+        return None
+    return cmd.words[len(argv) - len(run):]
+
+
+def template_words(text: str, cmd: Command) -> list[Word]:
+    """CMD's mktemp template words: an argument of a command named mktemp (after its wrappers, unwrap()) whose own
+    literal text has XXXXXX."""
+    words = words_run(text, cmd)
+    if not words or name(text, words[0]).rsplit("/", 1)[-1] != "mktemp":
         return []
-    return [w for w in words[k + 1:] if "XXXXXX" in literal(text, w)]
+    return [w for w in words[1:] if "XXXXXX" in literal(text, w)]
 
 
 def exempt(text: str) -> set[int]:
@@ -581,7 +675,19 @@ def scan_text(text: str) -> str:
 
 
 SHELL_SUFFIXES = (".sh", ".bash", ".zsh", ".ksh")
-SHEBANG = re.compile(r"#!\s*\S*(?:/|env\s+)(?:ba|z|k|da)?sh\b")
+SHELLS = {"sh", "bash", "zsh", "ksh", "dash", "mksh", "ash"}
+
+
+def shebang(text: str) -> str | None:
+    """What TEXT's #! line runs: "shell", "other", "unresolved" (unwrap() cannot tell what it runs, so a sweep reports
+    it, never reads it line by line unnoticed), or None with no #! line. The line is split at whitespace, as env -S
+    splits its string."""
+    if not text.startswith("#!"):
+        return None
+    run = unwrap(text.split("\n", 1)[0][2:].split())
+    if not run:
+        return "unresolved"
+    return "shell" if run[0].rsplit("/", 1)[-1] in SHELLS else "other"
 RUN_BLOCK = re.compile(r"(\s*)(?:-\s+)?run:\s*\|[-+0-9]*\s*(?:#.*)?$")
 
 
@@ -589,9 +695,10 @@ def scan_file(path: str, text: str) -> list[str]:
     """Each line of TEXT (split at \\n) as a noclobber scan reads it: comments dropped and template words blanked.
     A shell file (by suffix or #!), and each `run: |` block of a YAML file, is parsed whole, so a here-document, a
     line continuation or a quote across lines is read in its context: a here-document's # is no comment, and its
-    substitutions run. Any other text, and a script that does not parse whole, is read line by line."""
+    substitutions run. Any other text, and a script that does not parse whole, is read line by line. A #! line that
+    shebang() cannot resolve is read as shell, and a sweep reports it besides."""
     lines = text.split("\n")
-    if path.endswith(SHELL_SUFFIXES) or SHEBANG.match(text):
+    if path.endswith(SHELL_SUFFIXES) or shebang(text) in ("shell", "unresolved"):
         blocks = [(0, len(lines))]
     elif path.endswith((".yml", ".yaml")):
         blocks = run_blocks(lines)
