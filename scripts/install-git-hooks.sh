@@ -166,6 +166,8 @@ install -m 0644 scripts/git-hooks/refresh_checks.py "$TRUSTED_HOOK_DIR/refresh_c
 install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
 # ...and its lint-tool download fallback (shared with scripts/ci/base_red_excuse.py, which runs from scripts/ci alone).
 install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_release_download.py"
+# ...and the HTTP transport that fallback imports from beside itself.
+install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the

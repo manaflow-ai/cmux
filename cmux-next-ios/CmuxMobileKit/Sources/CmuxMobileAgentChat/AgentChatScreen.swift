@@ -499,6 +499,9 @@ public struct AgentChatTranscript: View {
                 ChatTurnBar(navigator: navigator, store: store, surface: surface)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
+            } else {
+                AgentChatUpdatingPill(store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -572,7 +575,10 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if !store.hasTurns {
+        if store.isLoadingHistory, !store.hasTurns {
+            // An existing chat whose history is on its way: never the new-chat prompt.
+            AgentChatLoadingState(store: store)
+        } else if store.isNewChat {
             VStack(spacing: 12) {
                 // The agent's own mark (the Claude or Codex logo), not a generic glyph.
                 AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
@@ -583,6 +589,50 @@ struct AgentChatEmptyState: View {
             }
             .multilineTextAlignment(.center)
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// An existing chat's history is on its way and none is kept on this phone yet: a spinner
+/// with what it waits for (the Mac's link, or its reply), in the empty state's place.
+struct AgentChatLoadingState: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        VStack(spacing: 12) {
+            CmuxSpinner()
+            Text(store.summary.status == .disconnected
+                 ? "Connecting to \(store.summary.macName)…"
+                 : "Loading chat…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agentChat.loadingHistory")
+    }
+}
+
+/// Kept rows show while the chat catches up with the Mac: a small pill under the header says so.
+struct AgentChatUpdatingPill: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        if store.isLoadingHistory, store.hasTurns {
+            HStack(spacing: 6) {
+                CmuxSpinner(tint: .secondary).controlSize(.mini)
+                Text(store.summary.status == .disconnected
+                     ? "Connecting to \(store.summary.macName)…"
+                     : "Updating…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .glassEffect(.regular, in: .capsule)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("agentChat.updatingHistory")
+            .allowsHitTesting(false)
         }
     }
 }
@@ -761,11 +811,21 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                    let spring = Animation.cmuxMobileSmooth.unlessReduceMotion
+                    if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
+                        // Not animated (the first height, an instant placement, or Reduce
+                        // Motion), so `DrawnHeightReporter` gets no frame for it and its onAppear
+                        // ran at 0: hand the height over here. Without it a tab's jump-to-bottom
+                        // circle stayed on the dock guide's 96 pt default, 40 pt above a 56 pt
+                        // composer, until some later animated change (CMUX-10).
+                        if frame.height > 0 {
+                            surface.drawnStackHeight = frame.height
+                            surface.stackHeightFrame?(frame.height)
+                        }
                     } else {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
+                        withAnimation(spring) { reportedHeight = frame.height }
                     }
                 }
             }

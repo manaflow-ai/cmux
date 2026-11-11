@@ -225,6 +225,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // A send clears the field from code, which posts no text change.
+            if !self.slashSuggestions.isHidden { self.updateSlashSuggestions() }
             // The conversation becomes known on connect (or the store moves to another
             // Chief): that chat's own colours apply then.
             if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
@@ -235,6 +237,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         installSendGate()
         observeAvailability()
         installPageMenu()
+        installSlashSuggestions()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
@@ -272,7 +275,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         holdUnsentMessage()
     }
 
-    private var composerTextView: UITextView? {
+    /// The composer's `/` list (ChiefSlashSuggestionsView.swift).
+    let slashSuggestions = ChiefSlashSuggestionsView()
+
+    var composerTextView: UITextView? {
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
@@ -376,11 +382,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's questions
 
-    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
+    /// The bar under the header: a failed turn, Chief unavailable, the Mac away (``ChiefQuestionBar``).
     lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
-        var bar = ChiefQuestionBar(session: session) { [weak self] question in
-            self?.presentQuestion(question.id)
-        }
+        var bar = ChiefQuestionBar(session: session)
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
         bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
@@ -452,6 +456,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
     }
 
+    /// The bottom of Chief's question bar while it shows, else 0: the `/` list stays below it.
+    var slashCeilingBelowQuestionBar: CGFloat {
+        let bar = questionBar.view.frame
+        return bar.height > 0 && !questionBar.view.isHidden ? bar.maxY : 0
+    }
+
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
@@ -509,20 +519,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubbleBottom?.isActive = false
         bottom.isActive = true
         liveBubbleBottom = bottom
-    }
-
-    public func presentQuestion(_ id: String) {
-        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
-        view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = [.medium(), .large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        // At accessibility sizes the card does not fit half a screen.
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            host.sheetPresentationController?.selectedDetentIdentifier = .large
-        }
-        present(host, animated: true)
     }
 
     private var headerAvatar: String?
@@ -621,6 +617,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if view.window != nil, !isCovered { enableEdgePop() }
         layoutQuestionBar()
         anchorLiveBubble()
+        // The keyboard moved the field: the list follows it.
+        if !slashSuggestions.isHidden { updateSlashSuggestions() }
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
