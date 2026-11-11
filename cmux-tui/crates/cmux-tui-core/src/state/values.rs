@@ -117,6 +117,12 @@ fn merge_tab_extra(value: &mut Value, fields: Map<String, Value>) {
     merge_extra(value, fields);
 }
 
+/// How many `tab_state` rows a session-wide tab list holds after its read.
+#[cfg(test)]
+pub(crate) fn session_tab_state_rows(connection: &Connection) -> anyhow::Result<usize> {
+    Ok(tab_extra::SessionTabExtras::read(connection)?.state_rows())
+}
+
 /// Add the state fields of every tab of a session-wide list in place: what
 /// [`decorate_value`] adds to each, with each state table read one time for
 /// the list, not one time for each tab. Run it in the read transaction that

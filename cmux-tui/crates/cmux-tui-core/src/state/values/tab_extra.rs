@@ -225,6 +225,12 @@ impl SessionTabExtras {
         })
     }
 
+    /// The `tab_state` rows that the reader holds.
+    #[cfg(test)]
+    pub(super) fn state_rows(&self) -> usize {
+        self.states.len()
+    }
+
     /// The `extra` fields of tab `tab_id`: what [`tab_extra`] gives for it.
     /// A list names each tab one time, so the rows are taken, not copied.
     pub(super) fn take(&mut self, tab_id: &str) -> anyhow::Result<Map<String, Value>> {

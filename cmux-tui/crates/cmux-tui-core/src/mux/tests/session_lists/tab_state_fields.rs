@@ -245,6 +245,31 @@ fn a_session_wide_tab_list_carries_each_state_field_on_a_file_registry() {
     close_file_session(mux, root);
 }
 
+/// A closed tab keeps its `tab_state` row (zoom, icon, history: only a row with no field is
+/// deleted), so the table grows with each tab the person ever closed. The list holds the rows of
+/// the live tabs only: its work and its memory follow the list, not the age of the session.
+#[test]
+fn a_session_wide_tab_list_reads_the_state_rows_of_live_tabs_only() {
+    let mux = session_of(4);
+    give_each_state_table_a_row(&mux);
+    let connection = mux.registry_connection.get();
+    for closed in 0..40 {
+        connection
+            .execute(
+                r#"INSERT INTO tab_state(tab_id, zoom, back_json)
+                   VALUES(?1, 2.0, '["https://closed.example"]')"#,
+                [format!("tab_closed_{closed}")],
+            )
+            .unwrap();
+    }
+    let held = crate::state::values::session_tab_state_rows(&connection).unwrap();
+    assert_eq!(
+        held, 1,
+        "one live tab has a state row and 40 rows are of tabs that are not live: the list held \
+         {held} rows"
+    );
+}
+
 /// The time of the session-wide lists on a FILE registry, as a printed row beside the row of
 /// [`check_list_cost`] (a registry in memory). The list reads the read-only connection of the
 /// file; the snapshot reads the registry's own connection under its lock.
