@@ -294,6 +294,8 @@ function Columns({
   };
   // The last level picked here, on any model: the next model clicked carries it.
   const [chosenLevel, setChosenLevel] = useState<string>();
+  // The query a level or Fast was picked by hand under: that pick, not the query's named level, shows.
+  const [handPickedUnder, setHandPickedUnder] = useState<string>();
   const [seen, setSeen] = useState({ effort: effort?.current, fast: fast?.checked });
   if (seen.effort !== effort?.current || seen.fast !== fast?.checked) {
     setSeen({ effort: effort?.current, fast: fast?.checked });
@@ -443,19 +445,6 @@ function Columns({
     ];
   }, [list, effort?.levels, fast, t]);
   const effortKey = effortLabels.map((label) => label.text).join("\u0000");
-  // The key holds the names' font too, so a density, Text Size or font change measures again on the
-  // next open; a web font still loading measures again once it is in (a fallback font's width stuck).
-  useLayoutEffect(() => {
-    if (!open) return;
-    const key = `${namesKey}\u0001${effortKey}\u0001${menuNameFont(modelsList.current)}`;
-    if (natural?.key === key) return;
-    const tune = modelsList.current?.parentElement?.querySelector<HTMLElement>(":scope > .acpmux-cols-tune");
-    const effortWidth = effortColumnWidth(effortLabels, tune);
-    const width = naturalMenuWidth(names, modelsList.current, effortWidth);
-    if (width) setNatural({ key, width, ...(effortWidth ? { effort: effortWidth } : {}) });
-    const fonts = modelsList.current?.ownerDocument.fonts;
-    if (fonts?.status === "loading") void fonts.ready.then(() => setNatural(undefined));
-  }, [open, names, namesKey, effortLabels, effortKey, natural?.key, popupNode]);
   useLayoutEffect(() => widthOf(popupRef.current), [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
@@ -566,6 +555,24 @@ function Columns({
   };
   // Highest first, as a ladder.
   const ladder = focus ? [...levelsOf(focus)].reverse() : [];
+  // The key holds the names' font too, so a density, Text Size or font change measures again on the
+  // next open; a web font still loading measures again once it is in (a fallback font's width stuck).
+  // The effort column is measured from one of its level rows: until one shows (a menu that opens on a
+  // model with no levels), the width is kept without it and measured again once a level row draws.
+  const tuneHasLevels = ladder.length > 0;
+  useLayoutEffect(() => {
+    if (!open) return;
+    const key = `${namesKey}\u0001${effortKey}\u0001${menuNameFont(modelsList.current)}`;
+    if (natural?.key === key) return;
+    const tune = modelsList.current?.parentElement?.querySelector<HTMLElement>(":scope > .acpmux-cols-tune");
+    const effortWidth = effortColumnWidth(effortLabels, tune);
+    const width = naturalMenuWidth(names, modelsList.current, effortWidth);
+    const settled = effortWidth !== undefined || effortLabels.length === 0;
+    if (width)
+      setNatural({ key: settled ? key : `${key}\u0002`, width, ...(effortWidth ? { effort: effortWidth } : {}) });
+    const fonts = modelsList.current?.ownerDocument.fonts;
+    if (fonts?.status === "loading") void fonts.ready.then(() => setNatural(undefined));
+  }, [open, names, namesKey, effortLabels, effortKey, natural?.key, popupNode, tuneHasLevels]);
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
   const focusKey = focus ? keyOf(focus) : "";
   const mine = focusRuns && held?.key === focusKey ? held : undefined;
@@ -586,7 +593,8 @@ function Columns({
   // A search that names a level or Fast ("opus 5.5 medium fast", Lawrence 2026-11-10: "we should communicate
   // this better (that medium is selected)"; "codex sol high", Leo: "it should highlight the path"): the
   // highlighted row's settings column shows what Enter lands, the level checked and lit, Fast on.
-  const named = query && focus && !picked && (focus.effort || focus.fast) ? focus : undefined;
+  const named =
+    query && focus && !picked && handPickedUnder !== query && (focus.effort || focus.fast) ? focus : undefined;
   const level =
     picked?.effort ??
     named?.effort ??
@@ -646,12 +654,22 @@ function Columns({
       const end = row.getBoundingClientRect().right - Number.parseFloat(style?.paddingRight ?? "0");
       const gap = Number.parseFloat(style?.columnGap ?? "0") || 0;
       const mark = check?.firstElementChild?.getBoundingClientRect().width ?? 0;
+      // Every other mark in the row's flow between the name and the check (a "New" tag, the used mark).
+      const view = row.ownerDocument.defaultView;
+      let between = 0;
+      for (const child of row.children) {
+        if (child === text || child === check || child === star || !(child instanceof HTMLElement)) continue;
+        const childStyle = view?.getComputedStyle(child);
+        if (childStyle?.position === "absolute" || childStyle?.display === "none") continue;
+        between += gap + child.getBoundingClientRect().width;
+      }
       // A check after the name keeps two gaps clear of the star, or the two read as one mark (Lucas
       // 2026-11-11, a check touching the star: "we do not want to allow this"); short of that the check
       // moves to the star's place and the star replaces it on hover.
       const need =
         text.getBoundingClientRect().left +
         (name ?? text).scrollWidth +
+        between +
         (mark ? gap + mark + gap * 2 : 0) +
         star.getBoundingClientRect().width;
       const cover = need <= end ? undefined : mark ? "check" : "name";
@@ -745,8 +763,10 @@ function Columns({
       dragging.current = false;
       // The edge is held until Base UI has placed the final width, then the translate goes.
       if (pin() === 0) placed.disconnect();
+      // A drag back to the width already kept changes nothing in the store: the popup still goes back to
+      // its width within the room, not the px the drag held.
       if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
-      else widthOf(popup);
+      widthOf(popup);
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", end);
@@ -783,6 +803,7 @@ function Columns({
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
     setChosenLevel(value);
+    setHandPickedUnder(query);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
@@ -790,6 +811,7 @@ function Columns({
   };
   const toggleFast = () => {
     if (!focus || focusOff) return;
+    setHandPickedUnder(query);
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
     // the session, also right after it was picked here.

@@ -69,8 +69,8 @@ function measuredName(list: HTMLElement | null | undefined): HTMLElement | null 
   if (!list) return null;
   return (
     list.querySelector<HTMLElement>(
-      ".acpmux-cols-row:not(.acpmux-cols-note):not(:has(.acpmux-cols-tag, .acpmux-used-mark, .acpmux-used-caption)) > .acpmux-cols-name",
-    ) ?? list.querySelector<HTMLElement>(".acpmux-cols-row:not(.acpmux-cols-note) .acpmux-cols-name")
+      ".acpmux-cols-row:not(.acpmux-cols-note, [data-star-cover]):not(:has(.acpmux-cols-tag, .acpmux-used-mark, .acpmux-used-caption)) > .acpmux-cols-name",
+    ) ?? list.querySelector<HTMLElement>(".acpmux-cols-row:not(.acpmux-cols-note, [data-star-cover]) .acpmux-cols-name")
   );
 }
 
@@ -114,7 +114,8 @@ export type EffortLabel = { text: string; mark: "check" | "switch" };
 /// column with a row in it. quickModelColumns.css caps it (`--acpmux-cols-tune-most`). Undefined
 /// with nothing to measure with.
 export function effortColumnWidth(labels: readonly EffortLabel[], tune: HTMLElement | null | undefined) {
-  const row = tune?.querySelector<HTMLElement>(".acpmux-cols-row");
+  // A level row, never the None note, which is drawn smaller.
+  const row = tune?.querySelector<HTMLElement>(".acpmux-cols-row:not(.acpmux-cols-note)");
   const name = row?.querySelector<HTMLElement>(".acpmux-cols-name");
   const view = tune?.ownerDocument.defaultView;
   if (!tune || !row || !name || !view || labels.length === 0) return undefined;

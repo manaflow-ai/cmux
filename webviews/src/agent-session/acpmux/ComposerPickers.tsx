@@ -111,6 +111,7 @@ import {
   aliasNamedAsRelease,
   modelFamily,
   reasoningChoices,
+  effortTakes,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -442,6 +443,7 @@ export function ComposerPickers({
     { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
   >(undefined);
   const effortId = effort?.id;
+  const hasUltracode = ultracodeOption !== undefined;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
     const wanted = pending.current;
@@ -457,7 +459,8 @@ export function ComposerPickers({
       return;
     }
     if (current === wanted.model) wanted.reached = true;
-    if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
+    const takes = effortTakes(wanted.effort, effortValues.split("\u0000"), hasUltracode);
+    if (current !== wanted.model || !effortId || !takes) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
   }, [
@@ -468,6 +471,7 @@ export function ComposerPickers({
     currentEffort,
     effortId,
     effortValues,
+    hasUltracode,
     onEffort,
   ]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
