@@ -16,6 +16,7 @@ import {
   type RunRowDetails,
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
+  type MoveTarget,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -70,7 +71,14 @@ import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
-import { CONTEXT_LABELS, emptyFolderLabel, splitForMiddleTruncation } from "./composerContextModel";
+import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import {
+  FOLDER_CHIP_LABELS,
+  FOLDERLESS_CLOUD_LABELS,
+  folderChipState,
+  isCloudChatFolder,
+  type FolderChipState,
+} from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -155,6 +163,8 @@ export function ComposerContext({
   onOffload,
   offloads = NO_OFFLOADS,
   offloadReasons,
+  moveTargets,
+  onMoveTo,
   saved,
   onRefreshMachines: onRefreshPeers,
   folderNote,
@@ -240,6 +250,10 @@ export function ComposerContext({
   /// Why each offered move would refuse now (`pane.tabState` `moveReasons`: a chat with no first message
   /// yet): the picker's row is disabled and says it, never a click that does nothing.
   offloadReasons?: OffloadReasons;
+  /// A started chat's Move to… (EnvironmentPicker `moveTargets`): this Mac and the Cloud machines it
+  /// can go to, `pane.tabState` `moveTargets`; a pick runs `onMoveTo` with the target's id.
+  moveTargets?: readonly MoveTarget[];
+  onMoveTo?(id: string): void;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
   /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
@@ -504,11 +518,15 @@ export function ComposerContext({
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine, savedFolders]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
-  // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
+  // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
+  // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
+  // a Cloud machine only, since an SSH machine's `~/chats/api` is a project like any other.
+  const summaryOnCloud =
+    summary?.hostKind === "cloud" || (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud");
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? isAgentHome(summaryFolder)
+      ? isAgentHome(summaryFolder) || (summaryOnCloud && isCloudChatFolder(summaryFolder))
         ? undefined
         : normalizeCwd(summaryFolder)
       : projectChoices
@@ -656,10 +674,13 @@ export function ComposerContext({
     : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  // Its Move to… targets, beside or instead of that one move.
+  const moving = started && environments && onMoveTo && moveTargets && moveTargets.length > 0 ? moveTargets : undefined;
+  const moves = offload !== undefined || moving !== undefined;
   // A first computer is discoverable, including from a started local chat (#27083): with only
   // this Mac listed the picker keeps its connect actions after the chat starts.
   const onboardingConnect = !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
-  const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
+  const computerDisabled = readOnly && !moves && (started || !onConnect) && !onboardingConnect;
   // The computer control is the environment picker where the surface asks for it.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
@@ -752,7 +773,7 @@ export function ComposerContext({
   // The folder control says how many more folders the chat sees: "cmux +2".
   const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
-  const layout: StripLayout = readOnly || offload ? "combined" : stripLayout;
+  const layout: StripLayout = readOnly || moves ? "combined" : stripLayout;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
     ...(unavailableGroup ? { unavailableGroup } : {}),
@@ -782,6 +803,21 @@ export function ComposerContext({
   // A folder-only saved environment picked starts on this Mac: no machine chip either.
   if (machineAsk !== undefined && (cloudSide || sandboxPicked || savedFolderPick !== undefined))
     setMachineAsk(undefined);
+  // What the folder chip says (folderlessCloud.ts): with Cloud and no folder, No folder, a valid start
+  // in a fresh folder on the machine, never an empty Choose folder.
+  const folderState = folderChipState({
+    folder: currentFolder,
+    newProject,
+    noProject,
+    cloud: !sandboxPicked && (cloudSide || summary?.hostKind === "cloud"),
+  });
+  const folderValue =
+    (folderState === "folder" && currentName
+      ? currentName
+      : folderState === "folder" && currentFolder
+        ? projectLabel(currentFolder)
+        : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
+  const folderDetail = folderState === "cloudFresh" ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
@@ -927,12 +963,13 @@ export function ComposerContext({
                   }
                   // No folder is a settled choice, drawn like a picked folder: the chat starts in its
                   // own private folder (Leo, 2026-11-09: "this no folder selected should be, like,
-                  // good as well"). Never a dimmed "Choose folder" prompt (emptyFolderLabel).
-                  value={
-                    (newProject ? t(CONTEXT_LABELS.newProject) : (currentName ?? t(emptyFolderLabel))) + extraCount
-                  }
+                  // good as well"). Never a dimmed "Choose folder" prompt (folderlessCloud.ts
+                  // FOLDER_CHIP_LABELS, emptyFolderLabel).
+                  value={folderValue}
                   chevron
                   middle={currentFolder !== undefined && !newProject}
+                  state={folderState}
+                  {...(folderDetail ? { detail: folderDetail } : {})}
                 />
               }
               folders={folders}
@@ -951,14 +988,14 @@ export function ComposerContext({
               noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
-              {...(folderNote && !currentFolder ? { note: folderNote } : {})}
+              {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
           ) : (
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={(currentFolder ? projectLabel(currentFolder) : t(emptyFolderLabel)) + extraCount}
+              value={folderValue}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
@@ -1028,9 +1065,10 @@ export function ComposerContext({
                     combinedFace
                   )
                 }
-                environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
+                environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
+                {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
@@ -1312,6 +1350,8 @@ function LocationFace({
   middle = false,
   live,
   sleep,
+  state,
+  detail,
   team,
 }: {
   icon?: React.ReactNode;
@@ -1323,6 +1363,11 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
+  /// The folder chip's state (folderlessCloud.ts), for tests.
+  state?: FolderChipState;
+  /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
+  /// accessible description and tooltip, never narration in the strip.
+  detail?: string;
   /// The team a Cloud pick runs in, after the name.
   team?: ActiveTeamTag;
 }) {
@@ -1336,7 +1381,15 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label">{value}</span>
+        <span
+          className="acpmux-location-label"
+          data-folder-state={state}
+          // tooltip-allow: the folderless Cloud chip's one line on where the chat starts.
+          title={detail}
+          aria-description={detail}
+        >
+          {value}
+        </span>
       )}
       {team && <TeamTag team={team} />}
       {live !== undefined && sleep === "resuming" && (

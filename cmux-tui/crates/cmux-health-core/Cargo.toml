@@ -1,0 +1,15 @@
+[package]
+name = "cmux-health-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux app's health model (the macOS app asks over the app FFI): which part is slow, stuck or failed (pages, renderers, the session daemon, acpmux, the page host, the roster), the repair ladder with backoff and a cap, pending user actions and the receipts the status indicator shows (no I/O, no timers)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

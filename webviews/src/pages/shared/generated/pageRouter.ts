@@ -95,24 +95,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
-  "home-messages": {
-    "read": [
-      "chief.profile.avatar.get",
-      "chief.profile.avatar.set",
-      "chief.profile.get",
-      "chief.profile.history",
-      "chief.profile.list",
-      "chief.profile.update",
-      "participant.avatar.get"
-    ],
-    "gesture": [
-      "chief.profile.create",
-      "chief.profile.delete",
-      "chief.profile.undo",
-      "workspace.open_url"
-    ],
-    "confirm": []
-  },
   "stash": {
     "read": [
       "stash.list"
@@ -175,6 +157,7 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
   "bookmarks": {
     "owner": "bookmarks.tree",
     "read": [
+      "bookmarks.children",
       "bookmarks.export",
       "bookmarks.list",
       "bookmarks.rank",

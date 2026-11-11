@@ -90,6 +90,9 @@ cmux-cloud-config.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
+cmux-app-manifest.workspace = true
+notify.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
@@ -99,7 +102,7 @@ cmux-tui-machine-protocol.workspace = true
 cmux-server.workspace = true
 cmux-server-core.workspace = true
 ratatui.workspace = true
-crossterm = { workspace = true, features = ["serde"] }
+crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 bytes.workspace = true

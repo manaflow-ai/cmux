@@ -96,6 +96,13 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ),
     ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
+    ("cloud.machine.keep", MUTATION, &["cloud.machine.not_found"]),
+    (
+        "cloud.machine.archive_delete",
+        MUTATION,
+        &["cloud.machine.not_found", "cloud.machine.not_paused"],
+    ),
+    ("cloud.retention.set", MUTATION, &[]),
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).

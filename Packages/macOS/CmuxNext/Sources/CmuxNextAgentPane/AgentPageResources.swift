@@ -14,6 +14,8 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     /// The theme key the page would get now (``AgentPageEvent/theme(_:surface:)``'s `key`), nil
     /// until the pane sets it: the page draws its copy only under the theme it was drawn in.
     var themeKey: @MainActor () -> String? = { nil }
+    /// The page's app sections, whose bundle images it serves under `__appbundle/` (``AppsPanelsPageProvider``).
+    weak var appBundles: AppsPanelsPageProvider?
 
     /// - Parameters:
     ///   - session: The chat the page shows now, nil for none.
@@ -71,6 +73,7 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     func readAhead() async { _ = await ahead?.read.value }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
+        if request.prefix == AppsPanelsPageProvider.bundlePrefix { return await appBundles?.resource(for: request) }
         guard request.prefix == AgentPaneChatSnapshots.prefix, request.path == ["chat.js"] else { return nil }
         let chat = session()
         let read = aheadIsCurrent ? ahead.flatMap { $0.session == chat ? $0.read : nil } : nil
@@ -92,6 +95,13 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
                                                              "Cross-Origin-Resource-Policy": "same-origin",
                                                              "X-Content-Type-Options": "nosniff"],
                                       data: script.data)
+        }
+        if request.prefix == AppsPanelsPageProvider.bundlePrefix {
+            // An app section's image answers whole: images are small and never asked in ranges.
+            guard let image = await appBundles?.resource(for: request) else { return nil }
+            var headers = ["Content-Length": String(image.data.count), "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"]
+            if let type = image.mimeType { headers["Content-Type"] = type }
+            return PageRangedResource(status: 200, headers: headers, data: image.data)
         }
         return await AgentPageMediaResource.shared.rangedResource(for: request, range: range)
     }

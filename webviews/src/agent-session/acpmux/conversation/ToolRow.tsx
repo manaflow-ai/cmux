@@ -22,6 +22,8 @@ import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
+import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
@@ -192,14 +194,46 @@ export const ToolRow = memo(function ToolRow({
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
           {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
+          {shell && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+              background={inBackground(tool)}
+            />
+          )}
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
+      ) : foreground && shell && !tool.approved ? (
+        // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
+        <span className="cv-command__meta cv-tool__meta">
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+            background={inBackground(tool)}
+          />
+        </span>
       ) : (
         (!foreground || tool.approved) && (
           <span className="cv-command__meta">
+            {shell && running && (
+              <RunElsewhereChip
+                toolCallId={tool.id}
+                kind={tool.kind}
+                command={tool.command}
+                startedAt={tool.startedAt}
+                running={running}
+                background={inBackground(tool)}
+              />
+            )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
             {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
@@ -237,6 +271,7 @@ export const ToolRow = memo(function ToolRow({
       <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
+      {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body || fields) && (
         <div {...fold.bodyProps}>

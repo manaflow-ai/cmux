@@ -26,6 +26,8 @@ export type CloudStart = {
   gestureTicket?: string;
   /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (cloudSignIn.ts startAfterSignIn). */
   signedIn?: true;
+  /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
+  team?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -122,7 +124,9 @@ export function grantedCloudStart(
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
 /// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string; retryable?: boolean };
+export type CloudStartAnswer =
+  | { ok: true }
+  | { ok: false; code: string; message?: string; retryable?: boolean; details?: unknown };
 
 /// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
@@ -168,6 +172,16 @@ export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined 
   return offered ? undefined : "cloud_not_now";
 }
 
+/// Whether the composer's agent runs on this Mac, given that the chat itself is this Mac's
+/// (`chatLocal`): a new chat with Cloud picked runs its agent on the Cloud machine, whose sign-in the
+/// start handles (the login copy, or the machine's own sign-in). This Mac's harness health and sign-in
+/// then neither show nor hold Send: a Mac with no agent CLI signed in, whose composer then names a
+/// built-in such as UniiChat, kept every Cloud send under "unii isn't signed in", for a harness the
+/// start never runs (Cloud composer journey, run 42953585969).
+export function composerAgentLocal(chatLocal: boolean, runMode: string | undefined, sessionId?: string | null) {
+  return chatLocal && !(runMode === "cloud" && !sessionId);
+}
+
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
 /// chat opens on the machine (a new machine boots in minutes), or with why it didn't.
 export async function startCloudChat(
@@ -185,15 +199,17 @@ export async function startCloudChat(
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
+  if (start.team) params.team = start.team;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage, retryable } = (error ?? {}) as {
+    const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
       retryable?: unknown;
+      details?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
@@ -201,6 +217,7 @@ export async function startCloudChat(
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
       ...(retryable === true ? { retryable: true } : {}),
+      ...(details !== undefined && details !== null ? { details } : {}),
     };
   }
 }
@@ -233,7 +250,8 @@ const CLOUD_START_KEYS = "cmux.cloudStart.keys";
 const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
-/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start, and so
+/// is a send in another team (the plan card's Switch to <team>): the first team's ledger entry is not its.
 export function cloudStartFingerprint(start: CloudStart): string {
   const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
   const text = JSON.stringify([
@@ -244,6 +262,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    // Only a send that switches team names it, so every other start keeps the key it had.
+    ...(start.team ? [start.team] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -325,6 +345,28 @@ export function cloudStartKeys(
       delete kept[name];
       delete local[name];
       write(kept);
+    },
+  };
+}
+
+/// The team a Cloud send switches to (the plan card's Switch to <team>). It stays with the start it
+/// began, so the card's Retry of that start names the team too and reaches the same start key (its
+/// machine and copy); it goes once that start ends in a chat (or on this Mac), or the person leaves
+/// Cloud or the chat (`reset`).
+export function cloudStartTeam() {
+  let team: string | undefined;
+  return {
+    pick(id: string) {
+      team = id;
+    },
+    forSend(): string | undefined {
+      return team;
+    },
+    ended(answer: CloudStartAnswer) {
+      if (answer.ok || cloudRunsHere(answer)) team = undefined;
+    },
+    reset() {
+      team = undefined;
     },
   };
 }

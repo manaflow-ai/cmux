@@ -43,13 +43,16 @@ SUMMARY_RED_PREFIX = "summary red: "
 EXIT_FAIL, EXIT_NO_VERDICT = 1, 3
 RED_WORDS = ("failure", "invalid")
 
-# The rule as a bash function, for a summary step with no checkout. Usage, after mapping a skipped job that may skip
-# to success: `needs_verdict "WHAT" "job=$RESULT" ... || exit $?`.
+# The rule as a bash function, for a summary step with no checkout: `needs_verdict "WHAT" "job=$RESULT" ...`, one call
+# with every result. A job whose `skipped` passes is named with a trailing `?` ("job?=$RESULT"), as MAY_SKIP does for
+# the Python copy. One call per step (tests/test_needs_verdict.py): a second call would let the first one's no verdict
+# end the step before the second sees a failure, and a failure always wins.
 SHELL_RULE = """\
 needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
   local what=$1 failed="" unjudged="" pair name result; shift
   for pair in "$@"; do
     name=${pair%%=*}; result=${pair#*=}
+    if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
     case "${result%%[ :]*}" in
       success) ;;
       failure|invalid) failed+=" $name: $result;" ;;
@@ -66,7 +69,7 @@ needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (te
 
 # The rule as a Python function, for a summary step with no checkout. RESULTS holds every entry the summary judges
 # ({job: result}); MAY_SKIP names the jobs whose `skipped` passes. It returns when every entry passed and exits otherwise,
-# so the step never compares a result with "success" itself.
+# so the step never compares a result with "success" itself. One call per step, with every result (see SHELL_RULE).
 PYTHON_RULE = '''\
 def exit_with_verdict(results, what, may_skip=()):
     """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""

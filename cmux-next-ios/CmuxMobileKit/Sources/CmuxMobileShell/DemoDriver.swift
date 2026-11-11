@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -72,6 +72,13 @@ struct DemoDriver {
             // A failed real refresh is the fixture; no private connection is used.
             FeedStore.shared.actions = nil
             FeedStore.shared.setRefreshErrorForDemo()
+        case "retry-home-offline":
+            // CMUX-489: Home's Mac is not connected; the rows this phone kept show under the
+            // top bar (no link is dialed: the mock store marks the Mac's link failed).
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
@@ -154,6 +161,17 @@ struct DemoDriver {
                 var summary = summary
                 summary.status = .idle
                 return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "slow-history-chat":
+            // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
+            // shows its loading state, never the new-chat screen, until the history lands.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return DelayedHistorySource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                            delay: .seconds(4))
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -1135,5 +1153,41 @@ private final class FrameClock: NSObject {
         link?.invalidate()
         link = nil
     }
+}
+/// A demo chat whose history comes `delay` late, as from a slow Mac: it says it loads history
+/// (``AgentSessionSource/loadsHistory``) and says when it caught up.
+@MainActor
+final class DelayedHistorySource: AgentSessionSource {
+    let inner: MockAgentSession
+    let delay: Duration
+
+    init(inner: MockAgentSession, delay: Duration) {
+        self.inner = inner
+        self.delay = delay
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+    var loadsHistory: Bool { true }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let inner = inner, delay = delay
+        Task { @MainActor in
+            // Demo only: stands in for a Mac that answers late.
+            try? await Task.sleep(for: delay)
+            var first = true
+            for await event in inner.events() {
+                continuation.yield(event)
+                if first {
+                    first = false
+                    continuation.yield(.historyLoading(false))
+                }
+            }
+            continuation.finish()
+        }
+        return stream
+    }
+
+    func send(_ intent: AgentClientIntent) { inner.send(intent) }
 }
 #endif

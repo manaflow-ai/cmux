@@ -80,7 +80,7 @@ struct BookmarkFolderIconTests {
 
     @Test func theBarDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
         let services = Self.services()
-        let bar = BookmarkBarSourceAdapter(service: services.bookmarks, tabKey: "bookmark-folder-icon-test")
+        let bar = BookmarksBarHostSource(host: services, tabKey: "bookmark-folder-icon-test")
         let plain = try #require(bar.favicon(for: try Self.folder(nil))?.tiffRepresentation)
         for icon in ["🚀", "star.fill"] {
             let drawn = try #require(bar.favicon(for: try Self.folder(icon))?.tiffRepresentation)

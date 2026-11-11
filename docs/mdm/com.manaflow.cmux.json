@@ -167,6 +167,12 @@
       "title" : "Chat Presentation",
       "type" : "string"
     },
+    "agentPane.display.promptCoach" : {
+      "default" : true,
+      "description" : "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+      "title" : "Prompt Coach",
+      "type" : "boolean"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -263,6 +269,17 @@
       "description" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
       "title" : "Tuck Away Running Tray",
       "type" : "boolean"
+    },
+    "agentPane.display.unreadBanner" : {
+      "default" : "expanded",
+      "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+      "enum" : [
+        "expanded",
+        "collapsed",
+        "off"
+      ],
+      "title" : "Unread Banner",
+      "type" : "string"
     },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
@@ -417,6 +434,20 @@
       "maximum" : 95,
       "minimum" : 10,
       "title" : "Only Above Context Used (%)",
+      "type" : "number"
+    },
+    "agents.chats.coldArchive" : {
+      "default" : false,
+      "description" : "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+      "title" : "Compress Old Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldArchiveAfterDays" : {
+      "default" : 30,
+      "description" : "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+      "maximum" : 3650,
+      "minimum" : 1,
+      "title" : "Compress Chats Idle For",
       "type" : "number"
     },
     "agents.chats.discovery" : {
@@ -614,6 +645,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.confirmQuit" : {
+      "default" : true,
+      "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+      "title" : "Ask Before Quitting Ends Agents or Terminals",
+      "type" : "boolean"
+    },
     "app.globalHotKey" : {
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
@@ -624,6 +661,12 @@
       "default" : true,
       "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
       "title" : "Hide Dock Icon When No Windows Are Open",
+      "type" : "boolean"
+    },
+    "app.internalDeveloperMode" : {
+      "default" : false,
+      "description" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+      "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
     "app.quitBehavior" : {
@@ -1978,7 +2021,7 @@
       "type" : "boolean"
     },
     "browser.openPullRequestsInGitHubPage" : {
-      "default" : true,
+      "default" : false,
       "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
       "title" : "Open Pull Requests in cmux GitHub Page",
       "type" : "boolean"
@@ -2228,6 +2271,12 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.turnCheckpoints" : {
+      "default" : false,
+      "description" : "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+      "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
     "cloud.useMyClaudeLoginOnMyCloudMachines" : {
@@ -3568,7 +3617,7 @@
       "type" : "boolean"
     },
     "notifications.attention.moveToTop" : {
-      "default" : false,
+      "default" : true,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
@@ -4241,11 +4290,12 @@
     },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
-      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
       "enum" : [
         "auto",
         "glass",
-        "solid"
+        "solid",
+        "sections"
       ],
       "title" : "Group Background",
       "type" : "string"
@@ -5071,7 +5121,7 @@
       "default" : [
 
       ],
-      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
       "items" : {
         "type" : "string"
       },
@@ -5388,16 +5438,6 @@
       "title" : "Terminal Type (TERM)",
       "type" : "string"
     },
-    "ui.animations.bounce" : {
-      "default" : "none",
-      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-      "enum" : [
-        "none",
-        "subtle"
-      ],
-      "title" : "Animation Bounce",
-      "type" : "string"
-    },
     "ui.animations.cursor" : {
       "default" : true,
       "description" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -5500,7 +5540,7 @@
     },
     "ui.paneAnimations" : {
       "default" : true,
-      "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+      "description" : "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
     },

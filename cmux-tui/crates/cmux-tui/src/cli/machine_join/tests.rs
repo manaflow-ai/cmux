@@ -745,6 +745,13 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
     assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
 }
 
+/// A plan refusal keeps its code through the reserve, the bind and a workspace's machine, so the
+/// pane can say the team has no Cloud plan instead of a generic refusal.
+#[test]
+fn a_plan_refusal_keeps_its_code() {
+    assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
+}
+
 #[test]
 fn machine_lists_platform_flags_are_taken_out_before_the_daemon_reads_them() {
     let (auth, kept) = split_auth(&strings(&[

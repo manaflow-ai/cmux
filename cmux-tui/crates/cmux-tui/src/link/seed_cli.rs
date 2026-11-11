@@ -71,9 +71,13 @@
 //! exits 64.
 
 mod held;
+mod hop;
 mod pull;
 mod record;
 
+pub(super) use hop::{
+    abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
+};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
@@ -88,10 +92,11 @@ use record::{Kept, Record};
 use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--since-last | --head-first SUBPATH]
+[--since-last | --head-first SUBPATH] [--allow-large]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--or-copy | --base-head SHA --base-index SHA --base-work SHA]";
+[--or-copy | --base-head SHA --base-index SHA --base-work SHA]
+       cmux link seed move --from-socket PATH --socket PATH LOCAL_FOLDER FROM_FOLDER TO_FOLDER";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -212,10 +217,51 @@ pub(super) fn run(args: &[String]) -> i32 {
     {
         return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
     }
-    let Some(command) = parse(args) else {
+    // A seeded folder from one machine to another as git, this Mac's folder untouched ([`hop`]):
+    // both passes at once, as `cmux link agent move --sync relay --sync-seed-local` runs them.
+    if let ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] =
+        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
+    {
+        let (from, to, local) = (Path::new(from), Path::new(to), Path::new(local));
+        let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
+        // One person's move from a shell: its own owner, apart from any chat's.
+        let owner = "cli";
+        let moved = hop_bulk(from, from_root, to, to_root, local, owner)
+            .and_then(|()| hop_frozen(from, from_root, to, to_root, local, owner))
+            .and_then(|()| land(local, to_root, owner));
+        return match moved {
+            Ok(_) => {
+                println!("{}", json!({"ok": true, "mode": "seed"}));
+                0
+            }
+            Err(error) => {
+                println!("{}", SeedError::of(&error).line());
+                1
+            }
+        };
+    }
+    let value_flags = [
+        "--socket",
+        "--repo",
+        "--ref",
+        "--head-first",
+        "--base-head",
+        "--base-index",
+        "--base-work",
+    ];
+    let (args, allow_large) = sync_cli::size_cap::take_allow_large(args, &value_flags);
+    let Some(command) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A copy past the size limits goes only when asked ([`sync_cli::size_cap`]).
+    if allow_large
+        && let Command::Push { local, .. } = &command
+        && let Err(error) = sync_cli::size_cap::allow(local)
+    {
+        println!("{}", SeedError::new("sync_failed", format!("{error:#}")).line());
+        return 1;
+    }
     let answer = match command {
         Command::Pull { socket, local, remote, base } => {
             let (line, code) = pull::run(&socket, &local, &remote, base);
@@ -350,18 +396,10 @@ struct Machine<'a> {
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
-        let lacks = |capability: &str| {
-            identity
-                .as_ref()
-                .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
-        };
+        // The first contact after a lease waits for the link (`machine_gate::reach`).
+        let identity = machine_gate::reach(socket)
+            .map_err(|unreached| SeedError::new("sync_failed", unreached.to_string()))?;
+        let lacks = |capability: &str| machine_gate::outdated_identity(&identity, &[capability]);
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
             // `machine_outdated` only for an older build: a current one that does not serve
             // `fs-v1` on this connection names it instead (an update would change nothing).
@@ -370,10 +408,7 @@ impl<'a> Machine<'a> {
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
-        let id = identity
-            .as_ref()
-            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
-            .map(str::to_owned);
+        let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
         Ok(Self { socket, id, seeds, holds })
     }
 
@@ -383,6 +418,42 @@ impl<'a> Machine<'a> {
             "the machine runs an older cmux-tui without git-seed-v1; update the machine",
         )
     }
+}
+
+/// A seeded or copied folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
+/// (`from_root`) to the one at `to` (`to_root`; `cmux link agent move --sync relay`): this Mac's
+/// record of `local` follows, so Bring Back Local from the new machine merges against the same
+/// seed. False when there is no record, or it is of another machine than `from`.
+pub(in crate::link) fn follow(
+    local: &Path,
+    from_root: &str,
+    to_root: &str,
+    from: &Path,
+    to: &Path,
+) -> anyhow::Result<bool> {
+    let local = std::fs::canonicalize(local)?;
+    let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
+    let id = |socket: &Path| {
+        machine_gate::reach(socket).ok()?.get("session_id")?.as_str().map(str::to_owned)
+    };
+    if kept.machine.is_some() {
+        let source = anyhow::Context::context(
+            id(from),
+            "the first machine did not say which machine it is",
+        )?;
+        if kept.machine.as_deref() != Some(source.as_str()) {
+            return Ok(false);
+        }
+    }
+    kept.machine =
+        Some(anyhow::Context::context(id(to), "the new machine did not say which machine it is")?);
+    // A copied folder's Bring Back Local merges against the copy's own base (`link-sync`), which
+    // the relay's copy of the machine's record still matches.
+    if kept.mode == Kept::Copy {
+        sync_cli::carry_base(&local, from_root, to_root)?;
+    }
+    record::save(&local, to_root, &kept)?;
+    Ok(true)
 }
 
 /// A full push: the seed, else the copy (module docs). With `head_first` (the

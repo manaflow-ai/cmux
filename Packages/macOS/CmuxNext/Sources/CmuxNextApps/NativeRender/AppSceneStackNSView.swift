@@ -68,7 +68,7 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             return out
         }
         // Too narrow: text gives up width, never below zero: the lowest `layoutPriority` first, then from the last one
-        // back; a text with `fixedSize` "horizontal" (or "both") keeps its width, as in the SwiftUI renderer.
+        // back; a text with `fixedSize` "horizontal" (or "both") keeps its width.
         let givers = childViews.indices.reversed().filter { childViews[$0] is AppSceneTextNSView && !Self.keepsWidth(childViews[$0].node) }
         let ordered = givers.enumerated().sorted { a, b in
             let (pa, pb) = (childViews[a.element].node.number("layoutPriority") ?? 0, childViews[b.element].node.number("layoutPriority") ?? 0)

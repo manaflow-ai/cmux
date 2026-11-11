@@ -819,6 +819,25 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
+
+        // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
+        // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
+        sent.removeAll()
+        let title = NSPoint(x: changes.bounds.minX + 24, y: start.y)
+        #expect(!hit.contains(title))
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))
+        #expect(changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: title.x, y: drop.y), in: changes))
+        #expect(sent == ["move:changes:context"])
+
+        // A click on the title, under the drag threshold, still folds the section and moves nothing.
+        sent.removeAll()
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x + 2, y: title.y + 1), in: changes))
+        #expect(!changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, title, in: changes))
+        #expect(sent == ["fold:changes:1"])
     }
 
     /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's

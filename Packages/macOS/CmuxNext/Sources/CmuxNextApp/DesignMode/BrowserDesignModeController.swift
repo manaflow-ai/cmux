@@ -53,7 +53,7 @@ final class BrowserDesignModeController {
         // The Chief's Home chat in the browser's window first (Home on the left, the page on the
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
-        let home = HomeComposerIntake(window: page.contentView.window)
+        let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
         let chat = home == nil ? chatView(near: key) : nil
         // A highlight removed on the page takes its card out of whichever composer holds it.
         for id in change.removed { takeOut(id, home: home, chat: chat) }
@@ -69,7 +69,7 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
-        Task { [weak self, weak page, weak chat] in
+        Task { [weak self, weak page, weak chat, weak home] in
             guard let page else { return }
             let shot = await Self.capture(page)
             for card in rest {
@@ -84,37 +84,41 @@ final class BrowserDesignModeController {
         }
     }
 
-    /// The Home composer's files each card added (``HomeComposerIntake/Attached/ids``), by card id,
-    /// so an edit or a removal takes them back.
+    /// The Home draft attachments each card added, by card id, so an edit or a removal takes them back.
     private var homeAttachments: [String: [String]] = [:]
 
     /// Takes card `id` out of the Home composer (its attachments) or the agent chat composer (its chips).
-    private func takeOut(_ id: String, home: HomeComposerIntake?, chat: AgentPaneView?) {
-        if let ids = homeAttachments.removeValue(forKey: id) {
-            // task-owner: one intake call; ends with the composer's answer (bounded by HomeComposerIntake.deadline)
-            if let home { Task { await home.remove(ids) } }
+    private func takeOut(_ id: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
+        if let hashes = homeAttachments.removeValue(forKey: id) {
+            home?.removeDraftAttachments(hashes)
         } else if let chat {
             AgentPaneDesignSelection.remove(id, from: chat)
         }
     }
 
     /// Where cards become files for the Home composer; each card's folder goes once Home has its
-    /// copy (``HomeComposerIntake/attach(paths:via:track:)`` answered), the rest at quit.
+    /// copy (``HomeNativeTranscriptView/attachmentsReady()``), the rest at quit.
     nonisolated static let tempFiles = BrowserDesignModeTempFiles(
         root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
 
     /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
     /// earlier version of the card added, then removes the files once the draft holds Home's copies.
-    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeComposerIntake) async {
-        if let old = homeAttachments.removeValue(forKey: card.id) { await home.remove(old) }
+    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) async {
+        if let old = homeAttachments.removeValue(forKey: card.id) { home.removeDraftAttachments(old) }
         let temp = Self.tempFiles, folder = temp.newFolder()
         guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else {
             temp.remove(folder)
             return
         }
-        let attached = await home.attach(paths: files.map(\.path), via: .drop, track: true)
+        await home.attachmentsReady()
+        let before = Set(home.draftAttachmentHashes)
+        guard home.attachFiles(paths: files.map(\.path), via: .drop) == .accepted else {
+            temp.remove(folder)
+            return
+        }
+        await home.attachmentsReady()
         temp.remove(folder)
-        if attached.result == .accepted { homeAttachments[card.id] = attached.ids }
+        homeAttachments[card.id] = home.draftAttachmentHashes.filter { !before.contains($0) }
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.

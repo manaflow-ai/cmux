@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -249,6 +249,27 @@
           }
         },
         {
+          "key": "agents.chats.coldArchive",
+          "title": "Compress Old Chats",
+          "help": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldArchiveAfterDays",
+          "title": "Compress Chats Idle For",
+          "help": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.",
+          "kind": "number",
+          "default": 30,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "unit": "days"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -474,6 +495,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Announcements"
+        },
+        {
+          "key": "app.confirmQuit",
+          "title": "Ask Before Quitting Ends Agents or Terminals",
+          "help": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
         },
         {
           "key": "app.globalHotKey",
@@ -2003,6 +2032,14 @@
           ]
         },
         {
+          "key": "agentPane.display.promptCoach",
+          "title": "Prompt Coach",
+          "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -2119,6 +2156,19 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.unreadBanner",
+          "title": "Unread Banner",
+          "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
+          "kind": "choice",
+          "default": "expanded",
+          "group": "Agent Chat",
+          "values": [
+            "expanded",
+            "collapsed",
+            "off"
+          ]
         },
         {
           "key": "agentPane.display.vscodeMinimap",
@@ -3725,14 +3775,15 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.",
           "kind": "choice",
           "default": "auto",
           "group": "Sidebar",
           "values": [
             "auto",
             "glass",
-            "solid"
+            "solid",
+            "sections"
           ]
         },
         {
@@ -4393,18 +4444,6 @@
           ]
         },
         {
-          "key": "ui.animations.bounce",
-          "title": "Animation Bounce",
-          "help": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
-          "kind": "choice",
-          "default": "none",
-          "group": "Density and Motion",
-          "values": [
-            "none",
-            "subtle"
-          ]
-        },
-        {
           "key": "ui.animations.cursor",
           "title": "Animate the Agent Cursor",
           "help": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
@@ -4537,7 +4576,7 @@
         {
           "key": "ui.paneAnimations",
           "title": "Animate Panes",
-          "help": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+          "help": "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.",
           "kind": "toggle",
           "default": true,
           "group": "Density and Motion"
@@ -5523,7 +5562,7 @@
           "title": "Open Pull Requests in cmux GitHub Page",
           "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Opening Links"
         },
         {
@@ -6179,7 +6218,7 @@
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Attention Ring"
         },
         {
@@ -6579,6 +6618,14 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "cloud.turnCheckpoints",
+          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
+          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
           "title": "Use My Claude Login on My Own Cloud Machines",
           "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
@@ -6642,7 +6689,7 @@
         {
           "key": "ssh.linkAllowedHosts",
           "title": "Always Allowed SSH Link Hosts",
-          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
           "kind": "string_list",
           "default": [],
           "group": "SSH Links"
@@ -6707,6 +6754,14 @@
       "id": "development",
       "title": "Development",
       "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "title": "Internal Developer Mode",
+          "help": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Internal Developer Mode"
+        },
         {
           "key": "deviceHub.url",
           "title": "Device Hub Address",

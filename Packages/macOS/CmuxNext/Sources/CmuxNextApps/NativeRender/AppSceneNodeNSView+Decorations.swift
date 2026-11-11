@@ -1,9 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// The decoration props every node accepts, as the SwiftUI renderer's `AppSceneDecorations` applied
-/// them: `frame` (`width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`; a number or
-/// `"infinity"`) sizes the node around its padding; `background` fills it, `borderColor` and
+/// The decoration props every node accepts: `frame` (`width`, `height`, `minWidth`, `maxWidth`,
+/// `minHeight`, `maxHeight`; a number or `"infinity"`) sizes the node around its padding; `background` fills it, `borderColor` and
 /// `borderWidth` (1 by default) stroke it inside, `cornerRadius` rounds and clips both;
 /// `hoverBackground` washes it while the pointer is over it (local, no script round trip);
 /// `rotation` turns it clockwise by that many degrees about its center.

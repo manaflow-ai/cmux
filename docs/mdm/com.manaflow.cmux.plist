@@ -562,6 +562,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.</string>
+			<key>pfm_name</key>
+			<string>app.confirmQuit</string>
+			<key>pfm_title</key>
+			<string>Ask Before Quitting Ends Agents or Terminals</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<real>0.66666666666666663</real>
 			<key>pfm_description</key>
 			<string>A share of the window width, for Fixed Width new columns.</string>
@@ -1103,7 +1115,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.</string>
 			<key>pfm_name</key>
 			<string>ssh.linkAllowedHosts</string>
 			<key>pfm_subkeys</key>
@@ -1182,6 +1194,18 @@
 			<string>cloud.agentsStartWithoutAsking</string>
 			<key>pfm_title</key>
 			<string>Let Agents Use Cloud Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.</string>
+			<key>pfm_name</key>
+			<string>cloud.turnCheckpoints</string>
+			<key>pfm_title</key>
+			<string>Save a Checkpoint Before Each Cloud Chat Turn</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -2034,6 +2058,34 @@
 			<string>Session Recap</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldArchive</string>
+			<key>pfm_title</key>
+			<string>Compress Old Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>30</integer>
+			<key>pfm_description</key>
+			<string>How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldArchiveAfterDays</string>
+			<key>pfm_range_max</key>
+			<real>3650</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Compress Chats Idle For</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -3171,7 +3223,7 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.</string>
+			<string>Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.</string>
 			<key>pfm_name</key>
 			<string>ui.paneAnimations</string>
 			<key>pfm_title</key>
@@ -3202,23 +3254,6 @@
 			<string>Animate New Workspaces</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>none</string>
-			<key>pfm_description</key>
-			<string>None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.</string>
-			<key>pfm_name</key>
-			<string>ui.animations.bounce</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>none</string>
-				<string>subtle</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Animation Bounce</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -4334,6 +4369,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>expanded</string>
+			<key>pfm_description</key>
+			<string>When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.unreadBanner</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>expanded</string>
+				<string>collapsed</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Unread Banner</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>family</string>
 			<key>pfm_description</key>
 			<string>Which is big in a sender's icon: the model family's mark, or the session's own colored badge.</string>
@@ -4567,6 +4620,18 @@
 			<string>Chat Presentation</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After a chat that took several corrections, shows how its first prompt could have said it all at once.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.promptCoach</string>
+			<key>pfm_title</key>
+			<string>Prompt Coach</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5747,7 +5812,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.</string>
+			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.background</string>
 			<key>pfm_range_list</key>
@@ -5755,6 +5820,7 @@
 				<string>auto</string>
 				<string>glass</string>
 				<string>solid</string>
+				<string>sections</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Group Background</string>
@@ -8039,7 +8105,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.</string>
 			<key>pfm_name</key>
@@ -9004,7 +9070,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
 			<key>pfm_name</key>
@@ -9591,6 +9657,18 @@
 			<string>developerTools.appPages</string>
 			<key>pfm_title</key>
 			<string>Developer Tools for cmux Pages</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as "Debug: …" rows. There is no Debug menu.</string>
+			<key>pfm_name</key>
+			<string>app.internalDeveloperMode</string>
+			<key>pfm_title</key>
+			<string>Internal Developer Mode</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

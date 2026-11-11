@@ -15,6 +15,8 @@ pub(super) fn handle(
             str_param(params, "id").ok_or_else(|| RpcError::invalid_params("id is required"))?;
         return hub.prompt_image(&s.id, id);
     }
+    let pattern = str_param(params, "match");
+    crate::hub::validate_match(pattern)?;
     let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
@@ -23,7 +25,17 @@ pub(super) fn handle(
     let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
         .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
         // One subagent's own records, for its pane (`EventFilter::of_subagent`).
-        .of_subagent(str_param(params, "subagent"));
+        .of_subagent(str_param(params, "subagent"))
+        // Records past it go as stubs: a reader that pages on its own (a durable watch) always
+        // moves past a record too large for its read (`EventFilter::stubbing_over`).
+        .stubbing_over(
+            params
+                .get("recordMaxBytes")
+                .and_then(Value::as_u64)
+                .map(|b| usize::try_from(b).unwrap_or(usize::MAX)),
+        )
+        // A watch's `match`: a stubbed reply chunk says whether its whole text held it.
+        .matching(pattern);
     // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.

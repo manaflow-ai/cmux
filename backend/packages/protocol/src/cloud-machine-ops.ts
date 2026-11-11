@@ -29,6 +29,15 @@ export const CloudMachineSize = Schema.Struct({
   disk_mb: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1024, maximum: 1048576 })))
 }).annotate({ identifier: "CloudMachineSize", description: "A machine size. The plan decides which sizes are allowed (cloud.size.locked)." })
 
+export const CloudDeleteReason = Schema.Literals(["failed_create", "never_used", "unused", "requested"]).annotate({ identifier: "CloudDeleteReason" })
+
+export const CloudRetentionNotice = Schema.Struct({
+  kind: Schema.Literals(["heads_up", "last_note"]),
+  /** When the platform recorded it (ms); the app remembers a dismissal per machine and `at`. */
+  at: Millis,
+  delete_at: Millis
+}).annotate({ identifier: "CloudRetentionNotice" })
+
 export const CloudMachine = Schema.Struct({
   id: MachineId,
   team: TeamId,
@@ -58,6 +67,13 @@ export const CloudMachine = Schema.Struct({
    * has no rate.
    */
   hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
+  /**
+   * What the machine costs while it is paused, in US dollars an hour: the provider's list price for keeping
+   * its disk and memory (cmux sets it; clients keep no rate table). Clients show it by the month ("about $X
+   * a month while paused"), since an hour of it is under a cent. For display only, not a bill. Absent or
+   * null when the size has no paused rate.
+   */
+  paused_hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** When the machine last started running (a start or a bind); null unless it is running. Clients show rate x time running as "about $X so far". */
   running_since: Schema.optionalKey(Schema.NullOr(Millis)),
   /**
@@ -66,6 +82,21 @@ export const CloudMachine = Schema.Struct({
    * it; the link_token mint stays the authority (the creator only). Absent from an older server: no desktop.
    */
   desktop: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Automatic cleanup (cmux-platform Retention.ts). evict_at: when the platform deletes this machine by itself (ms),
+   * null when nothing will (kept, running, a paid plan's worked-in machine, or cleanup off). delete_reason: why
+   * (failed_create and never_used go silently; unused is a worked-in machine on a plan that deletes them, after one
+   * heads-up; requested is a person's archive and delete). Absent from an older server: no date.
+   */
+  evict_at: Schema.optionalKey(Schema.NullOr(Millis)),
+  delete_reason: Schema.optionalKey(Schema.NullOr(CloudDeleteReason)),
+  /** A person pinned it (cloud.machine.keep): never deleted automatically. Absent: false. */
+  keep: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The one in-app notice before an `unused` machine's delete: the heads-up (heads_up_days before) or the last note
+   * (last_note_days before). Each comes once per deadline; a use, a keep or a new deadline clears it.
+   */
+  notice: Schema.optionalKey(Schema.NullOr(CloudRetentionNotice)),
   /**
    * The team's spending cap paused this machine (cmux-platform SpendCap.ts); pause_reason stays null for it. A start
    * clears it. Absent otherwise, and from a server without the cap.
@@ -86,8 +117,48 @@ export const CloudSnapshot = Schema.Struct({
   size_mb: Schema.Int,
   status: Schema.Literals(["creating", "ready", "deleting", "failed"]),
   created_at: Millis,
+  /**
+   * The archive the platform took of a machine before deleting it (automatic cleanup or archive and delete), kept
+   * until `until` (ms) and then deleted. cloud.snapshot.restore makes a new machine from it. Absent: not an archive.
+   */
+  archive_of: Schema.optionalKey(Schema.NullOr(Schema.Struct({ machine: MachineId, name: Schema.NullOr(MachineName), until: Millis }))),
   revision: Revision
 }).annotate({ identifier: "CloudSnapshot" })
+
+/** A team's own cleanup numbers (cloud.retention.set), each within its plan's limit. */
+export const CloudRetentionOverrides = Schema.Struct({
+  failed_create_hours: Schema.optionalKey(Schema.Int),
+  never_used_hours: Schema.optionalKey(Schema.Int),
+  idle_pause_minutes: Schema.optionalKey(Schema.Int),
+  worked_in_days: Schema.optionalKey(Schema.Int),
+  heads_up_days: Schema.optionalKey(Schema.Int),
+  last_note_days: Schema.optionalKey(Schema.Int),
+  archive_days: Schema.optionalKey(Schema.Int)
+}).annotate({ identifier: "CloudRetentionOverrides" })
+
+/**
+ * The cleanup in force for the caller's machines: the plan's tier with the team's overrides inside its limits.
+ * worked_in_days null: a machine someone worked in is never deleted automatically (paid plans).
+ */
+export const CloudRetentionSettings = Schema.Struct({
+  tier: Schema.String,
+  failed_create_hours: Schema.Int,
+  never_used_hours: Schema.Int,
+  idle_pause_minutes: Schema.Int,
+  worked_in_days: Schema.NullOr(Schema.Int),
+  heads_up_days: Schema.Int,
+  last_note_days: Schema.Int,
+  archive_days: Schema.Int
+}).annotate({ identifier: "CloudRetentionSettings" })
+
+export const CloudRetention = Schema.Struct({
+  /** CLOUD_EVICT: on deletes, warn only stamps dates, off does neither. */
+  mode: Schema.Literals(["off", "warn", "on"]),
+  settings: Schema.NullOr(CloudRetentionSettings),
+  team: CloudRetentionOverrides,
+  /** Whether the caller gets the one email heads-up before one of their machines is deleted. */
+  email_heads_up: Schema.Boolean
+}).annotate({ identifier: "CloudRetention" })
 
 export const CloudPlan = Schema.Struct({
   plan_id: PlanId,
@@ -106,6 +177,8 @@ export const CloudPlan = Schema.Struct({
    * servers that do not split it (Team plan, per-member budgets).
    */
   usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.NullOr(Schema.Number), vm_hours_used_by_you: Schema.optionalKey(Schema.NullOr(Schema.Number)), period_end: Millis }),
+  /** Automatic machine cleanup (cmux-platform Retention.ts); absent or null from a server without it. */
+  retention: Schema.optionalKey(Schema.NullOr(CloudRetention)),
   /**
    * The team's spending cap on Cloud machines (cmux-platform SpendCap.ts `capView`), absent where the cap is off. The
    * last read of the team's spend (state under, near or at_cap; null before the first read; cap_usd null when the
@@ -229,7 +302,7 @@ export const CloudMachineCreate = cloudMutation(
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
   ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...PROVIDER, ...LIMITED, ...APPROVAL],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
@@ -265,6 +338,46 @@ export const CloudMachineIdlePolicySet = cloudMutation(
   "Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.",
   "cloud machine idle-policy set"
 )
+/** cloud.machine.keep: pin a machine so nothing deletes it automatically (keep: false unpins it). */
+export const CloudMachineKeep = cloudMutation(
+  "cloud.machine.keep",
+  "mutate-shared",
+  Schema.Struct({ machine: MachineId, keep: Schema.Boolean }),
+  MachineResult,
+  ["cloud.machine.not_found"],
+  "Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only.",
+  "cloud machine keep"
+)
+/**
+ * cloud.machine.archive_delete: the one-click "archive and delete" of a paused or failed machine (a paid plan's way
+ * to stop paying for a paused machine's disk). The platform archives the disk first (a snapshot with archive_of, kept
+ * the plan's archive_days and restorable as a new machine), then deletes the machine once the archive is ready.
+ */
+export const CloudMachineArchiveDelete = cloudMutation(
+  "cloud.machine.archive_delete",
+  "destructive",
+  MachineParams,
+  MachineResult,
+  ["cloud.machine.not_found", "cloud.machine.not_paused"],
+  "Archive a paused machine's disk, then delete the machine. The archive is a snapshot (archive_of names the machine) kept for the plan's archive days; cloud.snapshot.restore makes a new machine from it. The machine's creator or a team admin only.",
+  "cloud machine archive-delete",
+  true
+)
+/**
+ * cloud.retention.set: a team admin's overrides of the plan's cleanup numbers (`settings`, null clears them; a
+ * non-admin is auth.forbidden), and the caller's own choice of the email heads-up (`email_heads_up`). cloud.plan.get
+ * answers both as `retention`.
+ */
+export const CloudRetentionSet = cloudMutation(
+  "cloud.retention.set",
+  "mutate-shared",
+  Schema.Struct({ settings: Schema.optionalKey(Schema.NullOr(CloudRetentionOverrides)), email_heads_up: Schema.optionalKey(Schema.Boolean) }),
+  Schema.Struct({ changed: Schema.Boolean }),
+  [],
+  "Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`.",
+  "cloud retention set"
+)
+
 export const CloudMachineConnectInfo = cloudRead(
   "cloud.machine.connect_info",
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
@@ -409,6 +522,9 @@ export const cloudMachineOps = [
   CloudMachineResize,
   CloudMachineDelete,
   CloudMachineIdlePolicySet,
+  CloudMachineKeep,
+  CloudMachineArchiveDelete,
+  CloudRetentionSet,
   CloudMachineConnectInfo,
   CloudMachineLinkToken,
   CloudMachineUpgrade,

@@ -15,7 +15,9 @@ import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableAct
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
+import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
@@ -81,6 +83,7 @@ import { followMotion } from "../agent-session/acpmux/conversation/followMotion.
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
+import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import type { Experiment } from "./experiment";
 
@@ -127,6 +130,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   expandRowLook,
   selectionReplyWrap,
   backgroundReactionLook,
+  backgroundTurnLook,
   cloudStartLook,
   cloudProgressLook,
   cloudStartAskLook,
@@ -159,6 +163,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
+  cloudStartComposerLook,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -170,6 +175,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendStopMorph,
   sendMenuLook,
   fieldGrowthMotion,
+  composerDockMotion,
   teamAudit,
 ];
 

@@ -106,14 +106,14 @@ impl std::fmt::Display for NoSeedBase {
 impl std::error::Error for NoSeedBase {}
 
 /// The machine's state, as its export answered it.
-struct Exported {
-    head_ref: Option<String>,
-    head: String,
-    index: String,
-    work: String,
-    stash: Option<String>,
-    unchanged: bool,
-    bundle_bytes: u64,
+pub(crate) struct Exported {
+    pub(crate) head_ref: Option<String>,
+    pub(crate) head: String,
+    pub(crate) index: String,
+    pub(crate) work: String,
+    pub(crate) stash: Option<String>,
+    pub(crate) unchanged: bool,
+    pub(crate) bundle_bytes: u64,
     left_out: Value,
 }
 
@@ -380,6 +380,35 @@ pub(crate) fn seed_pull(
         "base": new_base,
         "left_out": exported.left_out,
     })))
+}
+
+/// The machine at `socket`'s export of `remote_root` since `base`, its bundle streamed to `to`
+/// (a new private file on this Mac, never in a working copy). Move to another Cloud machine
+/// sends it on to the second machine (`seed_cli::hop`). None when nothing changed since `base`.
+pub(crate) fn export_to(
+    socket: &Path,
+    remote_root: &str,
+    base: &SeedBase,
+    to: &Path,
+) -> anyhow::Result<Option<Exported>> {
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = super::remote::split(remote_root)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let remote_bundle = format!(
+        "{}/.cmux-seed-move-{}-{nanos}.bundle",
+        parent.trim_end_matches('/'),
+        std::process::id()
+    );
+    let exported = export(&mut remote, remote_root, base, &remote_bundle)?;
+    if exported.unchanged {
+        return Ok(None);
+    }
+    let downloaded = download(&mut remote, &remote_bundle, to);
+    let _ = remote.delete(&[remote_bundle]);
+    downloaded?;
+    Ok(Some(exported))
 }
 
 /// Starts the export and waits (bounded) for it to end.

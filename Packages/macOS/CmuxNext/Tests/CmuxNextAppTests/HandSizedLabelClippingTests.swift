@@ -84,13 +84,16 @@ import Testing
         _ = window
     }
 
-    @Test func historyRowMetaIsWhole() {
-        let view = SidebarChatHistoryRow()
-        view.configure(title: "Fix the omnibar", meta: "12m", quiet: false)
-        let window = Self.host(view, size: NSSize(width: 280, height: 28))
+    @Test func recipientChipAndToLabelAreWhole() {
+        let chip = HomeRecipientChip(token: HomeRecipientToken(text: "Lawrence Chen", recipient: nil))
+        let window = Self.host(chip, size: NSSize(width: chip.preferredWidth, height: HomeRecipientChip.height))
         defer { window.closeAfterTest() }
-        #expect(Self.clipped(in: view) == [])
-        _ = window
+        #expect(Self.clipped(in: chip) == [])
+        let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let fieldWindow = Self.host(field, size: NSSize(width: 480, height: 44))
+        defer { fieldWindow.closeAfterTest() }
+        #expect(Self.clipped(in: field) == [])
+        _ = (window, fieldWindow)
     }
 
     @Test func linkDragGhostTitleIsWhole() throws {

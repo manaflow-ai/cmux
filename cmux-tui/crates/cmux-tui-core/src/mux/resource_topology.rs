@@ -82,6 +82,7 @@ mod registry_layout;
 use registry_layout::apply_layout_snapshot;
 use registry_layout::overwrite_layout_snapshot;
 use registry_layout::registry_screen_from_layout;
+use registry_layout::set_layout_divider_hidden;
 use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 mod batch_close;

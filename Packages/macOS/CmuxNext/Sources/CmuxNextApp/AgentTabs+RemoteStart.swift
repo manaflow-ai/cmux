@@ -96,13 +96,14 @@ extension AgentTabStore {
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
         do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        let phases = await client.startPhases
         await client.close()
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
             if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
             onRemoteChatStarted?(record.host, session, fallback, harness)
-            return .init(surface: surface, session: session)
+            return .init(surface: surface, session: session, phases: phases)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
             if error.code == "agent_session.bound", let session = self.record(for: scopedKey)?.record.session {
@@ -122,7 +123,7 @@ extension AgentTabStore {
 /// The start of a new chat on another machine, as the remote pane host calls it.
 nonisolated enum AgentTabRemoteStart {
     static let registryPrefix = MachineRegistry.registryHostPrefix
-    /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
+    /// Each request of the start's client but the start (`AgentSessionAttachClient.startTimeout`).
     static let timeout: Duration = .seconds(75)
 
     /// The project list of a chat on another machine: its workspaces' folders, then the folders the
@@ -135,6 +136,8 @@ nonisolated enum AgentTabRemoteStart {
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
+        /// The machine's own phases of the start (`timings_ms`), when its daemon sent them.
+        var phases: [String: Int]?
     }
 }
 

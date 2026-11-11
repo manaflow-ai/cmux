@@ -207,10 +207,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             "--class" => parsed.class = Some(value()?),
             "--thread" => parsed.thread = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                parsed.timeout_secs = (secs > 0).then_some(secs);
+                parsed.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
             "--chief" | "--to" => {
