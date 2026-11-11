@@ -226,8 +226,9 @@ pub struct Peer {
     /// Requests bound to the link's connection (a `session/load`, an attach), by pending key:
     /// the line to send again on the next link when this one switches paths under them.
     /// Each with the link epoch it last went out on: only one sent on an earlier link is sent
-    /// again, never one the new link already carries.
-    switch_retry: StdMutex<HashMap<String, (String, u64)>>,
+    /// again, never one the new link already carries. The epoch is shared with the request's
+    /// cancel (`PeerCancel`), which goes on the link that carries it now (review F3 of #41361).
+    switch_retry: StdMutex<HashMap<String, (String, Arc<AtomicU64>)>>,
     /// The link ended to switch paths; its bound requests go again on the next link.
     switched: AtomicBool,
     /// The pending keys of requests sent on both paths.
@@ -1544,10 +1545,13 @@ impl Peer {
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
+        // The link that carries it: this one, or the next one it is sent again on.
+        let carried_on = Arc::new(AtomicU64::new(tag));
         // Bound to the link's connection: sent again on the next link if this one switches
         // paths before it answers, never raced on two (`Peer::resend_switched`).
         let _retry = retry.then(|| {
-            self.switch_retry.lock_or_recover().insert(key.clone(), (line.clone(), tag));
+            let entry = (line.clone(), carried_on.clone());
+            self.switch_retry.lock_or_recover().insert(key.clone(), entry);
             ForgetRetry { peer: self, key: key.clone() }
         });
         // Its client may cancel it from here: the peer hears `$/cancel_request` for it on the
@@ -1555,7 +1559,7 @@ impl Peer {
         // late answer is dropped and logged either way.
         let cancel = Some(PeerCancel {
             out: self.out.clone(),
-            epoch: tag,
+            epoch: carried_on,
             id,
             method: m.to_owned(),
             cancelled: self.cancelled.clone(),
@@ -1615,9 +1619,9 @@ impl Peer {
             // Only those the earlier link carried: one made on this link went out on it already.
             retry
                 .iter_mut()
-                .filter(|(_, (_, sent_on))| *sent_on < link)
+                .filter(|(_, (_, sent_on))| sent_on.load(Ordering::SeqCst) < link)
                 .map(|(key, (line, sent_on))| {
-                    *sent_on = link;
+                    sent_on.store(link, Ordering::SeqCst);
                     (key.clone(), line.clone())
                 })
                 .collect()
@@ -3340,7 +3344,10 @@ struct ForgetPending {
 /// What a request queued to the peer needs to cancel it there (`request_cancel.rs`).
 struct PeerCancel {
     out: mpsc::Sender<Outbound>,
-    epoch: u64,
+    /// The link that carries the request now: the one it went out on, or the next one a path
+    /// switch sent it again on (`Peer::resend_switched`). A cancel tagged with an earlier link
+    /// would be dropped as that link's (review F3 of #41361).
+    epoch: Arc<AtomicU64>,
     id: i64,
     method: String,
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
@@ -3361,7 +3368,8 @@ impl Drop for ForgetRetry<'_> {
 }
 
 impl PeerCancel {
-    /// `$/cancel_request` on the link the request went out on (a later link never carries it).
+    /// `$/cancel_request` on the link that carries the request now (a later link never carries
+    /// it), and on its shadow too when the shadow carried a copy (`peer_dual.rs`).
     /// A full queue is waited out, never a reason to drop it (review F2 of #41285); a closed one
     /// means the link is gone, and is logged.
     fn send(self) {
@@ -3369,7 +3377,8 @@ impl PeerCancel {
             method::CANCEL_REQUEST,
             json!({"requestId": self.id}),
         );
-        let frame = Outbound { epoch: self.epoch, key: None, line: note.to_line() };
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        let frame = Outbound { epoch, key: None, line: note.to_line() };
         let id = self.id;
         match self.out.try_send(frame) {
             Ok(()) => {}
