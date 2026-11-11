@@ -13,6 +13,8 @@ use rusqlite::params;
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::history_ops::{AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION};
+use crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION;
 
 const SEGMENTS: u64 = 32;
 const SEGMENT_RECORDS: u64 = 256;
@@ -354,4 +356,185 @@ fn a_higher_floor_in_meta_survives_retention() {
         "setup: a segment at or below the floor stayed"
     );
     assert_eq!(registry.journal_pruned_through().unwrap(), higher);
+}
+
+/// The two reducers whose saved state holds what the journal no longer has
+/// below the floor, each with this build's version.
+const BASED: [(&str, u32); 2] = [
+    (AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION),
+    (AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION),
+];
+
+fn meta(registry: &WorkspaceRegistry, key: &str) -> Option<String> {
+    registry
+        .connection
+        .get()
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get::<_, String>(0))
+        .optional()
+        .unwrap()
+}
+
+/// The raw saved state of `reducer`.
+fn saved(registry: &WorkspaceRegistry, reducer: &str) -> Option<String> {
+    meta(registry, &format!("journal_reducer.{reducer}"))
+}
+
+/// The raw base of `reducer` (`base.rs`).
+fn base(registry: &WorkspaceRegistry, reducer: &str) -> Option<String> {
+    meta(registry, &format!("journal_reducer_base.{reducer}"))
+}
+
+/// A saved state of `reducer` that holds `label`, with no rebuild owed.
+fn reducer_with(
+    registry: &WorkspaceRegistry,
+    reducer: &str,
+    version: u32,
+    cursor: u64,
+    label: &str,
+) {
+    let snapshot = serde_json::json!({ "label": label }).to_string();
+    registry
+        .connection
+        .finish_journal_reducer_rebuild(reducer, version, cursor, &snapshot)
+        .unwrap();
+}
+
+/// A registry in which each reducer saved `label` at sequence 3,000 and
+/// retention then deleted through [`FLOOR_AT_3000`].
+fn pruned_at_3000(label: &str) -> WorkspaceRegistry {
+    let mut registry = registry(|_| OLD);
+    for (reducer, version) in BASED {
+        reducer_with(&registry, reducer, version, 3_000, label);
+    }
+    prune(&mut registry);
+    assert_eq!(registry.journal_pruned_through().unwrap(), FLOOR_AT_3000, "the setup");
+    registry
+}
+
+/// The delete of a segment takes records from the journal for good: each
+/// reducer's saved state is then the only copy of what it folded from them,
+/// under a key that every build writes. The transaction that deletes first
+/// copies each state to its base.
+#[test]
+fn the_delete_of_a_segment_first_copies_each_reducer_state_to_its_base() {
+    let registry = pruned_at_3000("folded through 3,000");
+    for (reducer, _) in BASED {
+        let state = saved(&registry, reducer);
+        assert!(state.as_deref().is_some_and(|state| state.contains("folded through 3,000")));
+        assert_eq!(
+            base(&registry, reducer),
+            state,
+            "retention deleted through {FLOOR_AT_3000} and the base of {reducer} is not the \
+             state that was saved then"
+        );
+    }
+}
+
+/// A base stays while its cursor is at or above the floor: one copy for each
+/// time the floor passes the last one, not one for each segment.
+#[test]
+fn a_base_is_written_again_only_when_the_floor_passes_its_cursor() {
+    let mut registry = pruned_at_3000("first");
+    let first = BASED.map(|(reducer, _)| base(&registry, reducer));
+    assert!(first.iter().all(Option::is_some), "the first floor move wrote no base: {first:?}");
+
+    // The readers go on to the head. The next delete passes the cursor of
+    // the first base (3,000): the base is the state saved now.
+    for (reducer, version) in BASED {
+        reducer_with(&registry, reducer, version, HEAD, "second");
+    }
+    let floor = floor(&registry);
+    assert!(floor > FLOOR_AT_3000 + SEGMENT_RECORDS, "the setup: the floor is {floor}");
+    assert!(registry.prune_oldest_journal_segment(floor).unwrap(), "the setup: a delete");
+    let second = BASED.map(|(reducer, _)| base(&registry, reducer));
+    for ((reducer, _), copied) in BASED.iter().zip(&second) {
+        assert_eq!(
+            copied,
+            &saved(&registry, reducer),
+            "{reducer}: the base after the floor passed 3,000"
+        );
+    }
+
+    // A later save at the same cursor, and the deletes up to the floor: the
+    // floor does not pass the cursor of the second base, so it stays.
+    for (reducer, version) in BASED {
+        reducer_with(&registry, reducer, version, HEAD, "third");
+    }
+    while registry.prune_oldest_journal_segment(floor).unwrap() {}
+    assert_eq!(registry.journal_pruned_through().unwrap(), floor);
+    assert_eq!(BASED.map(|(reducer, _)| base(&registry, reducer)), second);
+}
+
+/// A floor of the swap at open in these tests, above the floor of
+/// [`pruned_at_3000`].
+const HIGHER: u64 = 20 * SEGMENT_RECORDS;
+
+/// A state that is not this build's own fold never becomes the base, and no
+/// record is deleted without a base at or above the end of its segment. The
+/// floor of the maintenance worker is 0 for such a state; a caller with a
+/// floor of its own (the swap at open) gets the same answer here.
+#[test]
+fn a_state_that_is_not_this_builds_fold_is_not_copied_and_stops_the_delete() {
+    type Write = fn(&WorkspaceRegistry, &str, u32);
+    let cases: [(&str, Write); 4] = [
+        // The kill: an older build's empty roster, migrated by a start of
+        // this build that did not end its rebuild.
+        ("a rebuild is owed", |registry: &WorkspaceRegistry, reducer: &str, version: u32| {
+            let empty = serde_json::json!({ "label": "empty" }).to_string();
+            registry
+                .start_journal_reducer_rebuild(reducer, version - 1, version, HEAD, &empty)
+                .unwrap();
+        }),
+        ("another version", |registry: &WorkspaceRegistry, reducer: &str, version: u32| {
+            reducer_with(registry, reducer, version + 1, HEAD, "empty");
+        }),
+        ("no saved state", |registry: &WorkspaceRegistry, reducer: &str, _: u32| {
+            registry
+                .connection
+                .get()
+                .execute("DELETE FROM meta WHERE key = ?1", [format!("journal_reducer.{reducer}")])
+                .unwrap();
+        }),
+        // The oldest segment left ends at `FLOOR_AT_3000 + SEGMENT_RECORDS`.
+        (
+            "a cursor below the end of the segment",
+            |registry: &WorkspaceRegistry, reducer: &str, version: u32| {
+                let cursor = FLOOR_AT_3000 + SEGMENT_RECORDS - 1;
+                reducer_with(registry, reducer, version, cursor, "empty");
+            },
+        ),
+    ];
+    // The control: with each state this build's own fold at the head, the
+    // same call deletes.
+    let mut control = pruned_at_3000("with the agent");
+    for (reducer, version) in BASED {
+        reducer_with(&control, reducer, version, HEAD, "at the head");
+    }
+    assert!(control.prune_oldest_journal_segment(HIGHER).unwrap(), "the setup: no delete");
+
+    for (reducer, version) in BASED {
+        for (name, write) in cases {
+            let mut registry = pruned_at_3000("with the agent");
+            let before = base(&registry, reducer);
+            assert!(
+                before.as_deref().is_some_and(|base| base.contains("with the agent")),
+                "{reducer}, {name}: the first floor move wrote no base"
+            );
+            // The other reducer does not stop the delete.
+            for (other, version) in BASED {
+                reducer_with(&registry, other, version, HEAD, "at the head");
+            }
+            write(&registry, reducer, version);
+            assert!(
+                !registry.prune_oldest_journal_segment(HIGHER).unwrap(),
+                "{reducer}, {name}: a segment was deleted with no base at or above its end"
+            );
+            assert_eq!(
+                registry.journal_pruned_through().unwrap(),
+                FLOOR_AT_3000,
+                "{reducer}, {name}"
+            );
+            assert_eq!(base(&registry, reducer), before, "{reducer}, {name}: the base changed");
+        }
+    }
 }

@@ -139,6 +139,12 @@ fn fixture(label: &str, below: usize) -> Fixture {
     let mux = open(&root.0);
     let roster = roster_state(&mux, &terminal);
     eprintln!("floor rebuild fixture: roster after a restart: {roster:?}");
+    // The maintenance worker folds the agent history before each retention
+    // pass: its saved fold is one reader of the floor, as the saved roster.
+    assert!(
+        crate::history_ops::fold_for_retention(&mux, Duration::from_secs(30), 1).unwrap(),
+        "the fixture: the agent history fold reaches the journal head"
+    );
     mux.shutdown();
     drop(mux);
     let head = journal_head(&db_path);
@@ -525,6 +531,73 @@ fn a_swap_at_a_floor_records_what_it_deleted_through() {
         pruned_through, *floor,
         "the swapped registry does not say that the records through the floor are gone"
     );
+}
+
+/// The reducers whose saved state holds what the journal no longer has
+/// below a floor (`journal_retention/base.rs`).
+const BASED: [&str; 2] =
+    [crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, crate::history_ops::AGENT_FOLD_STATE_ID];
+
+/// The `meta` value of `key` in the closed registry.
+fn meta(db_path: &Path, key: &str) -> Option<String> {
+    read_only(db_path)
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
+        .ok()
+}
+
+/// The swap deletes through its cut. The saved state of the agent roster and
+/// of the agent history fold is then the only copy of what each folded from
+/// those records, under a key that every build writes: the transaction of
+/// the swap copies each one to its base.
+#[test]
+fn a_swap_at_a_floor_leaves_a_base_of_each_reducer() {
+    let fixture = fixture("base", 1_100);
+    let Fixture { root, db_path, floor, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    let saved = BASED.map(|reducer| meta(db_path, &format!("journal_reducer.{reducer}")));
+    assert!(
+        saved.iter().all(Option::is_some),
+        "the fixture is wrong: a reducer has no saved state: {saved:?}"
+    );
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert_rebuilt(&fixture);
+    for (reducer, saved) in BASED.iter().zip(saved) {
+        assert_eq!(
+            meta(db_path, &format!("journal_reducer_base.{reducer}")),
+            saved,
+            "the swap deleted the records through {floor} and the base of {reducer} is not its \
+             saved state"
+        );
+        assert_eq!(meta(db_path, &format!("journal_reducer.{reducer}")), saved, "{reducer}");
+    }
+}
+
+/// A start whose floor says that the records can go, on a registry whose
+/// saved roster is not this build's own fold (another version). No base can
+/// stand for the records, so the swap deletes nothing.
+#[test]
+fn a_swap_with_no_state_for_a_base_deletes_nothing() {
+    let fixture = fixture("no-base", 1_100);
+    let Fixture { root, db_path, floor, head, .. } = &fixture;
+    let all = records_after(db_path, 0, *head);
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    {
+        let writer = Connection::open(db_path).unwrap();
+        writer
+            .execute(
+                "UPDATE meta SET value = json_set(value, '$.version', 0) WHERE key = ?1",
+                [format!("journal_reducer.{}", BASED[0])],
+            )
+            .unwrap();
+    }
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(
+        !previous_path(db_path).exists(),
+        "the swap deleted the records through {floor} with a saved roster of another version \
+         and no base"
+    );
+    assert_eq!(records_after(db_path, 0, *head), all, "the registry lost records");
+    assert_eq!(meta(db_path, &format!("journal_reducer_base.{}", BASED[0])), None);
 }
 
 /// The floor can be lower at the next start than at the build: an update

@@ -52,7 +52,7 @@ fn folded_from_the_first_retained_record(
 }
 
 /// The agent rows of `history.entries.list`, by the provider's session id.
-fn listed_agents(mux: &Arc<Mux>) -> BTreeMap<String, Value> {
+pub(super) fn listed_agents(mux: &Arc<Mux>) -> BTreeMap<String, Value> {
     let mut fields = Map::new();
     fields.insert("kinds".into(), json!(["agent"]));
     fields.insert("limit".into(), json!(crate::history_ops::MAX_LIST));
@@ -240,13 +240,13 @@ fn a_live_agent_with_every_record_deleted_stays_in_the_roster_a_start_and_the_li
 
 /// The provider's session id of the agent that rests in
 /// [`stopped_store_after_a_prune`].
-const RESTED_SESSION: &str = "session-below-the-floor";
+pub(super) const RESTED_SESSION: &str = "session-below-the-floor";
 
 /// A stopped daemon's registry in which a first agent started a session and
 /// then rested, a second agent worked, and retention deleted every record of
 /// the first one. The saved roster and the saved agent history fold are then
 /// the only copies of the first agent. Returns its terminal.
-fn stopped_store_after_a_prune(session: &str, root: &Path) -> TerminalPublicId {
+pub(super) fn stopped_store_after_a_prune(session: &str, root: &Path) -> TerminalPublicId {
     let mux = open_persistent_test_mux(session, root);
     // The worker ticks each 30 s; this setup runs the same tick itself.
     mux.stop_journal_maintenance();
@@ -416,7 +416,7 @@ fn a_history_fold_version_bump_after_retention_keeps_a_session_whose_records_are
 
 /// What a start finds in place of a saved reducer state.
 #[derive(Clone, Copy)]
-enum Damage {
+pub(super) enum Damage {
     /// The `meta` value is not JSON: the read of the state fails.
     NotRead,
     /// The snapshot is cut in the middle: it does not parse.
@@ -426,7 +426,7 @@ enum Damage {
 }
 
 /// The `meta` value of `key` in a stopped store.
-fn stopped_meta(session: &str, root: &Path, key: &str) -> Option<String> {
+pub(super) fn stopped_meta(session: &str, root: &Path, key: &str) -> Option<String> {
     let registry = WorkspaceRegistry::open(root, session).unwrap();
     registry
         .connection
@@ -438,7 +438,7 @@ fn stopped_meta(session: &str, root: &Path, key: &str) -> Option<String> {
 /// Writes a saved state of `reducer` that does not load into a stopped
 /// store, and returns the raw `meta` value it wrote. `mark` makes the value
 /// of one call different from the value of another call.
-fn damage_saved_state(
+pub(super) fn damage_saved_state(
     session: &str,
     root: &Path,
     reducer: &str,
