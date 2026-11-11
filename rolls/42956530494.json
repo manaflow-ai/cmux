@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42956530494",
+  "recorded_at": "2026-11-11T04:09:37Z",
+  "reason": "cmux-tui f525e71cfb57 changes the image's cmux-tui (pinned 38dd47965803)",
+  "dry_run": false,
+  "cmux_tui": "f525e71cfb57d769f8c6d8564bf3dea5f3991c83",
+  "fixes": [
+    {
+      "sha": "f525e71cfb57d769f8c6d8564bf3dea5f3991c83",
+      "mergedAt": "2026-11-10T19:43:31-08:00",
+      "subject": "cmux-tui: a CLI request whose preflight failed before it was sent is tried again"
+    },
+    {
+      "sha": "65b002f37c978566a3341304eff2c5c6fce42f76",
+      "mergedAt": "2026-11-10T19:43:29-08:00",
+      "subject": "cmux-tui: a connection closed because something failed says why"
+    },
+    {
+      "sha": "6a050ce26ceb26c0e39a1be0630ed902015c5a32",
+      "mergedAt": "2026-11-10T19:43:28-08:00",
+      "subject": "cmux-tui: a sidebar request that starts during a shutdown ends with it"
+    },
+    {
+      "sha": "cdf1cef2652cf6eab69ae176639a0857a6a46240",
+      "mergedAt": "2026-11-10T19:43:27-08:00",
+      "subject": "cmux-tui: a CLI stream read keeps a line's bytes across a read timeout"
+    },
+    {
+      "sha": "d9da04752d26743f92fce5ddedf9039316246171",
+      "mergedAt": "2026-11-10T19:43:25-08:00",
+      "subject": "cmux-tui: test that a request whose preflight failed before it was sent is tried again"
+    },
+    {
+      "sha": "b24d9a67ffc3cf0bb169613166fd8957cce6034e",
+      "mergedAt": "2026-11-10T19:43:24-08:00",
+      "subject": "cmux-tui: test that a timed-out attach records why it closed the transport"
+    },
+    {
+      "sha": "7168a817daf728252b80c329b77194fedd524556",
+      "mergedAt": "2026-11-10T19:43:23-08:00",
+      "subject": "cmux-tui: test that a sidebar request that starts during a shutdown ends with it"
+    },
+    {
+      "sha": "9881e13628a9ba593ccf4f18f29f9dee06d9c563",
+      "mergedAt": "2026-11-10T19:43:21-08:00",
+      "subject": "cmux-tui: test that a stream line split by a read timeout is read whole"
+    },
+    {
+      "sha": "4887babb0dfb3b6f9938caa4ba0edad349c7adec",
+      "mergedAt": "2026-11-10T19:43:20-08:00",
+      "subject": "cmux-tui-core: a connection holds at most 32 v1 event subscriptions"
+    },
+    {
+      "sha": "8a587491e4c74de7a50573c23c5a0178794b7150",
+      "mergedAt": "2026-11-10T19:43:18-08:00",
+      "subject": "cmux-tui-core: test that one connection cannot open unbounded event subscriptions"
+    },
+    {
+      "sha": "a70590b471efe7e3b0224b0b18229a18bf1e3460",
+      "mergedAt": "2026-11-10T19:43:17-08:00",
+      "subject": "cmux-tui-core: a loopback stream ends when its connection's writer closes"
+    },
+    {
+      "sha": "da1c1bd72fb3b564183561b5aa6bbf79fc32a6e9",
+      "mergedAt": "2026-11-10T19:43:16-08:00",
+      "subject": "cmux-tui-core: a request handler that panics is answered, or closes its connection"
+    },
+    {
+      "sha": "4d270b2c57059aace7ff712d392136278672a211",
+      "mergedAt": "2026-11-10T19:43:14-08:00",
+      "subject": "cmux-tui-core: closed activity subscribers leave before the subscriber cap counts"
+    },
+    {
+      "sha": "6327376b3fbe89b59ea2a27e677d52d552e80fac",
+      "mergedAt": "2026-11-10T19:43:11-08:00",
+      "subject": "cmux-tui-core: test that a loopback stream opened during its connection's disconnect ends"
+    },
+    {
+      "sha": "89f4031b4c4d61c7bac2bd321c3c092308fce9bd",
+      "mergedAt": "2026-11-10T19:43:09-08:00",
+      "subject": "cmux-tui-core: test that a request handler panic never leaves its connection half alive"
+    },
+    {
+      "sha": "478b8a48d7684ad8e4012ce2c1df1c5967950c81",
+      "mergedAt": "2026-11-10T19:43:08-08:00",
+      "subject": "cmux-tui-core: test that closed activity subscribers do not count against the cap"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T04:09:37Z",
+    "snapshot_id": "sh-359b9e7346d9400f8d555fe4e8b2d7dd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42956530494): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2920b0f10b544ef6bb0d55d106d8acf6b18ad725",
+    "image": "cloud-native-auto-f525e71c-42956530494-1",
+    "revision": "ci-42956530494-1",
+    "at": "2026-11-11T04:09:37Z"
+  },
+  "rolled_back": false
+}
