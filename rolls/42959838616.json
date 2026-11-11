@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42959838616",
+  "recorded_at": "2026-11-11T04:40:18Z",
+  "reason": "cmux-tui 8c3e3883dace changes the image's cmux-tui (pinned b9d2246b90b7)",
+  "dry_run": false,
+  "cmux_tui": "8c3e3883dace870132ae869963b63c8ee3ec934f",
+  "fixes": [
+    {
+      "sha": "8c3e3883dace870132ae869963b63c8ee3ec934f",
+      "mergedAt": "2026-11-10T20:18:08-08:00",
+      "subject": "acpmux: a launcher profile of Claude Code is judged by Claude Code's modes (W6-G) (#40365)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T04:40:18Z",
+    "snapshot_id": "sh-a3a6d899733f42a98780996389ff63ff",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42959838616): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9e1c1b3e64d486bdcdb73ea186d26e0e056ad28f",
+    "image": "cloud-native-auto-8c3e3883-42959838616-1",
+    "revision": "ci-42959838616-1",
+    "at": "2026-11-11T04:40:18Z"
+  },
+  "rolled_back": false
+}
