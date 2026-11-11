@@ -45,7 +45,22 @@ Detectors (all line/regex heuristics, never an AST):
   ("OSError: [Errno 39] Directory not empty: '.git'"). A Python test imports
   tests/git_fixture_env.py; a shell test sources
   scripts/cmux-next/tests/lib/git-fixture.sh (or sets maintenance.auto=false).
-  This one is file-level and also scans GIT_FIXTURE_ONLY_ROOTS.
+  This one is file-level and also scans GIT_FIXTURE_ONLY_ROOTS, as do the
+  next two.
+- git-fixture-env-dropped: in such a Python test, a whole child environment
+  (a dict with PATH or HOME, or a copy of os.environ) built without the
+  opt-out: it neither spreads os.environ nor goes through
+  git_fixture_env.fixture_env / without_auto_maintenance, or it filters GIT_*
+  out of os.environ. Git then runs with auto maintenance on.
+- git-bare-repo-unmanaged: a test that makes a bare repository (`git init
+  --bare`, `git clone --bare` or `--mirror`) without the helper
+  (git_fixture_env.init_repo / clone_repo, shell git_fixture_init /
+  git_fixture_clone). Git clears GIT_CONFIG_COUNT before receive-pack, so only
+  the bare repository's own config turns maintenance off for a local push.
+- isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
+  import a module that sits beside it or in tests/ (-I puts no script folder on
+  sys.path). Each changed test file, and each that loads git_fixture_env, is
+  loaded with `python3 -I` without running its tests.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -105,6 +120,9 @@ RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
 RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
+RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
+RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
+RULE_ISOLATED_IMPORT = "isolated-import"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -113,7 +131,11 @@ ALL_RULES = (
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
     RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_ISOLATED_IMPORT,
 )
+GIT_FIXTURE_RULES = (RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_FIXTURE_ENV_DROPPED, RULE_GIT_BARE_REPO_UNMANAGED)
 
 # ---------------------------------------------------------------------------
 # Finding model
@@ -3813,6 +3835,171 @@ def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suff
     return None
 
 
+def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
+    if path_suffix != ".py" or not _PY_TEMP_DIR.search(code):
+        return False
+    return bool(_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code)))
+
+
+# `env = {`, `self.env = dict(`, `base_env = {` at a line start, or an `env={` keyword argument.
+_ENV_BUILD_START = re.compile(r"(?:^[ \t]*(?:self\.)?(\w*env\w*)[ \t]*=(?!=)[ \t]*|[(,\s]env=)(\{|dict\()", re.M | re.I)
+# A whole environment, not a few extra variables: it sets PATH or HOME, or copies os.environ.
+_ENV_WHOLE = re.compile(r"""['"](?:PATH|HOME)['"]\s*:|\b(?:PATH|HOME)\s*=|os\.environ\.items\(\)""")
+# Inherits the importing process's environment (which carries the opt-out), or another env mapping.
+_ENV_INHERITS = re.compile(
+    r"""\*\*\s*(?:os\.environ|[\w.]*env\w*|[\w.]*common\w*)\b|os\.environ\.(?:copy|items)\(\)|^dict\(\s*(?:os\.environ|[\w.]*env\w*)\b""",
+    re.I,
+)
+_ENV_DROPS_GIT = re.compile(r"""startswith\(\s*\(?[^)]*['"]GIT_?['"]""")
+_ENV_OPTED_OUT = re.compile(r"\b(?:fixture_env|without_auto_maintenance)\(")
+
+
+def _balanced_span(code: str, start: int) -> str:
+    depth = 0
+    for index in range(start, len(code)):
+        char = code[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                return code[start:index + 1]
+    return code[start:]
+
+
+def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out."""
+    code = "\n".join(code_lines)
+    if not _makes_temp_git_repos(code, path_suffix):
+        return []
+    hits: list[int] = []
+    for match in _ENV_BUILD_START.finditer(code):
+        line_start = code.rfind("\n", 0, match.start()) + 1
+        before = code[line_start:match.start()]
+        if before.count('"') % 2 or before.count("'") % 2:
+            continue  # inside a string literal (test data), not code
+        expr = _balanced_span(code, match.start(2))
+        if not _ENV_WHOLE.search(expr):
+            continue
+        if not _ENV_DROPS_GIT.search(expr) and _ENV_INHERITS.search(expr):
+            continue
+        target = match.group(1)
+        if target and re.search(r"\b(?:fixture_env|without_auto_maintenance)\(\s*(?:self\.)?" + re.escape(target) + r"\s*\)", code):
+            continue
+        hits.append(code.count("\n", 0, match.start(2)))
+    return hits
+
+
+_HELPER_REPO_CALL = re.compile(r"\b(?:init_repo|clone_repo|git_fixture_init|git_fixture_clone)\b")
+_PY_BARE_TOKENS = (
+    (re.compile(r"""['"]init['"]"""), re.compile(r"""['"]--bare['"]""")),
+    (re.compile(r"""['"]clone['"]"""), re.compile(r"""['"]--(?:bare|mirror)['"]""")),
+)
+_PY_BARE_STRING = re.compile(r"""['"]git\s[^'"\n]*\b(?:init|clone)\b[^'"\n]*--(?:bare|mirror)\b""")
+_SH_BARE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s[^#\n]*\b(?:init|clone)\b[^#\n]*\s--(?:bare|mirror)\b")
+
+
+def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that make a bare repository without git_fixture_env.init_repo/clone_repo (or the shell pair)."""
+    hits: list[int] = []
+    for index, line in enumerate(code_lines):
+        if _HELPER_REPO_CALL.search(line):
+            continue
+        if path_suffix == ".py":
+            # An argv list may wrap after the subcommand: look at the next line too while the call is open.
+            wraps = line.count("(") + line.count("[") > line.count(")") + line.count("]")
+            window = line + " " + (code_lines[index + 1] if wraps and index + 1 < len(code_lines) else "")
+            if _PY_BARE_STRING.search(line) or any(
+                verb.search(line) and flag.search(window) for verb, flag in _PY_BARE_TOKENS
+            ):
+                hits.append(index)
+        elif path_suffix == ".sh" and _SH_BARE.search(line):
+            hits.append(index)
+    return hits
+
+
+_MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'")
+_ISOLATED_LOAD = (
+    "import runpy, sys; "
+    "runpy.run_path(sys.argv[1], run_name='__isolated_import_check__')"
+)
+
+
+def isolated_import_finding(repo_root: pathlib.Path, rel_posix: str) -> Optional[Finding]:
+    """Load one Python test the way `python3 -I` runs it (no script folder on sys.path), without running tests.
+
+    Only a missing module that exists beside the test or in tests/ counts: that is the -I failure
+    (cmux#40871, test_cmux_next_compile_trailer.py). A missing third-party package is not this check's business.
+    """
+    import subprocess
+
+    path = repo_root / rel_posix
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", _ISOLATED_LOAD, str(path)],
+            cwd=repo_root, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == 0:
+        return None
+    missing = _MISSING_MODULE.search(result.stderr)
+    if not missing:
+        return None
+    top = missing.group(1).split(".")[0]
+    local = any((folder / f"{top}.py").is_file() or (folder / top / "__init__.py").is_file()
+                for folder in (path.parent, repo_root / "tests"))
+    if not local:
+        return None
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    import_line = re.compile(r"^\s*(?:import|from)\s+" + re.escape(top) + r"\b")
+    line_no = next((i + 1 for i, line in enumerate(lines) if import_line.search(line)), 1)
+    return Finding(rel_posix, line_no, RULE_ISOLATED_IMPORT,
+                   f"python3 -I {rel_posix}: No module named '{missing.group(1)}' (load it by path)")
+
+
+def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
+    """Python test files changed against the base branch, or None when history to diff against is missing."""
+    import os
+    import subprocess
+
+    def git(*args: str) -> Optional[str]:
+        result = subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+
+    bases = [f"origin/{os.environ['GITHUB_BASE_REF']}"] if os.environ.get("GITHUB_BASE_REF") else []
+    bases += ["origin/feat-cmux-next", "origin/main"]
+    for base in bases:
+        merge_base = git("merge-base", "HEAD", base)
+        if merge_base:
+            names = git("diff", "--name-only", "--diff-filter=AMR", merge_base.strip(), "HEAD") or ""
+            return [name for name in names.split() if name.endswith(".py")]
+    return None
+
+
+def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
+    """isolated-import over each changed Python test (when the history allows) and each that loads git_fixture_env."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    candidates: set[str] = set()
+    changed = _changed_python_tests(repo_root)
+    for root in roots:
+        root_path = repo_root / root
+        if not root_path.is_dir():
+            continue
+        for path in root_path.rglob("*.py"):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or not _looks_like_test_file(rel_posix, root):
+                continue
+            if changed is not None and rel_posix in changed:
+                candidates.add(rel_posix)
+            elif "git_fixture_env" in path.read_text(encoding="utf-8", errors="replace"):
+                candidates.add(rel_posix)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda rel: isolated_import_finding(repo_root, rel), sorted(candidates)))
+    return [finding for finding in results if finding is not None]
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
@@ -3964,6 +4151,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(
             Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
         )
+    for env_line in detect_git_fixture_env_dropped(code_lines, suffix):
+        findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
+    for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix):
+        findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -4052,6 +4243,44 @@ def filter_allowlisted(
 # ---------------------------------------------------------------------------
 
 
+def _isolated_import_self_test() -> list[str]:
+    """isolated-import on real files: 3 that fail under `python3 -I` and 3 that load."""
+    import tempfile
+
+    sibling = "import sys\nimport git_fixture_env\n"
+    by_path = (
+        "import importlib.util\nfrom os import path\n"
+        "spec = importlib.util.spec_from_file_location('git_fixture_env', "
+        "path.join(path.dirname(path.abspath(__file__)), 'git_fixture_env.py'))\n"
+        "m = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\n"
+    )
+    cases = [
+        # (path, source, flagged)
+        ("tests/test_sibling_import.py", sibling, True),
+        ("tests/test_from_import.py", "from git_fixture_env import fixture_env\n", True),
+        ("scripts/cmux-next/tests/test_tests_dir_import.py", "import helper_in_tests\n", True),
+        ("tests/test_by_path.py", by_path, False),
+        ("tests/test_stdlib_only.py", "import json\nimport unittest\n", False),
+        # A missing third-party package is not a -I failure.
+        ("tests/test_third_party.py", "import not_a_real_package_x9\n", False),
+    ]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "tests").mkdir()
+        (root / "scripts/cmux-next/tests").mkdir(parents=True)
+        (root / "tests/git_fixture_env.py").write_text("VALUE = 1\n")
+        (root / "tests/helper_in_tests.py").write_text("VALUE = 1\n")
+        for rel, source, flagged in cases:
+            (root / rel).write_text(source)
+            finding = isolated_import_finding(root, rel)
+            if flagged and finding is None:
+                failures.append(f"ISOLATED {rel}: expected {RULE_ISOLATED_IMPORT}")
+            if not flagged and finding is not None:
+                failures.append(f"ISOLATED {rel}: unexpected {finding.format()}")
+    return failures
+
+
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
@@ -4071,6 +4300,47 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/repo.test.sh",
             'd=$(mktemp -d)\ngit -C "$d" -c user.name=t commit -qm x\n',
             {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # A child env built from scratch drops the opt-out the helper put in os.environ (cmux#40871 F2).
+        (
+            "tests/git_env_scratch.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {'PATH': '/usr/bin:/bin', 'HOME': d}\nsubprocess.run(['git', 'commit'], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # Filtering GIT_* out of os.environ drops GIT_CONFIG_COUNT with it (Sandbox.env, the compile-trailer test).
+        (
+            "tests/git_env_filtered.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "class T:\n    def setUp(self):\n"
+            "        self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # An env= keyword with a whole PATH and nothing inherited.
+        (
+            "tests/git_env_keyword.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'fetch'], cwd=d, env={'PATH': os.environ['PATH'], 'GIT_DIR': d})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A bare remote made with plain git: receive-pack runs with GIT_CONFIG_COUNT cleared (cmux#40871 F3).
+        (
+            "tests/git_bare_argv.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # A mirror clone through a wrapper, its flag on the next line.
+        (
+            "tests/git_mirror_wrapped.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git(root, 'clone', '-q',\n    '--mirror', str(src), str(dest))\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        (
+            "scripts/cmux-next/tests/bare.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
+            {RULE_GIT_BARE_REPO_UNMANAGED},
         ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
@@ -5127,6 +5397,44 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/ok.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
         ),
+        # A child env that inherits os.environ (which carries the opt-out).
+        (
+            "tests/git_env_inherits.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {**os.environ, 'PATH': '/usr/bin:/bin', 'HOME': d}\n",
+        ),
+        # A scratch env passed through the helper, before or after it is built.
+        (
+            "tests/git_env_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n"
+            "git_fixture_env.without_auto_maintenance(self.env)\n"
+            "other = git_fixture_env.fixture_env({'PATH': '/usr/bin', 'HOME': d})\n",
+        ),
+        # A few extra variables (no PATH or HOME) are not a whole environment; one in a string is test data.
+        (
+            "tests/git_env_extras.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "run(env={'GH_TOKEN': 'x'})\nSOURCE = \"subprocess.run(['x'], env={'PATH': HERE})\"\n",
+        ),
+        # Bare remotes through the helper.
+        (
+            "tests/git_bare_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git_fixture_env.init_repo(remote, '--bare', '-b', 'main')\n"
+            "git_fixture_env.clone_repo(work, origin, '--bare')\n",
+        ),
+        # A test that names a bare repository in prose or reads one (no --bare/--mirror create).
+        (
+            "tests/git_bare_mentions.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "REASON = 'fetches into a scratch `git init` cache'\nsubprocess.run(['git', 'rev-parse', '--is-bare-repository'])\n",
+        ),
+        (
+            "scripts/cmux-next/tests/bare-ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\n'
+            'git_fixture_init --bare -b feat "$d/r.git"\ngit_fixture_clone --bare "$d/r.git" "$d/c.git"\n',
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
@@ -5802,14 +6110,18 @@ def _self_test() -> int:
         if rules:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
 
+    failures += _isolated_import_self_test()
+    isolated_fixtures = 6
+
     if failures:
         print("self-test FAILED:")
         for failure in failures:
             print(f"  - {failure}")
         return 1
 
-    total = len(positives) + len(negatives)
-    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures passed ({total} total)")
+    total = len(positives) + len(negatives) + isolated_fixtures
+    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures and "
+          f"{isolated_fixtures} isolated-import fixtures passed ({total} total)")
     return 0
 
 
@@ -5878,8 +6190,10 @@ def main(argv: list[str]) -> int:
         findings += [
             finding
             for finding in collect_findings(repo_root, GIT_FIXTURE_ONLY_ROOTS)
-            if finding.rule == RULE_GIT_TEMP_REPO_MAINTENANCE
+            if finding.rule in GIT_FIXTURE_RULES
         ]
+        if args.strict:
+            findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
     if args.write_allowlist:
         write_allowlist(allowlist_path, findings)
