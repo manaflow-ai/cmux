@@ -604,6 +604,40 @@ fn w7c_the_reaper_ends_a_closed_terminal_when_the_grace_ends() {
     assert_no_tabless(&server, "the 2 s grace");
 }
 
+/// `--keep-terminals` keeps a terminal from the reaper too (lead, W7-C): it
+/// marks each terminal the close leaves as kept. A plain close in the same
+/// window is the signal that the grace ran out: when the reaper has ended
+/// its terminal, a kept one closed before it must still run.
+#[test]
+fn w7c_keep_terminals_keeps_them_past_the_reapers_grace() {
+    let server = HeadlessServer::start_with_reap_grace("w7c-keep-grace", 2);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-keep-grace"]);
+    let pane = field(&made, "pane_id");
+    let split = |server: &HeadlessServer| {
+        let split = run(server, &["pane", &pane, "split", "--right"]);
+        (field(&split, "tab_id"), field(&split, "terminal_id"))
+    };
+    let (kept_tab, kept) = split(&server);
+    let closed = run(&server, &["tab", &kept_tab, "close", "--keep-terminals"]);
+    assert_eq!(listed(&closed, "running_terminal_ids"), [kept.as_str()], "{closed}");
+
+    // A bulk close with --keep-terminals keeps its terminals the same way.
+    let tab = |server: &HeadlessServer| {
+        let made = run(server, &["tab", "create", "terminal", "--pane", &pane]);
+        (field(&made, "tab_id"), field(&made, "terminal_id"))
+    };
+    let (anchor_tab, _) = tab(&server);
+    let (_, bulk_kept) = tab(&server);
+    let bulk = run(&server, &["tab", &anchor_tab, "close", "--others", "--keep-terminals"]);
+    assert!(listed(&bulk, "running_terminal_ids").contains(&bulk_kept), "{bulk}");
+
+    let (plain_tab, plain) = split(&server);
+    run(&server, &["tab", &plain_tab, "close"]);
+    assert_ended(&server, &plain, "the 2 s grace of a plain close");
+    assert_runs_tabless(&server, &kept, "the reaper after a --keep-terminals close");
+    assert_runs_tabless(&server, &bulk_kept, "the reaper after a bulk --keep-terminals close");
+}
+
 /// Runs `cmux --json workspace <workspace> close` from inside `caller`, in a
 /// new process session (so the daemon cannot match the caller's terminal by
 /// its session) with `credential` as its launch credential (None: no
