@@ -192,6 +192,189 @@ def parses(path: str, text: bytes) -> bool:
     return True
 
 
+# TypeScript: two branches that each import a new name from one module both change that
+# module's one import line, a changed-line conflict no union settles. A 7-day replay of the
+# agent pane's App.tsx (2026-11-01 to 2026-11-11) found a quarter of its conflicted merges
+# were only that. So a .ts or .tsx file's leading imports merge per statement and per name:
+# a name either side added is kept, one either side removed is dropped, and the rest of the
+# file is the ordinary merge below. Anything the reader does not know (a comment inside a
+# statement, a default import both sides changed) leaves the whole file to that merge.
+IMPORT_FILE = re.compile(r"\.(ts|tsx|mts|cts)$")
+IMPORT_STATEMENT = re.compile(
+    r"import\s+(type\s+)?(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\*\s+as\s+([A-Za-z_$][\w$]*)|\{([^{}]*)\})?\s*"
+    r"from\s*([\"'])([^\"']+)\5;?", re.S)
+SIDE_EFFECT_IMPORT = re.compile(r"import\s*([\"'])([^\"']+)\1;?")
+PRINT_WIDTH = 120  # config/vite-plus/check.ts
+
+
+class Import:
+    def __init__(self, lead: str, text: str):
+        self.lead, self.text = lead, text
+        side = SIDE_EFFECT_IMPORT.fullmatch(text.strip())
+        if side:
+            self.type_only, self.default, self.namespace, self.quote, self.module = "", None, None, side.group(1), side.group(2)
+            self.names: list[str] = []
+            self.kind = "side"
+            return
+        match = IMPORT_STATEMENT.fullmatch(text.strip())
+        if not match or "//" in text or "/*" in text:
+            raise ValueError(text)
+        self.type_only = match.group(1) or ""
+        self.default, self.namespace, self.quote, self.module = match.group(2), match.group(3), match.group(5), match.group(6)
+        self.names = [" ".join(name.split()) for name in (match.group(4) or "").split(",") if name.strip()]
+        self.kind = "type" if self.type_only else "namespace" if self.namespace else "value"
+
+    def render(self, default, names) -> str:
+        head = "import " + self.type_only + (default or "")
+        tail = f' from {self.quote}{self.module}{self.quote};'
+        if self.namespace:
+            return head + ("" if not default else ", ") + "* as " + self.namespace + tail + "\n"
+        if not names:
+            return head + tail + "\n"
+        joiner = ", " if default else ""
+        line = head + joiner + "{ " + ", ".join(names) + " }" + tail
+        if len(line) <= PRINT_WIDTH:
+            return line + "\n"
+        return head + joiner + "{\n" + "".join(f"  {name},\n" for name in names) + "}" + tail + "\n"
+
+
+def split_imports(text: str) -> tuple[list[Import], str] | None:
+    """The leading import statements (each with the comments and blank lines above it) and the
+    rest of the file, or None when a statement there is not one the merge reads."""
+    lines = text.splitlines(keepends=True)
+    imports: list[Import] = []
+    lead: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip() or line.lstrip().startswith("//"):
+            lead.append(line)
+            i += 1
+            continue
+        if not line.startswith("import ") or line.startswith("import ("):
+            break
+        j = i
+        while not re.search(r"[\"'];?\s*$", lines[j]) or not re.search(r"(from\s*|^import\s*)[\"'][^\"']+[\"'];?\s*$", lines[j]):
+            j += 1
+            if j == len(lines) or j - i > 400:
+                return None
+        try:
+            imports.append(Import("".join(lead), "".join(lines[i:j + 1])))
+        except ValueError:
+            return None
+        lead, i = [], j + 1
+    return imports, "".join(lead) + "".join(lines[i:])
+
+
+def keyed(imports: list[Import]) -> dict[tuple, Import]:
+    seen: dict[tuple, int] = {}
+    out = {}
+    for statement in imports:
+        ordinal = seen.get((statement.module, statement.kind), 0)
+        seen[(statement.module, statement.kind)] = ordinal + 1
+        out[(statement.module, statement.kind, ordinal)] = statement
+    return out
+
+
+def three_way(base, ours, theirs):
+    if ours == theirs or theirs == base:
+        return ours
+    if ours == base:
+        return theirs
+    raise ValueError("both changed")
+
+
+def merge_imports(base: list[Import], ours: list[Import], theirs: list[Import]) -> str | None:
+    """One import header from three, or None when a statement both sides changed alike
+    cannot be settled per name."""
+    def whole(imports):
+        return "".join(statement.lead + statement.text for statement in imports)
+    b, o, t = (keyed(side) for side in (base, ours, theirs))
+    # A module imported by more than one statement is matched by its place among them; a
+    # side that adds or drops one of them would shift that, so the file takes the line merge.
+    for key in set(b) | set(o) | set(t):
+        module, kind, _ = key
+        counts = {sum(1 for k in side if k[:2] == (module, kind)) for side in (b, o, t)}
+        if len(counts) > 1 and max(counts) > 1:
+            return None
+    order = list(o)
+    for index, key in enumerate(t):
+        if key in o:
+            continue
+        before = [k for k in list(t)[:index] if k in order]
+        order.insert(order.index(before[-1]) + 1 if before else 0, key)
+    out = []
+    try:
+        for key in order:
+            sides = [side.get(key) for side in (b, o, t)]
+            if sides[0] and (not sides[1] or not sides[2]) and (sides[1] or sides[2]).text == sides[0].text:
+                continue  # one side removed the statement, the other left it as it was
+            names = [set(s.names) if s else set() for s in sides]
+            dropped = (names[0] - names[1]) | (names[0] - names[2])
+            kept = [n for n in (sides[1].names if sides[1] else []) + (sides[2].names if sides[2] else []) if n not in dropped]
+            kept = list(dict.fromkeys(kept))
+            default = three_way(*(s.default if s else None for s in sides))
+            lead = three_way(*(s.lead if s else None for s in sides)) or ""
+            shape = next(s for s in (sides[1], sides[2]) if s)
+            if not kept and not default and shape.kind != "side" and not shape.namespace:
+                continue
+            for side in (sides[1], sides[2]):
+                if side and side.names == kept and side.default == default:
+                    out.append(lead + side.text)
+                    break
+            else:
+                out.append(lead + shape.render(default, kept))
+    except ValueError:
+        return None
+    merged = "".join(out)
+    # Read back what was written: a header the reader cannot parse again is no result.
+    again = split_imports(merged)
+    if again is None or whole(again[0]) != merged:
+        return None
+    return merged
+
+
+def merge_typescript(base: str, ours: str, theirs: str, path: str, size: int) -> tuple[bytes, int] | None:
+    """The import header merged per name and the body by the insertions merge, or None for
+    the whole-file merge."""
+    texts = []
+    for name in (base, ours, theirs):
+        try:
+            with open(name, encoding="utf-8") as handle:
+                texts.append(handle.read())
+        except UnicodeDecodeError:
+            return None
+    parts = [split_imports(text) for text in texts]
+    if any(part is None for part in parts):
+        return None
+    header = merge_imports(*(part[0] for part in parts))
+    if header is None:
+        return None
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="cmux-merge-imports-") as scratch:
+        bodies = []
+        for label, part in zip(("base", "ours", "theirs"), parts):
+            body = os.path.join(scratch, label)
+            with open(body, "w", encoding="utf-8") as handle:
+                handle.write(part[1])
+            bodies.append(body)
+        result, remaining = merge_lines(bodies[1], bodies[0], bodies[2], path, size)
+    return header.encode("utf-8") + result, remaining
+
+
+def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tuple[bytes, int]:
+    marker = parse_marker_size(base, ours, theirs)
+    merged, status = merge_file(ours, base, theirs, path, marker)
+    if status == 0:
+        return merged, 0
+    result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
+    # git's exit status is its conflict count: a parse that read a different number
+    # of hunks keeps git's own conflict instead.
+    if hunks != status:
+        return plain_merge(ours, base, theirs, size)[0], 1
+    return result, remaining
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (5, 6):
         print("usage: merge-insertions.py %O %A %B %P [%L]", file=sys.stderr)
@@ -203,16 +386,8 @@ def main(argv: list[str]) -> int:
         result, status = plain_merge(ours, base, theirs, size)
         remaining = 1 if status else 0
     else:
-        marker = parse_marker_size(base, ours, theirs)
-        merged, status = merge_file(ours, base, theirs, path, marker)
-        if status == 0:
-            result, remaining = merged, 0
-        else:
-            result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
-            # git's exit status is its conflict count: a parse that read a different number
-            # of hunks keeps git's own conflict instead.
-            if hunks != status:
-                result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+        typescript = merge_typescript(base, ours, theirs, path, size) if IMPORT_FILE.search(path) else None
+        result, remaining = typescript or merge_lines(ours, base, theirs, path, size)
     # A .json or .toml result, settled or merged clean (both sides adding one key in
     # different places), must parse with no key twice, and a python3 with no tomllib
     # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the
