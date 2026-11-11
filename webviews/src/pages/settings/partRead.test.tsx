@@ -51,7 +51,9 @@ test("a failed Devices read says so with Try Again, which reads again and draws 
   await settle();
   expect(readState(page.container, "devices")).toBe("failed");
   // The error says what happened; the Try Again beside it is the only "try again" (round 2).
-  expect(page.container.querySelector('[data-card-read="devices"] [role="alert"]')?.textContent).toBe("cmux didn’t answer.");
+  expect(page.container.querySelector('[data-card-read="devices"] [role="alert"]')?.textContent).toBe(
+    "cmux didn’t answer.",
+  );
   expect(page.container.querySelector('[data-card-read="devices"]')?.textContent?.match(/try again/gi)?.length).toBe(1);
   delete failing["cmux.settings.devices.state"];
   await click(page.container.querySelector('[data-part-retry="devices"]')!);
