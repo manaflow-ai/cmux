@@ -102,8 +102,11 @@ final class StagedUpdateRefresh {
             updater.presentUpdateUI?()
             return
         }
-        if hasFreshRead(updater) {
-            // The feed and the pulled list were read just before the click: they decide it now.
+        if hasFreshRead(updater), !updater.isKnownPulled(staged) {
+            // The feed and the pulled list were read just before the click: they decide it now. A
+            // staged build known pulled takes the path below: settling here, inside the phase sync
+            // that ran the click, would end ``clickWaits`` before that sync's own pulled follow-up
+            // (``UpdaterService/followPulled()``) and drop the build twice.
             clicks += 1
             pendingClick = PendingClick(install: install, click: clicks, probed: true, listAnswered: true)
             updater.log.append("install click: the feed and the pulled list were read in the last \(Int(Self.clickReadFreshness)) s; deciding now")
