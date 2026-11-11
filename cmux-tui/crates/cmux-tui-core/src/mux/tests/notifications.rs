@@ -1291,3 +1291,77 @@ fn w6d_c_desktop_notification_outside_the_window_posts() {
         ["Claude needs approval", "build finished", "claude-code needs sign-in"],
     );
 }
+
+/// W6-D lead condition: no desktop notification is lost in its hold. A
+/// background job's OSC 9 in a live Claude hook session is held for the
+/// dedupe window; a daemon stop before the window ends posts it, and it is
+/// in the durable notification list (what `notification list` shows after
+/// the restart).
+#[test]
+fn w6d_c_daemon_stop_posts_a_held_desktop_notification() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-w6d-stop-held-{}", WorkspacePublicId::random().unwrap()));
+    let session = "w6d-stop-held";
+    let script = concat!(
+        "stty -echo; printf 'w6d-ready\\r\\n'; read step; ",
+        "printf '\\033]9;build finished\\007w6d-sent\\r\\n'; sleep 30",
+    );
+    let mux = Mux::from_workspace_registry(
+        session.into(),
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+            ..SurfaceOptions::default()
+        },
+        WorkspaceRegistry::open(&root, session).unwrap(),
+        ProviderWorkspaceState::default(),
+        false,
+    )
+    .unwrap();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let screen = || surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+    let wait_for = |text: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !screen().contains(text) {
+            assert!(Instant::now() < deadline, "no {text:?} on the screen: {:?}", screen());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    wait_for("w6d-ready");
+    for (sequence, event) in [(1, "SessionStart"), (2, "UserPromptSubmit")] {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    }
+    surface.write_bytes(b"\n").unwrap();
+    wait_for("w6d-sent");
+    assert!(mux.wait_for_terminal_publisher_for_test(Duration::from_secs(20)));
+    let posted = |titles: &[String]| titles.iter().any(|title| title == "build finished");
+    let live = mux
+        .resource_notifications(16)
+        .into_iter()
+        .filter(|notification| notification.terminal_id.as_ref() == Some(&terminal_id))
+        .map(|notification| notification.title)
+        .collect::<Vec<_>>();
+    assert!(!posted(&live), "the job's OSC 9 posted before the window ended: {live:?}");
+    drop(surface);
+
+    mux.shutdown();
+    drop(mux);
+
+    let stored = WorkspaceRegistry::open(&root, session)
+        .unwrap()
+        .public_projections()
+        .unwrap()
+        .notifications
+        .into_iter()
+        .map(|notification| notification.title)
+        .collect::<Vec<_>>();
+    assert!(posted(&stored), "the held OSC 9 was lost at the stop: {stored:?}");
+    let _ = std::fs::remove_dir_all(root);
+}

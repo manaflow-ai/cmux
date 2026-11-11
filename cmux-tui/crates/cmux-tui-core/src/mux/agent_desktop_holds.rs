@@ -261,8 +261,20 @@ impl Mux {
         }
     }
 
+    /// A client attached or detached: post every held desktop notification
+    /// now, so the person sees it on the client they use now. The dedupe
+    /// keeps working for later notifications.
+    pub(crate) fn post_held_agent_desktop_notifications(&self) {
+        for held in self.agent_desktop_holds.take(None, true) {
+            self.post_terminal_notification_now(held.surface, held.notification);
+        }
+    }
+
     /// The session ends: post every held desktop notification now and hold
-    /// no more.
+    /// no more. Every stop reaches it first (`shutdown`,
+    /// `request_daemon_shutdown`), and again after the terminal readers
+    /// stopped (`finish_terminal_publications`). A post is a durable
+    /// notification: `notification list` shows it after the restart.
     pub(super) fn release_all_agent_desktop_notifications(&self) {
         self.agent_desktop_holds.lock().closed = true;
         self.agent_desktop_holds.changed.notify_all();

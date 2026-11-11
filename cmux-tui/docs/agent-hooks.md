@@ -47,11 +47,21 @@ these sources: a hook event of that source set the session's fence, and no
   desktop notification is dropped when the same terminal's hooks posted a
   permission or finished-turn notification at most 2 s before it, or post one
   at most 2 s after it. To see a hook notification that comes after it, the
-  daemon holds the desktop notification for 2 s, and then posts it. A
-  background job's OSC 9 thus posts, 2 s late, unless a permission or
-  finished-turn hook notification of the same terminal comes within 2 s of
-  it. When the terminal's output ends or the session stops, held
-  notifications post at once.
+  daemon holds the desktop notification for 2 s, and then posts it.
+  - **Delay.** While a `claude`, `codex` or `opencode` hook session is live in
+    a terminal, every desktop notification of that terminal posts 2 s late.
+    This includes the notifications of other programs in the terminal, for
+    example a background job's OSC 9.
+  - **Match by time only.** A desktop notification names no app and no kind,
+    so the daemon cannot tell whose it is. A background job's OSC 9 that
+    comes within 2 s of a Claude permission or finished-turn hook
+    notification in the same terminal is dropped as its copy.
+  - **No loss in the hold.** A held notification posts at once when the
+    terminal's output ends, when a client attaches or detaches, and when the
+    daemon stops by any path (`server stop`, `--end-terminals`, a restart
+    handoff, a signal, the last client or the starter leaving). A posted
+    notification is durable: when no client is attached, `notification list`
+    shows it, also after the restart.
 - **OSC 7501 alerts.** A `done` alert or a `blocked` alert with
   `kind=permission` is dropped when the record's app (its own or an
   ancestor's) is one of the agent's `app` names (case does not matter). A

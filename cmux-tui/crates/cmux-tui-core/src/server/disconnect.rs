@@ -185,6 +185,8 @@ fn disconnect_client_with_notice(
     } else {
         record.writer.close();
     }
+    // A desktop notification held for the agent dedupe window posts now.
+    mux.post_held_agent_desktop_notifications();
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }

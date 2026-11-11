@@ -99,6 +99,9 @@ impl Mux {
     }
 
     pub fn shutdown(&self) {
+        // First, while every store still takes writes: no desktop
+        // notification held for the agent dedupe window is lost.
+        self.release_all_agent_desktop_notifications();
         let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
@@ -309,6 +312,7 @@ impl Mux {
     /// shutdown path. Durable terminal hosts are disconnected by `shutdown`
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
+        self.release_all_agent_desktop_notifications();
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
         self.stop_agent_chat_notices();
