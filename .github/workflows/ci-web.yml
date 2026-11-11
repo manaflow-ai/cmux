@@ -439,7 +439,7 @@ jobs:
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
       # menu-gutter, layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
       # run and only warn. The type check, the browser test-lane check, the protocol codegen
-      # check and the string catalog key check fail, through fast_gate_webviews_checks.py: each
+      # check, the string catalog key check and the user-facing strings gate fail, through fast_gate_webviews_checks.py: each
       # runs on its own, and on a pull request only errors the base (the merge parent) lacks
       # fail, per error (file, code, message); the base's errors are warnings. A push charges
       # every red. Elsewhere every piece of `bun run check` (its `check:pieces` list) runs and gates, none stopping the next.
@@ -469,20 +469,15 @@ jobs:
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
 
-      # Error, notice and recovery strings in the agent chat: no jargon, one sentence, no filler, a caught error's
-      # words never shown, every error surface with an action (cmuxterm-hq
-      # docs/handbook/user-facing-state-contradicts-or-dead-ends.md). Fails on any offender its shrink-only
-      # baseline lacks, on a listed one that is fixed, and, on a pull request, on a baseline that grew over the
-      # merge parent's. Gating on feat-cmux-next too: it is a ratchet, not a style guard.
+      # The user-facing strings gate's own tests (scripts/cmux-next/check-user-facing-strings.py): each rule and the
+      # shrink-only ratchet on fixtures. The gate itself is check:user-facing-strings, one of
+      # fast_gate_webviews_checks.py's CHECKS in the step above, so it fails a feat-cmux-next pull request too
+      # (cmuxterm-hq docs/handbook/user-facing-state-contradicts-or-dead-ends.md).
       - name: Check user-facing strings
         id: user-facing-strings
         if: matrix.shard == 1
         continue-on-error: true
-        env:
-          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-        run: |
-          python3 -I scripts/cmux-next/check-user-facing-strings.py --self-test
-          python3 -I scripts/cmux-next/check-user-facing-strings.py --counts
+        run: python3 -I scripts/cmux-next/check-user-facing-strings.py --self-test
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
