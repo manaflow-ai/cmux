@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42976044475",
+  "recorded_at": "2026-11-11T07:05:35Z",
+  "reason": "cmux-tui 2e3698e13fc6 changes the image's cmux-tui (pinned 976dabca06f1)",
+  "dry_run": false,
+  "cmux_tui": "2e3698e13fc6462357f38fc93295f6c41894ef90",
+  "fixes": [
+    {
+      "sha": "2e3698e13fc6462357f38fc93295f6c41894ef90",
+      "mergedAt": "2026-11-10T22:44:32-08:00",
+      "subject": "cmux-action-catalog: remove the 8 right sidebar actions (#41102)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T07:05:35Z",
+    "snapshot_id": "sh-51ee043c645540c6b9f7f771b26ba5a0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42976044475): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "859d4a126bb8cf42be689d97db3cd8dc72daaa4c",
+    "image": "cloud-native-auto-2e3698e1-42976044475-1",
+    "revision": "ci-42976044475-1",
+    "at": "2026-11-11T07:05:35Z"
+  },
+  "rolled_back": false
+}
