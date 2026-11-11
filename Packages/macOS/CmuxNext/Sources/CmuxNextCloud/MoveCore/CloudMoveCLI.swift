@@ -31,17 +31,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var fallbackCode: String?
         /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
         public var installURL: String?
+        /// `seed_refused`: the bytes a copy of the folder would send; nil when cmux-tui could not read its size.
+        public var copyBytes: Int64?
         /// `link seed fetch --find-root`: the machine's repository root the chat's folder is in.
         public var remoteRoot: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
                     seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
-                    fallbackCode: String? = nil, installURL: String? = nil) {
+                    fallbackCode: String? = nil, installURL: String? = nil, copyBytes: Int64? = nil) {
             (self.ok, self.errorCode, self.error, self.sessionID, self.transferID) = (ok, errorCode, error, sessionID, transferID)
             (self.conflicts, self.side, self.updated, self.build, self.notOlder) = (conflicts, side, updated, build, notOlder)
             (self.seedState, self.seedPhase, self.seedStartedAt, self.seedFinishedAt) = (seedState, seedPhase, seedStartedAt, seedFinishedAt)
-            (self.fallbackCode, self.installURL) = (fallbackCode, installURL)
+            (self.fallbackCode, self.installURL, self.copyBytes) = (fallbackCode, installURL, copyBytes)
         }
 
         /// `link machine update`: whether the machine's daemon may have restarted in the run that gave this
@@ -309,18 +311,18 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return args + ["--on-seed-refusal", copy.onSeedRefusal.rawValue]
     }
 
-    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code` and
-    /// `install_url`, so they come from the answer's own JSON line when Rust left them out.
+    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code`,
+    /// `install_url` and `copy_bytes`, so they come from the answer's own JSON line when Rust left them out.
     private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
-        guard answer.fallbackCode == nil, answer.installURL == nil else { return answer }
+        guard answer.fallbackCode == nil || answer.copyBytes == nil else { return answer }
         struct Fields: Decodable {
-            var fallbackCode: String?, installURL: String?
-            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url" }
+            var fallbackCode: String?, installURL: String?, copyBytes: Int64?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes" }
         }
         let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
         guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
         var answer = answer
-        (answer.fallbackCode, answer.installURL) = (fields.fallbackCode, fields.installURL)
+        (answer.fallbackCode, answer.installURL, answer.copyBytes) = (answer.fallbackCode ?? fields.fallbackCode, answer.installURL ?? fields.installURL, answer.copyBytes ?? fields.copyBytes)
         return answer
     }
 

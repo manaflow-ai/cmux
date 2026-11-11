@@ -23,6 +23,10 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public let fallbackCode: String?
     /// For ``needsGitHub``: the cmux GitHub App's install page, which Connect GitHub opens.
     public let installURL: URL?
+    /// The bytes the copy would send; nil when cmux-tui could not read the folder's size.
+    public let copyBytes: Int64?
+    /// A copy up to this size goes without a question; a larger one asks first (a 12.8 GB copy filled a 16 GB machine's disk).
+    public static let askAboveBytes: Int64 = 8_000_000_000
 
     /// The person's answer to the dialog.
     public enum Choice: Equatable, Sendable { case copy, connectGitHub, cancel }
@@ -34,6 +38,7 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         self.machine = machine
         fallbackCode = answer.fallbackCode
         installURL = answer.fallbackCode == Self.needsGitHub ? answer.installURL.flatMap(URL.init(string:)) : nil
+        copyBytes = answer.copyBytes
     }
 
     public var spec: CmuxDialogSpec {
