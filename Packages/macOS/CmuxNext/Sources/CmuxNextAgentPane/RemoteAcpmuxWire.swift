@@ -213,9 +213,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             case let value as Bool: attending = value
             default: return refuse(id, method)
             }
-            var seenSeq: UInt64?
+            let seenSeq: UInt64?
             switch params["seenSeq"] {
-            case nil, is NSNull: break
+            case nil, is NSNull: seenSeq = nil
             case let value as NSNumber where value.int64Value >= 0 && !(value is Bool): seenSeq = value.uint64Value
             default: return refuse(id, method)
             }
