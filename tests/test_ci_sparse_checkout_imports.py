@@ -63,11 +63,13 @@ import modulefinder
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from collections import Counter
 from contextlib import contextmanager
 from functools import lru_cache
@@ -1076,17 +1078,25 @@ _RUN_STDIN = re.compile(_PYTHON + r"(?:\s+-(?=\s|$)|\s*<|\s*$)")
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 
-def _resolve_dir(raw: str, cwd: str | None, root: Path) -> str | None:
+def _resolve_dir(raw: str, cwd: str | None, root: Path, exact: bool = False) -> str | None:
     """The repo folder `cd raw` lands in from `cwd`, or None when this check cannot tell (a variable,
-    an absolute path, a folder outside the repo or not in it)."""
+    an absolute path, a folder outside the repo or not in it). `raw` is a YAML value whose quotes and
+    spaces are stripped, or with `exact` a shell word already unquoted, taken as it is: then a `..`
+    after a folder that does not exist is unknown too, as bash's cd fails there."""
     if cwd is None:
         return None
-    part = raw.strip().strip("'\"")
+    part = raw if exact else raw.strip().strip("'\"")
     anchored = _WORKSPACE.match(part)
     if anchored:
         part, cwd = part[anchored.end():].lstrip("/") or ".", ""
     if not part or part.startswith(("/", "~", "-")) or "$" in part or "`" in part:
         return None
+    if exact:
+        walked = Path(cwd) if cwd else Path()
+        for piece in part.split("/"):
+            if piece == ".." and not (root / walked).is_dir():
+                return None
+            walked = Path(os.path.normpath(walked / piece)) if piece else walked
     rel = os.path.normpath(os.path.join(cwd, part)) if cwd else os.path.normpath(part)
     if rel == ".." or rel.startswith("../"):
         return None
@@ -1277,7 +1287,9 @@ def _line_commands(line: str) -> list[list[str]] | None:
 
 _LEADING_RESERVED = {"then", "do", "else", "elif", "!", "time", "if", "while", "until", "{", "}"}
 _GIVES_UP = {"eval", "source", ".", "pushd", "popd", "case", "esac", "function", "select", "coproc", "]]"}
-_EXIT_TRAPS = {"EXIT", "0", "INT", "TERM", "HUP", "QUIT", "SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"}
+# Only an exit trap runs after every python call of the step. A signal trap (INT, TERM, HUP, QUIT...)
+# runs whenever the signal comes, `kill -INT $$` included, and ERR, DEBUG and RETURN run mid-step too.
+_EXIT_TRAPS = {"EXIT", "0", "SIGEXIT"}
 _UNQUOTED_GLOB = re.compile(r"[*?\[]")
 _NOT_FOUND = object()
 _SUBSHELL_COMMAND = _Tok("word", "( ... )", "( ... )", True, 0, 0)
@@ -1357,6 +1369,9 @@ class _Shell:
         self.cds = 0  # cd commands read, so a block knows whether it held one
         self.condition = False  # inside [[ ... ]]: its operators are words
         self.lost = False
+        self.rest: tuple[str, ...] = ()  # the run's logical lines after the one being read
+        self._toks: list[_Tok] = []
+        self._at = 0
 
     def copy(self) -> "_Shell":
         other = _Shell.__new__(_Shell)
@@ -1413,9 +1428,12 @@ class _Shell:
             return False
         if name.text == "exec" and words:
             return False
-        if name.text == "shopt" and set(words) & {"cdable_vars", "autocd"}:
+        if name.text == "shopt" and set(words) & {"cdable_vars", "autocd", "lastpipe"}:
             return False
-        return name.text != "trap" or set(words[1:]) <= _EXIT_TRAPS or words[:1] in (["-p"], ["-l"])
+        if name.text != "trap" or words[:1] in (["-p"], ["-l"]):
+            return True
+        # Resetting (-) or ignoring ('') a signal runs nothing; any other action, only on exit.
+        return words[:1] in (["-"], [""]) or set(words[1:]) <= _EXIT_TRAPS
 
     def _outcomes(self, command: list[_Tok], cwd: str | None) -> list[tuple[str | None, bool]]:
         """A lone simple command's outcomes from `cwd`: it may succeed or fail; exit and return end
@@ -1431,7 +1449,7 @@ class _Shell:
             arg = args[0]
             plain = not arg.text.startswith("-") and "`" not in arg.raw
             if plain and (arg.quoted or not _UNQUOTED_GLOB.search(arg.raw)):
-                landed = _resolve_dir(arg.text, cwd, self.root)
+                landed = _resolve_dir(arg.text, cwd, self.root, exact=True)
         return [(landed, True), (cwd, False)]
 
     def _end_pipeline(self, background: bool = False, suppressed: bool = False) -> bool:
@@ -1588,6 +1606,7 @@ class _Shell:
                 redirect = True
                 continue
             if tok.kind == "word":
+                self._toks, self._at = toks, at
                 if not self._word(tok):
                     self.lost = True
                     return None
@@ -1622,6 +1641,31 @@ class _Shell:
             self.lost = True  # its body is not shell, and this check does not follow where it ends
         return self.cwd
 
+    def _loop_changes_dir(self) -> bool:
+        """Whether the loop whose keyword was just read may change folder anywhere up to its matching
+        `done`, read ahead through this line and the run's later lines: any word cd, pushd or popd
+        counts, quoted or not, as does a line that does not lex or a loop that does not close."""
+        later = [self._toks[self._at + 1 :]]
+        for line in self.rest:
+            toks = _shell_tokens(line)
+            if toks is None:
+                return True
+            later.append(toks)
+        depth, opened = 0, False
+        for toks in later:
+            previous = None
+            for tok in toks:
+                if tok.kind in ("word", "bad") and tok.text in ("cd", "pushd", "popd"):
+                    return True
+                command_word = previous is None or previous.kind == "op" or previous.text in _LEADING_RESERVED
+                if tok.kind == "word" and not tok.quoted and command_word and tok.text in ("do", "done"):
+                    depth += 1 if tok.text == "do" else -1
+                    opened = True
+                    if depth == 0:
+                        return False
+                previous = tok
+        return True
+
     def _word(self, tok: _Tok) -> bool:
         """Read one word; False when the check gives up."""
         if self.command or self.group is not None:
@@ -1636,6 +1680,9 @@ class _Shell:
         word = tok.text
         if word in ("if", "while", "until", "for"):
             self._open("block")
+            if word != "if" and self._loop_changes_dir():
+                # A pass may start where an earlier pass's cd left it: unknown all through the loop.
+                self.states = tuple((None, ok, dies) for _, ok, dies in self.states)
             self.ignore = self.ignore or word != "for"  # a condition: errexit is ignored in it
         elif word in ("fi", "done"):
             if top != "block":
@@ -1713,7 +1760,9 @@ def _run_lines(
 def _run_lines_uncached(run: str, root: Path, start: str | None, errexit: bool = True):
     shell = _Shell(start, root, errexit)
     heredoc: tuple[str, str, _Shell] | None = None  # (delimiter, its python line, the shell there)
-    for line in _logical_lines(run):
+    logical = _logical_lines(run)
+    for number, line in enumerate(logical):
+        shell.rest = tuple(logical[number + 1 :])
         if heredoc is not None:
             if line.strip() == heredoc[0]:
                 heredoc = None
@@ -2087,6 +2136,11 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     # Review of #41088: a compound command's own redirection failing is not a status ! inverts:
     # bash takes the || branch here.
     ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41035 (F1): `!` inverts a simple command's status, so the || runs after a cd that
+    # worked, into scripts/scripts. Review of #41051 (F1): a || around a group turns errexit off in
+    # all of it, so a failed `<missing` skips the cd and python runs from the root.
+    ("! cd scripts || cd scripts\npython3 x", True, "x", None),
+    ("{ cd scripts/ci <missing; python3 x; } || true", True, "x", None),
     # the generator's finds at a2a71b13 (the same tree as 338d1230), the same class
     ("while false; do set +e; done ; : > /\n! set +e || ! { exit 1; } > / || cd lib\n( set -e ) > /dev/null\npython3 x", False, "x", None),  # seed 42021
     ("! true || cd missing > / && { exit\n}\n! { if ! set -e; then { true && set +e; } > / && ! while false; do : > /; done\nfi > /dev/null ; exit 1\n} > / || ! set +e || ! cd ..\npython3 x", True, "x", None),  # seed 66672
@@ -2108,10 +2162,14 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("[[ -d scripts/ci && 1 < 2 ]] && cd scripts/ci\npython3 x", True, "x", None),
     ("[[ \"$x\" =~ ^(a|b)$ ]] || true\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("trap 'cd scripts/ci' ERR\npython3 x", True, "x", None),
+    # Review of #41051: a signal trap runs when the signal comes, here from the step itself.
+    ("trap 'cd scripts/ci' INT; builtin kill -INT $$; python3 x", True, "x", None),
+    ("trap 'cd scripts/ci' TERM\nbuiltin kill -TERM $$\npython3 x", True, "x", None),
     ("cat <<EOF\ncd scripts/ci\nEOF\npython3 x", True, "x", None),
     ("echo 'unclosed\npython3 x", True, "x", None),
     # Ones that stay known around constructs that look alike.
     ("trap 'rm -f t' EXIT\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("trap - INT\ntrap '' TERM\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
     # The differential oracle's run shapes.
@@ -2155,7 +2213,7 @@ ulimit() { __oracle_decide; }
 python3() { echo "__PY ${BASH_LINENO[0]} $PWD" >&3; __oracle_decide; }
 command_not_found_handle() { __oracle_decide; }
 """
-_BASH_PATHS = 32  # paths per run at most: every success/failure mix up to 5 stubbed commands, else a sample
+_BASH_PATHS = 32  # bash runs per case at most (see _bash_paths)
 _PYTHON_CALL = re.compile(r"(?<![\w./$-])python3?(?![\w.-])")
 
 
@@ -2178,14 +2236,22 @@ def _bash_runs(run: str, root: Path, start: str, errexit: bool, bits: str, tmp: 
     }
     (tmp / "prelude.sh").write_text(_BASH_PRELUDE)
     flags = ["-e"] if errexit else []
+    proc = subprocess.Popen(
+        [_BASH, "--noprofile", "--norc", *flags, str(script)], cwd=root / start, env=env,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
     try:
-        subprocess.run(
-            [_BASH, "--noprofile", "--norc", *flags, str(script)], cwd=root / start, env=env,
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
-            start_new_session=True,
-        )
+        proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         return None
+    finally:
+        # Its own process group, by the pid this call started: a subshell or pipeline stage that
+        # outlives bash (a timeout, a `kill -TERM $$`) must not write into the next run's files.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        proc.wait()
     calls, seen = 0, []
     for line in out.read_text(errors="replace").splitlines():
         if line == "__STUB":
@@ -2200,13 +2266,20 @@ _BASH = shutil.which("bash") or "/bin/bash"
 _bash_oracle_plant = False  # test hook, see test_fixture_bash_oracle_catches_a_wrong_known_directory
 
 
-def _bit_paths(calls: int) -> list[str]:
-    if 2 ** calls <= _BASH_PATHS:
-        return [format(n, f"0{calls}b") if calls else "" for n in range(2 ** calls)]
-    paths = ["", "1" * calls]
-    paths += ["0" * k + "1" for k in range(calls)]
-    paths += ["1" * k + "0" for k in range(1, calls)]
-    return list(dict.fromkeys(paths))[:_BASH_PATHS]
+def _bash_paths(run: str, root: Path, start: str, errexit: bool, tmp: Path):
+    """Yield (bits, _bash_runs result or None) for every path bash takes through `run`, each stubbed
+    call succeeding or failing, up to _BASH_PATHS runs. Paths grow from what each run found: a run
+    with bits b that made n stubbed calls adds, for each call i from len(b) to n - 1, b with calls up
+    to i succeeding and call i failing, so a call that only a failure reaches (`a || { b || cd x; }`)
+    gets tried both ways too, until no run finds a new call (or the cap, nearest branches first)."""
+    queue, runs = [""], 0
+    while queue and runs < _BASH_PATHS:
+        bits = queue.pop(0)
+        result = _bash_runs(run, root, start, errexit, bits, tmp)
+        runs += 1
+        yield bits, result
+        if result is not None:
+            queue += [bits + "0" * (i - len(bits)) + "1" for i in range(len(bits), result[0])]
 
 
 def bash_oracle_case(case: tuple[str, str, bool, frozenset[str], str]) -> list[tuple[str, str]]:
@@ -2220,12 +2293,10 @@ def bash_oracle_case(case: tuple[str, str, bool, frozenset[str], str]) -> list[t
         root = tmp / "repo"
         for folder in {*folders, start}:
             (root / folder).mkdir(parents=True, exist_ok=True)
-        first = _bash_runs(run, root, start, errexit, "", tmp)
-        if first is None:
-            return [("timeout", label)]
         observed: dict[int, set[str]] = {}
-        for bits in _bit_paths(first[0]):
-            result = first if bits == "" else _bash_runs(run, root, start, errexit, bits, tmp)
+        for bits, result in _bash_paths(run, root, start, errexit, tmp):
+            if result is None and bits == "":
+                return [("timeout", label)]
             if result is None:
                 out.append(("timeout", f"{label} bits {bits}"))
                 continue
@@ -2238,10 +2309,14 @@ def bash_oracle_case(case: tuple[str, str, bool, frozenset[str], str]) -> list[t
             physical[number] = logical
             if not text.endswith("\\"):
                 logical += 1
-        lines = list(_run_lines_uncached(run, root, start, errexit))
+        lines = list(_run_lines(run, root, start, errexit))  # as run_configs reads it, cache included
+        _run_lines.cache_clear()
         by_line: dict[int, set[str]] = {}
         for number, places in observed.items():
             by_line.setdefault(physical.get(number, -1), set()).update(places)
+        calling = [i for i, (text, _, kind, _) in enumerate(lines) if kind != "text" and _PYTHON_CALL.search(text)]
+        if len(calling) == 1:  # bash names a compound command's first line; only one line calls python
+            by_line = {calling[0]: set().union(*by_line.values())} if by_line else {}
         for index, places in sorted(by_line.items()):
             if not 0 <= index < len(lines):
                 out.append(("skipped", f"{label}: line {index}"))
@@ -2291,7 +2366,9 @@ def bash_oracle_cases(root: Path | None = None) -> list[tuple[str, str, bool, fr
     return cases
 
 
-def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
+def run_bash_oracle(cases, timeouts: list[str] | None = None) -> tuple[Counter, list[str]]:
+    """Outcome counts and the disagreements over `cases`; given `timeouts`, each bash run that did not
+    finish in 5 s is added to it (its case label, and the stub bits of that path)."""
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
@@ -2306,6 +2383,8 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
                 counts[outcome] += 1
                 if outcome == "disagree":
                     disagreements.append(detail)
+                elif outcome == "timeout" and timeouts is not None:
+                    timeouts.append(detail)
     return counts, disagreements
 
 
@@ -2313,96 +2392,178 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
 #
 # Review of #41068, round five of review-found bash disagreements: random programs from a small
 # grammar go through the bash oracle, so a gap shows up here before a review finds it. The grammar
-# composes cd (to folders that exist, do not exist, or lie outside the repo), !, { } groups,
-# ( ) subshells, &&, ||, ;, if / else, a redirect that always fails (> /), set -e / set +e and the
-# builtins true, false and :, nested up to depth 3, one python3 call somewhere in it, under bash
-# with and without -e. Review of #41088: exit and exit 1 too, a while false loop, and a redirect on a
-# compound command itself ({ }, ( ), if, while), one that fails (> /) or not (> /dev/null), so a
-# compound's own redirection failing is in the grammar, under ! included. Every command but python is a builtin, so bash takes one path per python
-# status. Seeds are fixed, so a disagreement reproduces from its seed.
+# composes:
+#   - cd to folders that exist, do not exist, or lie outside the repo, written plain, quoted, escaped,
+#     with a space, with quote characters or spaces in the name, and through `..`;
+#   - !, { } groups, ( ) subshells, pipelines (| and |&, with and without shopt -s lastpipe), &&, ||,
+#     ;, if / else, for loops (zero to three passes, `for v; do` included), bounded while and until
+#     loops, break and continue in them;
+#   - exit and exit 1 (at the top level, in groups, subshells, pipeline stages and loops), a redirect
+#     that always fails (> /), set -e / set +e / set -eo pipefail, and true, false and :;
+#   - a redirect on a compound command itself ({ }, ( ), if, for, while), one that fails (> /) or
+#     not (> /dev/null), and group or subshell bodies that always exit, so a compound's own
+#     redirection failing is in the grammar, under ! included (review of #41088);
+# nested up to depth 3, with one python3 call (which a loop may run many times), under bash with
+# and without -e. Every command but python is a builtin, so bash takes one path per python status.
+# Seeds are fixed, so a disagreement reproduces from its seed.
 
 GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
-_GEN_TARGETS = ("scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a")
+_GEN_FOLDERS = (*_SHELL_FOLDERS, "has space")
+_GEN_TARGETS = (
+    "scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a",
+    '"scripts/ci"', "'scripts/ci'", "scripts\\/c\\i", '"scr"ipts/ci', '"has space"', "has\\ space",
+    '" lib"', '"lib "', "\"'lib'\"", "missing/../lib", "lib/../scripts", "./lib", "scripts//ci/",
+)
 _GEN_SIMPLE = (
-    "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
-    "exit", "exit 1",
+    "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
+    "exit", "exit 1", "set -eo pipefail",
+)
+_GEN_LOOP_SIMPLE = ("break", "continue")
+# Traps and the signals that run them (review of #41051). `builtin kill`: the oracle stubs plain kill.
+_GEN_TRAPS = (
+    "trap 'cd {d}' INT", "trap 'cd {d}' TERM", "trap 'cd {d}' EXIT", "trap - INT", "trap '' TERM",
+    "builtin kill -INT $$", "builtin kill -TERM $$",
 )
 _GEN_REDIRECTS = ("", "", "", " > /", " > /dev/null")
 
 
-def _generated_shell(seed: int) -> tuple[str, bool]:
-    """(run script, errexit) for one seed: one python3 call in a random program of the grammar."""
+# The step shells generated programs run under: GitHub's default and `bash` keep -e; a custom
+# command line without -e (review of #41035: `bash {0}`) does not.
+_GEN_SHELLS = ("", "", "bash", "bash -e {0}", "bash {0}", "bash --noprofile --norc {0}")
+
+
+def _generated_shell(seed: int) -> tuple[str, bool, str]:
+    """(run script, errexit, step shell) for one seed: one python3 call in a random program of the grammar."""
     import random
 
     rng = random.Random(seed)
+    counters = iter(range(1000))
 
-    def sep(newline_ok: bool = True) -> str:
-        return "\n" if newline_ok and rng.random() < 0.3 else "; "
+    def sep() -> str:
+        return "\n" if rng.random() < 0.3 else "; "
 
-    def body(depth: int, most: int) -> str:
+    def body(depth: int, most: int, in_loop: bool) -> str:
         # Sometimes a body that always leaves (every path ends in exit), the case a redirect on the
-        # compound around it matters most for.
-        if rng.random() < 0.15:
-            return rng.choice(("exit", "exit 1", "false || exit 1", "exit 1 && true"))
-        return and_or_list(depth, most)
-
-    def command(depth: int) -> str:
+        # compound around it matters most for; sometimes a || chain, whose later commands only a
+        # failure reaches (review of #41051: `a || { b || c || cd x; }`).
         r = rng.random()
-        if depth < 3 and r < 0.15:
-            return "{ " + body(depth + 1, 3) + sep() + "}" + rng.choice(_GEN_REDIRECTS)
-        if depth < 3 and r < 0.27:
-            return "( " + body(depth + 1, 3) + " )" + rng.choice(_GEN_REDIRECTS)
-        if depth < 3 and r < 0.35:
-            text = "if " + and_or_list(depth + 1, 2) + sep() + "then " + and_or_list(depth + 1, 3)
-            if rng.random() < 0.4:
-                text += sep() + "else " + and_or_list(depth + 1, 3)
-            return text + sep() + "fi" + rng.choice(_GEN_REDIRECTS)
-        # if / while bodies use and_or_list: a body() there would end the program on most paths.
-        if depth < 3 and r < 0.38:
-            return "while false; do " + and_or_list(depth + 1, 2) + sep() + "done" + rng.choice(_GEN_REDIRECTS)
-        return "\0"
+        if r < 0.15:
+            return rng.choice(("exit", "exit 1", "false || exit 1", "exit 1 && true"))
+        if r < 0.3:
+            return " || ".join(pipeline(depth, in_loop) for _ in range(rng.randint(2, 4)))
+        return and_or_list(depth, most, in_loop)
 
-    def pipeline(depth: int) -> str:
-        text = command(depth)
+    def command(depth: int, in_loop: bool) -> str:
+        r = rng.random()
+        inner = depth + 1
+        redirect = rng.choice(_GEN_REDIRECTS)
+        if depth < 3 and r < 0.12:
+            return "{ " + body(inner, 3, in_loop) + sep() + "}" + redirect
+        if depth < 3 and r < 0.22:
+            return "( " + body(inner, 3, in_loop) + " )" + redirect
+        if depth < 3 and r < 0.29:
+            text = "if " + and_or_list(inner, 2, in_loop) + sep() + "then " + and_or_list(inner, 3, in_loop)
+            if rng.random() < 0.4:
+                text += sep() + "else " + and_or_list(inner, 3, in_loop)
+            return text + sep() + "fi" + redirect
+        if depth < 2 and r < 0.35:
+            n = next(counters)
+            head = f"for v{n}; do " if rng.random() < 0.15 else f"for v{n} in {' '.join('abc'[: rng.randint(0, 3)])}; do "
+            return head + and_or_list(inner, 3, True) + sep() + "done" + redirect
+        if depth < 2 and r < 0.41:
+            n = next(counters)
+            k = rng.randint(0, 3)
+            cond = rng.choice((
+                f'while [ $((n{n} += 1)) -le {k} ]', f'until [ $((n{n} += 1)) -gt {k} ]', "while false",
+            ))
+            return cond + "; do " + and_or_list(inner, 3, True) + sep() + "done" + redirect
+        return "\1" if in_loop else "\0"
+
+    def pipeline(depth: int, in_loop: bool) -> str:
+        stages = [command(depth, in_loop)]
+        while len(stages) < 3 and rng.random() < 0.18:
+            stages.append(command(depth, in_loop))
+        text = stages[0]
+        for stage in stages[1:]:
+            text += rng.choice((" | ", " | ", " |& ")) + stage
         return ("! " + text) if rng.random() < 0.2 else text
 
-    def and_or_list(depth: int, most: int) -> str:
-        parts = [pipeline(depth)]
+    def and_or_list(depth: int, most: int, in_loop: bool = False) -> str:
+        parts = [pipeline(depth, in_loop)]
         for _ in range(rng.randint(0, most - 1)):
-            parts += [rng.choice(("&&", "||", "&&", "||", ";")), pipeline(depth)]
+            parts += [rng.choice(("&&", "||", "&&", "||", ";")), pipeline(depth, in_loop)]
         return " ".join(parts)
 
-    lines = [and_or_list(0, 3) for _ in range(rng.randint(1, 4))]
+    lines = [and_or_list(0, 3) for _ in range(rng.randint(1, 3))]
+    if rng.random() < 0.1:
+        lines.insert(rng.randint(0, len(lines)), "shopt -s lastpipe")
     text = "\n".join(lines)
-    slots = text.count("\0")
+    slots = [i for i, c in enumerate(text) if c in "\0\1"]
     # Half the time python runs on a line of its own at the end, where everything before it counts.
-    python = rng.randrange(slots) if slots and rng.random() < 0.5 else -1
-    out, index = [], 0
-    for chunk in text.split("\0")[:-1]:
-        out.append(chunk)
+    python = rng.randrange(len(slots)) if slots and rng.random() < 0.5 else -1
+    out, last = [], 0
+    for index, at in enumerate(slots):
+        out.append(text[last:at])
+        last = at + 1
         if index == python:
             out.append("python3 x")
+        elif text[at] == "\1" and rng.random() < 0.2:
+            out.append(rng.choice(_GEN_LOOP_SIMPLE))
         else:
-            choice = rng.choice(_GEN_SIMPLE)
-            if choice.startswith("exit") and rng.random() < 0.5:
+            choice = rng.choice(_GEN_TRAPS if rng.random() < 0.04 else _GEN_SIMPLE)
+            if choice.startswith("exit") and rng.random() < 0.6:
                 choice = "true"  # exit, but not so often that python is rarely reached
             out.append(choice.format(d=rng.choice(_GEN_TARGETS)))
-        index += 1
-    out.append(text.split("\0")[-1])
+    out.append(text[last:])
     run = "".join(out)
     if python == -1:
         run += "\npython3 x"
     if not run.endswith("\n"):
         run += "\n"
-    return run, rng.random() < 0.75
+    # The step's shell, as a workflow names it: errexit comes from it as run_configs reads it.
+    shell = rng.choice(_GEN_SHELLS)
+    return run, bool(_step_shell({}, {}, {"shell": shell} if shell else {})), shell
+
+
+# Seeds where the checker before this grammar's fixes disagreed with bash (lastpipe, a loop whose
+# later pass starts where a cd left it, a signal trap), over 100000 seeds of this generator: seed ->
+# crc32 of its program, so a change to the generator fails loudly instead of quietly pinning other
+# programs. On such a change, re-run the old checker over 100000 seeds and pin what it gets wrong.
+_GENERATED_SHELL_FINDS = {
+    189: 0x34652489, 380: 0x6f98906e, 461: 0x971e3417, 931: 0xe0a87a90, 1233: 0x80bfd846, 1511: 0xdb0eda6d,
+    1865: 0x83897147, 2157: 0x0b4ddbd4, 2315: 0xd90d9092, 2711: 0x06951e35, 5273: 0xf2ad2766,
+    5614: 0xf9b00f66, 6408: 0xc5895142, 7502: 0xf97b3456, 8523: 0x239aa74e, 8905: 0x69994d7a,
+    9925: 0xfc440e02, 10350: 0x3c7bbd7a, 14980: 0xcb0b95c8, 15024: 0x39aa5087, 15724: 0xc544e84f,
+    16646: 0x1abc9728, 17929: 0x753ceba2, 19363: 0x025c186a, 21195: 0x04a19198, 21237: 0xdf373a6f,
+    21310: 0x6a9589ff, 21385: 0x92f41d97, 22053: 0x9a8ad513, 23030: 0x948c8824, 23363: 0x7c63ccf1,
+    23531: 0x3748e6b5, 24152: 0x2491a204, 25941: 0x6d71ab41, 26122: 0x1dba8962, 26645: 0x73ef1c89,
+    29447: 0x457c60bb, 29916: 0xf393f321, 31672: 0x38540782, 32009: 0xd00d2968, 32328: 0xd7e5e6ba,
+    33758: 0xd627582c, 34082: 0xce63c20d, 34244: 0xbdcf4de8, 34430: 0x1d656170, 34748: 0x14758446,
+    37576: 0x0baad331, 40147: 0xa73bd24a, 41269: 0xa7ecdea0, 41304: 0x5ac3d933, 41948: 0x83480e79,
+    42254: 0x714511ed, 45463: 0x180cef86, 46376: 0x78801c08, 46427: 0x246c6f94, 47148: 0x74e0b3e9,
+    47884: 0xb8bbbd48, 47907: 0xb9433780, 50100: 0xf3d04dcf, 52010: 0xb92264ed, 52296: 0x0063fd38,
+    52692: 0x2b0c308b, 54729: 0x788da566, 55834: 0x4d0ef62a, 57105: 0xafd453e6, 57220: 0xebff1e67,
+    57312: 0x3f232708, 58453: 0x09579471, 59410: 0x5b832c9d, 62922: 0xc49ec188, 65539: 0xc45a0375,
+    66851: 0x13d4cbd4, 67150: 0x6d1f50f3, 67316: 0x897cbdf6, 67502: 0x43f53991, 68666: 0x0c3c3d48,
+    69467: 0x9896904e, 71969: 0xaff4306d, 72726: 0x74adb669, 73647: 0xc49a324f, 73785: 0x78833fcb,
+    74179: 0x9743e03e, 74628: 0x4aeb1f49, 76253: 0x94c2119c, 76829: 0x061fb280, 77685: 0x904eedb8,
+    77884: 0x97f2a99c, 78884: 0x045c6da6, 79258: 0x79591d06, 81178: 0x46a99ee2, 84342: 0xba8f0ceb,
+    85060: 0x1558ae2c, 85612: 0x6ab323cc, 86074: 0xbfee6fe2, 86456: 0x3144dec0, 86533: 0xdd497298,
+    86958: 0xbd86f60c, 87657: 0x43012c50, 88024: 0xb0cd16a5, 88681: 0x60b5555c, 88791: 0xd3ec4df0,
+    89179: 0xf9a0ffdc, 89432: 0x0f2a644b, 90602: 0x21fba33c, 90684: 0x1e1f2647, 90800: 0x9394f528,
+    92724: 0xc03b555c, 92785: 0x09b899df, 93448: 0x6bd1f90d, 94485: 0x5d1aa0fe, 94765: 0x9310c518,
+    95342: 0x95a0eb29, 95520: 0xc588d39a, 96017: 0xa685b724, 96550: 0x00c27ee1, 97350: 0x9240aae8,
+    98051: 0xcdde223e, 98487: 0x8096630d, 98908: 0x484ee1e9, 99143: 0x9d8a271b, 99287: 0x555728ed,
+    99444: 0x54f96813,
+}
 
 
 def generated_shell_cases(seeds: int, start: int = 0) -> list[tuple[str, str, bool, frozenset[str], str]]:
-    folders = frozenset(_SHELL_FOLDERS)
+    folders = frozenset(_GEN_FOLDERS)
     cases = []
     for seed in range(start, start + seeds):
-        run, errexit = _generated_shell(seed)
-        cases.append((f"seed {seed} (errexit {'on' if errexit else 'off'}) {run!r}", run, errexit, folders, ""))
+        run, errexit, shell = _generated_shell(seed)
+        cases.append((f"seed {seed} (shell {shell or 'default'}, errexit {'on' if errexit else 'off'}) {run!r}", run, errexit, folders, ""))
     return cases
 
 
@@ -3210,6 +3371,42 @@ class SparseCheckoutImportTests(unittest.TestCase):
             with self.subTest(shell=shell or "(default)"):
                 self.assertEqual(self._misses(listed, run=run, run_env=shell, more=self.WITNESS), [])
 
+    _WITNESS_UNKNOWN = [
+        "w.yml run Check out: scripts/ci/wentry.py runs in a step that sets or reads PYTHONPATH where "
+        "this check cannot follow it",
+        "w.yml run Check out: scripts/ci/wentry.py runs with `python -c` from a working directory this "
+        "check cannot resolve",
+    ]
+
+    def test_fixture_review_41035_f1_a_negated_cd_leaves_the_directory_unknown(self) -> None:
+        # `! cd scripts || cd scripts`: the cd works, ! makes that a failure, and the || cds again,
+        # into scripts/scripts. Dropping the ! read it as scripts.
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        run = self.block("! cd scripts || cd scripts", self.WITNESS_RUN)
+        self.assertEqual(self._misses(listed, run=run, more=self.WITNESS), self._WITNESS_UNKNOWN)
+
+    def test_fixture_review_41051_f1_errexit_is_off_in_a_group_an_or_tests(self) -> None:
+        # In `{ cd scripts/ci <missing; python ...; } || true` the || turns errexit off in the group:
+        # the failed redirection skips the cd, and python runs from the repo root, not scripts/ci.
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        run = self.block(f"{{ cd scripts/ci <missing; {self.WITNESS_RUN}; }} || true")
+        self.assertEqual(self._misses(listed, run=run, more=self.WITNESS), self._WITNESS_UNKNOWN)
+
+    def test_fixture_review_41051_a_signal_trap_leaves_the_directory_unknown(self) -> None:
+        # `trap 'cd scripts/ci' INT; kill -INT $$`: the trap runs before python, which then runs in
+        # scripts/ci. Only an exit trap waits for the end of the step.
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        run = self.block(f"trap 'cd scripts/ci' INT; kill -INT $$; {self.WITNESS_RUN}")
+        self.assertEqual(self._misses(listed, run=run, more=self.WITNESS), self._WITNESS_UNKNOWN)
+
+    def test_fixture_review_41051_f3_the_bash_oracle_tries_calls_only_a_failure_reaches(self) -> None:
+        # In `a || { b || c || cd scripts/ci; }` the first run calls only a; b, c and the cd are
+        # reached by failures. A checker that always answers the repo root must disagree.
+        case = ("f3", "a || { b || c || cd scripts/ci; }\npython3 x\n", True, frozenset({"scripts/ci"}), "")
+        with mock.patch.object(_Shell, "feed", lambda *args, **kwargs: ""):
+            outcomes = [outcome for outcome, _ in bash_oracle_case(case)]
+        self.assertEqual(outcomes, ["disagree"])
+
     def test_fixture_review_41017_the_shell_directory_in_every_shape(self) -> None:
         # The directory each command starts in, per _SHELL_SHAPES; None is unknown (unverifiable).
         with tempfile.TemporaryDirectory() as tmp:
@@ -3732,6 +3929,18 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         )
         self.assertFalse(disagreements, f"{len(disagreements)} disagreements:\n" + "\n".join(disagreements[:40]))
         self.assertGreater(counts["agree"], GENERATED_SHELL_SEEDS // 10, dict(counts))
+
+    def test_generated_shell_finds_agree_with_bash(self) -> None:
+        import zlib
+
+        cases = [generated_shell_cases(1, seed)[0] for seed in _GENERATED_SHELL_FINDS]
+        changed = [
+            seed for seed, (_, run, *_) in zip(_GENERATED_SHELL_FINDS, cases)
+            if zlib.crc32(run.encode()) != _GENERATED_SHELL_FINDS[seed]
+        ]
+        self.assertFalse(changed, f"the generator changed for seeds {changed[:10]}: re-pin _GENERATED_SHELL_FINDS")
+        counts, disagreements = run_bash_oracle(cases)
+        self.assertFalse(disagreements, f"{len(disagreements)} disagreements:\n" + "\n".join(disagreements))
 
     def test_fixture_bash_oracle_catches_a_wrong_known_directory(self) -> None:
         # A checker that names a wrong known directory fails the oracle: bash ran `python3 x` in
