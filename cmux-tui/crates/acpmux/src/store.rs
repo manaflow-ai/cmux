@@ -932,14 +932,30 @@ pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
+    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        AHEAD_MS.with(Cell::get)
+        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
+        AHEAD_MS.with(Cell::get) + followed as u64
     }
 
-    /// Moves this thread's clock `ms` ahead.
+    /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
+    /// sleeping: the wall clock runs ahead of the monotonic one (`peer_link::SleepWatch`).
     pub(crate) fn advance(ms: u64) {
         AHEAD_MS.with(|a| a.set(a.get() + ms));
+    }
+
+    /// From now on this thread's wall clock moves with tokio's, so a test under
+    /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
+    /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
+    pub(crate) fn follow_tokio() {
+        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+    }
+
+    /// Back to the real wall clock.
+    pub(crate) fn reset() {
+        AHEAD_MS.with(|a| a.set(0));
+        FOLLOW.with(|f| f.set(None));
     }
 }
 

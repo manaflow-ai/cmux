@@ -360,6 +360,15 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+impl Hub {
+    /// Run durable watches: the loop that reconciles them on hub events and the
+    /// `REMOTE_WORKERS` that page peer chats. The daemon starts them once at startup; a test
+    /// that needs real watch paging starts them on its own hub.
+    pub fn start_watches(self: &Arc<Self>) {
+        watches::Watches::start(self);
+    }
+}
 mod web_control;
 mod web_token;
 mod work_below;
