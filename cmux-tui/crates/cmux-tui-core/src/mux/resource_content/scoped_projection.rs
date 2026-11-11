@@ -89,6 +89,16 @@ thread_local! {
     static CROSSCHECK_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Full live-tree projections run on this thread.
+    pub(super) static FULL_PROJECTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Workspaces that a live-tree projection (full or scoped) restated on
+    /// this thread.
+    pub(super) static WORKSPACES_PROJECTED: std::cell::Cell<u64> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// Run `body` with the cross-check off on this thread, as release builds run.
 #[cfg(test)]
 pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
@@ -113,6 +123,19 @@ fn crosscheck_enabled() -> bool {
 }
 
 impl Mux {
+    /// Full live-tree projections run on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn full_projections_for_test() -> u64 {
+        FULL_PROJECTIONS.with(std::cell::Cell::get)
+    }
+
+    /// Workspaces that live-tree projections restated on this thread (test
+    /// hook).
+    #[cfg(test)]
+    pub(crate) fn workspaces_projected_for_test() -> u64 {
+        WORKSPACES_PROJECTED.with(std::cell::Cell::get)
+    }
+
     /// The projection for a commit whose result is `result`: a created view
     /// changed one workspace, so once the public fold is seeded (a full
     /// projection seeds it) only that workspace is projected.

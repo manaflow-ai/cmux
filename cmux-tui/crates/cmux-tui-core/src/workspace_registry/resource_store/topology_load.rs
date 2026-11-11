@@ -252,6 +252,29 @@ fn load_subtrees(
     Ok(())
 }
 
+/// One live tab row and whether its pane shows it (the tab is its pane's
+/// active tab), by point reads: what a restatement of one tab needs,
+/// whatever the size of the session. `None` when the tab has no live row.
+pub(crate) fn load_tab_with_focus(
+    connection: &Connection,
+    tab_id: &str,
+) -> anyhow::Result<Option<(RegistryTab, bool)>> {
+    let Some(tab) = load_tabs(connection, " AND t.public_id = ?1", &[&tab_id])?.pop() else {
+        return Ok(None);
+    };
+    let active_tab = connection
+        .query_row(
+            "SELECT active_tab_id FROM resource_panes
+             WHERE public_id = ?1 AND deleted_revision IS NULL",
+            [tab.pane_id.as_str()],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let focused = active_tab.as_deref() == Some(tab.public_id.as_str());
+    Ok(Some((tab, focused)))
+}
+
 /// Revision, active workspace and every live workspace's active screen.
 pub(crate) fn load_topology_frame(
     connection: &Connection,
