@@ -16,7 +16,9 @@ use crate::workspace_registry::{
 use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
+mod decoration_walks;
 mod frontend_browser_history;
+use decoration_walks::surface_directories_in_state;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -170,17 +172,6 @@ pub struct TabPinChange {
     pub index: usize,
 }
 
-fn surface_directories_in_state(state: &State) -> Vec<(SurfaceId, String)> {
-    state
-        .surfaces
-        .iter()
-        .filter(|(surface, _)| state.pane_of(**surface).is_some())
-        .filter_map(|(surface, runtime)| {
-            runtime.presented_directory().map(|directory| (*surface, directory))
-        })
-        .collect()
-}
-
 fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: SurfaceId) -> bool {
     state
         .resource_indexes
@@ -218,6 +209,7 @@ pub(crate) fn tab_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -801,6 +793,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -920,6 +913,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )

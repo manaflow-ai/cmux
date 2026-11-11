@@ -51,6 +51,14 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
+/// How long one relay WebSocket may take to open (TCP, TLS and the
+/// upgrade). The relay answers an upgrade in well under a second; a socket
+/// that dies silently mid-open (a Cloud machine whose network is settling
+/// just after a restore) would otherwise hold the caller forever. A daemon's
+/// registration held that way logs nothing and never retries, so every dial
+/// parks on the relay until the daemon restarts (65 s in one measured cold
+/// start). Past this, the open fails as a retryable transport error.
+pub(crate) const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
 /// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
@@ -1970,7 +1978,18 @@ async fn connect_relay_socket_once(
     let config = WebSocketConfig::default()
         .max_message_size(Some(maximum_message_bytes))
         .max_frame_size(Some(maximum_message_bytes));
-    match connect_async_with_config(request, Some(config), true).await {
+    let opened = tokio::time::timeout(
+        RELAY_CONNECT_TIMEOUT,
+        connect_async_with_config(request, Some(config), true),
+    )
+    .await
+    .map_err(|_| {
+        RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "relay WebSocket connection failed: no answer within {} ms",
+            RELAY_CONNECT_TIMEOUT.as_millis()
+        ))))
+    })?;
+    match opened {
         Ok((socket, _)) => Ok(socket),
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>

@@ -70,6 +70,9 @@ jobs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
+      # The owned gui label while one of its runners is idle now, else empty (the Mac job then
+      # takes Blacksmith macOS).
+      mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
     steps:
       # Only the merge commit and scripts/cmux-next (the fallback copies of the
       # two scripts below); the next step fetches the history it needs. A
@@ -170,6 +173,46 @@ jobs:
             "$areas" < "$RUNNER_TEMP/changed.txt" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
+      # Where the Mac exports run: the owned gui label only while one of its runners is idle now
+      # (read live, as the nightly visual gate's route does), else Blacksmith macOS. The picker
+      # comes from the base, as cmux-next.yml's placement does; a fork head never reaches it.
+      # Any failure leaves mac_runner empty, so the Mac job never queues on the minis unseen.
+      - name: Placement scripts from the base
+        id: placement
+        if: (steps.areas.outputs.actions == 'true' || steps.areas.outputs.settings == 'true') && vars.CI_PR_POOL_OWNED == '1' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/placement"
+          # scripts/ci is outside this job's sparse checkout: without the flag restore finds no path.
+          git --work-tree="$RUNNER_TEMP/placement" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: steps.placement.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Pick an idle owned gui runner for the Mac exports
+        id: mac-runner
+        if: steps.placement.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          PR_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+        run: python3 "$RUNNER_TEMP/placement/scripts/ci/cmux_next_media_runner.py" --same-repo true --idle-now --gui-only
+
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
   # repository paths). A pull request whose catalog or settings do not build
@@ -179,11 +222,13 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    # The exports need a logged-in session, which the gui label's runners have. They never
-    # name the session label: it held jobs for hours with its runners online and busy
-    # (cmux#24295, 2026-10-29), and this job has no placement to judge its queue
-    # (tests/test_ci_runs_on_fallback.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.CI_PR_POOL_OWNED == '1' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
+    # cmux-next.yml's generated files make the same exports). They take the owned gui label only
+    # when action-areas saw a gui runner idle (mac_runner, cmux_next_media_runner.py --idle-now
+    # --gui-only), never the session label (cmux#24295). With none idle, or the runners unread,
+    # they take Blacksmith macOS at once: the owned-pool rescue never cancels an active pull
+    # request run, so a job queued on a dark gui label (the office minis, 2026-11-10) waited there.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.action-areas.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 40
     permissions:
       contents: read

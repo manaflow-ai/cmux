@@ -1921,6 +1921,10 @@ impl Peer {
     ) -> Result<LinkEnd, String> {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
+        #[cfg(test)]
+        if test_dial::refused() {
+            return Err("refused (test)".into());
+        }
         let (via, opened) = self.open_first().await?;
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
@@ -2816,7 +2820,7 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|session| !is_mirrored_session(session))
+        .filter(|session| session.is_object() && !is_mirrored_session(session))
         .cloned()
         .collect()
 }
@@ -3676,5 +3680,40 @@ mod watch_order_tests {
         assert!(rows.is_empty(), "the purged row came back: {rows:?}");
         serving.abort();
         fake.abort();
+    }
+}
+
+/// Every dial on this thread fails at once, with no socket, and is recorded, so a test drives
+/// the whole run loop (`Peer::run`) under paused time and reads when each attempt went.
+#[cfg(test)]
+pub(crate) mod test_dial {
+    use std::cell::RefCell;
+
+    /// One dial: its monotonic instant and its wall-clock millisecond.
+    pub(crate) type Attempt = (tokio::time::Instant, u64);
+
+    thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+
+    pub(crate) fn refuse_all() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+    }
+
+    /// The dials so far; dials keep failing.
+    pub(crate) fn attempts() -> Vec<Attempt> {
+        ATTEMPTS.with(|a| a.borrow().clone().unwrap_or_default())
+    }
+
+    /// Dials go out for real again.
+    pub(crate) fn clear() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = None);
+    }
+
+    pub(super) fn refused() -> bool {
+        ATTEMPTS.with(|a| {
+            let mut a = a.borrow_mut();
+            let Some(list) = a.as_mut() else { return false };
+            list.push((tokio::time::Instant::now(), crate::store::now_ms()));
+            true
+        })
     }
 }

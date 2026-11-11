@@ -323,8 +323,8 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
     }
 }
 
-/// The conversation events a page-bound connection of the Channels or
-/// Messages page hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
+/// The conversation events a page-bound connection of the Channels page
+/// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
 static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
     [
@@ -348,8 +348,8 @@ pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [Stri
     let state = mux.control_clients.state.lock().recover_poison();
     let origin = &state.clients.get(&client)?.origin;
     if origin.scoped_page {
-        let home = matches!(origin.page.as_deref(), Some("home-channels" | "home-messages"));
-        return Some(if home { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
+        let channels = origin.page.as_deref() == Some("home-channels");
+        return Some(if channels { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
     }
     (origin.role == HelloRole::PageRelay).then(|| {
         origin
