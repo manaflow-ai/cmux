@@ -661,15 +661,10 @@ public final class ConversationViewController: UIViewController {
         center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
         }
-        center.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sceneLeftSinceKeyboardShown = false }
-        }
-        center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
-                self.sceneLeftSinceKeyboardShown = true
-            }
-        }
+        center.addObserver(self, selector: #selector(keyboardShowsAfterSceneTrip), name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardShowsAfterSceneTrip), name: UIResponder.keyboardDidShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneWillDeactivate(_:)), name: UIScene.willDeactivateNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
@@ -700,6 +695,24 @@ public final class ConversationViewController: UIViewController {
                 self.layoutRidingKeyboardAnimation()
             }
         }
+    }
+
+    @objc private func keyboardShowsAfterSceneTrip() {
+        sceneLeftSinceKeyboardShown = false
+    }
+
+    @objc private func sceneWillDeactivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        sceneLeftSinceKeyboardShown = true
+    }
+
+    /// Back in front with the keyboard still up (Control Center, a banner or
+    /// an alert never hid it): no late hide is coming, so a later dismissal
+    /// resigns as usual.
+    @objc private func sceneDidActivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene, isViewLoaded else { return }
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        if keyboardDock.guide.layoutFrame.minY < restingGuideTop - 0.5 { sceneLeftSinceKeyboardShown = false }
     }
 
     /// Keyboard hidden means the composer is not first responder (see
