@@ -530,16 +530,18 @@ async fn a_left_hosts_read_back_takes_a_blank_session_id_for_no_session() {
 async fn two_chats_on(env: &[&str], fails_over: bool) -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut argv = vec!["/usr/bin/env"];
-    argv.extend(env);
-    argv.extend(["python3", fake]);
+    let mut argv = vec!["python3", fake];
+    for setting in env {
+        let (key, value) = setting.split_once('=').unwrap();
+        argv.extend(["--fake", key, value]);
+    }
     let mut cfg = json!({
         "harnesses": {"fake": {"argv": argv}},
         "defaultHarness": "fake",
     });
     if fails_over {
         cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
-        let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
+        let fallback = ["python3", fake, "--fake", "FAKE_FALLBACK", "1"];
         cfg["harnesses"]["fake-fallback"] = json!({"argv": fallback});
         cfg["autoResumeDelaysMs"] = json!([1000]);
     }

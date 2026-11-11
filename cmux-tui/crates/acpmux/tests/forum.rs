@@ -38,7 +38,7 @@ fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
-            "steer": {"argv": ["python3", FAKE, "--fake", "FAKE_CODEX_STEER", "1"]},
+            "steer": {"argv": ["python3", FAKE, "--fake", "FAKE_CODEX_STEER", "1"], "family": "steer"},
             "noload": {"argv": ["python3", FAKE, "--fake", "FAKE_NO_LOAD", "1"]},
         },
         // A compactor's isolation: no cmux tools, so no rules.

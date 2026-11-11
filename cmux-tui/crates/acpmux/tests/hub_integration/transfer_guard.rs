@@ -53,13 +53,13 @@ impl Drop for Scratch {
 /// Two fake profiles and a Claude-named one, asking mode `normal` for the fake family, and a
 /// Codex-family one (a family the Web never drives). `extra` adds or replaces config keys.
 fn config(policy: &str, extra: Value) -> Config {
-    let env = json!({"FAKE_SESSION_PREFIX": "fake-session-"});
+    let argv = json!(["python3", FAKE, "--fake", "FAKE_SESSION_PREFIX", "fake-session-"]);
     let mut v = json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": env},
-            "claude": {"argv": ["python3", FAKE], "env": env},
-            "fcodex": {"argv": ["python3", FAKE], "env": env, "family": "codex"},
-            "plain": {"argv": ["python3", FAKE], "env": env, "family": "plain"},
+            "fake": {"argv": argv},
+            "claude": {"argv": argv},
+            "fcodex": {"argv": argv, "family": "codex"},
+            "plain": {"argv": argv, "family": "plain"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": policy,

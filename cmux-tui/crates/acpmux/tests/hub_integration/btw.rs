@@ -80,13 +80,16 @@ fn mode_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
 }
 
 /// The fake agent as a harness whose `normal` mode the local user listed as
-/// asking (config.json `webAskingModes`), with its FAKE_* `env`.
+/// asking (config.json `webAskingModes`), with its FAKE_* settings on its
+/// command line (`--fake KEY VALUE`).
 async fn asking_setup(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let env: BTreeMap<String, String> =
-        env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+    let mut argv = vec!["python3".to_owned(), fake.to_owned()];
+    for (k, v) in env {
+        argv.extend(["--fake".to_owned(), (*k).to_owned(), (*v).to_owned()]);
+    }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake], "env": env}},
+        "harnesses": {"fake": {"argv": argv}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "webAskingModes": {"fake": ["normal"]},
