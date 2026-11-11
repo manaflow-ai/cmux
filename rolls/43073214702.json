@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43073214702",
+  "recorded_at": "2026-11-11T18:08:26Z",
+  "reason": "cmux-tui d0255dc03525 changes the image's cmux-tui (pinned d2e801b9ca21)",
+  "dry_run": false,
+  "cmux_tui": "d0255dc0352555041cdfa0df48f2352327f416ef",
+  "fixes": [
+    {
+      "sha": "d0255dc0352555041cdfa0df48f2352327f416ef",
+      "mergedAt": "2026-11-11T09:43:40-08:00",
+      "subject": "prepush-gate: refuse process-wide test hooks in acpmux (#41355)"
+    },
+    {
+      "sha": "658d1027291f01a8eec4a3d110866c1d063574cc",
+      "mergedAt": "2026-11-11T17:39:41Z",
+      "subject": "carrier: the adopt line ends with a newline, so the next route line starts its own (#40672)"
+    },
+    {
+      "sha": "4ee23f65153f51ee9724412ac46d5c82066a5bc8",
+      "mergedAt": "2026-11-11T09:38:14-08:00",
+      "subject": "acpmux: a peer session's notices carry its row's qualifiedSessionId (#41294)"
+    },
+    {
+      "sha": "8556fd1b63d28e7aed802a5e1799660cb993f43b",
+      "mergedAt": "2026-11-11T09:37:11-08:00",
+      "subject": "cmux app chat perf: measure a chat's frames and record-to-paint in the running app (#41189)"
+    },
+    {
+      "sha": "5bb237373dac83200663a439327ff68b64998ab5",
+      "mergedAt": "2026-11-11T09:36:28-08:00",
+      "subject": "acpmux: honor $/cancel_request: answer -32800, free the slot, cancel at the agent or peer (#41285)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T18:08:26Z",
+    "snapshot_id": "sh-84e9409479e742568bb295624785bd77",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43073214702): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "21e44cafe813cdae9745f09fa4929c4265f1245d",
+    "image": "cloud-native-auto-d0255dc0-43073214702-1",
+    "revision": "ci-43073214702-1",
+    "at": "2026-11-11T18:08:26Z"
+  },
+  "rolled_back": false
+}
