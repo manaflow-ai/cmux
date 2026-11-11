@@ -27,11 +27,12 @@ pub const PATH: &str = "/v1/cloud/capability";
 pub const EXPIRY_MARGIN_MS: u64 = 15_000;
 /// When an answer names no refresh time: the platform's `CAPABILITY_REFRESH_MS`.
 pub const REFRESH_FALLBACK_MS: u64 = 4 * 60_000;
-/// A fetch in flight holds off another for this long; its answer clears it sooner.
+/// A fetch in flight holds off another for its team for this long; its answer clears it sooner.
 pub const IN_FLIGHT_MS: u64 = 30_000;
 /// After an unreachable or unreadable answer: ask again on a call after this.
 pub const RETRY_UNREACHABLE_MS: u64 = 30_000;
-/// After a refusal (`auth.forbidden`: no access to the team's machines): the refresh period.
+/// After a refusal (`auth.forbidden`: no access to the team's machines): the refresh period, for
+/// that team only.
 pub const RETRY_REFUSED_MS: u64 = REFRESH_FALLBACK_MS;
 /// After `cloud.capability_off` or a backend without the route (404).
 pub const RETRY_OFF_MS: u64 = 30 * 60_000;
@@ -58,9 +59,52 @@ pub struct Held {
 pub struct State {
     #[serde(default)]
     pub held: Option<Held>,
-    /// No fetch starts before this (a fetch in flight, or the backoff after a failed one).
+    /// No fetch for any team starts before this: the backend has no capabilities (a 404).
     #[serde(default, deserialize_with = "ms")]
     pub next_fetch_ms: u64,
+    /// Per team: its fetch in flight, or the backoff after its failed one. A team switch fetches the
+    /// new team at once, whatever another team's fetch is doing.
+    #[serde(default)]
+    pub fetches: Vec<Fetch>,
+    /// The team the newest call asked for. An answer for another team (one the person has left) is
+    /// not kept, so once every fetch has answered the token held is this team's.
+    #[serde(default)]
+    pub wanted: Option<String>,
+    /// Set by a drop (a sign-out, an account or team switch): from then on an answer is kept only for
+    /// a fetch started since, so a late answer for the account that left is never held.
+    #[serde(default)]
+    pub fenced: bool,
+}
+
+/// One team's fetch: in flight since a time, and the backoff after a failed one.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fetch {
+    pub team: String,
+    /// When its newest fetch started (`None`: none in flight).
+    #[serde(default)]
+    pub in_flight_since: Option<u64>,
+    /// No fetch for this team starts before this.
+    #[serde(default)]
+    pub wait_until_ms: u64,
+}
+
+impl Fetch {
+    fn holds_off(&self, now: u64) -> bool {
+        now < self.wait_until_ms
+            || self.in_flight_since.is_some_and(|since| now < since.saturating_add(IN_FLIGHT_MS))
+    }
+}
+
+/// Changes `team`'s fetch record, made when it has none.
+fn update_fetch(state: &mut State, team: &str, change: impl FnOnce(&mut Fetch)) {
+    if let Some(fetch) = state.fetches.iter_mut().find(|fetch| fetch.team == team) {
+        change(fetch);
+        return;
+    }
+    let mut fetch = Fetch { team: team.to_owned(), ..Fetch::default() };
+    change(&mut fetch);
+    state.fetches.push(fetch);
 }
 
 /// One call is about to go in `team` (the install token's team) at `now_ms`.
@@ -85,8 +129,9 @@ pub struct UseReply {
 }
 
 /// The token for a call in `team` at `now_ms`, and whether this call starts the next fetch. A fetch
-/// it starts holds off others for [`IN_FLIGHT_MS`]. With no team (signed out, no install token
-/// yet) nothing is sent and nothing is fetched.
+/// it starts holds off others for the same team for [`IN_FLIGHT_MS`]; another team's call fetches
+/// its own at once. The call's team becomes the one wanted. With no team (signed out, no install
+/// token yet) nothing is sent and nothing is fetched.
 pub fn use_for(request: &UseRequest) -> UseReply {
     let mut state = request.state.clone();
     let Some(team) = request.team.as_deref().filter(|team| !team.is_empty()) else {
@@ -96,9 +141,13 @@ pub fn use_for(request: &UseRequest) -> UseReply {
     let held = state.held.as_ref().filter(|held| held.team == team);
     let header = held.filter(|held| now < held.use_until_ms).map(|held| held.token.clone());
     let due = held.is_none_or(|held| now >= held.refresh_at_ms);
-    let fetch = due && now >= state.next_fetch_ms;
+    let waiting = state.fetches.iter().any(|fetch| fetch.team == team && fetch.holds_off(now));
+    let fetch = due && now >= state.next_fetch_ms && !waiting;
+    state.wanted = Some(team.to_owned());
+    // A team with nothing in flight and no backoff left needs no record.
+    state.fetches.retain(|fetch| fetch.in_flight_since.is_some() || now < fetch.wait_until_ms);
     if fetch {
-        state.next_fetch_ms = now.saturating_add(IN_FLIGHT_MS);
+        update_fetch(&mut state, team, |fetch| fetch.in_flight_since = Some(now));
     }
     UseReply { header, fetch, state }
 }
@@ -130,17 +179,38 @@ pub struct KeepReply {
 }
 
 /// Keeps a good answer's token for `team`; on anything else holds none for that team and backs
-/// off: [`RETRY_OFF_MS`] when the backend has no capabilities, [`RETRY_REFUSED_MS`] on a refusal,
-/// else [`RETRY_UNREACHABLE_MS`]. A token another team's answer named, an expired one, or one that
-/// could not go in a header is never kept.
+/// off: every team for [`RETRY_OFF_MS`] when the backend has no capabilities, that team for
+/// [`RETRY_REFUSED_MS`] on a refusal, else [`RETRY_UNREACHABLE_MS`]. A token another team's answer
+/// named, an expired one, or one that could not go in a header is never kept. Neither is an answer
+/// for a team the person has left (`left`: the newest call was in another team), nor, after a drop,
+/// one to a fetch started before it (`dropped`).
 pub fn keep(request: &KeepRequest) -> KeepReply {
     let mut state = request.state.clone();
-    if state.held.as_ref().is_some_and(|held| held.team == request.team) {
+    let team = request.team.as_str();
+    let current = state.fetches.iter().any(|fetch| {
+        fetch.team == team && fetch.in_flight_since.is_some_and(|since| since <= request.sent_ms)
+    });
+    if state.fenced && !current {
+        return KeepReply { state, outcome: "dropped" };
+    }
+    if current {
+        update_fetch(&mut state, team, |fetch| fetch.in_flight_since = None);
+    }
+    if state.wanted.as_deref().is_some_and(|wanted| wanted != team) {
+        return KeepReply { state, outcome: "left" };
+    }
+    if state.held.as_ref().is_some_and(|held| held.team == team) {
         state.held = None;
     }
     let now = request.now_ms;
-    let back_off = |mut state: State, after: u64, outcome| {
-        state.next_fetch_ms = now.saturating_add(after);
+    let back_off = |mut state: State, after: u64, outcome: &'static str| {
+        let until = now.saturating_add(after);
+        // A backend with no capabilities has none for any team; every other failure is this team's.
+        if outcome == "off" {
+            state.next_fetch_ms = until;
+        } else {
+            update_fetch(&mut state, team, |fetch| fetch.wait_until_ms = until);
+        }
         KeepReply { state, outcome }
     };
     let body = &request.body;
@@ -177,13 +247,19 @@ pub fn keep(request: &KeepRequest) -> KeepReply {
     state.held =
         Some(Held { token: token.to_owned(), team: team.to_owned(), use_until_ms, refresh_at_ms });
     state.next_fetch_ms = 0;
+    update_fetch(&mut state, team, |fetch| fetch.wait_until_ms = 0);
     KeepReply { state, outcome: "held" }
 }
 
 /// The token this app process holds, kept here so the app carries no state of its own (Swift stays minimal in
 /// the Cloud core: `.github/language-boundaries.toml` `cloud-core-swift-minimal`).
-static HELD: std::sync::Mutex<State> =
-    std::sync::Mutex::new(State { held: None, next_fetch_ms: 0 });
+static HELD: std::sync::Mutex<State> = std::sync::Mutex::new(State {
+    held: None,
+    next_fetch_ms: 0,
+    fetches: Vec::new(),
+    wanted: None,
+    fenced: false,
+});
 
 fn held() -> std::sync::MutexGuard<'static, State> {
     HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -256,9 +332,9 @@ pub fn answer(request: AnswerRequest) -> AnswerReply {
 }
 
 /// `cloud_capability_drop`: the install token was refused, or the account or team changed. Nothing is sent until
-/// a new token is fetched.
+/// a new token is fetched, and an answer to a fetch started before the drop is never kept.
 pub fn forget() {
-    *held() = State::default();
+    *held() = State { fenced: true, ..State::default() };
 }
 
 /// A whole non-negative number from JSON, written as an integer or (through Swift's `JSONValue`) a float.

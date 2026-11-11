@@ -98,13 +98,12 @@ fn a_failed_fetch_backs_off_by_what_it_was() {
         (200, json!({"ok": true, "value": {}}), "unreadable", RETRY_UNREACHABLE_MS),
     ] {
         let reply = kept("team_a", T0, T0 + 10, status, body);
-        assert_eq!(
-            (reply.outcome, reply.state.next_fetch_ms),
-            (outcome, T0 + 10 + after),
-            "{status}"
-        );
+        assert_eq!(reply.outcome, outcome, "{status}");
         assert!(!used(&reply.state, Some("team_a"), T0 + 10 + after - 1).fetch);
         assert!(used(&reply.state, Some("team_a"), T0 + 10 + after).fetch);
+        // Only a backend with no capabilities holds off every team.
+        let other = used(&reply.state, Some("team_b"), T0 + 20).fetch;
+        assert_eq!(other, outcome != "off", "{status}");
     }
 }
 
