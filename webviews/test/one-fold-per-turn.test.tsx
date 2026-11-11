@@ -6,6 +6,11 @@
 // it's as if you just expanded the whole worked for entirely"). Closed, the turn draws its Worked for
 // and the replies and the steer it never hides (cmux#37245), and no run line beside them; opened, its
 // run lines draw already open. A turn without a steer folds as before.
+// One fold at the turn's top drew the work after the steer above it (Leo, 2026-11-11: "it sort of,
+// like, steals commands that came in, perhaps, like, in between something, and it just shunts them to
+// the top, like it rewrites the transcript in a way"). By default each part of a steered turn folds
+// where it ran: a Worked for before the steer, one under it, each with its own time and calls, and one
+// click opens them all. The one top fold is the `nested-open` arm.
 // Gallery: agent-pane.one-fold-per-turn.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -65,8 +70,59 @@ afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
 
+const ids = (rows: AcpmuxRow[]) => rows.map((shown) => shown.id);
+
 for (const family of FAMILIES)
-  test(`${family ?? "an unknown family"}: a steered turn closes to one fold, its replies and steer in sight`, () => {
+  test(`${family ?? "an unknown family"}: a steered turn folds each part where it ran`, () => {
+    const closed = view(steered, family);
+    const top = folds(closed);
+    expect(top.map((shown) => shown.id)).toEqual([`${WORKED}-u-0`, `${WORKED}-s-1`]);
+    for (const fold of top) expect(fold.foldOpen).toBe(false);
+    // In time order: the work before the steer, the reply before it, the steer, the work after it, the
+    // answer. Nothing the agent did after the steer draws above it.
+    const at = (id: string) => ids(closed).indexOf(id);
+    const order = [`${WORKED}-u-0`, "a-before", "s-1", `${WORKED}-s-1`, "a-final"].map(at);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    // Each part counts its own time and calls: 130 s and 6 calls before the steer, 185 s and 2 after.
+    expect(top.map((fold) => [fold.durationMs, fold.toolCount])).toEqual([
+      [130_000, 6],
+      [185_000, 2],
+    ]);
+    // The turn's footer keeps the whole turn's.
+    expect(closed.find((shown) => shown.id === "s-0")!.toolCount).toBe(10);
+  });
+
+for (const family of FAMILIES)
+  test(`${family ?? "an unknown family"}: opening a steered turn opens every part, each run in its own part`, () => {
+    const opened = view(steered, family, true);
+    const at = (id: string) => ids(opened).indexOf(id);
+    for (const fold of folds(opened).filter((shown) => shown.kind === WORKED)) expect(fold.foldOpen).toBe(true);
+    expect(at(`${WORKED}-u-0`)).toBeLessThan(at("t-1"));
+    expect(at("t-1")).toBeLessThan(at("a-before"));
+    expect(at("s-1")).toBeLessThan(at(`${WORKED}-s-1`));
+    expect(at(`${WORKED}-s-1`)).toBeLessThan(at("t-2"));
+    expect(at("t-2")).toBeLessThan(at("a-final"));
+  });
+
+test("a click on the part after the steer opens the whole turn", async () => {
+  const { toggleTurnFold } = await import("../src/agent-session/acpmux/conversation/turns");
+  const expanded = toggleTurnFold(steered, new Set(), `${WORKED}-s-1`);
+  const opened = turnView(steered, expanded, { agentFamily: "codex", now: START + 400_000 });
+  expect(
+    folds(opened)
+      .filter((shown) => shown.kind === WORKED)
+      .map((fold) => fold.foldOpen),
+  ).toEqual([true, true]);
+  const closed = turnView(steered, toggleTurnFold(steered, expanded, `${WORKED}-u-0`), {
+    agentFamily: "codex",
+    now: START + 400_000,
+  });
+  expect(folds(closed).map((fold) => fold.foldOpen)).toEqual([false, false]);
+});
+
+for (const family of FAMILIES)
+  test(`${family ?? "an unknown family"}: the nested-open arm closes a steered turn to one fold at its top`, () => {
+    globalThis.cmuxExperiments = { "turn-fold-steered": "nested-open" };
     const closed = view(steered, family);
     const top = folds(closed);
     expect(top.map((shown) => shown.kind)).toEqual([WORKED]);
@@ -79,17 +135,20 @@ for (const family of FAMILIES)
 
 for (const family of FAMILIES)
   test(`${family ?? "an unknown family"}: opening a steered turn's Worked for draws its run lines open`, () => {
-    const opened = view(steered, family, true);
-    const runs = opened.filter((shown) => shown.kind === "activity");
-    expect(runs.map((shown) => shown.id)).toEqual(["t-1", "t-2"]);
-    for (const run of runs) {
-      expect(run.foldRun).toBe(true);
-      expect(run.runOpen).toBe(true);
+    for (const arm of ["in-place", "nested-open"]) {
+      globalThis.cmuxExperiments = { "turn-fold-steered": arm };
+      const opened = view(steered, family, true);
+      const runs = opened.filter((shown) => shown.kind === "activity");
+      expect(runs.map((shown) => shown.id)).toEqual(["t-1", "t-2"]);
+      for (const run of runs) {
+        expect(run.foldRun).toBe(true);
+        expect(run.runOpen).toBe(true);
+      }
+      // The run lines sit inside the fold: after the Worked for, and the replies keep their order.
+      const worked = opened.findIndex((shown) => shown.kind === WORKED);
+      expect(opened.findIndex((shown) => shown.id === "t-1")).toBeGreaterThan(worked);
+      expect(opened.filter((shown) => REPLIES.includes(shown.id)).map((shown) => shown.id)).toEqual(REPLIES);
     }
-    // The run lines sit inside the fold: after the Worked for, and the replies keep their order.
-    const worked = opened.findIndex((shown) => shown.kind === WORKED);
-    expect(opened.findIndex((shown) => shown.id === "t-1")).toBeGreaterThan(worked);
-    expect(opened.filter((shown) => REPLIES.includes(shown.id)).map((shown) => shown.id)).toEqual(REPLIES);
   });
 
 test("a turn without a steer is unchanged: closed to its answer, opened to run lines that start closed", () => {

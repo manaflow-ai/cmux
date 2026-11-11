@@ -126,6 +126,8 @@ test("a turn with intermediate replies keeps its tokens on its single fold", () 
   ).toEqual([["worked-u", SPLIT]]);
 });
 
+// A steered turn folds each part where it ran (Leo, 2026-11-11: "it just shunts them to the top, like it rewrites the transcript in a way"); the
+// turn's tokens draw once, on the original prompt's fold.
 test("a steered turn keeps its tokens on the original prompt's fold", () => {
   expect(
     workedTokens([
@@ -136,5 +138,8 @@ test("a steered turn keeps its tokens on the original prompt's fold", () => {
       takeaway("done"),
       ended(),
     ]),
-  ).toEqual([["worked-u", SPLIT]]);
+  ).toEqual([
+    ["worked-u", SPLIT],
+    ["worked-s", undefined],
+  ]);
 });

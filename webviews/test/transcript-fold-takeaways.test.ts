@@ -214,8 +214,10 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
     answer("longC"),
     summary(),
   ];
+  // The work after the steer folds under it (Leo, 2026-11-11: "it just shunts them to the top, like it rewrites the transcript in a way");
+  // Find still opens the turn, whose key opens both.
   const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
-  expect(folds).toEqual(["worked:worked-u"]);
+  expect(folds).toEqual(["worked:worked-u", "worked:worked-s1"]);
   expect(
     turnFoldFor(
       rows,

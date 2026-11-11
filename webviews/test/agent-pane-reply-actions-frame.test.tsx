@@ -193,9 +193,10 @@ test("a personal steer keeps reply A and final reply B expanded while the work a
       // Steered or not, the work stays under the one closed Worked for: reply A stays in sight (Leo,
       // 2026-11-06: "your intermediate message got lost. that can never happen") without its runs
       // drawing beside the fold (turnFoldSteered.experiment.ts; Leo, 2026-11-07: "this could have been,
-      // like, tucked inside the worked for").
+      // like, tucked inside the worked for"). Steered before any work, that work folds under the steer, where
+      // it ran, not above it (Leo, 2026-11-11: "it just shunts them to the top, like it rewrites the transcript in a way").
       expect(document.querySelector('[data-row-id="t1"]')).toBeNull();
-      expect(document.querySelector(`[data-row-id="${WORKED}-u1"]`)).not.toBeNull();
+      expect(document.querySelector(`[data-row-id="${WORKED}-${steered ? "steer" : "u1"}"]`)).not.toBeNull();
       // Steered, reply A's stretch ends on its own copy row over the steer (turns.ts supersededFooters,
       // #34939; Leo, 2026-11-03: "a lot of these should've been counted as "ended"-ish turns that allow
       // me to copy/paste your stuff"); the turn keeps one footer of its own, at its end.

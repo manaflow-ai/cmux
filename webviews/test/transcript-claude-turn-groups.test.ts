@@ -205,7 +205,17 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
   expect(notes("b3")).toEqual([]);
 });
 
+// Each part folds where it ran, the work after the steer under it (Leo, 2026-11-11: "it just shunts them to the top, like it rewrites the transcript in a way").
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), agentFamily: "codex" });
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
+  expect(view.map((row) => row.id)).toEqual([
+    "u",
+    `${WORKED}-u`,
+    "r1",
+    `${SUPERSEDED}-s1`,
+    "s1",
+    `${WORKED}-s1`,
+    "answer",
+    "sum",
+  ]);
 });
