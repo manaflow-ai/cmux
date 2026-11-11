@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42977054182",
+  "recorded_at": "2026-11-11T07:11:31Z",
+  "reason": "cmux-tui 3e05f227ca1e changes the image's cmux-tui (pinned 2e3698e13fc6)",
+  "dry_run": false,
+  "cmux_tui": "3e05f227ca1e3b555171d666fe4d227e0b7f21c7",
+  "fixes": [
+    {
+      "sha": "3e05f227ca1e3b555171d666fe4d227e0b7f21c7",
+      "mergedAt": "2026-11-10T22:54:52-08:00",
+      "subject": "cmux-command-class: cursor and index steps use saturating or checked math (123 arithmetic hits to 0) (#40864)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T07:11:31Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
