@@ -807,7 +807,11 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
+# app-ffi-release.yml builds the CCmuxAppFFI release every NEXT app build links; until it publishes, feat-cmux-next
+# is red on "Check the app FFI pin". On 2026-11-10 run 42833220418's build queued 66 minutes on
+# blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z). It runs only on a feat-cmux-next push or a
+# dispatch there, so every run of it is release work.
+RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml", "app-ffi-release.yml"})
 
 
 def reserves_pool(path: str | None, event: str | None = None) -> bool:

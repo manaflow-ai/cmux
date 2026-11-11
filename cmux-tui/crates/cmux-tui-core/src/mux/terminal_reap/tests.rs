@@ -498,3 +498,181 @@ fn terminal_reap_an_ended_reaper_does_not_clear_a_newer_reapers_advertisement() 
     newer.stop();
     assert!(!mux.terminal_reaper_advertised());
 }
+
+/// A daemon in a shutdown handoff gives its terminals to the next owner: the
+/// reaper must not end one on the way out, neither in a pass nor through the
+/// guarded close. (The handoff also flushes its acknowledgement under the
+/// client registry's lock, so a reap close that waited for that lock under
+/// the mux locks stalled the whole mux for up to 5 s.)
+#[test]
+fn terminal_reap_ends_no_terminal_during_a_daemon_handoff() {
+    let mux = Mux::new_for_test("terminal-reap-handoff", SurfaceOptions::default());
+    mux.set_terminal_reap_grace(Duration::ZERO).unwrap();
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let requester = mux.control_clients.attach_test_stream(placed.id);
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
+    let mut schedule = ReapSchedule::default();
+    let reaped = mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+    assert!(reaped.is_empty(), "a daemon in a handoff reaped {reaped:?}");
+    let guarded = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    assert_eq!(
+        lifecycle(&mux, &terminal_id),
+        TerminalLifecycle::Running,
+        "the guarded reap close ended a terminal during a daemon handoff: {guarded:?}"
+    );
+    let failure = guarded
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(failure, Some(TerminalCloseGuardFailed::HandingOff), "the guard names the handoff");
+    // A cancelled handoff reaps again, one grace (at least a second) later.
+    mux.cancel_daemon_handoff(requester);
+    let later = Instant::now() + MIN_RETRY;
+    assert_eq!(mux.reap_unplaced_terminals(&mut schedule, later), vec![terminal_id.clone()]);
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Tombstoned);
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// The cap's attach read (`attached_reap_candidates`) runs in a real pass:
+/// with 17 closed terminals and one of them attached, the 16 detached ones
+/// are within the cap, so no terminal ends before its grace.
+#[test]
+fn terminal_reap_pass_past_the_cap_skips_an_attached_terminal() {
+    let mux = Mux::new_for_test("terminal-reap-cap-attach-pass", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed: Vec<String> = (0..=MAX_TERMINALS_IN_REAP_GRACE)
+        .map(|index| {
+            let surface =
+                mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap();
+            let terminal_id = host_id(&mux, &surface);
+            close_workspace_of(&mux, &surface);
+            terminal_id
+        })
+        .collect();
+    mux.control_clients.attach_test_stream(runtime_view(&mux, &closed[0]));
+    let mut schedule = ReapSchedule::default();
+    let reaped = mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+    assert!(reaped.is_empty(), "an attached terminal counted toward the cap: {reaped:?}");
+    for terminal_id in &closed {
+        assert_eq!(lifecycle(&mux, terminal_id), TerminalLifecycle::Running);
+        mux.close_terminal_with_mutation(
+            terminal_id,
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local("test-cleanup"),
+        )
+        .unwrap();
+    }
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// A terminal without a resource id closes through the legacy path in
+/// `close_terminal_guarded`; its guard also keeps an attached terminal.
+#[test]
+fn terminal_reap_legacy_close_keeps_an_attached_terminal() {
+    let mux = Mux::new_for_test("terminal-reap-legacy-attach", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    mux.control_clients.attach_test_stream(runtime_view(&mux, &terminal_id));
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, true)
+        .unwrap();
+    let result = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, false)
+        .unwrap();
+    let failure = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(
+        failure,
+        Some(TerminalCloseGuardFailed::Attached),
+        "the legacy guarded close did not keep an attached terminal: {result:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.close_terminal_with_mutation(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("test-cleanup"),
+    )
+    .unwrap();
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// The legacy close path (a terminal without a resource id) also keeps every
+/// terminal during a daemon handoff.
+#[test]
+fn terminal_reap_legacy_close_ends_no_terminal_during_a_daemon_handoff() {
+    let mux = Mux::new_for_test("terminal-reap-legacy-handoff", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let requester = mux.control_clients.attach_test_stream(placed.id);
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, true)
+        .unwrap();
+    let result = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, false)
+        .unwrap();
+    let failure = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(
+        failure,
+        Some(TerminalCloseGuardFailed::HandingOff),
+        "the legacy guarded close did not keep a terminal during a handoff: {result:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.cancel_daemon_handoff(requester);
+    mux.close_terminal_with_mutation(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("test-cleanup"),
+    )
+    .unwrap();
+    mux.close_surface(placed.id).unwrap();
+}
