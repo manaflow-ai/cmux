@@ -1113,8 +1113,14 @@ def normalise_error(text: str) -> str:
     said = FILE_NAME.sub(keep_path, said)
     said = re.sub(r"\d+", "#", said)
     # Each marker back to its id in one pass (a replace per id read the whole line once per path on it: a PR's line
-    # of N paths took N^2, PrLogReadersScale).
+    # of N paths took N^2, PrLogReadersScale). A marker longer than the largest one written here is the log's own
+    # text, left as it is and never decoded: decoding a forged one (a NUL, many letters, a NUL) built an integer as
+    # long as it, N^2 in its letters (160,000 took 5 CPU s; #41220's follow-up, AdversarialInputsScale).
+    longest = len(_marker(len(kept) - 1)) - 2 if kept else 0
+
     def restore(match: re.Match[str]) -> str:
+        if len(match[1]) > longest:
+            return match[0]
         index = _marker_index(match[1])
         return kept[index] if index < len(kept) else match[0]
     return MARKER.sub(restore, said) if kept else said
