@@ -42,7 +42,10 @@ the first does. In the seeded arm a crash report counts only when it is of
 that launch: one of a process that died before the seeded launch started (the
 first arm's app or a helper of it, a crash while it quit, written seconds
 later), one that names the first arm's process, or one of another copy of the
-app is logged and kept under --out's not-counted/, never counted. Without
+app is logged and kept under --out's not-counted/, never counted. The first
+arm does the same for its launch: a crash of another launch of an app with
+the same executable name on the host (another tagged build on a fleet Mac) is
+not its crash. A report that names no process counts in both arms. Without
 --arms only the empty home is launched, as before.
 
 Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
@@ -535,11 +538,11 @@ def crash_report_process(path: Path) -> dict | None:
 REPORT_TIME = re.compile(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(\.\d+)? ([+-]\d{4})")
 
 
-def crash_report_time(path: Path) -> tuple[float, float] | None:
-    """When the process of a crash report died, as (epoch seconds, how many seconds later it can have been), or
-    None when the report does not say. An .ips body has `captureTime` and a .crash has a `Date/Time:` line, both
-    exact; an .ips header has `timestamp`, which macOS writes to the whole second (`12:34:56.00`), and it is all
-    there is while the body is not written in full."""
+def report_stamps(path: Path, body_key: str, header_key: str | None, line: str) -> tuple[float, float] | None:
+    """A time a crash report gives, as (epoch seconds, how many seconds later it can have been), or None when the
+    report does not say: the .ips body's BODY_KEY, else its header's HEADER_KEY (macOS writes that one to the
+    whole second, `12:34:56.00`, and it is all there is while the body is not written in full), else a .crash
+    file's LINE."""
     try:
         text = path.read_text(errors="replace")
     except OSError:
@@ -547,16 +550,17 @@ def crash_report_time(path: Path) -> tuple[float, float] | None:
     head, _, rest = text.partition("\n")
     stamps: list[tuple[object, float]] = []
     try:
-        stamps.append((json.loads(rest).get("captureTime"), 0.0))
+        stamps.append((json.loads(rest).get(body_key), 0.0))
     except (ValueError, AttributeError):
         pass
-    try:
-        stamps.append((json.loads(head).get("timestamp"), 1.0))
-    except (ValueError, AttributeError):
-        pass
-    line = re.search(r"^Date/Time:\s+(\S.*?)\s*$", text[:8000], re.MULTILINE)
-    if line:
-        stamps.append((line.group(1), 0.0))
+    if header_key is not None:
+        try:
+            stamps.append((json.loads(head).get(header_key), 1.0))
+        except (ValueError, AttributeError):
+            pass
+    found = re.search(rf"^{re.escape(line)}\s+(\S.*?)\s*$", text[:8000], re.MULTILINE)
+    if found:
+        stamps.append((found.group(1), 0.0))
     for stamp, slack in stamps:
         found = REPORT_TIME.fullmatch(stamp) if isinstance(stamp, str) else None
         if found is None:
@@ -567,6 +571,19 @@ def crash_report_time(path: Path) -> tuple[float, float] | None:
             continue
         return when + float(found.group(2) or 0), slack
     return None
+
+
+def crash_report_time(path: Path) -> tuple[float, float] | None:
+    """When the process of a crash report died (report_stamps' form): the .ips body's `captureTime`, else its
+    header's `timestamp`, else a .crash file's `Date/Time:` line."""
+    return report_stamps(path, "captureTime", "timestamp", "Date/Time:")
+
+
+def crash_report_launch_time(path: Path) -> float | None:
+    """When the process of a crash report was started (epoch seconds), or None when the report does not say: the
+    .ips body's `procLaunch`, else a .crash file's `Launch Time:` line."""
+    stamp = report_stamps(path, "procLaunch", None, "Launch Time:")
+    return None if stamp is None else stamp[0]
 
 
 def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None) -> str | None:
@@ -584,6 +601,13 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     if died is not None and died[0] + died[1] < started:
         return (f"its process died at {datetime.fromtimestamp(died[0], timezone.utc):%H:%M:%S}Z, "
                 f"{started - died[0]:.1f}s before this launch started")
+    # Nor is one of a process that was started before it: every process of this launch starts after STARTED. This
+    # does not depend on when macOS takes the time of death, and it also covers a process of an earlier launch
+    # that the run did not find and stop.
+    born = crash_report_launch_time(path) if started is not None else None
+    if born is not None and born < started:
+        return (f"its process was started at {datetime.fromtimestamp(born, timezone.utc):%H:%M:%S}Z, "
+                f"{started - born:.1f}s before this launch started")
     who = crash_report_process(path)
     if who is None or pid in (who["pid"], who["parent"]):
         return None
@@ -798,6 +822,36 @@ def awaited_crash_reports(diagnostics: Path, executable: str, since: float, exit
     return crashes
 
 
+def launch_crash_reports(diagnostics: Path, executable: str, since: float, exited: bool, pid: int, app: Path,
+                         earlier: frozenset[int], started: float) -> tuple[list[Path], dict[Path, str]]:
+    """The crash reports of the launch with PID of the app copy APP (awaited_crash_reports), and the reports that
+    the name and the file's time matched but that are not its, each with why (not_of_launch)."""
+    not_counted: dict[Path, str] = {}
+
+    def skip(found: Path) -> str | None:
+        why = not_of_launch(found, pid, app, earlier, started)
+        if why is None:
+            not_counted.pop(found, None)
+        else:
+            not_counted[found] = why
+        return why
+
+    crashes = awaited_crash_reports(diagnostics, executable, since, exited, skip)
+    return crashes, {found: not_counted[found] for found in sorted(not_counted) if found not in crashes}
+
+
+def keep_not_counted(out: Path, others: list[Path]) -> None:
+    """Reports that were found and not counted, kept under OUT/not-counted: not beside the counted ones, where a
+    caller shows each report as this run's crash. The folder gets OUT's mode, so the account that made OUT (a CI
+    runner, when the launch runs as the console user) can remove it."""
+    for found in others:
+        folder = out / NOT_COUNTED
+        if not folder.is_dir():
+            folder.mkdir()
+            folder.chmod(out.stat().st_mode & 0o777)
+        shutil.copyfile(found, folder / found.name)
+
+
 def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict, seen: dict) -> None:
     """Launches the app copy once more, from the home seed_cookie_sync_home makes under ROOT/SEEDED, and puts
     the arm's verdict in ARM (what report.json's `arms` keeps) and what the watch saw in SEEN."""
@@ -839,18 +893,9 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
 
     # Only this launch's crash reports count here: the first arm's processes were stopped a moment ago, and a
     # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app.
-    not_counted: dict[Path, str] = {}
-
-    def skip(found: Path) -> str | None:
-        why = not_of_launch(found, process.pid, app, launch["earlier"], launch["earlier_stopped"])
-        if why is None:
-            not_counted.pop(found, None)
-        else:
-            not_counted[found] = why
-        return why
-
-    crashes = awaited_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None, skip)
-    others = sorted(found for found in not_counted if found not in crashes)
+    crashes, not_counted = launch_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None,
+                                                process.pid, app, launch["earlier"], launch["earlier_stopped"])
+    others = list(not_counted)
     for found in others:
         log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
     exceptions = sorted((sub / "h").rglob("run.exception"))
@@ -889,10 +934,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         if launch["out"] is not None:
             for found in [*crashes, *exceptions]:
                 shutil.copyfile(found, launch["out"] / found.name)
-            # Not beside the counted ones: a caller shows each report at the top of --out as this run's crash.
-            for found in others:
-                (launch["out"] / NOT_COUNTED).mkdir(exist_ok=True)
-                shutil.copyfile(found, launch["out"] / NOT_COUNTED / found.name)
+            keep_not_counted(launch["out"], others)
         if failures:
             explain(process.pid, launched_wall, sub / "app.log", crashes, exceptions, seen["failures"], seen)
     except Exception as error:  # noqa: BLE001 - evidence only
@@ -934,7 +976,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         report.pop(key, None)
         if key in seen:
             report[key] = seen[key]
-    report.update(pid=arm["pid"], verdict="fail", arm=SEEDED)
+    report.update(pid=arm["pid"], verdict="fail", arm=SEEDED,
+                  crash_reports_not_counted=arm.get("crash_reports_not_counted", []))
     return FAIL
 
 
@@ -988,13 +1031,25 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(own_pids(root))
-    crashes = awaited_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None)
+    # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
+    # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
+    # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch); one that names no
+    # process counts, as every report did before.
+    crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
+                                                process.pid, app, frozenset(), launched_wall)
+    for found, why in not_counted.items():
+        log(f"note: crash report {found.name} is not counted for this launch: {why}")
     exceptions = sorted((root / "h").rglob("run.exception"))
     report["crash_reports"] = [str(path) for path in crashes]
+    report["crash_reports_not_counted"] = [str(path) for path in not_counted]
     report["run_exceptions"] = [str(path) for path in exceptions]
     if out is not None:
         for path in [*crashes, *exceptions]:
             shutil.copyfile(path, out / path.name)
+        try:
+            keep_not_counted(out, list(not_counted))
+        except OSError as error:  # evidence only: never the verdict
+            log(f"warning: a crash report that was not counted could not be kept: {error}")
     failures = list(journey_failures)
     status, elapsed = seen["exit"], seen["seconds_up"]
     if status is not None:
