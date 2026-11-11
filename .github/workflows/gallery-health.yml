@@ -253,7 +253,9 @@ jobs:
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
           # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
           # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
-          fetch-depth: ${{ github.event_name == 'push' && 0 || 2 }}
+          # Quoted: in an expression `cond && 0 || 2` is always 2, because 0 is falsy and `||` takes the
+          # right side. The string '0' is truthy, so a push really fetches full history.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
