@@ -9,9 +9,20 @@
 // one mounted and played the live entrance. After: the line is drawn in its first row's frame
 // (`AcpmuxRow.frame`), so the same article goes from the run's line to the message run's line in one
 // commit; the line's id, its fold key, Find and the open state are as they were.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -101,7 +112,7 @@ const ended = (expanded: Set<string>) =>
 
 for (const fold of [undefined, "runs"] as const)
   test(`the run's line keeps its frame when the turn's end folds a steered message the agent read (claude-turn-fold ${fold ?? "default"})`, async () => {
-    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
+    globalThis.cmuxExperiments = { "live-turn-work": "runs", ...(fold ? { "claude-turn-fold": fold } : {}) };
     const host = dom.window.document.createElement("div");
     dom.window.document.body.append(host);
     const root = createRoot(host);
@@ -174,6 +185,6 @@ for (const fold of [undefined, "runs"] as const)
     } finally {
       await act(async () => root.unmount());
       host.remove();
-      globalThis.cmuxExperiments = undefined;
+      globalThis.cmuxExperiments = { "live-turn-work": "runs" };
     }
   });

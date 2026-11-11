@@ -619,6 +619,24 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: scripts/ci/crash-ratchet-against-base.sh
 
+      # Every task and process has an owner (cmuxterm-hq#9096): no file gains a spawn with no
+      # owner, and the baseline only goes down against the base (HEAD^1 of a pull request's merge
+      # commit, the previous tip of a push).
+      - name: cmux-next spawn-owner ratchet
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=()
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=(--base-ref HEAD^1)
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=(--base-ref "$BEFORE")
+          fi
+          python3 -I scripts/cmux-next/check-spawn-owner.py "$GITHUB_WORKSPACE" ${base[@]+"${base[@]}"}
+
       - name: cmux-next localization debt ratchet
         if: ${{ !cancelled() }}
         timeout-minutes: 5
@@ -739,6 +757,9 @@ jobs:
 
       - name: The crash ratchet is judged against the base
         run: python3 tests/test_crash_ratchet_compare.py
+
+      - name: The spawn-owner ratchet's rules (cmuxterm-hq#9096)
+        run: python3 tests/test_spawn_owner_ratchet.py
 
       - name: The red-checks line of the PR status comment
         run: python3 tests/test_pr_red_checks_comment.py
