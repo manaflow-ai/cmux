@@ -23,9 +23,11 @@ mod completion;
 pub(crate) mod contention;
 mod disk_full;
 mod effect_intents;
+mod terminal_offer;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
 pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
+pub(crate) use terminal_offer::TerminalOffer;
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -508,6 +510,8 @@ struct JournalIngressState {
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
     disk_full: disk_full::DiskFullState,
+    /// Markers for records the full terminal lane refused (terminal_offer.rs).
+    owed_terminal_gaps: Mutex<terminal_offer::OwedTerminalGaps>,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -595,6 +599,7 @@ impl JournalIngressState {
         Ok(())
     }
 
+    #[cfg(test)]
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
         let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
@@ -644,6 +649,10 @@ impl JournalIngressSender {
         )
     }
 
+    /// Test-only: waits for room in the terminal lane with no time limit.
+    /// Shipped code offers its terminal-lane records (terminal_offer.rs): its
+    /// callers hold terminal locks.
+    #[cfg(test)]
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return };
@@ -912,6 +921,7 @@ impl JournalIngressSender {
         &self.state.stats
     }
 
+    #[cfg(test)]
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -1050,6 +1060,7 @@ impl JournalIngressSender {
         commit_fence: &AtomicU8,
         operation: &str,
     ) -> anyhow::Result<T> {
+        let _slow_log = crate::diagnostics::request_log::registry_wait(deadline);
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

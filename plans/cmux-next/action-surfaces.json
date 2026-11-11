@@ -15154,7 +15154,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.saveFlightRecording",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15211,7 +15211,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.agentMessagePlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15262,7 +15262,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.mcpConnectPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15311,7 +15311,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.compareTablePlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -15348,7 +15348,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.chiefTeleportPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38805,7 +38805,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.glass.lens.toggle",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38898,7 +38898,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.tabBarPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38929,7 +38929,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.allThemesPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38960,7 +38960,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.sidebarStatesPlayground",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -38991,7 +38991,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.viewWindow",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39041,7 +39041,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.projection",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39076,7 +39076,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.projection.runTest",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -39107,7 +39107,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "debug.actionLatencyHUD",
-      "main_menu" : "debug",
+      "main_menu" : null,
       "mcp" : "devOnly",
       "palette" : "offered",
       "palette_section" : {
@@ -61856,14 +61856,6 @@
     {
       "name" : "sidebarUpdateCard",
       "source" : "CmuxNextSidebar\/Views\/SidebarUpdateCardView.swift"
-    },
-    {
-      "name" : "debugSidebarToggleIcon",
-      "source" : "CmuxNextApp\/Windows\/SidebarToggleIconMenu.swift"
-    },
-    {
-      "name" : "debugStatusIconSet",
-      "source" : "CmuxNextApp\/Windows\/StatusIconSetMenu.swift"
     },
     {
       "name" : "homeBackground",

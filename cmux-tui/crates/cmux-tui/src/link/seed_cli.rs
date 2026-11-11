@@ -92,7 +92,7 @@ use record::{Kept, Record};
 use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--since-last | --head-first SUBPATH]
+[--since-last | --head-first SUBPATH] [--allow-large]
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--or-copy | --base-head SHA --base-index SHA --base-work SHA]
@@ -240,10 +240,28 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         };
     }
-    let Some(command) = parse(args) else {
+    let value_flags = [
+        "--socket",
+        "--repo",
+        "--ref",
+        "--head-first",
+        "--base-head",
+        "--base-index",
+        "--base-work",
+    ];
+    let (args, allow_large) = sync_cli::size_cap::take_allow_large(args, &value_flags);
+    let Some(command) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A copy past the size limits goes only when asked ([`sync_cli::size_cap`]).
+    if allow_large
+        && let Command::Push { local, .. } = &command
+        && let Err(error) = sync_cli::size_cap::allow(local)
+    {
+        println!("{}", SeedError::new("sync_failed", format!("{error:#}")).line());
+        return 1;
+    }
     let answer = match command {
         Command::Pull { socket, local, remote, base } => {
             let (line, code) = pull::run(&socket, &local, &remote, base);

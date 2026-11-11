@@ -657,6 +657,12 @@
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
     },
+    "app.internalDeveloperMode" : {
+      "default" : false,
+      "description" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+      "title" : "Internal Developer Mode",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -2009,7 +2015,7 @@
       "type" : "boolean"
     },
     "browser.openPullRequestsInGitHubPage" : {
-      "default" : true,
+      "default" : false,
       "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
       "title" : "Open Pull Requests in cmux GitHub Page",
       "type" : "boolean"
@@ -2259,6 +2265,12 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.turnCheckpoints" : {
+      "default" : false,
+      "description" : "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
+      "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
     "cloud.useMyClaudeLoginOnMyCloudMachines" : {

@@ -24,16 +24,27 @@ This test runs the step's own `run:` text from nightly.yml in a temp workspace w
 local repository. Each workspace state is made with the git commands actions/checkout v6.0.2
 printed in those job logs, from the `with:` of the workflow's own sparse checkout steps.
 
-Run it yourself after changing the warm checkout step or a sparse checkout of a job that can
-share its runner: python3 tests/test_nightly_warm_checkout_sparse.py (about 5 s, git only, no Mac).
+Run 42940891027 (2026-11-11, ultra1-glaeda-nightly-only-xl-2): the warm checkout's `git clean -ffdxq`
+failed with hundreds of "failed to remove .build/go-path/pkg/mod/gvisor.dev/...: Permission denied".
+The build before it compiled acpmux in the clone: scripts/ci/tailnet-go.sh set GOFLAGS empty and
+GOMODCACHE under .build/go-path, Go writes its module cache read-only, so `git clean` could not
+remove it and `set -e` ended the step. The "Go module cache" tests make that cache with this
+machine's `go` through the helper (skipped with no Go 1.21 or later) and run the step after it.
+
+Run it yourself after changing the warm checkout step, a sparse checkout of a job that can share
+its runner, or tailnet-go.sh: python3 tests/test_nightly_warm_checkout_sparse.py (about 5 s, git
+and go only, no network, no Mac).
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -44,6 +55,8 @@ JOBS = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 WARM_STEP = "Checkout build ref (warm nightly-next builder)"
 LEAN_PATTERNS = json.loads((ROOT / ".github/checkout-lean.json").read_text())["sparse_checkout"]
 KEPT_TARGET = "cmux-tui/target/release/kept.o"
+TAILNET_GO = ROOT / "scripts/ci/tailnet-go.sh"
+GO_PATH = ".build/go-path"
 
 OLD_TREE = {
     ".xcode-version": "26.6\n",
@@ -244,6 +257,23 @@ class WarmCheckoutTest(unittest.TestCase):
 
     # -- the states that worked before stay as they were -----------------------------------------
 
+    def test_the_deltas_jobs_cone_checkout_keeps_the_root_files_after_the_signer(self) -> None:
+        """Runs 42819750253 and 42829570644: generate-nightly-deltas itself had no .xcode-version."""
+        forget = "Forget the kept clone's sparse-checkout mode"
+        for job in ("generate-nightly-deltas", "republish-nightly-deltas"):
+            names = [s.get("name") for s in JOBS[job]["steps"]]
+            self.assertIn(forget, names, job)
+            self.assertLess(names.index(forget), names.index("Checkout build ref"), job)
+        self.kept_workspace()
+        self.after_the_signer()
+        done = subprocess.run(["bash", "-e", "-c", step("generate-nightly-deltas", forget)["run"]], cwd=self.ws,
+                              text=True, capture_output=True, env={**os.environ, "GITHUB_WORKSPACE": str(self.ws)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.after_the_deltas_job()
+        root_files = sorted(name for name in OLD_TREE if "/" not in name)
+        self.assertTrue(root_files)
+        self.assertEqual([name for name in root_files if not (self.ws / name).is_file()], [])
+
     def test_a_workspace_that_was_never_sparse(self) -> None:
         self.kept_workspace()
         self.assert_whole_tree("never sparse")
@@ -251,6 +281,82 @@ class WarmCheckoutTest(unittest.TestCase):
 
     def test_a_fresh_workspace(self) -> None:
         self.assert_whole_tree("fresh")
+
+    # -- the Go module cache an acpmux build leaves in .build -------------------------------------
+
+    def read_only_folders(self) -> list[str]:
+        return sorted(str(Path(folder).relative_to(self.ws)) for folder, _, _ in os.walk(self.ws / GO_PATH)
+                      if not os.stat(folder).st_mode & stat.S_IWUSR)
+
+    def make_writable(self) -> None:
+        """TemporaryDirectory cannot remove a read-only tree that a red run leaves."""
+        for folder, _, _ in os.walk(self.temp):
+            os.chmod(folder, os.stat(folder).st_mode | stat.S_IRWXU)
+
+    def module_proxy(self) -> str:
+        """A file:// GOPROXY with one module, so `go mod download` needs no network."""
+        versions = self.temp / "goproxy/example.com/m/@v"
+        versions.mkdir(parents=True)
+        (versions / "list").write_text("v1.0.0\n")
+        (versions / "v1.0.0.info").write_text('{"Version":"v1.0.0","Time":"2026-11-11T00:00:00Z"}\n')
+        (versions / "v1.0.0.mod").write_text("module example.com/m\n")
+        with zipfile.ZipFile(versions / "v1.0.0.zip", "w") as archive:
+            archive.writestr("example.com/m@v1.0.0/go.mod", "module example.com/m\n")
+            archive.writestr("example.com/m@v1.0.0/pkg/m.go", "package pkg\n")
+        return (self.temp / "goproxy").as_uri()
+
+    def build_with_tailnet_go(self) -> str:
+        """What build-acpmux.sh does in the clone: source the helper, then Go fetches modules. Returns GOFLAGS."""
+        if shutil.which("go", path=self.env["PATH"]) is None:
+            self.skipTest("no go on PATH")
+        self.addCleanup(self.make_writable)
+        # Only the module source differs from the builder: a local proxy, no checksum database.
+        script = (
+            'source "$1"\n'
+            'ensure_tailnet_go "$2" >/dev/null || exit $?\n'
+            'export GOPROXY="$3" GOSUMDB=off GOTOOLCHAIN=local\n'
+            'cd "$2" && go mod download example.com/m@v1.0.0 || exit 4\n'
+            'printf "%s\\n" "$GOMODCACHE" "$GOFLAGS"\n'
+        )
+        result = subprocess.run(["bash", "-c", script, "build", str(TAILNET_GO), str(self.ws), self.module_proxy()],
+                                cwd=self.temp, env=self.env, capture_output=True, text=True)
+        if result.returncode == 3:
+            self.skipTest(f"tailnet-go.sh found no Go 1.21 or later here: {result.stderr.strip()}")
+        self.assertEqual(result.returncode, 0, f"go mod download failed\n{result.stdout}\n{result.stderr}")
+        cache, flags = result.stdout.splitlines()[-2:]  # an empty GOFLAGS is an empty last line
+        self.assertEqual(cache, str(self.ws / GO_PATH / "pkg/mod"))
+        self.assertTrue((self.ws / GO_PATH / "pkg/mod/example.com/m@v1.0.0/pkg/m.go").is_file())
+        return flags
+
+    def test_go_module_cache_tailnet_go_keeps_it_writable(self) -> None:
+        self.kept_workspace()
+        flags = self.build_with_tailnet_go()
+        self.assertIn("-modcacherw", flags.split(), "tailnet-go.sh must export GOFLAGS=-modcacherw")
+        self.assertEqual(self.read_only_folders(), [], "Go wrote read-only folders under .build/go-path")
+
+    def test_go_module_cache_after_an_acpmux_build(self) -> None:
+        # The state of run 42940891027: the build before compiled acpmux in this clone.
+        self.kept_workspace()
+        self.build_with_tailnet_go()
+        self.assert_whole_tree("after an acpmux build")
+        self.assertFalse((self.ws / GO_PATH).exists(), "git clean left the Go module cache")
+
+    def test_go_module_cache_left_read_only_before_the_fix(self) -> None:
+        # Clones on other builders can still hold a cache an older tailnet-go.sh wrote, in Go's own modes.
+        self.addCleanup(self.make_writable)
+        self.kept_workspace()
+        cache = self.ws / GO_PATH
+        source = cache / "pkg/mod/gvisor.dev/gvisor@v0.0.0/pkg/tcpip/stack.go"
+        source.parent.mkdir(parents=True)
+        source.write_text("package stack\n")
+        source.chmod(0o444)
+        folder = source.parent
+        while folder != cache:
+            folder.chmod(0o555)
+            folder = folder.parent
+        self.assertEqual(len(self.read_only_folders()), 6)
+        self.assert_whole_tree("with a read-only module cache")
+        self.assertFalse(cache.exists(), "git clean left the Go module cache")
 
 
 if __name__ == "__main__":
