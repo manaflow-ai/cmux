@@ -323,3 +323,9 @@
     border-bottom: 1px solid var(--look-line);
   }
 }
+
+/* TRY (Lucas 2026-11-12, local build only): taller menu buttons, the comfortable control height. */
+:root[data-settings-look="refined"] .settings .row-control .ui-select-button {
+  min-height: var(--ds-control-primary);
+  padding-inline-start: var(--ds-space-3);
+}

@@ -51,7 +51,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "choice":
       // The accent is a swatch popup like the Theme section's, wherever it shows.
       if (row.key === ACCENT_KEY) return <AccentRowEditor {...props} />;
-      return fitsSegments(row) ? <SegmentedEditor {...props} /> : <MenuEditor {...props} />;
+      // TRY (Lucas 2026-11-12, local build only): every choice row a menu, no segments.
+      return <MenuEditor {...props} />;
     case "choice_or_number":
       return <ChoiceOrNumberEditor {...props} />;
     case "choice_or_url":
