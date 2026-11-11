@@ -434,10 +434,11 @@ class TheHelpers(unittest.TestCase):
         holder, orphan = zombie_not_ours()
         try:
             with AsOnMacOS():
-                began = time.monotonic()
+                # Nothing reaps either zombie during these waits (this test, and HOLDER, never wait on them), so
+                # True can only come from seeing the zombie; the old poll answered False at the deadline.
                 self.assertTrue(died(proc.pid, within=5), "our own unreaped child")
                 self.assertTrue(died(orphan, within=5), "another process's unreaped child")
-                self.assertLess(time.monotonic() - began, 4)  # found, not timed out
+                self.assertIsNone(holder.poll(), "HOLDER ended, which would have reaped its child")
                 self.assertFalse(died(live.pid, within=0.3))
                 self.assertTrue(running(live.pid))
                 self.assertFalse(running(orphan))
@@ -477,9 +478,9 @@ class TheHelpers(unittest.TestCase):
         live = subprocess.Popen(["sleep", "60"], start_new_session=True)
         try:
             with RefusesGroupSignalZero():
-                began = time.monotonic()
+                # HOLDER never reaps its child during the wait, so True can only come from reading the members.
                 self.assertTrue(group_died(pgid, within=5), "a group of zombies only")
-                self.assertLess(time.monotonic() - began, 4)  # found, not timed out
+                self.assertIsNone(holder.poll(), "HOLDER ended, which would have reaped its child")
                 self.assertFalse(group_died(live.pid, within=0.3), "a live group that refuses signal 0")
         finally:
             for p in (live, holder):
