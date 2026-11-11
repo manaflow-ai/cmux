@@ -6077,6 +6077,46 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             "step-A Rust change, pinned by the release its merge publishes"])
         self.assertEqual(len(self.graphql), 1)
 
+    def unplaced_pin_log(self, *extra):
+        """pin_log with its rollup step run through a composite action (two `Run` headers in one step), so step_owners
+        cannot place the log (cmux#41086 at 2026-11-11, after #40542)."""
+        pin = [line for line in self.pin_log().split("\n") if line.startswith(f"{self.JOB}\t{self.PIN}\t")]
+        return "\n".join(pin + [unplaced_log(self.JOB, self.ROLLUP, f"##[error]red check: {self.PIN}", *extra)])
+
+    def test_an_unplaced_pin_log_is_judged_by_the_pin_rules(self):
+        # #40542 refused every unplaced pin red, step A's too: the rules read the PR's paths, never the layout.
+        self.gh.logs = {1: self.unplaced_pin_log(), 2: ""}
+        job = copy.deepcopy(self.gh.jobs[1])
+        self.assertIs(excuse.failed_view(job, self.gh.logs[1], base=False, **UNKNOWN), excuse.UNPLACED)
+        self.pr_files(*self.RUST)
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
+            "step-A Rust change, pinned by the release its merge publishes"])
+
+    def test_an_unplaced_pin_red_no_rule_covers_is_refused(self):
+        self.gh.logs = {1: self.unplaced_pin_log(), 2: ""}
+        self.pr_files("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppActions.swift")
+        with self.assertRaisesRegex(excuse.Refused, "changes Swift .*nor is its pin a published base release"):
+            self.judge()
+        self.pr_files("scripts/cmux-next/check-app-ffi-pin.sh")
+        with self.assertRaisesRegex(excuse.Refused, "changes the app FFI pin check's code"):
+            self.judge()
+
+    def test_an_unplaced_pin_red_beside_a_test_red_is_compared_whole_without_the_pin(self):
+        # Another red beside a pin a rule covers: the pin's parts leave, the rest must be the base's exactly.
+        shared = "##[error]red check: Motion and colour tokens"
+        self.gh.logs = {1: self.unplaced_pin_log(shared),
+                        2: unplaced_log(self.JOB, self.ROLLUP, shared)}
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.ROLLUP)
+        self.pr_files(*self.RUST)
+        said = "\n".join(self.judge())
+        self.assertIn("compared whole", said)
+        self.assertNotIn("app FFI sources", said)
+        self.gh.logs[1] = self.unplaced_pin_log(shared, "##[error]red check: Localization")
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*red check: Localization"):
+            self.judge()
+
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
         # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
         crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(105))
@@ -8556,11 +8596,19 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
 
     def test_an_unplaced_app_ffi_pin_red_is_never_excused_whole(self):
         # The pin's rules read the PR's paths (a PR that moves the pin or edits its check is refused): identical masked
-        # lines on both sides are no proof, since the pinned sha is masked.
+        # lines on both sides are no proof, since the pinned sha is masked. So the pin rules are asked (they read the
+        # PR's files: this fake has none to give), never the whole-log identity.
         red = ["##[error]red check: Check the app FFI pin",
                "error: the app FFI sources changed since the pinned source 6e1be83c512fc8d963a241da9d389cd95f48ac30:"]
-        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red: the pin's rules read this PR's paths"):
+        asked = []
+
+        def pr_paths(*args):
+            asked.append(args)
+            raise excuse.Refused("no PR files")
+        with unittest.mock.patch.object(excuse, "pr_paths", pr_paths), \
+                self.assertRaisesRegex(excuse.Refused, "no PR files"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
+        self.assertEqual(len(asked), 1)
 
     def test_tests_that_differ_only_in_a_digit_are_different_tests(self):
         head = ["✘ Test test2() failed after 1.000 seconds with 1 issue."]

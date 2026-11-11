@@ -1378,12 +1378,15 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # the base breaks identity: a subset either way is never enough. Not covered by counts: a PR that both stops a passing
 # step's line and makes its failing step print that same line; it must change two steps to look the same, and the
 # failed steps must still be the base's. Failing tests are counted by name with their digits (test2() is not test3()).
-# The app FFI pin's red (FFI_PIN_ERROR) is never excused this way: its rules read the PR's paths (ffi_pin_step_a),
-# which a whole-log identity cannot stand in for, and its error masks the pinned sha.
+# The app FFI pin's red (FFI_PIN_ERROR) is never excused by identity: its rules read the PR's paths, which a whole-log
+# identity cannot stand in for, and its error masks the pinned sha. ffi_pin_step_a judges it first, from this
+# signature as from a placed one (#40542 left every unplaced pin red refused, the base's own too: cmux#41086 on
+# 2026-11-11), and what else is red beside a pin it sets aside is then compared whole, without the pin's parts.
 class UnplacedSignature(NamedTuple):
     steps: frozenset
     tests: Counter
     errors: Counter
+    crashes: frozenset = frozenset()
 
 
 def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
@@ -1411,7 +1414,17 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
                 and not SUCCESS_DIAGNOSTIC.search(line)):
             errors[normalise_error(line)] += 1
-    return UnplacedSignature(steps, tests, errors)
+    crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
+    return UnplacedSignature(steps, tests, errors, crashes)
+
+
+def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
+    """HEAD without the app FFI pin's own parts, as without_ffi_pin: its check step, its error lines and the rollup's
+    line naming it. The rollup step stays: the base must have failed it too."""
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    return head._replace(steps=head.steps - {FFI_PIN_CHECK},
+                         errors=Counter({error: n for error, n in head.errors.items()
+                                         if not error.startswith(pin) and error != rollup}))
 
 
 def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignature:
@@ -2167,14 +2180,15 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
-                   view: FailedView, github) -> tuple[str | None, str | None]:
+                   crashes: set[str], github) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
     PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
     shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
     FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
     error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
     something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
-    before. The caller asks only after test_reds.read found no crash or cut-short run.
+    before. The caller asks only after test_reds.read found no crash or cut-short run. CRASHES: crash_signals of a
+    placed view, or an unplaced head's whole-log ones (UnplacedSignature.crashes).
 
     Returns (audit line, set-aside line). The first is the excuse when the pin is the job's only red. The second, when
     other reds stand beside a pin a rule covers, says why the pin's own parts (without_ffi_pin) leave the base
@@ -2209,7 +2223,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
               f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
               "by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
-    if (tests or crash_signals(view) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+    if (tests or crashes or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
         return None, f"set aside '{FFI_PIN_CHECK}' (\"{FFI_PIN_ERROR}\"): {reason}"
     return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and {reason}", None
@@ -4474,7 +4488,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         pinned, aside = (None, None)
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, view, github)
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests,
+                                           crash_signals(view), github)
+        elif got.unplaced is not None:
+            # The pin's rules read this PR's paths, never the log's layout: an unplaced head is judged by them too.
+            u = got.unplaced
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, set(u.steps), set(u.errors), set(u.tests),
+                                           set(u.crashes), github)
         if pinned is not None:
             audit.append(pinned)
             continue
@@ -4537,11 +4557,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
             if got.unplaced is None:
                 raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
+            # A pin red ffi_pin_step_a did not excuse or set aside raised there; one it set aside leaves the
+            # comparison. Never compared by identity: the masked pin error is the same for any pin.
+            mine = unplaced_without_ffi_pin(got.unplaced) if aside is not None else got.unplaced
             pin = normalise_error(FFI_PIN_ERROR)
-            if name == FFI_PIN_JOB and any(error.startswith(pin) for error in got.unplaced.errors):
-                raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red: the pin's rules read this PR's "
-                              "paths (ffi_pin_step_a) and need a placed log; nothing is compared with the base")
-            audit.append(unplaced_verdict(repo, name, base, got.unplaced,
+            if name == FFI_PIN_JOB and any(error.startswith(pin) for error in mine.errors):
+                raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red where no pin rule covers it; "
+                              "nothing is compared with the base")
+            audit.append(unplaced_verdict(repo, name, base, mine,
                                           unplaced_base_evidence(repo, base_job, github), base_run))
             continue
         head = signature(view)
