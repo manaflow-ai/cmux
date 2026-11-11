@@ -80,6 +80,8 @@ MODES = ("default", "bypass")
 OVER_LIMIT_MUST_REFUSE = True
 # Words that alone tell a person nothing they can act on.
 UNACTIONABLE = re.compile(r"^\s*(retry|try again|something went wrong|error|failed|cloud start failed)\.?\s*$", re.I)
+# The agent's own subscription limit (Claude's "You've hit your weekly limit"), said only after a machine is up.
+USAGE_LIMIT = re.compile(r"hit your (weekly|daily|usage|session) limit|usage limit", re.I)
 UNAVAILABLE = "isn't available for this chat"
 LIVE_LOCK = "/tmp/cmux-live-driver.lock"
 # Machines other runs name (cloud-chat-matrix cwm-, cloud-chat-proof ccp-, cloud-journey jr-): never ours.
@@ -99,6 +101,9 @@ def parse_args(argv=None):
     parser.add_argument("--credentials-file")
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's scratch cmux.json says yes to the Claude login copy")
+    parser.add_argument("--harness", default="",
+                        help="with --cli: the agent each start runs (cmux chat --harness), e.g. codex when the "
+                             "default agent's own usage limit is spent")
     parser.add_argument("--team", default=os.environ.get("CMUX_JOURNEY_PRODUCT_TEAM", ""),
                         help="the team cells' team id (a team the account is in)")
     parser.add_argument("--removed-team", default=STALE_TEAM_DEFAULT,
@@ -198,7 +203,7 @@ class Journey(Matrix):
 
     def switch_team(self, team: str) -> str:
         """The palette's Switch Active Team (openTeamPicker), as a person picks it."""
-        value = self.call("action.run", {"id": "openTeamPicker", "args": {"team": team}})
+        value = self.call("action.run", {"action": "openTeamPicker", "args": {"team": team}})
         if value.get("error"):
             return f"switch to {team}: {value['error']}"
         deadline = time.monotonic() + 30
@@ -277,8 +282,10 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     before = set(journey.machine_rows())
     started = time.monotonic()
 
-    # A new agent chat tab, as Agent Chat to New Tab makes it (no focus), then the composer's own picks.
-    opened = journey.call("action.run", {"id": "new.agentChat.tab"})
+    # A new agent chat, as New Agent Chat makes it (no focus), then the composer's own picks. Untargeted
+    # palette.newAgentChat is the open frame-pacing's transcript run uses on the same runners; after
+    # new.agentChat.tab there, no pane showed an agent tab in any cell (run 42941064792).
+    opened = journey.call("action.run", {"action": "palette.newAgentChat"})
     if opened.get("error"):
         cell["result"] = f"fail: new chat tab: {opened['error']}"
         return cell
@@ -296,7 +303,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         time.sleep(1)
     journey.home_pane = journey.home_pane or pane
     if not pane:
-        cell["result"] = f"fail: no new chat pane ({clean(str(state.get('error')), 200)})"
+        cell["result"] = (f"fail: no new chat pane ({clean(str(state.get('error')), 200)}; "
+                          f"the open said {clean(json.dumps(opened), 160)})")
         return cell
     if folder is not None:
         picked = journey.pane("pick_folder", pane, cwd=str(folder))
@@ -388,7 +396,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             problems.append("started, but no reply from the agent" if machine else "started, but no machine to read")
     elif outcome in ("refused", "kept"):
         if made:
-            problems.append(f"refused AFTER leasing a machine ({', '.join(made)})")
+            why = " by the agent's own usage limit on that machine" if USAGE_LIMIT.search(message) else ""
+            problems.append(f"refused AFTER leasing a machine ({', '.join(made)}){why}")
         if not actionable(message):
             problems.append(f"the refusal is not actionable: {clean(message, 120)!r}")
         if folder_kind in ("small-repo", "plain", "none") and account != "removed":
@@ -403,7 +412,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     cell["machines_left"] = left
     if left:
         problems.append(f"machines left: {', '.join(left)}")
-    journey.call("action.run", {"id": "closeTab", "target": pane})
+    journey.call("action.run", {"action": "closeTab", "target": pane})
     cell["seconds"] = round(time.monotonic() - started, 1)
     cell["result"] = "pass" if not problems else "fail: " + "; ".join(problems)
     return cell
@@ -425,6 +434,8 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
     words = ["chat", "--on", "vm:new", "--prompt", prompt, "--wait", "--timeout", f"{timeout}s", "--json"]
     if folder is not None:
         words[3:3] = ["--from-folder", str(folder)]
+    if journey.args.harness:
+        words[3:3] = ["--harness", journey.args.harness]
     code, out, err = journey.cmux(*words, timeout=timeout + 120)
     answer = journey.parsed(out) if code == 0 else {}
     made = sorted((set(journey.machine_rows()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
@@ -440,7 +451,8 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
         message = journey.error(out, err).get("message") or clean(err or out, 300)
         cell["outcome"], cell["message"] = "refused", clean(message, 300)
         if made:
-            problems.append(f"refused AFTER leasing a machine ({', '.join(made)})")
+            why = " by the agent's own usage limit on that machine" if USAGE_LIMIT.search(message) else ""
+            problems.append(f"refused AFTER leasing a machine ({', '.join(made)}){why}")
         if not actionable(message):
             problems.append(f"the refusal is not actionable: {clean(message, 120)!r}")
         if folder_kind in ("small-repo", "plain", "none"):
