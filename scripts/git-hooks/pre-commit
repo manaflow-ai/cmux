@@ -260,41 +260,43 @@ def plain(*fields):
     return "\t".join(fields)
 
 
-mode, arguments = sys.argv[1], sys.argv[2:]
-if mode == "boot":
-    start, search_path, names = arguments[0], arguments[1], arguments[2:]
-    dirs = checkout_dirs(start)
-    if not dirs:
-        say("found no git directory for this checkout; not running its tools.")
-        sys.exit(1)
-    if not check(sys.executable, "", "", dirs):
-        sys.exit(1)
-    lines = [plain("dir", directory) for directory in dirs]
-    missing = []
-    found = {}
-    for name in names:
-        found[name] = find(name, search_path, dirs)
-        if found[name]:
-            lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
+# Run by python3 -c; tests load the functions above without running this.
+if __name__ == "__main__":
+    mode, arguments = sys.argv[1], sys.argv[2:]
+    if mode == "boot":
+        start, search_path, names = arguments[0], arguments[1], arguments[2:]
+        dirs = checkout_dirs(start)
+        if not dirs:
+            say("found no git directory for this checkout; not running its tools.")
+            sys.exit(1)
+        if not check(sys.executable, "", "", dirs):
+            sys.exit(1)
+        lines = [plain("dir", directory) for directory in dirs]
+        missing = []
+        found = {}
+        for name in names:
+            found[name] = find(name, search_path, dirs)
+            if found[name]:
+                lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
+            else:
+                missing.append(name)
+        if missing:
+            say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
+            sys.exit(1)
+        shims = child_path(search_path, dirs, found)
+        lines.append(plain("path", shims))
+        print("\n".join(lines + ["ok"]))
+    elif mode == "resolve":
+        wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
+        if "/" in wanted:
+            found = wanted if check(wanted, root, kind, dirs) else ""
         else:
-            missing.append(name)
-    if missing:
-        say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
-        sys.exit(1)
-    shims = child_path(search_path, dirs, found)
-    lines.append(plain("path", shims))
-    print("\n".join(lines + ["ok"]))
-elif mode == "resolve":
-    wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
-    if "/" in wanted:
-        found = wanted if check(wanted, root, kind, dirs) else ""
+            found = find(wanted, search_path, dirs)
+        if not found:
+            sys.exit(1)
+        print(plain(found))
     else:
-        found = find(wanted, search_path, dirs)
-    if not found:
-        sys.exit(1)
-    print(plain(found))
-else:
-    sys.exit(2)
+        sys.exit(2)
 '
 ORIGINAL_PATH="${PATH:-}"
 CHECKOUT_REAL_DIRS=()
