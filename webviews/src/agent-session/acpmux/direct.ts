@@ -2043,13 +2043,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     for (const old of gone) {
       const length = old.text?.trim().length ?? 0;
       let best: AcpmuxRow | undefined;
+      // A tie goes to the newer row: the one a rebuild named anew is the newest of its copies.
       for (const row of fresh)
         if (
           row.kind === old.kind &&
           !this.frames.has(row.id) &&
           sameWords(old.text, row.text) &&
           (!best ||
-            Math.abs((row.text?.trim().length ?? 0) - length) < Math.abs((best.text?.trim().length ?? 0) - length))
+            Math.abs((row.text?.trim().length ?? 0) - length) <= Math.abs((best.text?.trim().length ?? 0) - length))
         )
           best = row;
       if (!best) continue;
