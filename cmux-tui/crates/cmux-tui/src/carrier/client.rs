@@ -285,10 +285,11 @@ impl LinkGroup for Tracked {
 /// allocated in well under a second, so a longer park is a link the relay will not pair.
 pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
 
-/// When an attempt begun at `now` stops waiting for its parked link: the dial's `deadline`.
+/// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
+/// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
+/// at the park step with a new link ([`classify`]).
 pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
-    let _ = now;
-    deadline
+    deadline.min(now + PARK_REDIAL)
 }
 
 fn relay_provider(
