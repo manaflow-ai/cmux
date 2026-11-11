@@ -179,6 +179,7 @@ import {
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
 import { markOneRowChange } from "./rowChanges";
+import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -1555,6 +1556,123 @@ export function textFromContent(content: any): string {
   return "";
 }
 
+/// Whether a tool call update's content is text alone (a streamed shell's output so far).
+function textOnlyContent(update: any): boolean {
+  const content = update?.content;
+  return (
+    Array.isArray(content) &&
+    content.length > 0 &&
+    content.every(
+      (block: any) => block?.type === "text" || (block?.type === "content" && block.content?.type === "text"),
+    )
+  );
+}
+
+/// The call a tool call record belongs to, for thinning: its id within its owner (a subagent's own
+/// calls are numbered apart from the chat's, and a Codex thread names its own session).
+function streamedCallKey(event: EventRecord): string | undefined {
+  if (event.kind !== "tool_call" && event.kind !== "tool_call_update") return undefined;
+  const params = event.msg?.params;
+  const callId = params?.update?.toolCallId;
+  if (typeof callId !== "string") return undefined;
+  const owner = params?._meta?.acpmux?.subagent;
+  return `${typeof owner === "string" ? owner : ""}\u0000${String(params?.sessionId ?? "")}\u0000${callId}`;
+}
+
+/// A record that bounds a call's updates: a prompt or a turn's start or end. An adapter can reuse a
+/// call id in a later prompt, even without a new `tool_call`, so no update supersedes one across it.
+const endsStreamedCalls = (event: EventRecord) =>
+  event.dir === "mux" &&
+  (event.kind === "user_message" ||
+    event.kind === "turn_started" ||
+    event.kind === "turn_end" ||
+    event.kind === "turn_result" ||
+    event.kind === "turn_error");
+
+/// Each thinned record (`withoutSupersededContent`) and the seq of the update whose content made its
+/// own moot (a seq, never the record: that would hold the content again), for a cut (`cutAfter`) and
+/// the inspector.
+const thinnedRecords = new WeakMap<EventRecord, number>();
+
+/// `event` without its update's content, for a held tool call update whose call's next update
+/// (seq `by`) carried the call's whole content again (ACP: an update's content replaces the call's).
+export function withoutSupersededContent(event: EventRecord, by: number): EventRecord {
+  const params = event.msg.params;
+  const { content: _superseded, ...update } = params.update;
+  const thinned = { ...event, msg: { ...event.msg, params: { ...params, update } } };
+  thinnedRecords.set(thinned, by);
+  return thinned;
+}
+
+/// `events` through `lastSeq`. A call whose newest content went with the cut gets it back on its
+/// newest thinned record kept (held without its content), unless a later record kept carries content: the call still shows the whole
+/// output it had, never only its first record's (a copy cut back to what the Mac confirmed).
+export function cutAfter(events: readonly EventRecord[], lastSeq: number): EventRecord[] {
+  const kept: EventRecord[] = [];
+  // Each call's newest content among the records cut.
+  const cutContent = new Map<string, { seq: number; content: unknown }>();
+  for (const event of events) {
+    if (event.seq <= lastSeq) {
+      kept.push(event);
+      continue;
+    }
+    const update = sessionUpdate(event);
+    const callId = streamedCallKey(event);
+    if (callId && update?.content !== undefined && event.seq > (cutContent.get(callId)?.seq ?? -1))
+      cutContent.set(callId, { seq: event.seq, content: update.content });
+  }
+  if (cutContent.size === 0) return kept;
+  // The calls whose newest content kept is settled: a later record kept carries content, or took it back.
+  const settled = new Set<string>();
+  for (let index = kept.length - 1; index >= 0; index -= 1) {
+    const event = kept[index]!;
+    const update = sessionUpdate(event);
+    const callId = streamedCallKey(event);
+    if (!callId || settled.has(callId)) continue;
+    if (update?.content !== undefined) settled.add(callId);
+    const by = thinnedRecords.get(event);
+    const content = cutContent.get(callId);
+    if (by === undefined || by <= lastSeq || !content) continue;
+    settled.add(callId);
+    const params = event.msg.params;
+    kept[index] = {
+      ...event,
+      msg: { ...event.msg, params: { ...params, update: { ...params.update, content: content.content } } },
+    };
+  }
+  return kept;
+}
+
+/// `events` with every text-only tool call update that a later text-only update of
+/// the same call supersedes held without its content (`withoutSupersededContent`); a call's first
+/// record keeps its own, and a call started again under its id starts over. The same array when
+/// none is; otherwise a new one, the records not thinned shared. Folding either from the start
+/// ends on the same rows.
+export function thinStreamedOutputs(events: readonly EventRecord[]): EventRecord[] {
+  const calls = new Map<string, { first: number; last?: number }>();
+  let thinned: EventRecord[] | undefined;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (endsStreamedCalls(event)) calls.clear();
+    const callId = streamedCallKey(event);
+    if (!callId) continue;
+    const update = sessionUpdate(event);
+    const call = calls.get(callId);
+    if (!call || event.kind === "tool_call") calls.set(callId, { first: index });
+    else if (textOnlyContent(update) && event.seq > events[call.first]!.seq) {
+      // Of two updates the older by seq is the moot one, whichever the array holds first.
+      const last = call.last;
+      const moot = last === undefined ? undefined : events[last]!.seq < event.seq ? last : index;
+      if (moot !== undefined) {
+        thinned ??= [...events];
+        thinned[moot] = withoutSupersededContent(events[moot]!, moot === index ? events[last!]!.seq : event.seq);
+      }
+      if (moot !== index) call.last = index;
+    }
+  }
+  return thinned ?? (events as EventRecord[]);
+}
+
 /// The largest image block a tool call keeps (its base64 text): a bigger one is left out.
 const MAX_TOOL_IMAGE_LENGTH = 8 * 1024 * 1024;
 
@@ -1759,6 +1877,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
   /// `markOneRowChange`), so the pane reads that row alone, not every row.
   private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The first slot of `ordered` any change since `snapshot` was made could have touched (MANY_SLOTS
+  /// when the order was rebuilt or moved): the next snapshot says its rows before it are the last
+  /// one's (prefixFlatMap.ts `noteKeptPrefix`), so every per-snapshot pass that reads only the rows
+  /// after the kept prefix (markRows, sessionEdits, startedNames, prefixFlatMap) starts there with no
+  /// walk over the chat. A tool call's start is a new slot at the end, its end a write in place.
+  private firstChanged: number | typeof MANY_SLOTS | undefined;
   /// The last snapshot handed out, which the next one's change is from.
   private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
@@ -1806,6 +1930,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.changedFrom(this.ordered && at !== undefined ? at : MANY_SLOTS);
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1864,6 +1989,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) {
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
     }
   }
 
@@ -1912,6 +2038,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
       this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
+      this.changedFrom(index);
       return;
     }
     this.changedSlot = MANY_SLOTS;
@@ -1920,6 +2047,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
     if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
       this.orderedIndex.set(id, ordered.length);
+      this.changedFrom(ordered.length);
       ordered.push(row);
       return;
     }
@@ -1927,6 +2055,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
+  }
+
+  /// Notes a change at slot `index` of the kept order (MANY_SLOTS: anywhere).
+  private changedFrom(index: number | typeof MANY_SLOTS): void {
+    const first = this.firstChanged;
+    this.firstChanged =
+      index === MANY_SLOTS || first === MANY_SLOTS ? MANY_SLOTS : first === undefined ? index : Math.min(first, index);
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -1981,6 +2116,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     super.set(row.id, row);
     this.snapshot = undefined;
     this.changedSlot = MANY_SLOTS;
+    this.firstChanged = MANY_SLOTS;
   }
 
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
@@ -2061,6 +2197,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
@@ -2071,8 +2208,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.snapshot = this.ordered.slice();
       if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
         markOneRowChange(this.snapshot, from, this.changedSlot);
+      if (from && this.firstChanged !== MANY_SLOTS)
+        noteKeptPrefix(this.snapshot, from, Math.min(this.firstChanged ?? Infinity, from.length, this.snapshot.length));
       this.published = this.snapshot;
       this.changedSlot = undefined;
+      this.firstChanged = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -2641,6 +2781,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Each running call's first held record and newest held text-only update after it, by call id:
+  /// their seqs (`holdLive`).
+  private streamedOutputs = new Map<string, { first: number; last?: number }>();
   /// The reaction on each call a background task's end went onto (`attachReaction`), and the call
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
@@ -2796,6 +2939,7 @@ export class AcpmuxDirectClient {
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.events = [];
+    this.streamedOutputs.clear();
     this.queue = [];
     this.drewKeptTail = false;
     this.rebuild();
@@ -2957,7 +3101,7 @@ export class AcpmuxDirectClient {
     }
     for (const event of own) {
       if (event.seq <= this.lastSeq) continue;
-      this.events.push(event);
+      this.holdLive(event);
       this.lastSeq = event.seq;
       this.firstSeq ??= event.seq;
       this.reduce(event);
@@ -3194,11 +3338,14 @@ export class AcpmuxDirectClient {
         ];
       // Live notices can arrive while status is pending, before this first page is installed.
       // Keep their newer rows (and purges) when replacing the previous list.
-      else if (first && !linkedLater) this.sessions = this.sessionPages.settle(first.sessions);
-      else {
+      else if (first && !linkedLater) {
+        this.sessions = this.sessionPages.settle(first.sessions);
+        if (!laterPages) this.sessionPages.done(first.run);
+      } else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
-        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        this.sessions = await this.sessionPages.settledWhole();
+        this.sessionPages.done(first?.run);
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
@@ -3369,6 +3516,7 @@ export class AcpmuxDirectClient {
               this.peerCopy = undefined;
               this.copyLive = undefined;
               this.events = [];
+              this.streamedOutputs.clear();
               this.queue = [];
               // Those rows are off screen again, so the frame the host shows is the failure, not a
               // chat: it fades in as any first draw of a chat does.
@@ -3456,6 +3604,7 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.stoppingEnded();
     this.events = [];
+    this.streamedOutputs.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
     this.historyExhausted = false;
@@ -3799,7 +3948,7 @@ export class AcpmuxDirectClient {
     copy.attaching = false;
     this.copyLive = undefined;
     if (this.events.some((event) => event.seq > copy.lastSeq)) {
-      this.events = this.events.filter((event) => event.seq <= copy.lastSeq);
+      this.events = cutAfter(this.events, copy.lastSeq);
       this.lastSeq = Math.min(this.lastSeq, copy.lastSeq);
       this.rebuild();
     }
@@ -4041,6 +4190,7 @@ export class AcpmuxDirectClient {
     connectFailedAfterEarlyTail = early.sessionId;
     this.earlyTail = undefined;
     this.events = [];
+    this.streamedOutputs.clear();
     this.queue = [];
     this.copyLive = undefined;
     this.drewKeptTail = false;
@@ -4529,6 +4679,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    this.sessionPages.done(first.run);
     this.listedSessions = true;
     this.recheckSenders(this.sessions);
     this.learnChatThread();
@@ -4780,7 +4931,13 @@ export class AcpmuxDirectClient {
   /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
   /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
   private async readLaterSessions(first: SessionPage<Session>): Promise<void> {
-    await this.sessionPages.rest(first, () => this.sessions, this.addSessions).catch(() => this.rereadSessionsLater());
+    const whole = await this.sessionPages
+      .rest(first, () => this.sessions, this.addSessions)
+      .catch(() => {
+        this.rereadSessionsLater();
+        return false;
+      });
+    if (whole) this.sessionPages.done(first.run);
   }
 
   /// A list that could not be read to its end (a page and the whole-list fallback both failed)
@@ -6251,6 +6408,7 @@ export class AcpmuxDirectClient {
       this.asks.forget(session.sessionId);
       // Nothing of a chat acpmux dropped is drawn again from this page.
       forgetTail(session.sessionId);
+      this.forgetReadAhead(session.sessionId);
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
@@ -6404,6 +6562,41 @@ export class AcpmuxDirectClient {
     this.clockOffset = this.clockOffset === undefined ? offset : Math.min(this.clockOffset, offset);
   }
 
+  /// Holds a live record. acpmux sends a streaming call's whole output with each update, so a
+  /// call's text-only update makes the one held before it moot: that one keeps its other fields
+  /// and drops its content, and a streamed output is held once instead of once per update (the
+  /// held records grew with the square of its length). A folding again from the start (`rebuild`)
+  /// ends on the same row: the newest update's content replaces the call's output, images and
+  /// diffs, and the call's first record keeps its own. A replay, which can seek between updates,
+  /// keeps every one.
+  private holdLive(event: EventRecord): void {
+    this.events.push(event);
+    // A prompt or a turn's start or end ends the calls before it: one that never said it finished is
+    // not tracked past it, and an id used again after it is another call.
+    if (endsStreamedCalls(event)) this.streamedOutputs.clear();
+    const callId = this.replayThrough === undefined ? streamedCallKey(event) : undefined;
+    if (!callId) return;
+    const update = sessionUpdate(event);
+    let call = this.streamedOutputs.get(callId);
+    // A call's first record is never thinned: on a fold from the start it makes the call's row.
+    if (!call || event.kind === "tool_call") this.streamedOutputs.set(callId, (call = { first: event.seq }));
+    else if (textOnlyContent(update)) {
+      const before = call.last;
+      // Looked for from the end: a call's updates come close together.
+      for (let index = this.events.length - 2; before !== undefined && index >= 0; index -= 1) {
+        const held = this.events[index]!;
+        if (held.seq < before) break;
+        if (held.seq !== before) continue;
+        const heldUpdate = sessionUpdate(held);
+        if (held.kind === "tool_call_update" && streamedCallKey(held) === callId && textOnlyContent(heldUpdate))
+          this.events[index] = withoutSupersededContent(held, event.seq);
+        break;
+      }
+      call.last = event.seq;
+    }
+    if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -6423,7 +6616,7 @@ export class AcpmuxDirectClient {
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     if (event.seq <= this.lastSeq) return;
-    this.events.push(event);
+    this.holdLive(event);
     this.sawPrompt(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
@@ -6446,22 +6639,27 @@ export class AcpmuxDirectClient {
   private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
     const generation = this.selectionGeneration;
     // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
-    // `turn_error` come just before its result, so only a result ends the turn before. A turn
-    // older than the records held is read from the oldest one held: the part shown is repaired.
-    let start: number | undefined;
-    let before = false;
+    // `turn_error` come just before its result, so only a result ends the turn before. The read
+    // starts right after that result, not at the turn's first prompt held: a prompt that never
+    // reached the pane (lost, or overtaken by its `turn_started` and dropped as stale) was the
+    // turn's first record, so a read from the first one held never brought it back and the turn
+    // drew without its prompt (test/transcript-delivery-property.test.ts). A turn older than the
+    // records held is read from the oldest one held: the part shown is repaired.
+    let afterSeq: number | undefined;
     for (let index = this.events.length - 1; index >= 0; index--) {
       const event = this.events[index]!;
       if (event.seq >= endSeq) continue;
       if (event.dir === "mux" && event.kind === "turn_result") {
-        before = true;
+        afterSeq = event.seq;
         break;
       }
-      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
     }
-    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
-    if (start === undefined || start >= endSeq) return;
-    const afterSeq = start - 1;
+    if (afterSeq === undefined) {
+      const oldest = this.events[0]?.seq;
+      if (oldest === undefined || oldest >= endSeq) return;
+      afterSeq = oldest - 1;
+    }
+    if (afterSeq + 1 >= endSeq) return;
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
         if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
@@ -6657,6 +6855,10 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
+    // Records read as pages (an open, an older page) hold a streamed call's every update; a replay,
+    // which can seek between updates, keeps them.
+    if (this.replayThrough === undefined)
+      this.events = thinStreamedOutputs([...this.events].sort((a, b) => a.seq - b.seq));
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     const from = Math.min(events[0]?.seq ?? Infinity, this.turnOpener?.seq ?? Infinity);
@@ -9217,7 +9419,14 @@ export class AcpmuxDirectClient {
   }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
-    return this.events.slice();
+    // A streamed update held without its content says which update's content replaced it.
+    return this.events.map((event) => {
+      const by = thinnedRecords.get(event);
+      if (by === undefined) return event;
+      const params = event.msg.params;
+      const update = { ...params.update, _cmux: { contentSupersededBySeq: by } };
+      return { ...event, msg: { ...event.msg, params: { ...params, update } } };
+    });
   }
   /** The rows message `messageId` streamed into, oldest first; empty when this session has none.
    *  A `message=<id>` link scrolls to the first one that is on screen (links.ts). */
@@ -11451,6 +11660,18 @@ export class AcpmuxDirectClient {
   private readAheadQueue: string[] = [];
   private readAheadTimer?: ReturnType<typeof setTimeout>;
 
+  /// A chat acpmux purged: nothing of its read ahead is kept. Kept, each closed chat the read ahead
+  /// had read stayed in `readAheadAt` and `readAheadSeq` for the pane's life
+  /// (test/state-growth.test.ts, session-churn). A read still out drops its page (`readAhead`
+  /// keeps a tail only for a listed row).
+  private forgetReadAhead(sessionId: string): void {
+    this.readAheadAt.delete(sessionId);
+    this.readAheadSeq.delete(sessionId);
+    this.shareOnRead.delete(sessionId);
+    if (this.readAheadQueue.includes(sessionId))
+      this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
+  }
+
   /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
   private scheduleReadAhead(delayMs: number): void {
     if (this.closed || this.readAheadTimer !== undefined) return;
@@ -12717,6 +12938,11 @@ export class AcpmuxDirectClient {
     const read: EventRecord[][] = [];
     let more = true;
     let found = false;
+    // The open landed inside the turn on screen: the page holding its prompt makes it whole, so it
+    // lands at once. The reply's start must not wait on a far longer turn above it (the user,
+    // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
+    const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
+    let completed = false;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
@@ -12726,7 +12952,7 @@ export class AcpmuxDirectClient {
       let before = this.firstSeq, pages = 0;
       more &&
       pages < OLDER_PAGES_PER_ASK &&
-      (pages < OLDER_MIN_PAGES_PER_ASK || !found || (through !== undefined && before > through));
+      ((through !== undefined && before > through) || (!completed && (pages < OLDER_MIN_PAGES_PER_ASK || !found)));
       pages++
     ) {
       if (!this.canPageOlder(pagingEpoch)) return;
@@ -12753,13 +12979,15 @@ export class AcpmuxDirectClient {
       const page = records(result?.events);
       read.push(page);
       found ||= page.some(opensOlderTurn);
+      completed ||= cutOpener !== undefined && page.some((event) => event.seq <= cutOpener);
       more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
       if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
     let older = read.reverse().flat();
     // Records before the oldest turn start finish a turn further back: the next read takes them, so
     // what lands holds whole turns.
-    const start = more ? older.findIndex(opensOlderTurn) : 0;
+    let start = more ? older.findIndex(opensOlderTurn) : 0;
+    if (start < 0 && cutOpener !== undefined) start = older.findIndex((event) => event.seq >= cutOpener);
     if (start > 0) older = older.slice(start);
     const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
     this.events = mergeEventRecords(older, this.events);
@@ -13083,6 +13311,9 @@ export class AcpmuxDirectClient {
     this.cancelTrustStart?.();
 
     for (const gone of this.resendWaits.keys()) gone();
+    // A prompt's slow and failed deadlines (sendNow) would fire on a closed client: emit to a pane
+    // that is gone and look for a stall on a socket that is closed.
+    for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.cancelOlderPaging();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

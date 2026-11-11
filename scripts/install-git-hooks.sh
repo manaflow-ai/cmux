@@ -166,6 +166,8 @@ install -m 0644 scripts/git-hooks/refresh_checks.py "$TRUSTED_HOOK_DIR/refresh_c
 install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
 # ...and its lint-tool download fallback (shared with scripts/ci/base_red_excuse.py, which runs from scripts/ci alone).
 install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_release_download.py"
+# ...and the HTTP transport that fallback imports from beside itself.
+install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
@@ -240,6 +242,8 @@ install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DI
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
 install -m 0644 scripts/normalize-pbxproj.py "$TRUSTED_HOOK_DIR/normalize-pbxproj.py"
+# The one reader of the bun version webviews/package.json pins (pre-commit's vp bootstrap).
+install -m 0644 scripts/webviews_bun_version.py "$TRUSTED_HOOK_DIR/webviews_bun_version.py"
 printf '%s\n' "$PYTHON3_BIN" > "$TRUSTED_HOOK_DIR/python3-path"
 chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
 

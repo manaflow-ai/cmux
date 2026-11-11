@@ -14,7 +14,7 @@ extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
         let registry = services.registry
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
-        registry.bind("closeWorkspace", invoke: { closeWorkspace(services, $0) })
+        registry.bindEffect("closeWorkspace", effect: { closeWorkspace(services, $0) })
         registry.bindEffect("renameWorkspace", effect: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return .done }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
@@ -64,48 +64,44 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
+        #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
-        // The composer's attach button as an action (home.attachFiles): a path goes to the shown
-        // Messages page's composer (HomeComposerHandoff), as a drop; without one its file picker opens.
-        registry.bindEffect("home.attachFiles", effect: { invocation in
-            guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {
-                return .refused(RefusalStrings.homeAttachNoHome)
+        // The composer's attach button as an action (home.attachFiles): a path
+        // goes to the shown Home composer through its own intake (as a drop);
+        // without one the shown composer opens its file picker.
+        registry.bind("home.attachFiles", invoke: { invocation in
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
+                services.registry.refuse(RefusalStrings.homeAttachNoHome)
+                return
             }
             guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
-                handoff.pickFiles(openPanel: services.openPanel)
-                return .done
+                view.pickFiles()
+                return
             }
-            // action-wait-allow: the page (its web content) reads the file and decides whether its composer takes it; nothing shows before
-            return .waiting(.fileSystem) {
-                switch await handoff.attach([URL(fileURLWithPath: path)]) {
-                case .accepted: return nil
-                case .missingFile: return ActionWorkFailure(refusal: .notFound, reason: RefusalStrings.homeAttachNoFile(path))
-                case .notTaken: return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.homeAttachNoHome)
-                }
+            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
+                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
-        // Reply to Selection (Cmd-Shift-R on Home, the palette): the text selected in a message of
-        // the shown Messages page opens that message's reply with them quoted (pageCommands.ts `home.messages.replyToSelection`).
-        registry.bindEffect("home.replyToSelection", effect: { _ in
-            guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {
-                return .refused(RefusalStrings.homeReplyNoSelection)
+        // Reply to Selection (Cmd-Shift-R on Home, the palette): the same path as the transcript's menu item.
+        registry.bind("home.replyToSelection") {
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.replyToSelection() else {
+                services.registry.refuse(RefusalStrings.homeReplyNoSelection)
+                return
             }
-            // action-wait-allow: only the page knows its selected text; the quote shows in its composer when it answers
-            return .waiting(.externalProcess) {
-                await handoff.replyToSelection() ? nil : ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.homeReplyNoSelection)
-            }
-        })
+        }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
         services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI
-        // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
-        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
+        // Palette "Debug: Save Last 10 Seconds" (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
+        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? [], homes: services.home.chiefHomes).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
@@ -228,16 +224,16 @@ extension AppActions {
     /// is resolved at the press. A person's run that may ask about running
     /// programs keeps its row until the answer; otherwise the row leaves at the
     /// press (`WorkspaceCloseFlow`).
-    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) -> ActionEffect {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return .done }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key, services.selectionCloses.canStart(workspace.id)
-        else { return } // a second press during the close sends nothing
+        else { return .done } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
-           case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
+           case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { sidebar.send(.close(ids)); return .done }
         // The workspace's own machine, for the question and the close alike. `offline`: a person's close on a machine that is
         // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
         // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
@@ -290,8 +286,7 @@ extension AppActions {
                     if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
                         CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
                     }
-                    guard hidden else { return failure }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
+                    if hidden, failure == nil { ClosingWorkspaces.shared.end(id, refused: false, in: nil) } // refused: the effect's `takeBack`
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
@@ -302,10 +297,10 @@ extension AppActions {
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
                 if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
-                    services.windows.show(workspaceID: id, in: controller.state)
+                    services.windows.registry.closeSelection.repairing { services.windows.show(workspaceID: id, in: controller.state) } // the close's selection, no gesture
                 }
             })
-        if let work = flow.start(id, asks: invocation.asksIfRunning) { services.registry.track(work) }
+        return flow.effect(id, asks: invocation.asksIfRunning) { ClosingWorkspaces.shared.end(id, refused: true, reason: WorkspaceClose.shownReason($0), in: controller?.window) }
     }
 
     /// Makes window `id` key and activates the app. A new window still

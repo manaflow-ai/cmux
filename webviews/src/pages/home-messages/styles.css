@@ -27,7 +27,6 @@ body,
 .hm-divider {
   position: relative;
   flex: none;
-  z-index: var(--layer-raised);
   width: 1px;
   background: var(--page-separator);
   cursor: col-resize;
@@ -37,32 +36,6 @@ body,
   content: "";
   position: absolute;
   inset: 0 calc(-1 * var(--ds-space-1));
-}
-/* The lit band on hover and drag (DividerGlowBand): the line itself in the accent, 2 pt, no halo;
-   dimmer while hovered, full while dragged; in with the hover fade, out at once. */
-.hm-divider::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  translate: -50% 0;
-  background: var(--cmux-accent, var(--page-text));
-  opacity: 0;
-  pointer-events: none;
-}
-.hm-divider:hover::before {
-  opacity: 0.55;
-  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
-}
-.hm-divider.dragging::before {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: reduce) {
-  .hm-divider:hover::before {
-    transition: none;
-  }
 }
 
 .hm-detail {
@@ -96,17 +69,4 @@ body,
 .hm-compose:focus-visible {
   outline: 2px solid var(--page-text-3);
   outline-offset: 1px;
-}
-
-/* The see-through Chief (seeThrough.ts; ChiefPanelStyle.seeThrough and .seeThroughBar): no page fill
-   (pageBase.css paints it on html) and no fill or blur on the header, so the workspace shows between the
-   bubbles and the panel's own veils behind the header and the message box are their one plate, as the
-   native transcript's clearsBackground left them. No halo on any text (94888846). */
-:root[data-home-see-through] {
-  background: transparent;
-}
-:root[data-home-see-through] .mt-header {
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }

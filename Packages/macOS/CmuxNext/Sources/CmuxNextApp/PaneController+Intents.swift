@@ -67,6 +67,7 @@ extension PaneController {
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+            if source != .cli, ActionRunScope.isPersonsAction() { state?.selection.closeRule.personSelects(id.rawValue, in: paneKey) } // a click, a shortcut, the palette: not a script
         }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }

@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
     private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
+    private var launchSnapshot: Task<LaunchSnapshot?, Never>?  // started in `main` (readAtLaunch); nil once the launch took its result
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -84,13 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
-         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment; self.cloudEnvironment = cloudEnvironment
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+        self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
+            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil  // suspends for the read; the daemon's start reads no file
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation()
@@ -108,10 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-                finishLaunching(); await firstFrame.opened(); await refresh()
+                finishLaunching(snapshot); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -122,16 +121,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-                finishLaunching()
+                finishLaunching(snapshot)
             }
             cloudBootstrap = nil
         }
     }
 
-    private func finishLaunching() {
+    private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) {
+        daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+            terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
+            resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -207,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
@@ -216,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.healthFeeds.start() // app health: before the daemon's first ensure
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                              resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
+                              resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart, launchSnapshot: launchSnapshot)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
@@ -249,9 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
         // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' and toasts' pages, so the first Set Icon, dialog and toast open warm.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm(); services?.toasts.prewarm() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the

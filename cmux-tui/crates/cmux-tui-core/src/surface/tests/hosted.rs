@@ -372,6 +372,146 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
     }
 }
 
+/// Every output byte a byte viewer of `surface` receives within `within`.
+#[cfg(unix)]
+pub(super) fn attach_output_within(attach: &AttachStream, within: Duration) -> Vec<u8> {
+    let deadline = Instant::now() + within;
+    let mut received = Vec::new();
+    while Instant::now() < deadline {
+        match attach.stream.try_recv() {
+            Ok(AttachFrame::Output(bytes)) => received.extend(bytes),
+            Ok(AttachFrame::OutputWithColors { output, .. }) => received.extend(output),
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+    received
+}
+
+/// A prompt mark split across two host Output frames still resets a killed
+/// program's mouse mode in the mirror, and a byte viewer gets each parsed
+/// byte once: the end the reader holds for the next frame is not also sent
+/// with the first.
+#[cfg(unix)]
+#[test]
+fn a_prompt_mark_split_across_host_frames_resets_modes_and_viewers_get_each_byte_once() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-split-prompt-mark", false);
+    let attach = surface.attach_stream().unwrap();
+    let stream: &[u8] = b"\x1b[?1000hkilled\r\n\x1b]133;A\x07$ ";
+    let mut reference = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    let expected = crate::prompt_mode_reset::write_output(
+        &mut reference,
+        stream,
+        &mut crate::prompt_mode_reset::ShellMarks::default(),
+    )
+    .into_owned();
+    // The first frame ends inside the mark (`ESC ] 1 3`).
+    let (first, second) = stream.split_at(20);
+    for (sequence, chunk) in [(1, first), (2, second)] {
+        let mut frame = Frame::new(MessageKind::Output, chunk.to_vec());
+        frame.sequence = sequence;
+        crate::terminal_host_protocol::write_frame(&mut host, &frame).unwrap();
+    }
+    assert_eq!(attach_output_within(&attach, Duration::from_millis(500)), expected);
+    assert_eq!(surface.try_with_terminal(|terminal| terminal.mouse_tracking()).ok(), Some(false));
+}
+
+/// A live Output frame of the fake host with `sequence` and `payload`.
+#[cfg(unix)]
+fn live_output(sequence: u64, payload: &[u8]) -> Frame {
+    let mut frame = Frame::new(MessageKind::Output, payload.to_vec());
+    frame.sequence = sequence;
+    frame
+}
+
+/// The surface's reader joins the plain Output frames queued behind the one
+/// it applies, up to the coalesce limit, never past a frame of another kind,
+/// and stops at a sequence gap after the frames before it.
+#[cfg(unix)]
+#[test]
+fn queued_output_frames_coalesce_up_to_a_bell_a_limit_or_a_gap() {
+    let (client, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+    let frames = host_frames::HostFrames::spawn(
+        "coalesce-test".into(),
+        client,
+        Arc::new(crate::terminal_host_runtime::ControlResponses::new_for_test()),
+        PROTOCOL_VERSION,
+        true,
+    )
+    .unwrap();
+    let mut bell = Frame::new(MessageKind::Bell, Vec::new());
+    bell.sequence = 4;
+    let large = vec![b'L'; 64 * 1024 - 4];
+    let sent = [
+        live_output(1, b"one "),
+        live_output(2, b"two "),
+        live_output(3, b"three "),
+        bell,
+        live_output(5, b"five "),
+        live_output(6, &large),
+        live_output(7, b"seven "),
+        live_output(9, b"nine, after a gap"),
+    ];
+    for frame in &sent {
+        crate::terminal_host_protocol::write_frame(&mut host, frame).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while frames.queued_frames_for_test() < sent.len() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let mut stager = HostedFrameStager::new(0, true);
+    let next = |stager: &mut HostedFrameStager| {
+        let host_frames::HostFrame::Frame(frame) = frames.recv() else {
+            panic!("the stream ended")
+        };
+        match stager.push(frame).unwrap() {
+            Some(HostedTransition::Output(output)) => {
+                Some(hosted_reader::coalesce_queued_output_for_test(output, &frames, stager))
+            }
+            _ => None,
+        }
+    };
+    assert_eq!(next(&mut stager), Some((b"one two three ".to_vec(), false)));
+    assert_eq!(next(&mut stager), None, "the Bell keeps its place");
+    // `five` and the large frame do not fit together; the large frame and
+    // `seven` do not either.
+    assert_eq!(next(&mut stager), Some((b"five ".to_vec(), false)));
+    assert_eq!(next(&mut stager), Some((large, false)));
+    assert_eq!(next(&mut stager), Some((b"seven ".to_vec(), true)), "the gap ends the stream");
+}
+
+/// A backlog of small host Output frames is applied in a few parses, and a
+/// byte viewer and the terminal get every byte in order.
+#[cfg(unix)]
+#[test]
+fn a_backlog_of_small_host_frames_is_applied_in_a_few_parses() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-output-coalesce", false);
+    let attach = surface.attach_stream().unwrap();
+    let pty = surface.as_pty().unwrap();
+    let lines: Vec<Vec<u8>> =
+        (0..200).map(|index| format!("line {index}\r\n").into_bytes()).collect();
+    let before = pty.render_generation.load(Ordering::Acquire);
+    {
+        // The reader blocks on the terminal lock with the first frame; the
+        // rest queue behind it.
+        let _held = pty.term.lock().unwrap();
+        for (index, line) in lines.iter().enumerate() {
+            crate::terminal_host_protocol::write_frame(
+                &mut host,
+                &live_output(index as u64 + 1, line),
+            )
+            .unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let expected = lines.concat();
+    assert_eq!(attach_output_within(&attach, Duration::from_millis(500)), expected);
+    let applies = pty.render_generation.load(Ordering::Acquire) - before;
+    assert!(applies <= 4, "{applies} parses for 200 queued frames");
+    let screen = surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+    assert!(screen.contains("line 199"), "{screen}");
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {

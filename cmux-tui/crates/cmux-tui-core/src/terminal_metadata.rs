@@ -57,8 +57,25 @@ struct OscCollector {
 }
 
 impl OscCollector {
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     fn observe(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
-        for &byte in bytes {
+        let mut index = 0;
+        while let Some(rest) = bytes.get(index..) {
+            // On the ground, outside a UTF-8 sequence, only an ESC, a C1
+            // control or a UTF-8 lead byte moves the state: every byte up to
+            // the next ESC or byte >= 0x80 is skipped at once.
+            if self.state == OscState::Ground && self.utf8_continuations == 0 {
+                index = index.saturating_add(find_esc_or_high(rest));
+            }
+            let Some(&byte) = bytes.get(index) else { break };
+            index = index.saturating_add(1);
+            self.observe_byte(byte, &mut receive);
+        }
+    }
+
+    /// Advance over one byte of output.
+    fn observe_byte(&mut self, byte: u8, receive: &mut impl FnMut(&[u8])) {
+        {
             if self.utf8_continuations > 0 {
                 if (self.utf8_min..=self.utf8_max).contains(&byte) {
                     self.utf8_continuations -= 1;
@@ -70,7 +87,7 @@ impl OscCollector {
                     // UTF-8 continuation range.
                     self.utf8_min = 0x80;
                     self.utf8_max = 0xbf;
-                    continue;
+                    return;
                 }
                 // An invalid or truncated UTF-8 sequence cannot hide the
                 // next control byte. Process this byte again as framing.
@@ -112,14 +129,14 @@ impl OscCollector {
                 },
                 OscState::Body => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    0x07 | 0x9c => self.finish(&mut receive),
+                    0x07 | 0x9c => self.finish(receive),
                     0x1b => self.state = OscState::BodyEscape,
                     _ => self.push(byte),
                 },
                 OscState::BodyEscape => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    b'\\' => self.finish(&mut receive),
-                    0x07 | 0x9c => self.finish(&mut receive),
+                    b'\\' => self.finish(receive),
+                    0x07 | 0x9c => self.finish(receive),
                     0x1b => {
                         // A second ESC remains a possible ST prefix. Keep
                         // one literal ESC in the bounded body and wait.
@@ -208,12 +225,20 @@ fn utf8_sequence_bounds(byte: u8) -> (u8, u8, u8) {
     }
 }
 
-fn utf8_continuation_count(byte: u8) -> u8 {
-    utf8_sequence_bounds(byte).0
-}
-
-fn is_string_opener(byte: u8) -> bool {
-    matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
+/// Index of the first ESC or byte >= 0x80 in `bytes`, or its length. Whole
+/// 16-byte blocks are tested with a branch-free fold the compiler vectorizes.
+fn find_esc_or_high(bytes: &[u8]) -> usize {
+    const BLOCK: usize = 16;
+    let is_stop = |byte: u8| byte == 0x1b || byte >= 0x80;
+    let mut skipped = 0usize;
+    for block in bytes.chunks_exact(BLOCK) {
+        if block.iter().fold(false, |found, &byte| found | is_stop(byte)) {
+            break;
+        }
+        skipped = skipped.saturating_add(BLOCK);
+    }
+    let rest = bytes.get(skipped..).unwrap_or_default();
+    skipped.saturating_add(rest.iter().position(|&byte| is_stop(byte)).unwrap_or(rest.len()))
 }
 
 /// The state of an OSC 9;4 progress report (ConEmu and Windows Terminal).
@@ -501,9 +526,7 @@ impl TerminalMetadata {
         // chunk contains no new ESC or C1 introducer.
         if self.osc.state == OscState::Ground
             && self.osc.utf8_continuations == 0
-            && !bytes.iter().any(|byte| {
-                *byte == 0x1b || is_string_opener(*byte) || utf8_continuation_count(*byte) != 0
-            })
+            && find_esc_or_high(bytes) == bytes.len()
         {
             return;
         }
@@ -661,10 +684,16 @@ impl TerminalMetadata {
         }
     }
 
-    /// Whether the command, prompt or last-output fact changed since the last
-    /// call (marks it taken).
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken): a durable edge, one terminal upsert commit.
     pub(crate) fn take_busy_change(&mut self) -> bool {
-        self.activity.take_change()
+        self.activity.take_edge_change()
+    }
+
+    /// Whether the last output moved a whole publish interval since the last
+    /// call (marks it taken): a live fact, never a commit.
+    pub(crate) fn take_output_change(&mut self) -> bool {
+        self.activity.take_output_change()
     }
 
     /// Whether `take_progress_change` or `take_busy_change` would report a
@@ -689,6 +718,165 @@ impl TerminalMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl OscCollector {
+        /// The byte-at-a-time scan [`OscCollector::observe`] replaced.
+        fn observe_reference(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
+            for &byte in bytes {
+                self.observe_byte(byte, &mut receive);
+            }
+        }
+
+        /// The state a later byte can see: the UTF-8 bounds matter only
+        /// inside a sequence.
+        fn observable(&self) -> Observable {
+            let (min, max) =
+                if self.utf8_continuations > 0 { (self.utf8_min, self.utf8_max) } else { (0, 0) };
+            (self.state, self.body.clone(), self.utf8_continuations, min, max)
+        }
+    }
+
+    /// Output that reaches every state of the collector: plain and colored
+    /// text, OSC 9/777/99/133 with BEL, ST and C1 ST, a C1 OSC, string
+    /// controls that hide an OSC, cancels, valid UTF-8 whose continuation
+    /// bytes are C1 values, invalid and overlong UTF-8, and an oversized body.
+    pub(super) fn adversarial_output() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"plain text\r\n\x1b[1;31mred\x1b[0m \x1b]9;4;1;42\x07");
+        out.extend_from_slice(b"\x1b]777;notify;Title;Body text\x1b\\\x1b]99;i=1:d=0;Hi\x1b\\");
+        out.extend_from_slice(b"\x1b]133;A\x07$ \x1b]133;C\x07\x1b]133;D;0\x07");
+        out.extend_from_slice(b"\x9d9;c1 osc\x9c\x1bPq\x1b]9;hidden\x07\x1b\\\x90x\x9c");
+        out.extend_from_slice("caf\u{e9} \u{dd} \u{2500}\u{2502} \u{1f600}".as_bytes());
+        out.extend_from_slice(b"\xc3\x9d9;lead then c1\x9c\xe0\x80\x9d9;overlong\x07");
+        out.extend_from_slice(b"\xed\xa0\x9d\xf4\x90\x9d\x1b]9;can\x18\x1b]9;sub\x1a");
+        out.extend_from_slice(b"\x1b\x1b]9;esc esc\x1b\x1b\\\x1b]9;\x1bx\x07\x1b_apc\x1b\x1b\\");
+        out.extend_from_slice(b"\x1b]9;");
+        out.extend(std::iter::repeat_n(b'z', MAX_OSC_BODY_BYTES + 3));
+        out.extend_from_slice(b"\x07\x1b]9;\xe2\x94\x80 after\x07tail");
+        out
+    }
+
+    /// What [`OscCollector::observable`] returns.
+    type Observable = (OscState, Vec<u8>, u8, u8, u8);
+
+    fn collect(
+        chunks: &[&[u8]],
+        observe: impl Fn(&mut OscCollector, &[u8], &mut dyn FnMut(&[u8])),
+    ) -> (Vec<Vec<u8>>, Vec<Observable>) {
+        let mut collector = OscCollector::default();
+        let mut bodies = Vec::new();
+        let mut states = Vec::new();
+        for chunk in chunks {
+            observe(&mut collector, chunk, &mut |body| bodies.push(body.to_vec()));
+            states.push(collector.observable());
+        }
+        (bodies, states)
+    }
+
+    /// The jumping scan finds the bodies the byte-at-a-time scan found and
+    /// leaves the same state, for every split of adversarial output into two
+    /// chunks, for empty chunks, and for deterministic random byte soup.
+    #[test]
+    fn osc_scan_matches_the_byte_at_a_time_reference() {
+        let fast = |collector: &mut OscCollector, bytes: &[u8], receive: &mut dyn FnMut(&[u8])| {
+            collector.observe(bytes, receive);
+        };
+        let reference =
+            |collector: &mut OscCollector, bytes: &[u8], receive: &mut dyn FnMut(&[u8])| {
+                collector.observe_reference(bytes, receive);
+            };
+        let stream = adversarial_output();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "split at {at}");
+        }
+        let alphabet = b"\x1b\x07\x18\x1a\x9c\x9d\x90\x80\xbf\xc3\xe0\xed\xf0\xf4]P\\9;1A ";
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        for _ in 0..2_000 {
+            let mut soup = Vec::new();
+            for _ in 0..64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                soup.push(alphabet[(seed % alphabet.len() as u64) as usize]);
+                if seed.is_multiple_of(5) {
+                    soup.extend_from_slice(b"plain ascii run ");
+                }
+            }
+            let at = (seed as usize) % (soup.len() + 1);
+            let chunks: [&[u8]; 2] = [&soup[..at], &soup[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "soup {soup:?}");
+        }
+    }
+
+    /// The three output scanners over 64 KiB of colored log output and of
+    /// box-drawing TUI output: ns per byte, jumping scan against the
+    /// byte-at-a-time reference. Run on the fleet:
+    /// `cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore = "bench"]
+    fn terminal_output_scan_bench() {
+        let mut colored = Vec::new();
+        let mut boxes = Vec::new();
+        for line in 0.. {
+            if colored.len() >= 64 * 1024 {
+                break;
+            }
+            colored.extend_from_slice(
+                format!("\x1b[32m2026-11-10T12:00:{line:02}Z\x1b[0m INFO request served in 3ms id={line}\r\n")
+                    .as_bytes(),
+            );
+            boxes.extend_from_slice(
+                format!(
+                    "\x1b[{};1H\u{2502} cell {line:5} \u{2502}\x1b[7m sel \x1b[27m\u{2502}",
+                    line % 40
+                )
+                .as_bytes(),
+            );
+        }
+        for (name, stream) in [("colored-log", &colored), ("box-tui", &boxes)] {
+            let rounds = 400;
+            let time = |reference: bool| {
+                let start = Instant::now();
+                for _ in 0..rounds {
+                    let mut collector = OscCollector::default();
+                    let mut titles = crate::terminal_title::TitleTracker::default();
+                    if reference {
+                        collector.observe_reference(stream, |_| {});
+                        std::hint::black_box(titles.rewrite_reference_for_bench(stream));
+                    } else {
+                        collector.observe(stream, |_| {});
+                        std::hint::black_box(titles.rewrite(stream));
+                    }
+                    std::hint::black_box(collector.state);
+                }
+                start.elapsed().as_nanos() as f64 / (rounds as f64 * stream.len() as f64)
+            };
+            let (reference, fast) = (time(true), time(false));
+            println!(
+                "SCAN-BENCH {name} reference_ns_per_byte={reference:.3} fast_ns_per_byte={fast:.3}"
+            );
+        }
+    }
+
+    #[test]
+    fn find_esc_or_high_stops_at_the_first_esc_or_high_byte() {
+        for len in 0..40 {
+            for stop in [None, Some(0x1b), Some(0x80), Some(0xff)] {
+                for at in 0..len.max(1) {
+                    let mut bytes = vec![b'a'; len];
+                    let expected = match stop {
+                        Some(byte) if at < len => {
+                            bytes[at] = byte;
+                            at
+                        }
+                        _ => len,
+                    };
+                    assert_eq!(find_esc_or_high(&bytes), expected, "{bytes:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn osc_9_4_progress_parses_states_and_reports_each_change_once() {

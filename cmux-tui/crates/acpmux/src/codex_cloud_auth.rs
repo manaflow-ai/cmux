@@ -31,6 +31,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
+/// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
+pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
+    root.join("etc/cmux/agent-auth.sh").is_file()
+        && std::fs::read(root.join("etc/cmux/vm-kind"))
+            .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+}
+
 pub const PLACEHOLDER_KEY: &str = "cmux-vm-edge-placeholder";
 /// What the launch gains in own mode.
 pub const OWN_PROVIDER_ARGS: [&str; 2] = ["-c", "model_provider=\"openai\""];
@@ -51,14 +58,18 @@ impl Inputs<'_> {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
-    fn owner_cloud_image(&self) -> bool {
-        self.root.join("etc/cmux/agent-auth.sh").is_file()
-            && std::fs::read(self.root.join("etc/cmux/vm-kind"))
-                .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+    pub(crate) fn owner_cloud_image(&self) -> bool {
+        owner_cloud_image_at(self.root)
     }
 
     fn choice(&self) -> Option<&'static str> {
-        let text = std::fs::read_to_string(self.home.join(".config/cmux/agent-auth/codex")).ok()?;
+        self.choice_for("codex")
+    }
+
+    /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
+    pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
+        let text =
+            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
@@ -70,9 +81,27 @@ impl Inputs<'_> {
             )
     }
 
-    /// The CodeRouter origin when it is `https://`.
-    fn team_origin(&self) -> Option<String> {
-        (self.var)("CMUX_CODEROUTER_URL").filter(|u| u.starts_with("https://"))
+    /// The CodeRouter origin when it is `https://`: the launch's env, else the model-plane env file a
+    /// login shell sources ([`Self::model_plane_file`]). The daemon's login-env import keeps no `CMUX_` name, so on a
+    /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
+    /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
+    pub(crate) fn team_origin(&self) -> Option<String> {
+        (self.var)("CMUX_CODEROUTER_URL")
+            .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
+            .filter(|u| u.starts_with("https://"))
+    }
+
+    /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
+    pub(crate) fn model_plane_var(&self, key: &str) -> Option<String> {
+        file_var(&self.model_plane_file(), key)
+    }
+
+    /// The model-plane env file a login shell sources (`agent-config.sh`): the per-home copy when it
+    /// exists, else the image's. Only one is read, so a per-home file with no (or an empty) origin
+    /// never falls through to the image's origin.
+    fn model_plane_file(&self) -> PathBuf {
+        let home = self.home.join(".config/cmux/model-plane.env");
+        if home.is_file() { home } else { self.root.join(MODEL_PLANE_ENV) }
     }
 
     /// Whether `config.toml` is the one cmux generated (`model_provider = "cmux"`).
@@ -80,6 +109,26 @@ impl Inputs<'_> {
         std::fs::read_to_string(self.codex_home().join("config.toml"))
             .is_ok_and(|t| t.lines().any(|l| l.trim_end() == "model_provider = \"cmux\""))
     }
+}
+
+/// The image's model-plane env file, under `Inputs::root`.
+const MODEL_PLANE_ENV: &str = "etc/cmux/model-plane.env";
+
+/// One `export KEY='value'` (or `KEY=value`) line's value from a model-plane env file, unquoted;
+/// None when the file or the key is missing or the value is empty.
+fn file_var(path: &Path, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().rev().find_map(|line| {
+        let line = line.trim();
+        let rest = line.strip_prefix("export ").unwrap_or(line).trim_start();
+        let value = rest.strip_prefix(key)?.strip_prefix('=')?.trim();
+        let value = value
+            .strip_prefix('\'')
+            .and_then(|v| v.strip_suffix('\''))
+            .or_else(|| value.strip_prefix('"').and_then(|v| v.strip_suffix('"')))
+            .unwrap_or(value);
+        (!value.is_empty()).then(|| value.to_owned())
+    })
 }
 
 fn mode(value: &str) -> Option<&'static str> {
@@ -259,6 +308,34 @@ mod tests {
         assert_eq!(reason(&m, &vars(TEAM), false, true).await, Some("chosen"));
         let pinned = [TEAM[0], ("CMUX_CODEX_AUTH", "team")];
         assert_eq!(reason(&m, &vars(&pinned), false, true).await, None);
+    }
+
+    #[tokio::test]
+    async fn the_team_plane_comes_from_the_model_plane_file_too() {
+        // The daemon's env has no CMUX_ name: the login shell's model-plane file says where the plane is.
+        let m = machine(Some("owner"), true);
+        std::fs::write(
+            m.root.join(MODEL_PLANE_ENV),
+            "# generated by cmux\nexport OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+             export CMUX_CODEROUTER_URL='https://coderouter.cmux.internal'\n",
+        )
+        .unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
+        // The per-home file (a boot env agent-config.sh persisted) replaces the image's.
+        let dir = m.home.join(".config/cmux");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='http://plain'\n")
+            .unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        // A per-home file with an empty or no origin is the one the shell reads: no image fallback.
+        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL=''\n").unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        std::fs::write(dir.join("model-plane.env"), "export OPENAI_BASE_URL='https://x/v1'\n")
+            .unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, Some("no-team-plane"));
+        std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='https://plane'\n")
+            .unwrap();
+        assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
     }
 
     #[tokio::test]

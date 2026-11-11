@@ -21,7 +21,7 @@
 //!   diffs (`_acpmux/chats_window_changed`, `chat_windows.rs`). A client that shows a list asks
 //!   for its window instead of mirroring the whole index.
 //! - `_acpmux/chat_projects`: `{ready, enabled, projects: [{harness, path, lastUsedMs}]}`, each
-//!   harness's project folders grouped by acpmux (the app relays them to the cmux daemon).
+//!   harness's project folders grouped by acpmux (the cmux daemon reads them itself).
 //! - `_acpmux/chats_search {query, ...filter, budgetMs?}`: the chats whose
 //!   prompts or answers hold every word of `query`, each with its newest such
 //!   message and a snippet, read now from the harnesses' stores within a time
@@ -91,6 +91,7 @@ pub(super) async fn route(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
@@ -206,7 +207,7 @@ pub(super) async fn route(
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
-        return heap(|| super::requests::handle_request(hub, conn, m, params)).await;
+        return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
         return Err(RpcError::method_not_found(&format!(

@@ -138,7 +138,7 @@ final class TitlebarToolbarBand: NSView {
         }
         guard changed else { return }
         glyphLeg = (glyphProgress, target)
-        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(hidden ? .disappear : .appear) : 0
+        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(hidden ? .disappear : .appear, in: window) : 0
         glyphMotion.run(duration: duration, in: self, trace: "sidebar.toggleGlyph")
     }
 

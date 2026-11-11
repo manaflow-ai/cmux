@@ -837,7 +837,8 @@ impl Hub {
         // runs with the harness initialized and its session created.
         // The name its Claude Code was started under (`--name`), before the claim is taken.
         let pooled_name = self.pool_claimed_name(&session.id);
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &session.meta(), off)
+        {
             #[cfg(debug_assertions)]
             self.take_off_seam();
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
@@ -1319,11 +1320,7 @@ impl Hub {
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,

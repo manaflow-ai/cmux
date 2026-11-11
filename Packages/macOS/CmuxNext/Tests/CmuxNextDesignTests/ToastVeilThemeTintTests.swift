@@ -7,7 +7,7 @@ import Testing
 /// Leo 2026-11-07: "these toasts are still coloured unthemed". The toast's glass carried the
 /// neutral gray veil in every theme; it lays the theme's glass tint (the theme background, as the
 /// popovers' glass) at the toast's veil opacity, so a red theme's toast is red glass. The toast
-/// role's glass is the one the overlay toast page puts under each toast (`CmuxToastPageView`).
+/// role's glass is the one each native toast draws on (`CmuxToastView`).
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct ToastVeilThemeTintTests {
     /// The colour the surface lays over its glass: the Liquid Glass tint or the vibrancy tint

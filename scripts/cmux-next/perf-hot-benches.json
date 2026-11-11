@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "terminal-host-output": {
+      "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
+      "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",
+      "owner": "terminal host"
+    },
     "chats-window-query": {
       "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
       "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
@@ -25,6 +30,11 @@
       "what": "terminal key to committed frame (input write, echo, parse, draw)",
       "bench": "scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing"
+    },
+    "terminal-output-scan": {
+      "what": "the byte scanners every terminal output chunk runs in the host and in the daemon mirror: the title tracker (terminal_title.rs TitleTracker::rewrite), the OSC metadata collector (terminal_metadata.rs OscCollector::observe) and the prompt mark search (prompt_mode_reset.rs); each jumps over the bytes no state can change on",
+      "bench": "cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture (64 KiB colored log and box-drawing TUI output; prints ns per byte, jumping scan and byte-at-a-time reference)",
+      "owner": "cmux-tui"
     },
     "home-key": {
       "what": "Home composer key to frame",
@@ -81,6 +91,11 @@
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
       "owner": "PL-motion-cef"
     },
+    "window-resize-step": {
+      "what": "one step of a live window resize (a person drags an edge): AppKit lays the window's view tree out inside setFrame, so every chrome view's layout() runs once per step and all of them share one refresh. Work that does not depend on the new size (rebuilding tooltips or accessibility elements, drawing a view that only moved) does not belong in it.",
+      "bench": "swift test --filter WindowResizeWorkPerStepTests with CMUX_TEST_SESSION_SIZES=large,real (prints WORK case=window-resize per session size: layout calls per step and per class); frame times by a real corner drag (CuaDriver, 1280x800 to 1040x640) with the same drag on Chrome as the reference: window-edge intervals from debug.motion record_start, main-thread time from debug.frames",
+      "owner": "Performance Lead"
+    },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
       "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
@@ -90,6 +105,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "main-task-record": {
+      "what": "every scheduled main-thread task's always-on per-owner time record (MainTaskTimes.record from MainFrameBudget.run: the owner's slot lookup, one bucket and a few stores; debug.main_budget's owners)",
+      "bench": "CMUX_MAIN_TASK_RECORD_BENCH=1 swift test -c release --filter MainTaskRecordBench (ns per task for owners interned first, after 1500 names, and 400 owners in turn)",
+      "owner": "Performance Lead"
     },
     "action-budget": {
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
@@ -125,6 +145,21 @@
       "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
       "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
       "owner": "acpmux pane"
+    },
+    "workspace-list-change": {
+      "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); the list's scroll rule (ListViewportChange, SidebarLayout.viewportPositions): swift test --filter \"SidebarRowChangeScrollTests|SidebarViewportRuleEqualityTests\" (viewport_rows per change at 60 and 826 rows); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "owner": "WORKSPACE LIST 800"
+    },
+    "workspace-placement": {
+      "what": "one new workspace put at its sidebar slot once the daemon reports it (WindowManager.applyPendingPlacements -> SidebarBridge.place): the rows it maps from their stores. It maps the new row only, at 60 workspaces as at 826. Still O(session) per placement and not covered by this budget: the two rows passes (structure walk and SidebarModel.setSections), the document projection in the Rust mirror, and the slot rule's copy of every row (SidebarSection.withoutPlaceholders, counted as slot_rows).",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspacePlacementCostTests (on a build mini; rows_made, doc_reshows, project, slot_rows per placement)",
+      "owner": "WORKSPACE LIST 800"
+    },
+    "command-stats": {
+      "what": "the session daemon's count of one request by command name and client kind (diagnostics/command_stats.rs: CommandStats::start, start_line, Cell::record; server/connection_frame.rs handle_connection_frame and handle_request_with_cancellation): three clock reads, one probe of a fixed table, four relaxed atomic updates, no lock, no allocation after the first request of a name",
+      "bench": "cargo test --release -p cmux-tui-core --lib bench_command_stats_cost_per_request -- --ignored --nocapture (in cmux-tui, on a build mini; prints COMMAND-STATS-BENCH with ping_with_ns, ping_without_ns and added_ns for 1 000 000 ping requests, same binary)",
+      "owner": "COMMAND STATS"
     }
   }
 }

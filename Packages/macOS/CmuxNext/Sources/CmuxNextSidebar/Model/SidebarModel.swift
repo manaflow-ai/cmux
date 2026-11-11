@@ -56,6 +56,12 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return structureRevision
     }
+    /// On until the home session's owner serves (the app sets it): a structural set keeps the order drawn so far.
+    @ObservationIgnored public var holdsLaunchOrder = false {
+        didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
+    }
+    /// What the hold keeps (`SidebarModel+LaunchOrder`).
+    @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
     @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
@@ -128,6 +134,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// The pick after the shown workspace closed, for a model alone (the mock, a test): by position among the drawn rows.
+    @ObservationIgnored public var closeSuccessor = SidebarCloseSuccessor()
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
     @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -151,7 +159,7 @@ public final class SidebarModel {
     /// The focused workspace is always listed (sidebar-focused-visible): a
     /// new workspace selection opens the collapsed sections that hide it
     /// (`expandSections(hiding:)`), and the list scrolls it into view
-    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// (`ListViewportChange.settle`). Every selection path (a click, Cmd-P, a link,
     /// the CLI, an agent's focus, a new workspace) sets this one property.
     public var selectedItem: SidebarItem? {
         didSet {
@@ -463,12 +471,13 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
+        SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
-        let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
+        let next = holdingLaunchOrder(Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() })
         if writesRowsInPlace(next) { return }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
@@ -637,7 +646,7 @@ public final class SidebarModel {
         selection.subtract(closed)
         if let oldActive, closed.contains(oldActive) {
             let surviving = allWorkspaces.map(\.id)
-            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
+            let next = closeSuccessor(shown: oldActive, old: oldOrder, surviving: surviving, drawn: drawnWorkspaceOrder())
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
         }
@@ -723,6 +732,7 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
+        o.headsWorkspaceList = SidebarTunables.listHeading.value
         // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
         if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)

@@ -2,6 +2,7 @@
 //! bounded queues, the render hub, and the initial graphics snapshot.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// One immutable terminal frame plus retained-history metadata captured with it.
 #[derive(Debug, Clone)]
@@ -164,7 +165,7 @@ impl RenderTap {
     }
 
     pub(super) fn send(&self, event: RenderAttachFrame) -> bool {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if !queue.receiver_alive {
             return false;
         }
@@ -177,7 +178,9 @@ impl RenderTap {
 
 impl Drop for RenderTap {
     fn drop(&mut self) {
-        self.state.queue.lock().unwrap().sender_alive = false;
+        // A destructor must not panic: one that runs while a panic unwinds
+        // aborts the daemon. A poisoned queue only loses undrained frames.
+        self.state.queue.lock().recover_poison().sender_alive = false;
         self.state.ready.notify_all();
     }
 }
@@ -271,13 +274,17 @@ impl Drop for RenderAttachFrameReceiver {
     fn drop(&mut self) {
         // Frame fan-out holds the hub before this queue. Release the queue
         // before taking the hub so receiver teardown cannot invert that order.
+        // Neither lock may panic here (see `RenderTap::drop`); the render hub
+        // recovers from a poisoned lock the way frame building does.
         {
-            let mut queue = self.state.queue.lock().unwrap();
+            let mut queue = self.state.queue.lock().recover_poison();
             queue.receiver_alive = false;
             queue.clear();
         }
         if let Some(render) = self.render.upgrade() {
-            render.lock().unwrap().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+            let mut render = render.lock().recover_poison();
+            render.taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+            render.release_when_unviewed();
         }
     }
 }
@@ -299,6 +306,26 @@ pub(super) struct RenderHub {
 }
 
 impl RenderHub {
+    /// With no render viewer left, drops the hub's frame state: the render
+    /// state's row and image caches, the last frame (every cell as a `Cell`
+    /// with its own text) and the cached initial snapshots. A terminal that
+    /// was shown once and then hidden kept them for its whole life, about
+    /// 100 bytes per cell of its screen plus decoded images. The next
+    /// attach builds a full frame from the terminal, as the first one did
+    /// (`attach_render_stream` builds before it reads `latest`); every
+    /// stream's delta state lives with that stream, so none sees a gap.
+    pub(super) fn release_when_unviewed(&mut self) {
+        if !self.taps.is_empty() || self.latest.is_none() {
+            return;
+        }
+        let Ok(state) = RenderState::new() else { return };
+        *self.state = state;
+        self.built_generation = 0;
+        self.latest = None;
+        self.initial_graphics = None;
+        self.final_initial = None;
+    }
+
     pub(super) fn build_attach_initial(
         &mut self,
         term: &Terminal,
