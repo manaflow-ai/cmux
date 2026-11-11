@@ -204,3 +204,37 @@ fn w5n3_claim_is_written_when_no_daemon_listens() {
         "{output:?}"
     );
 }
+
+/// One agent's hooks run one after another, but each sends on its own
+/// connection, which the daemon serves on its own thread: the journal can
+/// take them out of order. Each event carries when its hook started
+/// (`observed_at_ms`), and the daemon orders the agent's state by it.
+#[test]
+fn hook_order_each_event_carries_when_its_hook_started() {
+    let socket = socket_path("observed");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
+        .args(["claude", "Stop"])
+        .env("CMUX_TUI_SOCKET", &socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{\"session_id\":\"observed-1\"}\n").unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    let request = read_request(&stream);
+    let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    reply(&stream, &request);
+    let _ = wait_with_output(child, Duration::from_secs(3));
+    let _ = std::fs::remove_file(&socket);
+    let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+    let observed = value["params"]["event"]["payload"]["normalized"]["observed_at_ms"]
+        .as_str()
+        .and_then(|text| text.parse::<u128>().ok());
+    assert!(
+        observed.is_some_and(|observed| before <= observed && observed <= after),
+        "observed_at_ms {observed:?} is not between {before} and {after}: {request}"
+    );
+}

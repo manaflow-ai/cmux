@@ -90,6 +90,11 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     let started = Instant::now();
+    // Orders this agent's events in the daemon (cmux_tui_core::stamp_agent_hook_observed_at).
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok());
     // Read once, before any decision: a Claude hook stands down by the
     // payload's `session_id` (plugin_copy.rs).
     let payload = read_payload_bytes(io::stdin().lock())?;
@@ -100,7 +105,7 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         return Ok(());
     }
     let context = session_context::applies(&args.source, &args.native_event, getenv);
-    let route = deliver(&args, exe_prefix, &payload, session, started)?;
+    let route = deliver(&args, exe_prefix, &payload, session, started, started_at_ms)?;
     if context {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
@@ -124,6 +129,7 @@ fn deliver(
     payload: &[u8],
     session: Option<&str>,
     started: Instant,
+    started_at_ms: Option<u64>,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         return Ok(None);
@@ -141,20 +147,27 @@ fn deliver(
     }
     let native = read_native_payload(payload)?;
     let start_source = native.get("source").and_then(Value::as_str).map(str::to_owned);
-    let ingress = cmux_tui_core::agent_hook_journal_ingress(
+    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
         terminal.as_deref(),
         native,
     )?;
+    if let Some(observed_at_ms) = started_at_ms {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
+    let budget_end = started + CLAUDE_HOOK_BUDGET;
+    let handoff = if args.source == "claude" && args.native_event == "SessionStart" {
+        claude_start_handoff_wait(budget_end, Instant::now())
+    } else {
+        handoff_wait(&args.source, &args.native_event)
+    };
     let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
     // Whatever the send did: a Claude that starts while the daemon is down
     // still claims its terminal (its roster read then fails, so it counts as
     // the terminal's agent).
-    let budget_end = started + CLAUDE_HOOK_BUDGET;
     claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source, budget_end);
     match sent? {
         Handoff::Sent => Ok(Some((socket, terminal))),
@@ -481,6 +494,14 @@ pub(crate) mod plugin_copy;
 /// Which Claude in a terminal is the terminal's agent.
 #[path = "cmux-tui-hook/terminal_agent.rs"]
 mod terminal_agent;
+
+/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
+/// whose time budget ends at `budget_end`: `CLAUDE_SESSION_START_HANDOFF_WAIT`,
+/// cut to the time left, so a slow start (payload read, tmux route) never
+/// pushes the hook past its budget. The child keeps its own deadline.
+fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+    CLAUDE_SESSION_START_HANDOFF_WAIT.min(budget_end.saturating_duration_since(now))
+}
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     // Codex SessionStart also reads the session context after the handoff
@@ -1201,6 +1222,18 @@ mod tests {
         // The Claude claim (terminal_agent.rs) is still written inside 5 s.
         assert!(handoff_wait("claude", "SessionStart") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionStart") < CLAUDE_HOOK_BUDGET);
+    }
+
+    #[test]
+    fn any_launcher_w5n3_cap_start_handoff_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // A fresh hook: the full wait, past the child's own deadline.
+        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        assert_eq!(fresh, CLAUDE_SESSION_START_HANDOFF_WAIT);
+        // A slow start (payload, tmux route): the wait ends with the budget.
+        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        assert_eq!(late, Duration::from_secs(1));
+        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
     }
 
     #[test]

@@ -755,7 +755,18 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
                 std::thread::sleep(Duration::from_millis(100));
             }
         }
-        let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+        // The outer Claude's Stop was handed over before its record was
+        // written, but its journal append may still be in flight: read the
+        // row until the agent's last event (Stop: idle) shows, or 5 s pass.
+        // Events journaled out of send order must not leave it working.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let row = loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["state"] == "idle" || Instant::now() >= deadline {
+                break row;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
         assert_eq!(row["source"], "hook", "{tag}: {row}");
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
         assert_eq!(row["state"], "idle", "{tag}: {row}");

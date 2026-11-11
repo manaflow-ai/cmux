@@ -25,6 +25,26 @@ the agent's own idle prompt (a dismissal faster than its scan). Claude Code
 sends no hook when a permission dialog is dismissed with Esc, so the screen is
 the only evidence that the agent stopped waiting.
 
+One agent's hooks run one after another, but each hands its event to the
+session on its own connection, and the session serves each connection on its
+own thread, so the journal can take a `Stop` before the prompt that came
+first. Each event carries when its hook started (`observed_at_ms`, ms since
+the epoch, from the clock of the machine the hook runs on). The agent's
+state, in the agent list and in the roster that the sidebar, tab badges and
+attention jump read, follows the latest-started event of its session: an
+event of the same session that started earlier than the latest applied one,
+by at most 5 s (the reorder window), is kept in the journal but does not
+change the state. The session's start and end, and an event that shows a
+dialog, a question, a plan review or an error, always apply (parallel
+subagents of one session can each raise a dialog; the next later event
+clears it). Limits: two events that start in the same millisecond keep
+journal order. An event that started more than 5 s earlier applies, since
+a clock stepped back is likelier than a reorder that long. The times come
+from the machine that runs the agent: for an agent on a remote host, a
+step of that host's clock (by NTP, say) within 5 s can drop the state of
+the event after it until the agent's next event. After a session restart,
+the agent list orders by journal sequence until the next event.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside
@@ -168,8 +188,9 @@ Claude Code 2.1 reads under any config directory and beside any
   - The `SessionStart` hook writes the claim whether or not the daemon took
     the event, so a Claude that starts while the daemon is down still claims
     its terminal (its read fails, so it counts as the agent). Claude Code
-    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s,
-    and the read ends 4.5 s after the hook started. With no time left the
+    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s
+    and never past 4.5 s after the hook started, and the read ends no later
+    than 4.5 s after the hook started. With no time left the
     hook makes no read and acts as when the read fails.
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then
