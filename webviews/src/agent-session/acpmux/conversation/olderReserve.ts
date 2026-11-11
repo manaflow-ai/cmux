@@ -63,6 +63,8 @@ export type OlderReserve = {
   prompts?: number;
   /// Room a refined estimate found short, added back as the reader scrolls up (`payOlderRoom`).
   owed?: number;
+  /// The input's `rose` this state has paid for.
+  rose?: number;
 };
 
 export type OlderReserveInput = {
@@ -79,6 +81,9 @@ export type OlderReserveInput = {
   /// The history's height above a row, from when this chat was last held whole at this width
   /// (transcriptHeights.ts), for the pin: exact where the estimate guesses.
   knownAbove?: (row: AcpmuxRow) => number | undefined;
+  /// How far the reader has scrolled up among the rows in total while room was owed: what it rose
+  /// since the last pass pays some of the room owed (`payOlderRoom`).
+  rose?: number;
 };
 
 /// Where the pin is now: its last index, moved by the rows that came or went (a page prepends), or
@@ -127,7 +132,10 @@ export function olderReserve(
   input: OlderReserveInput,
 ): { reserve: number; state: OlderReserve | undefined } {
   const { rows } = input;
-  const previous = state?.sessionId === input.sessionId ? state : undefined;
+  const rose = input.rose ?? 0;
+  const same = state?.sessionId === input.sessionId ? state : undefined;
+  // What the reader rose since the last pass pays room owed before anything else moves.
+  const previous = same ? { ...payOlderRoom(same, rose - (same.rose ?? rose))!, rose } : undefined;
   // Zero is final for this session (no pin search or row scan after exhaustion), unless no count
   // was ever known to seed it.
   if (previous?.room === 0 && !previous.unseeded) return { reserve: 0, state: previous };
@@ -194,6 +202,7 @@ export function olderReserve(
       ...(unseeded ? { unseeded } : {}),
       ...(prompts ? { prompts } : {}),
       ...(owed > 0 ? { owed } : {}),
+      rose,
     },
   };
 }

@@ -184,7 +184,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
-import { type OlderReserve, olderReserve, payOlderRoom } from "./conversation/olderReserve";
+import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -2025,9 +2025,10 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
-  /// Room paid back as the reader scrolls up (`payOlderRoom`): a count that places again, and the
+  /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
+  /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
-  const [roomPaid, setRoomPaid] = useState(0);
+  const [roomRose, setRoomRose] = useState(0);
   const roomPaidFrom = useRef<number | undefined>(undefined);
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
@@ -2930,6 +2931,7 @@ function TranscriptView({
           canLoadOlder,
           earlier: earlier?.length,
           promptCount,
+          rose: roomRose,
           // Exact where this chat was held whole before at this width (transcriptHeights.ts).
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
@@ -2964,8 +2966,7 @@ function TranscriptView({
     earlier,
     promptCount,
     roomGone,
-    // Room paid back as the reader rose (in olderRoom.current) places again.
-    roomPaid,
+    roomRose,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
@@ -4552,11 +4553,8 @@ function TranscriptView({
     const paidFrom = roomPaidFrom.current;
     roomPaidFrom.current = paidAt;
     if (!gone && paidFrom !== undefined && paidFrom > paidAt && !followingRef.current && olderRoom.current?.owed) {
-      const paid = payOlderRoom(olderRoom.current, paidFrom - paidAt);
-      if (paid !== olderRoom.current) {
-        olderRoom.current = paid;
-        setRoomPaid((count) => count + 1);
-      }
+      const rise = paidFrom - paidAt;
+      setRoomRose((total) => total + rise);
     }
     giveRoomNearTop();
     checkOlderNow.current();

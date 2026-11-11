@@ -202,6 +202,22 @@ describe("olderReserve", () => {
     });
     expect(next.reserve).toBe(4235);
     expect(next.state?.owed).toBe(8005);
+    // The transcript passes the reader's total rise as `rose`: the pass pays for what is new of it.
+    const rising = (state: OlderReserve | undefined, rose: number) =>
+      olderReserve(state, {
+        sessionId: "s",
+        rows: turns(30, 50),
+        rowTop: (index) => (index < 20 ? index * 200 : 4000 + (index - 20) * 100),
+        rowsHeight: 6000,
+        canLoadOlder: true,
+        earlier: 30,
+        rose,
+      });
+    const risen = rising(step.state, 100);
+    expect(risen.reserve).toBe(4235);
+    expect(risen.state?.owed).toBe(8005);
+    // The same total again pays nothing more.
+    expect(rising(risen.state, 100).reserve).toBe(4235);
     // Paid in full, nothing more is owed.
     expect(payOlderRoom(next.state, 100_000)!.owed).toBeUndefined();
   });
