@@ -17,7 +17,9 @@ three ways, because each one alone has a hole:
    2026-11-03).
 2. GIT_CONFIG_COUNT/KEY/VALUE in os.environ, set when this module loads, for
    repositories the code under test makes itself.
-3. GIT_CONFIG_GLOBAL, pointed (when unset) at a temporary file that includes
+3. GIT_CONFIG_GLOBAL, pointed (when unset; an empty value means no global
+   config and is kept) at a file in a fresh private folder (tempfile.mkdtemp,
+   removed at exit; never a predictable path another user could plant) that includes
    ~/.gitconfig and ~/.config/git/config and then sets OPT_OUT (without the
    includes when HOME is unset: git refuses to expand ~/ then). Receive-pack
    reads it too.
@@ -38,6 +40,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Mapping, MutableMapping
@@ -79,11 +82,23 @@ def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[st
     return env
 
 
+def _private_dir(folder: str) -> bool:
+    """True when folder is a real directory (not a symlink) owned by this user with mode 0700."""
+    try:
+        info = os.lstat(folder)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700
+
+
 def _global_config_dir() -> str:
+    # An inherited folder is used only when it is private to us: a shared or planted one (another user's, a
+    # symlink, a world-writable one) could hold a config that adds core.hooksPath (cmux#40871 Codex F1).
     folder = os.environ.get("CMUX_GIT_FIXTURE_GLOBAL_DIR")
-    if folder and os.path.isfile(os.path.join(folder, "home.gitconfig")):
+    if (folder and _private_dir(folder) and os.path.isfile(os.path.join(folder, "home.gitconfig"))
+            and os.path.isfile(os.path.join(folder, "no-home.gitconfig"))):
         return folder
-    folder = tempfile.mkdtemp(prefix="git-fixture-")
+    folder = tempfile.mkdtemp(prefix="git-fixture-")  # mode 0700, a fresh unpredictable name
     with open(os.path.join(folder, "home.gitconfig"), "w") as handle:
         handle.write(_GLOBAL_CONFIG_TEXT)
     # Git refuses an include of ~/ when HOME is unset, so an environment without HOME gets this one.

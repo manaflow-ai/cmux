@@ -14,7 +14,8 @@
 #    receive-pack, which then runs its own maintenance in the bare repository.
 # 2. The same three as exported GIT_CONFIG_KEY/VALUE pairs, for the git the
 #    scripts under test run.
-# 3. GIT_CONFIG_GLOBAL (when unset) names a file that includes ~/.gitconfig
+# 3. GIT_CONFIG_GLOBAL (when unset; an empty value is kept) names a file in a
+#    fresh private mktemp -d folder, removed at exit, that includes ~/.gitconfig
 #    and ~/.config/git/config, then sets the three.
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
@@ -28,15 +29,25 @@ done
 export GIT_CONFIG_COUNT=$_git_fixture_count
 unset _git_fixture_count _git_fixture_pair
 
-if [[ -z "${GIT_CONFIG_GLOBAL:-}" ]]; then
-  # One file per user, rewritten only when its text differs; the text never changes, so tests share it.
-  _git_fixture_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig"
-  _git_fixture_text=$'[include]\n\tpath = ~/.gitconfig\n\tpath = ~/.config/git/config\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
-  if [[ "$(cat "$_git_fixture_global" 2>/dev/null)" != "$_git_fixture_text" ]]; then
-    printf '%s\n' "$_git_fixture_text" >"$_git_fixture_global.$$" && mv -f "$_git_fixture_global.$$" "$_git_fixture_global"
+# Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
+if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
+  # A fresh private folder per process (mktemp -d: ours, mode 0700, an unpredictable name), never a fixed
+  # name in the shared temp folder: another user could plant or swap that file and add core.hooksPath
+  # (Codex F1 on cmux#40871). Removed at exit, after any EXIT trap already set.
+  if _git_fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
+    printf '%s\n' $'[include]\n\tpath = ~/.gitconfig\n\tpath = ~/.config/git/config\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false' \
+      >"$_git_fixture_dir/global.gitconfig"
+    export GIT_CONFIG_GLOBAL="$_git_fixture_dir/global.gitconfig"
+    _git_fixture_trap=$(trap -p EXIT)
+    _git_fixture_trap=${_git_fixture_trap#trap -- }
+    eval "_git_fixture_trap=${_git_fixture_trap% EXIT}"
+    # shellcheck disable=SC2064  # expand the folder now; the earlier trap runs after it
+    trap "rm -rf -- $(printf '%q' "$_git_fixture_dir")${_git_fixture_trap:+; $_git_fixture_trap}" EXIT
+    unset _git_fixture_trap
+  else
+    echo "git-fixture.sh: mktemp -d failed; no fixture GIT_CONFIG_GLOBAL (repo config and env still opt out)" >&2
   fi
-  export GIT_CONFIG_GLOBAL=$_git_fixture_global
-  unset _git_fixture_global _git_fixture_text
+  unset _git_fixture_dir
 fi
 
 # Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
