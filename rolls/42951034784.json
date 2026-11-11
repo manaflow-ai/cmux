@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42951034784",
+  "recorded_at": "2026-11-11T03:18:56Z",
+  "reason": "cmux-tui 6e1be83c512f changes the image's cmux-tui (pinned 80f2be9305b6)",
+  "dry_run": false,
+  "cmux_tui": "6e1be83c512fc8d963a241da9d389cd95f48ac30",
+  "fixes": [
+    {
+      "sha": "6e1be83c512fc8d963a241da9d389cd95f48ac30",
+      "mergedAt": "2026-11-10T18:55:10-08:00",
+      "subject": "agent-pane-policy: the C ABI answers what the Swift host still asks its own copy (ABI 2, step A of the pane policy move) (#41004)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T03:18:56Z",
+    "snapshot_id": "sh-bbf71be356854d649d4474ebc93b1e2a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42951034784): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d9151651fcb474eb3ab10f7fd49f73b6ce9fc826",
+    "image": "cloud-native-auto-6e1be83c-42951034784-1",
+    "revision": "ci-42951034784-1",
+    "at": "2026-11-11T03:18:56Z"
+  },
+  "rolled_back": false
+}
