@@ -1621,6 +1621,17 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-27b
+      - name: Prepare check Python (PyYAML) and timeout
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/checks-venv"
+          "$RUNNER_TEMP/checks-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          if ! command -v timeout >/dev/null && command -v gtimeout >/dev/null; then
+            ln -s "$(command -v gtimeout)" "$RUNNER_TEMP/checks-venv/bin/timeout"
+          fi
+          echo "$RUNNER_TEMP/checks-venv/bin" >> "$GITHUB_PATH"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
         run: |
@@ -3359,6 +3370,16 @@ jobs:
           VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
           RESULT: ${{ needs.fast-tier-fleet.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
@@ -3368,6 +3389,7 @@ jobs:
             echo "::error title=cmux-next fast tier::fleet $RESULT, verdict ${VERDICT:-none}; its log is in cmux-next fast tier (build fleet)"
             exit 1
           fi
+          if [[ $RESULT == cancelled ]] && superseded_push "fast tier"; then exit 0; fi
           echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
           exit 3
 
@@ -5283,6 +5305,16 @@ jobs:
           HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
           VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$VERDICT" in
             fresh)
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
@@ -5293,6 +5325,7 @@ jobs:
               echo "::error::The action catalog checks fail on $HOST with fresh exports too: a catalog failure, not stale files. Regenerating changes nothing; $HOST's step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               exit 1 ;;
             *)
+              if [[ $HOST_RESULT == cancelled ]] && superseded_push "generated files"; then exit 0; fi
               echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
               exit 1 ;;
           esac
@@ -6377,6 +6410,16 @@ jobs:
           OUTCOME: ${{ needs.cmux-scheme-compile.outputs.crash_gate }}
           COMPILE: ${{ needs.cmux-scheme-compile.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$OUTCOME" in
             success) echo "crash gate: every deliberate crash ended the app in time" ;;
             failure) echo "::error::crash gate: red; the cause (a crash froze the app, or no app to test) is in the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
@@ -6384,6 +6427,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
+              if [[ $COMPILE == cancelled ]] && superseded_push "crash gate"; then exit 0; fi
               [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac

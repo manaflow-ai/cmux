@@ -96,8 +96,18 @@ type Roll = {
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed: read only when the key changes, so a tick costs no second render.
+  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
+  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
+  // costs none.
   const drawn = useRef(tail);
+  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
+  // that records this commit's tail, so it still reads the one before.
+  const rolledOut = roll.out !== undefined;
+  useLayoutEffect(() => {
+    if (!rolledOut) return;
+    const before = drawn.current;
+    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
+  }, [rolledOut, roll.turns]);
   useLayoutEffect(() => {
     drawn.current = tail;
   });
@@ -109,7 +119,8 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      out: rolls ? { ...roll, out: undefined, tail: drawn.current } : undefined,
+      // Its tail is the one last drawn, filled in by the first layout effect above.
+      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
   return roll;
