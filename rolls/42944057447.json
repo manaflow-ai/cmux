@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42944057447",
+  "recorded_at": "2026-11-11T02:20:43Z",
+  "reason": "cmux-tui 8cb243bf32ba changes the image's cmux-tui (pinned 7137c7f4e663)",
+  "dry_run": false,
+  "cmux_tui": "8cb243bf32ba65ed032339a384efb8a6e89c82bd",
+  "fixes": [
+    {
+      "sha": "fd14e54f8786fcbaa525ca05a8c2596f14c1a2b7",
+      "mergedAt": "2026-11-10T17:56:54-08:00",
+      "subject": "cmux inference setup: a refused gateway model call shows its answer, so it names the hop (#40833)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T02:20:43Z",
+    "snapshot_id": "sh-ea568e5287354477991b70b5980f807e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42944057447): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ee6b162dc21de7bba57a857f8a06c7482d8257bc",
+    "image": "cloud-native-auto-8cb243bf-42944057447-1",
+    "revision": "ci-42944057447-1",
+    "at": "2026-11-11T02:20:43Z"
+  },
+  "rolled_back": false
+}
