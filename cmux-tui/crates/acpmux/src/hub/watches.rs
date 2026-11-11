@@ -496,6 +496,48 @@ mod tests {
         assert!(!hub.watches.panic_next.load(Ordering::SeqCst), "the loop never panicked");
     }
 
+    /// Codex review of #40885, F1: a watch saved before `match` was capped came back with its
+    /// multi-megabyte pattern, and every stub of its peer's replies kept that much of each end. At
+    /// load the match is cut to `MAX_MATCH_BYTES`; the load never fails over it.
+    #[test]
+    fn a_persisted_oversized_match_loads_capped_and_its_stubs_stay_bounded() {
+        let dir = cmux_unix_socket::short_test_dir("watch-match-cap");
+        let path = dir.path().join("watches.json");
+        let watch = |id: &str, m: String| Watch {
+            id: id.into(),
+            to: "sink".into(),
+            sessions: vec!["peer/s".into()],
+            until: vec!["ready".into()],
+            match_text: Some(m),
+            once: true,
+            caller: None,
+            active: true,
+            cursors: BTreeMap::new(),
+            offline: BTreeSet::new(),
+        };
+        let mut saved = Saved::default();
+        saved.watches.insert("big".into(), watch("big", "\u{e9}".repeat(2 << 20)));
+        saved.watches.insert("small".into(), watch("small", "ready".into()));
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+        let watches = Watches::default();
+        watches.open(&path);
+        let loaded = watches.inner.lock().unwrap().saved.watches.clone();
+        assert_eq!(loaded.len(), 2, "the load dropped a watch");
+        assert_eq!(loaded["small"].match_text.as_deref(), Some("ready"));
+        let big = loaded["big"].match_text.clone().expect("the match was dropped, not capped");
+        assert!(big.len() <= crate::hub::MAX_MATCH_BYTES, "match kept {} bytes", big.len());
+        assert!(path.exists(), "the state file was moved aside as bad");
+
+        // A long reply chunk stubbed with the loaded pattern stays within a page.
+        let text = "\u{e9}".repeat(3 << 20);
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "s",
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
+        let stub = super::super::paging::stub_msg(&msg, text.len(), Some(&big));
+        let size = serde_json::to_vec(&stub).unwrap().len();
+        assert!(size <= super::super::paging::DEFAULT_PAGE_BYTES / 16, "stub is {size} bytes");
+    }
+
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
         let _hook = HOOK_TEST.lock().await;
