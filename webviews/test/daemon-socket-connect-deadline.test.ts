@@ -133,3 +133,13 @@ test("a pairing that waits on the person is not cut by the upgrade deadline", as
   await flush();
   expect(state.socket).toBeDefined();
 });
+
+test("Home asks a URL daemon that missed its connect deadline again, keeping its credential", async () => {
+  const { afterConnectFailure } = await import("../src/pages/home-channels/DaemonGate");
+  expect(afterConnectFailure("unresponsive", "url")).toBe("retry");
+  expect(afterConnectFailure("unreachable", "url")).toBe("retry");
+  expect(afterConnectFailure("disconnected", "url")).toBe("retry");
+  expect(afterConnectFailure("auth_rejected", "url")).toBe("forget");
+  expect(afterConnectFailure(undefined, "url")).toBe("form");
+  expect(afterConnectFailure("unresponsive", "host")).toBe("retry");
+});

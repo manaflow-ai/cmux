@@ -67,6 +67,18 @@ type Phase =
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
 
+/** What a failed connect does next. Only a refused credential is dropped (`forget`, URL pages); a
+ *  daemon that is restarting or slow keeps it and is asked again: unreachable (no upgrade in time),
+ *  unresponsive (open, but no answer to its first command in time) or disconnected (closed while
+ *  it was asked). Anything else shows the form with its reason. */
+export function afterConnectFailure(code: string | undefined, source: "url" | "host"): "forget" | "retry" | "form" {
+  if (code === "auth_rejected" && source === "url") return "forget";
+  if (source === "host") return "retry";
+  return code === "auth_rejected" || code === "unreachable" || code === "unresponsive" || code === "disconnected"
+    ? "retry"
+    : "form";
+}
+
 export function DaemonGate({
   source,
   strings,
@@ -162,12 +174,11 @@ export function DaemonGate({
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
-        // Only a refused credential is dropped; an unreachable daemon (a restart) keeps it.
-        if (error.code === "auth_rejected" && source.kind === "url") {
+        const next = afterConnectFailure(error.code, source.kind);
+        if (next === "forget") {
           sessionStorage.removeItem(storageKey(url));
           setPhase({ kind: "form", error: error.message });
-        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host")
-          retry(error.message);
+        } else if (next === "retry") retry(error.message);
         else setPhase({ kind: "form", error: error.message });
       });
   };
