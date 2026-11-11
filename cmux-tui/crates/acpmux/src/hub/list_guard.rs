@@ -42,6 +42,11 @@ const CONN_BURST: u32 = 2;
 const REPLIES: u32 = 8;
 /// The least a page costs, in lists: it reads every row's key to find its rows.
 const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
+/// its megabyte of the shared text. Every list reply is a page of at most
+/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
+/// [`PAGE_MIN`] each, one whole read would cost two lists and be paced as such.
+const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
@@ -711,7 +716,7 @@ impl ListGuard {
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
         let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
+        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's

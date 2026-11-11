@@ -1,7 +1,7 @@
 //! A small reply's latency behind a burst of list traffic on the same connection, and the
 //! fixture the reply size detector (`reply_size_tests.rs`) reads: a daemon with 2,000 chats of
-//! its own and 4,000 mirrored from two peers, whose whole list is about 30 MB, as the one on
-//! Leo's Mac was (a 31 MB `_acpmux/watch` reply, near the 32 MB frame cap, 9,208 times in 11
+//! its own and 4,000 mirrored from two peers, whose whole list is about 30 MB, as one dogfood
+//! Mac's was (a 31 MB `_acpmux/watch` reply, near the 32 MB frame cap, 9,208 times in 11
 //! days, 2026-11-11). A connection's replies go out in order, so a prompt's acknowledgement
 //! queued behind such a list waited for it to be written and parsed, and the pane said "Not sent
 //! yet" about a prompt acpmux had taken within milliseconds.
