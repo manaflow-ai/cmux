@@ -795,11 +795,13 @@ fn shortcut_matches(
                 complete = false;
                 continue;
             };
-            let (cmd_char, virtual_key) =
-                keymap::menu_item_key(cmd_char.as_deref(), virtual_key, glyph);
-            if (cmd_char.is_some() || virtual_key.is_some())
-                && keymap::menu_item_matches(combo, cmd_char, virtual_key, mods.unwrap_or(0))
-            {
+            let key = keymap::menu_item_key(cmd_char.as_deref(), virtual_key, glyph);
+            // A key equivalent this walk cannot place could be the chord:
+            // while something is denied, the walk is then incomplete.
+            if key.unplaceable && d.denies_any() {
+                complete = false;
+            }
+            if !key.is_empty() && keymap::menu_item_matches(combo, &key, mods.unwrap_or(0)) {
                 let enabled = match node.attr("AXEnabled") {
                     Ok(v) => v.and_then(|v| v.as_bool()) != Some(false),
                     Err(_) => {
@@ -808,19 +810,24 @@ fn shortcut_matches(
                         true
                     }
                 };
-                let (title, blocked) = match text(&node, "AXTitle") {
+                let (title, blocked, checked) = match text(&node, "AXTitle") {
                     Ok(t) => {
                         let t = t.unwrap_or_default();
-                        (t, d.menu_item_blocked(&node))
+                        let blocked = d.menu_item_blocked(&node);
+                        (t, blocked, true)
                     }
                     // A title that cannot be read cannot be checked: blocked
-                    // while something is denied (as menu_item_blocked does).
+                    // while something is denied (as menu_item_blocked does),
+                    // and never pressed.
                     Err(()) => {
                         complete = false;
-                        (String::new(), d.denies_any())
+                        (String::new(), d.denies_any(), false)
                     }
                 };
-                found.push((node.clone(), roles::ShortcutMatch { title, enabled, blocked }));
+                found.push((
+                    node.clone(),
+                    roles::ShortcutMatch { title, enabled, blocked, checked },
+                ));
                 if stop_at_enabled && enabled {
                     return (found, complete);
                 }

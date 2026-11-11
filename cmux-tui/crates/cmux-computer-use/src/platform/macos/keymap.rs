@@ -187,45 +187,84 @@ pub const MENU_OPTION: i64 = 2;
 pub const MENU_CONTROL: i64 = 4;
 pub const MENU_NO_COMMAND: i64 = 8;
 
-/// A menu item's key equivalent as AX reports it, made comparable: a
-/// non-character key (Return, Delete, the arrows, F-keys) comes as a control
-/// character in AXMenuItemCmdChar ("\u{8}" for Delete), as
-/// AXMenuItemCmdVirtualKey, or only as AXMenuItemCmdGlyph. Returns the
-/// printable character, if it is one, and the key code otherwise.
+/// A menu item's key equivalent as AX reports it, made comparable.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuItemKey {
+    /// A printable character (letters, digits, punctuation).
+    pub printable: Option<char>,
+    /// Key codes for a non-character key (Return, Delete, Space, the arrows,
+    /// F-keys), from each source that reports one: the character AppKit
+    /// uses for it, AXMenuItemCmdVirtualKey and AXMenuItemCmdGlyph. The item
+    /// matches a chord when any of them does, so sources that disagree fail
+    /// closed.
+    pub codes: Vec<u16>,
+    /// The item has a key equivalent this table cannot place (a source it
+    /// cannot map): the caller treats the walk as incomplete.
+    pub unplaceable: bool,
+}
+
+impl MenuItemKey {
+    pub fn is_empty(&self) -> bool {
+        self.printable.is_none() && self.codes.is_empty() && !self.unplaceable
+    }
+}
+
+/// Reads a menu item's AXMenuItemCmdChar, AXMenuItemCmdVirtualKey and
+/// AXMenuItemCmdGlyph. A printable character is the key (AX also reports
+/// the virtual key of a letter's position, which a layout can move, so it
+/// is not used then). Otherwise every source that is present is mapped.
 pub fn menu_item_key(
     cmd_char: Option<&str>,
     virtual_key: Option<i64>,
     glyph: Option<i64>,
-) -> (Option<&str>, Option<i64>) {
-    let printable = cmd_char.filter(|c| !c.is_empty() && !c.chars().any(|ch| ch.is_control()));
-    if printable.is_some() {
-        return (printable, None);
-    }
-    let from_char = cmd_char.and_then(|c| {
-        let mut it = c.chars();
-        let ch = it.next()?;
-        if it.next().is_some() {
-            return None;
+) -> MenuItemKey {
+    let mut key = MenuItemKey::default();
+    let mut special_char = false;
+    if let Some(text) = cmd_char.filter(|c| !c.is_empty()) {
+        let mut it = text.chars();
+        match (it.next(), it.next()) {
+            (Some(c), None) if !is_special_char(c) => {
+                key.printable = Some(c);
+                return key;
+            }
+            (Some(c), None) => {
+                special_char = true;
+                match special_char_code(c) {
+                    Some(code) => key.codes.push(code),
+                    None => key.unplaceable = true,
+                }
+            }
+            _ => key.unplaceable = true,
         }
-        Some(match ch {
-            '\u{8}' | '\u{7f}' => 51,
-            '\r' | '\u{3}' => i64::from(KEY_RETURN),
-            '\t' => i64::from(KEY_TAB),
-            '\u{1b}' => 53,
-            _ => return None,
-        })
-    });
-    (None, virtual_key.or_else(|| glyph.and_then(glyph_key_code)).or(from_char))
+    }
+    if let Some(v) = virtual_key {
+        match u16::try_from(v) {
+            // A virtual key alone (no character) or with a special one.
+            Ok(code) if special_char || cmd_char.is_none_or(str::is_empty) => key.codes.push(code),
+            Ok(_) => {}
+            Err(_) => key.unplaceable = true,
+        }
+    }
+    // Glyph 0 is "no glyph" (kMenuNullGlyph).
+    if let Some(g) = glyph.filter(|g| *g != 0) {
+        match glyph_key_code(g) {
+            Some(code) => key.codes.push(code),
+            None => key.unplaceable = true,
+        }
+    }
+    key.codes.sort_unstable();
+    key.codes.dedup();
+    key
 }
 
 /// The key code of an `AXMenuItemCmdGlyph` (HIToolbox Menus.h `kMenu*Glyph`).
-fn glyph_key_code(glyph: i64) -> Option<i64> {
+fn glyph_key_code(glyph: i64) -> Option<u16> {
     Some(match glyph {
-        0x02 => i64::from(KEY_TAB),
+        0x02 => KEY_TAB,
         0x04 => 76,
         0x09 => 49,
         0x0A => 117,
-        0x0B..=0x0D => i64::from(KEY_RETURN),
+        0x0B..=0x0D => KEY_RETURN,
         0x17 => 51,
         0x1B => 53,
         0x1C => 71,
@@ -233,24 +272,24 @@ fn glyph_key_code(glyph: i64) -> Option<i64> {
         0x64 => 123,
         0x65 => 124,
         0x66 => 115,
+        0x67 => 114, // Help
         0x68 => 126,
         0x69 => 119,
         0x6A => 125,
         0x6B => 121,
-        0x6F..=0x7A => i64::from(function_key((glyph - 0x6F + 1) as u8)?),
-        0x87..=0x89 => i64::from(function_key((glyph - 0x87 + 13) as u8)?),
+        0x6F..=0x7A => function_key((glyph - 0x6F + 1) as u8)?,
+        0x87..=0x89 => function_key((glyph - 0x87 + 13) as u8)?,
+        0x8F..=0x92 => function_key((glyph - 0x8F + 16) as u8)?,
         _ => return None,
     })
 }
 
-/// Whether a menu item's key equivalent is `combo`. `cmd_char` is
-/// `AXMenuItemCmdChar` (AppKit reports it upper-case, with Shift in the
-/// modifiers), `virtual_key` is `AXMenuItemCmdVirtualKey` for items whose
-/// equivalent is a non-character key (arrows, Delete, F-keys).
+/// Whether a menu item's key equivalent is `combo`. `item` is the item's
+/// key from menu_item_key (AppKit reports a letter upper-case, with Shift
+/// in the modifiers).
 pub fn menu_item_matches(
     combo: &crate::keys::KeyCombo,
-    cmd_char: Option<&str>,
-    virtual_key: Option<i64>,
+    item: &MenuItemKey,
     menu_mods: i64,
 ) -> bool {
     let has = |m: Modifier| combo.modifiers.contains(&m);
@@ -262,13 +301,8 @@ pub fn menu_item_matches(
         return false;
     }
     let menu_shift = menu_mods & MENU_SHIFT != 0;
-    match (&combo.key, cmd_char.filter(|c| !c.is_empty())) {
-        (Key::Char(c), Some(item)) => {
-            let mut chars = item.chars();
-            let Some(i) = chars.next() else { return false };
-            if chars.next().is_some() {
-                return false;
-            }
+    match (&combo.key, item.printable) {
+        (Key::Char(c), Some(i)) => {
             // Compare the physical key and Shift. AppKit stores Zoom In as "+"
             // with Command only: the character carries the Shift ("+" is
             // shift+=), and letters are reported upper-case without meaning
@@ -284,14 +318,44 @@ pub fn menu_item_matches(
             let key_shift = has(Modifier::Shift) || key_char_shift;
             item_code == key_code_ && item_shift == key_shift
         }
-        (key, None) => match (key_code(key), virtual_key) {
-            (Some((code, _)), Some(v)) => {
-                i64::from(code) == v && menu_shift == has(Modifier::Shift)
-            }
-            _ => false,
+        (key, None) => match key_code(key) {
+            Some((code, _)) => item.codes.contains(&code) && menu_shift == has(Modifier::Shift),
+            None => false,
         },
         _ => false,
     }
+}
+
+/// Whether AppKit uses `c` for a non-character key in a key equivalent:
+/// control characters, Space, and the function-key characters U+F700-F8FF
+/// (arrows, F-keys, Home, End, Page Up/Down, Forward Delete, Help).
+pub fn is_special_char(c: char) -> bool {
+    c.is_control() || c == ' ' || (0xF700..=0xF8FF).contains(&(c as u32))
+}
+
+/// The key code of a non-character key by the character AppKit uses for it
+/// in key equivalents (NSEvent's function-key characters), or None.
+pub fn special_char_code(c: char) -> Option<u16> {
+    Some(match c as u32 {
+        0x7F | 0x08 => 51,  // Delete (backspace)
+        0x1B => 53,         // Escape
+        0x03 => 76,         // Enter (keypad)
+        0x0D => KEY_RETURN, // Return
+        0x09 => KEY_TAB,
+        0x20 => 49,                                                   // Space
+        0xF700 => 126,                                                // Up
+        0xF701 => 125,                                                // Down
+        0xF702 => 123,                                                // Left
+        0xF703 => 124,                                                // Right
+        0xF728 => 117,                                                // Forward Delete
+        0xF729 => 115,                                                // Home
+        0xF72B => 119,                                                // End
+        0xF72C => 116,                                                // Page Up
+        0xF72D => 121,                                                // Page Down
+        0xF746 => 114,                                                // Help
+        n @ 0xF704..=0xF717 => function_key((n - 0xF704 + 1) as u8)?, // F1..F20
+        _ => return None,
+    })
 }
 
 /// A Services key equivalent as (key code, CGEvent flags), on the ANSI
@@ -327,27 +391,11 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
     }
     let key = key?;
     // Non-character keys, by the characters AppKit uses for them.
-    let special = match key as u32 {
-        0x7F | 0x08 => Some(51),  // Delete (backspace)
-        0x1B => Some(53),         // Escape
-        0x03 => Some(76),         // Enter (keypad)
-        0x0D => Some(KEY_RETURN), // Return
-        0x09 => Some(KEY_TAB),
-        0x20 => Some(49),    // Space
-        0xF700 => Some(126), // Up
-        0xF701 => Some(125), // Down
-        0xF702 => Some(123), // Left
-        0xF703 => Some(124), // Right
-        0xF728 => Some(117), // Forward Delete
-        0xF729 => Some(115), // Home
-        0xF72B => Some(119), // End
-        0xF72C => Some(116), // Page Up
-        0xF72D => Some(121), // Page Down
-        n @ 0xF704..=0xF717 => key_code(&Key::F((n - 0xF704 + 1) as u8)).map(|(c, _)| c), // F1..F20
+    if (key as u32) >= 0xF718 && (key as u32) <= 0xF71B {
         // F21..F24 have no key on a Mac keyboard: no posted chord can be one.
-        0xF718..=0xF71B => return Some((NO_KEY, flags)),
-        _ => None,
-    };
+        return Some((NO_KEY, flags));
+    }
+    let special = special_char_code(key);
     if let Some(code) = special {
         return Some((code, flags));
     }

@@ -397,6 +397,10 @@ pub struct ShortcutMatch {
     pub title: String,
     pub enabled: bool,
     pub blocked: bool,
+    /// Its title was read and held to the deny list and the protected apps.
+    /// An unchecked match is blocked while something is denied; with nothing
+    /// denied it is never pressed (the key is posted, as Codex does).
+    pub checked: bool,
 }
 
 /// What a shortcut does, given its matches in menu order (depth-first).
@@ -782,6 +786,7 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
         return ChordAction::Post;
     }
     match pick_shortcut(f.matches) {
+        ShortcutPick::Press(i) if !f.matches[i].checked => return ChordAction::Post,
         ShortcutPick::Press(i) => return ChordAction::PressItem(i),
         ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
         ShortcutPick::Disabled(_) | ShortcutPick::None => {}

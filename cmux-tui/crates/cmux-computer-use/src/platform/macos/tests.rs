@@ -255,7 +255,11 @@ fn macos_desktop_smoke() {
 fn shortcuts_match_menu_items_by_char_and_modifiers() {
     use crate::keys::KeyCombo;
     let m = |combo: &str, ch: Option<&str>, vk: Option<i64>, mods: i64| {
-        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), ch, vk, mods)
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(ch, vk, None),
+            mods,
+        )
     };
     // TextEdit's Make Plain Text is ⇧⌘T: AX reports "T" with the Shift bit.
     assert!(m("cmd+shift+t", Some("T"), None, keymap::MENU_SHIFT));
@@ -405,7 +409,12 @@ fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
 #[test]
 fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
     use roles::{ShortcutMatch as M, ShortcutPick as P};
-    let m = |t: &str, enabled: bool, blocked: bool| M { title: t.into(), enabled, blocked };
+    let m = |t: &str, enabled: bool, blocked: bool| M {
+        title: t.into(),
+        enabled,
+        blocked,
+        checked: true,
+    };
     assert_eq!(roles::pick_shortcut(&[]), P::None);
     assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
     assert_eq!(roles::pick_shortcut(&[m("A", false, false)]), P::Disabled("A".into()));
@@ -539,7 +548,11 @@ fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
 fn shifted_punctuation_matches_its_menu_item() {
     use crate::keys::KeyCombo;
     let m = |combo: &str, ch: &str, mods: i64| {
-        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), Some(ch), None, mods)
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(Some(ch), None, None),
+            mods,
+        )
     };
     // Zoom In as AX reports it: AXMenuItemCmdChar "+", AXMenuItemCmdModifiers 0
     // (Command only); the "+" itself means shift+=.
@@ -652,7 +665,12 @@ fn the_services_dump_parser_reads_quoted_values_whole() {
 #[test]
 fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
-    let m = |t: &str, enabled: bool, blocked: bool| M { title: t.into(), enabled, blocked };
+    let m = |t: &str, enabled: bool, blocked: bool| M {
+        title: t.into(),
+        enabled,
+        blocked,
+        checked: true,
+    };
     fn base(matches: &[M]) -> ChordFacts<'_> {
         ChordFacts {
             matches,
@@ -825,9 +843,11 @@ fn services_keys_on_non_character_keys_are_placed() {
     assert_eq!(keymap::service_shortcut("\u{f717}", true), Some((code(Key::F(20)), cmd)));
     // F21..F24 (no Mac key) are placed where no chord lands, not dropped.
     assert_eq!(keymap::service_shortcut("\u{f71b}", true), Some((keymap::NO_KEY, cmd)));
-    // A key no posted chord can produce (Help, a non-ANSI letter) is placed
-    // at NO_KEY, not dropped and not a failed read.
-    assert_eq!(keymap::service_shortcut("\u{f746}", true), Some((keymap::NO_KEY, cmd)));
+    // Help is placed on its own key (no chord cmux sends uses it); a key no
+    // posted chord can produce (a non-ANSI letter, Insert) is placed at
+    // NO_KEY, not dropped and not a failed read.
+    assert_eq!(keymap::service_shortcut("\u{f746}", true), Some((114, cmd)));
+    assert_eq!(keymap::service_shortcut("\u{f727}", true), Some((keymap::NO_KEY, cmd)));
     assert_eq!(keymap::service_shortcut("@\u{f6}", false), Some((keymap::NO_KEY, cmd)));
     // The person's assignments carry Command only where they say "@".
     let (t, _) = keymap::char_key('t').unwrap();
@@ -861,8 +881,11 @@ fn a_missing_core_foundation_value_is_none_not_a_crash() {
 fn menu_items_on_non_character_keys_are_matched() {
     use crate::keys::KeyCombo;
     let m = |combo: &str, ch: Option<&str>, vk: Option<i64>, glyph: Option<i64>| {
-        let (ch, vk) = keymap::menu_item_key(ch, vk, glyph);
-        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), ch, vk, 0)
+        keymap::menu_item_matches(
+            &KeyCombo::parse(combo).unwrap(),
+            &keymap::menu_item_key(ch, vk, glyph),
+            0,
+        )
     };
     // Finder's Move to Trash as AX reports it on macOS 26.6: the character is
     // a backspace control character, with the key code and the glyph.
@@ -877,4 +900,64 @@ fn menu_items_on_non_character_keys_are_matched() {
     assert!(!m("cmd+delete", Some("\u{8}"), Some(51), Some(23)));
     assert!(!m("cmd+h", Some("\u{8}"), Some(51), Some(23)));
     assert!(m("cmd+h", Some("H"), None, None));
+}
+
+#[test]
+fn every_way_ax_reports_a_non_character_key_is_matched_or_fails_closed() {
+    use crate::keys::KeyCombo;
+    let key = |ch: Option<&str>, vk: Option<i64>, glyph: Option<i64>| {
+        keymap::menu_item_key(ch, vk, glyph)
+    };
+    let m = |combo: &str, k: &keymap::MenuItemKey| {
+        keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), k, 0)
+    };
+    // Space comes as " ".
+    assert!(m("cmd+space", &key(Some(" "), None, None)));
+    // Option instead of Command is another chord.
+    assert!(!m("alt+space", &key(Some(" "), None, None)));
+    // Function-key characters (U+F700-F8FF) are keys, not printable: cmd+up
+    // (Finder's Enclosing Folder), F5, Home, Forward Delete.
+    assert!(m("cmd+up", &key(Some("\u{f700}"), None, None)));
+    assert!(m("cmd+f5", &key(Some("\u{f708}"), None, None)));
+    assert!(m("cmd+home", &key(Some("\u{f729}"), None, None)));
+    assert!(m("cmd+delete", &key(Some("\u{f728}"), None, None)));
+    assert!(!m("cmd+down", &key(Some("\u{f700}"), None, None)));
+    // Keypad Enter is 76 by character and by glyph alike.
+    assert_eq!(key(Some("\u{3}"), None, None).codes, vec![76]);
+    assert_eq!(key(None, None, Some(0x04)).codes, vec![76]);
+    // F16-F19 glyphs.
+    assert!(m("cmd+f16", &key(None, None, Some(0x8F))));
+    assert!(m("cmd+f19", &key(None, None, Some(0x92))));
+    // Sources that disagree: either one matches (the check fails closed).
+    let both = key(Some("\u{8}"), Some(117), None);
+    assert!(m("cmd+backspace", &both) && m("cmd+delete", &both));
+    // A key equivalent no table places is reported, not dropped: an unknown
+    // glyph, a control character with no key (backtab), two characters.
+    assert!(key(None, None, Some(0x05)).unplaceable);
+    assert!(key(Some("\u{19}"), None, None).unplaceable);
+    assert!(key(Some("ab"), None, None).unplaceable);
+    // No key equivalent at all, and glyph 0 ("no glyph").
+    assert!(key(None, None, None).is_empty() && key(Some(""), None, Some(0)).is_empty());
+    // A letter keeps matching by its character; its virtual key is not used.
+    let copy = key(Some("C"), Some(8), None);
+    assert!(m("cmd+c", &copy) && copy.codes.is_empty() && !copy.unplaceable);
+}
+
+#[test]
+fn an_unchecked_match_is_never_pressed() {
+    use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
+    // Its title could not be read, so it was not held to the protected apps;
+    // with nothing denied (where it is not marked blocked) the key is posted.
+    let unchecked = [M { title: String::new(), enabled: true, blocked: false, checked: false }];
+    for background in [false, true] {
+        let f = ChordFacts {
+            matches: &unchecked,
+            complete: false,
+            background,
+            denies_any: false,
+            layout_known: true,
+            is_service: S::NoMatch,
+        };
+        assert_eq!(roles::decide_chord(&f), A::Post);
+    }
 }
