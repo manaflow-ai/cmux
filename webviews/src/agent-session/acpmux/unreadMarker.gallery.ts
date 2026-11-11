@@ -114,7 +114,9 @@ const readThrough = chat([
   ...turns(1, 12, 120),
   ...Array.from({ length: 6 }, (_, index) =>
     assistant(
-      `Step ${index + 1} of the long run: the fuzz corpus case passes, the request id holds, the retry stops. `.repeat(4),
+      `Step ${index + 1} of the long run: the fuzz corpus case passes, the request id holds, the retry stops. `.repeat(
+        4,
+      ),
       40 - index,
     ),
   ),

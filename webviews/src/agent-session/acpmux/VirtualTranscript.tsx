@@ -5565,7 +5565,9 @@ function TranscriptView({
             />
           </div>
         )}
-        {jumpButton && <JumpUp shown={upShown} back={jumpBackHeld} unread={upUnread} onJump={() => pressUp()} lift={dockSpace} />}
+        {jumpButton && (
+          <JumpUp shown={upShown} back={jumpBackHeld} unread={upUnread} onJump={() => pressUp()} lift={dockSpace} />
+        )}
         {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.

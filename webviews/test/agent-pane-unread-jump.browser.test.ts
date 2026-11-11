@@ -17,9 +17,8 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { installPaintedFrames } from "./support/paintedFrames";
 
-const ENGINES = ["chromium", "webkit"] as const;
-
 await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
+  const ENGINES = ["chromium", "webkit"] as const;
   setDefaultTimeout(120_000);
   const launchable: (typeof ENGINES)[number][] = [];
   for (const engine of ENGINES) {

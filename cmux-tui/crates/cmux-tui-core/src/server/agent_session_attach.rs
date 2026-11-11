@@ -1537,14 +1537,16 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             })
         }
         AgentSessionCommand::View(ViewParams { visible, attending, seen_seq, .. }) => {
-            let mut fields = json!({"sessionId": session, "visible": visible});
+            let mut fields = serde_json::Map::new();
+            fields.insert("sessionId".into(), json!(session));
+            fields.insert("visible".into(), json!(visible));
             if let Some(attending) = attending {
-                fields["attending"] = json!(attending);
+                fields.insert("attending".into(), json!(attending));
             }
             if let Some(seen_seq) = seen_seq {
-                fields["seenSeq"] = json!(seen_seq);
+                fields.insert("seenSeq".into(), json!(seen_seq));
             }
-            let params = attachment.stamp(fields);
+            let params = attachment.stamp(Value::Object(fields));
             attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
         }
         // The person's picks, on the tab's own session; acpmux's answer goes back unchanged (a

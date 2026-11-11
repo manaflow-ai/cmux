@@ -107,7 +107,11 @@ test("coming back is one flip, and its input notes where the person is", () => {
   const page = fakePage();
   const flips: boolean[] = [];
   let noted = 0;
-  const attention = new Attention(page.env, (next) => flips.push(next), () => (noted += 1));
+  const attention = new Attention(
+    page.env,
+    (next) => flips.push(next),
+    () => (noted += 1),
+  );
   page.advance(ATTENTION_IDLE_MS);
   expect(flips).toEqual([false]);
   const before = noted;

@@ -39,6 +39,10 @@ ACPMUX = "webviews/src/agent-session/acpmux"
 ALLOWED_LISTENERS = {
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
+    (f"{ACPMUX}/attention.ts", "visibilitychange"): "whether the person attends the chat (shown, "
+    "focused, active): sends `attending` on `_acpmux/view`, a state write, not a read",
+    (f"{ACPMUX}/attention.ts", "focus"): "attention, as above; a focus starts the idle clock and "
+    "reads no data",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
