@@ -80,9 +80,20 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
     // What the play did wrong, by name: a step that did not run, a moved anchor, a layout shift past
     // the variant's limit. The stage's status alone is also "fail" for a frame over 33 ms or a slow
     // settle, which on the shared CI runner time the runner as much as the page; those stay in the
-    // gallery report and fail no behavior test (support/galleryPlay.ts). The status and the whole
-    // report are printed when the stage did not pass, so such a run still shows in the log.
-    if (play.status !== "pass") console.log(`composer-send-stop: play status ${play.status}: ${play.report}`);
+    // gallery report and fail no behavior test (support/galleryPlay.ts). Each problem the stage
+    // reported, those too, is printed as a workflow notice, which the runner keeps for a file that
+    // passes (scripts/ci/run-webviews-tests.sh), so a run on a slow runner still says what it was.
+    if (play.status !== "pass") {
+      const report = JSON.parse(play.report ?? "{}") as {
+        error?: string;
+        steps?: { step: string; status: string; problems: string[] }[];
+      };
+      const problems = (report.steps ?? []).flatMap((step) =>
+        step.problems.map((problem) => `${step.step}: ${problem}`),
+      );
+      const said = [report.error, ...problems].filter(Boolean).join("; ") || `no problem named: ${play.report}`;
+      console.log(`::notice title=composer-send-stop play::status ${play.status}; ${said.replace(/\s+/g, " ")}`);
+    }
     expect(playFailures(play.report)).toEqual([]);
   });
 });
