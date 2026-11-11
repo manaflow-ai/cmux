@@ -82,7 +82,7 @@ import Testing
         let host = RemoteTmuxHost(destination: "dev@host", socketName: "alpha")
         let command = host.tmuxRemoteCommand(arguments: ["list-sessions", "-F", "#{session_name}"])
         #expect(command.contains("'-L' 'alpha' 'list-sessions'"))
-        // The static builder, used by callers that have no host, stays socket-free.
+        // The static builder takes no host, so it cannot name a server and stays socket-free.
         #expect(!RemoteTmuxHost.tmuxRemoteCommand(arguments: ["list-sessions"]).contains("-L"))
     }
 
