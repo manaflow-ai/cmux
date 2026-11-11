@@ -55,7 +55,7 @@ import Testing
         let home = MacScreenHomeView(host: MacScreenShareHost(work: BackgroundWork()), actions: MacScreenHomeActions())
         home.frame = NSRect(x: 0, y: 0, width: 720, height: 640)
         let failedText = L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices.")
-        home.build(MacScreenHomeSnapshot(devices: .failed(failedText), sharingLook: MacScreenTunables.sharingLook.value))
+        home.build(MacScreenHomeSnapshot(devices: .failed(failedText), sharingLook: .list))
         home.layoutPage()
         home.layoutSubtreeIfNeeded()
         let all = Self.views(under: home)
