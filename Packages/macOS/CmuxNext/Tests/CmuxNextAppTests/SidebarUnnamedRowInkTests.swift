@@ -36,7 +36,7 @@ import Testing
     private static func noLabel(_: WorkspaceModel, _: TabModel, _: TabModel?) -> SidebarMapping.PageFace? { nil }
 
     private static func sidebar(_ store: DaemonStore,
-                                pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace? = folderLabel) -> SidebarView {
+                                pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?) -> SidebarView {
         let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: mac, pageFace: pageFace, terminalTitle: "Terminal")
         let sidebar = SidebarView(model: SidebarModel(sections: sections), design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
@@ -66,7 +66,7 @@ import Testing
     }
 
     @Test func aShellAtHomeReadsInTheSameInkAsANamedRow() throws {
-        let sidebar = Self.sidebar(Self.store(["workspace-3"], cwd: NSHomeDirectory()))
+        let sidebar = Self.sidebar(Self.store(["workspace-3"], cwd: NSHomeDirectory()), pageFace: Self.folderLabel)
         let rows = Self.inks(sidebar)
         #expect(rows.map(\.title) == ["~"], "the row shows its home folder")
         for row in rows {
