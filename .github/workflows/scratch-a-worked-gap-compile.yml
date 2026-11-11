@@ -1,0 +1,39 @@
+name: scratch a-worked-gap compile
+
+# Scratch (side branch a-worked-gap-compile only, never on feat-cmux-next): the fleet controller is
+# down, so type-check webviews on Blacksmith and run the transcript spacing suites, red then green.
+on:
+  push:
+    branches: [a-worked-gap-compile]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: webviews
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - run: bun install --frozen-lockfile
+      - name: Red, the test without the fix must fail
+        run: |
+          git checkout -q HEAD~2 -- src/agent-session/acpmux/model.ts
+          if bun test test/agent-pane-background-turns.test.ts; then echo "expected red"; exit 1; fi
+          git checkout -q HEAD -- src/agent-session/acpmux/model.ts
+      - name: Green, spacing suites
+        run: >-
+          bun test test/agent-pane-background-turns.test.ts src/agent-session/acpmux/rowEstimates.test.ts
+          src/agent-session/acpmux/conversation/TurnFooter.test.tsx test/reply-footer.test.ts
+          test/transcript-continuation-spacing.test.ts test/transcript-spacing-reference.test.ts
+          src/agent-session/acpmux/continuationSpacing.test.ts
+      - run: bun run typecheck
+      - run: bunx vp fmt --check src/agent-session/acpmux/model.ts test/agent-pane-background-turns.test.ts
