@@ -99,15 +99,24 @@ pub fn advance_checkpoints(
 ) -> anyhow::Result<Value> {
     let base = options.base();
     let appended_through = append_progress(state_root, &options.session, append, 0)?;
+    // The journal head is in each idempotency key: an owner answers a key
+    // that it knows with the old receipt, so the keys of the generator and
+    // of an earlier advance must not come again.
+    let label = ADVANCE_LABEL_BASE + appended_through;
     let mut made = Vec::new();
     for index in 0..checkpoints {
         // `source_sequence` is unique: one more record for each checkpoint.
         append_progress(state_root, &options.session, 1, append + index)?;
-        made.push(super::checkpoint(state_root, &base, ADVANCE_LABEL_BASE + index)?);
+        made.push(super::checkpoint(state_root, &base, label + index)?);
     }
     // And one for the checkpoint that the seal step takes.
     append_progress(state_root, &options.session, 1, append + checkpoints)?;
-    let (sealed_through, segments_sealed) = super::super::seal(state_root, &base)?;
+    let (sealed_through, segments_sealed) =
+        super::super::seal_as(state_root, &base, &format!("-advance-{label}"))?;
+    anyhow::ensure!(
+        made.last().is_none_or(|last| sealed_through > *last),
+        "the seal ended at {sealed_through}, at or below the last new checkpoint {made:?}"
+    );
     let age_ms = options.seal_age_minutes.saturating_mul(60_000);
     let registry = open_registry(state_root, &options.session)?;
     registry.connection.get().execute_batch(&format!(

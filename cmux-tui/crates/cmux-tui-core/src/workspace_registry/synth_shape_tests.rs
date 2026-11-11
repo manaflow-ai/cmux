@@ -227,6 +227,11 @@ fn advance_checkpoints_moves_the_restore_points_to_the_head() {
     assert!(refused.is_err(), "a segment row took an update after the advance");
     drop(connection);
 
+    // A second advance has idempotency keys of its own: it seals again.
+    let again = advance_checkpoints(&root, &options, 2, 10).unwrap();
+    assert!(number(&again, "sealed_through") > number(&advanced, "sealed_through"), "{again}");
+    assert!(number(&again, "first_checkpoint") > number(&advanced, "last_checkpoint"), "{again}");
+
     let mux = crate::Mux::open_persistent(options.session, crate::SurfaceOptions::default(), &root)
         .unwrap();
     assert!(mux.session_journal_head().unwrap() >= number(&after, "journal_head"));
