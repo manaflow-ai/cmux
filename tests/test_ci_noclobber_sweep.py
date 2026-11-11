@@ -132,7 +132,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "9ecf58397ea0af7144d376d2dbdded4706912bc28a4a7b28b78e2fd583d486ba"
+SHELL_TREE_SHA256 = "045649d89b1e83ce08bf10aecb7426531edc6ec2b10a12e6102a6897b7640973"
 
 
 def without_templates(line: str) -> str:
@@ -171,10 +171,11 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
             text = (root / path).read_text()
         except (OSError, UnicodeDecodeError):
             continue
-        for n, line in enumerate(text.splitlines(), 1):
-            c = code(line)
-            if flagged(c):
-                out.append((path, n, c.strip()))
+        # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
+        # a quote across lines keeps its context; the hit keeps the line's own text.
+        for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
+            if NOCLOBBER.search(scan) or SHARED_TMP.search(scan):
+                out.append((path, n, code(line).strip() or line.strip()))
     return out
 
 
@@ -265,16 +266,19 @@ class NoclobberSweep(unittest.TestCase):
         misses = [(line, unsafe) for line, unsafe in shell_tree.corpus() if flagged(code(line)) != unsafe]
         self.assertEqual(misses, [], "(line, is unsafe) the sweep got wrong")
 
-    @unittest.skipUnless(shutil.which("bash"), "no bash to read the corpus")
     def test_the_corpus_is_shell(self):
+        self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
+                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
         self.assertEqual(bad, [])
 
     def test_a_whole_file_is_read_in_context(self):
         """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
-        `# $(...)` was a comment, though bash runs the substitution. The test runs hits() on files."""
-        files = (("scripts/heredoc-comment.sh", "#!/bin/sh\ncat <<EOF\n# $(printf secret > /tmp/out.$$)\nEOF\n", True),)
+        `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
+        documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
+        files = shell_tree.FILES
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
 

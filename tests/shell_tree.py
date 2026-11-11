@@ -6,7 +6,8 @@ A Word is a list of parts: Lit (literal text, quoted or not), Param ($x, ${x...}
 command substitution, $( ) or backticks, or a process substitution <( ) or >( )), whose script is parsed the same
 way, to any depth. Every node keeps its start and end offset in the text parse() was given, backticks inside
 backticks included. Text this parser cannot read through (an unclosed quote or substitution, an unbalanced
-parenthesis, nesting deeper than MAX_DEPTH) raises Unparsed.
+parenthesis, nesting deeper than MAX_DEPTH) raises Unparsed, and so does a shape it does not model as commands:
+an array (NAME=( ), declare -a), case, an arithmetic command (( )). A mktemp counts only in command position.
 
 The noclobber lints use it through code(), which drops comments where the shell does, and scan_text(): the text
 with only the literal part of each mktemp template word blanked out. A template word is an argument of a command
@@ -33,8 +34,10 @@ WORD_END = " \t\n;&|()<>"
 SPECIAL = "\\'\"$`"
 SPECIAL_PARAMS = "$?#@*!-0123456789"
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=")
-# Words before a command's name that are not its name.
 MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text is Unparsed, never a RecursionError
+# Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
+START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
+# Words before a command's name that are not its name.
 PREFIX_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time", "command", "env", "exec"}
 
 
@@ -86,8 +89,11 @@ class Redirect:
 
 @dataclass
 class Command:
-    words: list = field(default_factory=list)
+    words: list = field(default_factory=list)  # argv, assignments first
     redirects: list = field(default_factory=list)
+    # Words that are no argv: an array's elements, a case's subject and patterns, an arithmetic command (( )). Their
+    # substitutions run, so they are walked; none is ever a command's name or argument.
+    data: list = field(default_factory=list)
 
 
 @dataclass
@@ -111,15 +117,17 @@ class _Parser:
         return got
 
     def script(self, i: int, close: str | None) -> tuple[Script, int]:
-        """Commands from i up to CLOSE (")", or None for the end); the index after it."""
+        """Commands from i up to CLOSE (")"; "case": a case item's ;; ;& ;;&, consumed, or its esac, not; None: the
+        end); the index after it."""
         s, n = self.s, self.n
-        commands, cmd, depth, pending = [], Command(), 0, []
+        commands, cmd, depth, pending, texts, last_end = [], Command(), 0, [], [], -1
 
         def end():
             nonlocal cmd
-            if cmd.words or cmd.redirects:
+            if cmd.words or cmd.redirects or cmd.data:
                 commands.append(cmd)
             cmd = Command()
+            texts.clear()
 
         while True:
             while i < n and (s[i] in " \t" or s.startswith("\\\n", i)):
@@ -131,14 +139,29 @@ class _Parser:
                 return Script(commands), i
             c = s[i]
             if c == "#":  # at a word's start, outside quotes: a comment to the line's end
-                j = s.find("\n", i)
-                j = n if j < 0 else j
-                self.comments.append((self.o[i], self.o[j]))
-                i = j
+                i = self.comment(i)
                 continue
             if c == ")" and close == ")" and depth == 0:
                 end()
                 return Script(commands), i + 1
+            start = not cmd.redirects and all(t in START_WORDS for t in texts)
+            if close == "case" and depth == 0:
+                op = next((t for t in (";;&", ";;", ";&") if s.startswith(t, i)), None)
+                if op or (start and self.keyword(i, "esac")):
+                    end()
+                    return Script(commands), i + len(op or "")
+            if start and self.keyword(i, "case"):
+                end()
+                data, bodies, i = self.nested(self.case, i + 4)
+                commands.append(Command(data=data))
+                for body in bodies:
+                    commands += body.commands
+                continue
+            if start and self.keyword(i, "[["):  # a test: its words, ( ) and regexes are data
+                end()
+                cmd.data, i = self.test(i + 2)
+                end()
+                continue
             if not s.startswith(("<(", ">("), i):
                 op = next((r for r in REDIRECTS if s.startswith(r, i)), None)
                 if op:
@@ -162,19 +185,136 @@ class _Parser:
                 end()
                 i += 2 if s.startswith(("&&", "||", ";;", "|&", ";&"), i) else 1
                 continue
-            if c in "()":
-                if c == ")" and depth == 0:
+            if c == ")":
+                if depth == 0:
                     raise Unparsed(s)
                 end()
-                depth += 1 if c == "(" else -1
-                i += 1
+                depth, i = depth - 1, i + 1
+                continue
+            if c == "(":
+                if texts and last_end == i and texts[-1].endswith("="):
+                    i = self.array(i + 1, cmd.data)  # NAME=( ... ): an array's elements, never a command
+                    continue
+                if texts == ["for"] and s.startswith("((", i):  # for (( ; ; )): arithmetic, no argv
+                    got, i = self.nested(self.arith, i, 2)
+                    cmd.data.append(Word(got.start, got.end, [got]))
+                    continue
+                if start:
+                    end()
+                elif texts:  # after a word only a function's () may follow
+                    j = i + 1
+                    while j < n and s[j] in " \t":
+                        j += 1
+                    if j >= n or s[j] != ")":
+                        raise Unparsed(s)
+                    end()
+                    i = j + 1
+                    continue
+                if s.startswith("((", i):  # an arithmetic command: its words are no argv
+                    got, j = self.nested(self.arith, i, 2)
+                    cmd.data.append(Word(got.start, got.end, [got]))
+                    i = j
+                    continue
+                end()
+                depth, i = depth + 1, i + 1
                 continue
             w, j = self.word(i)
             if s[i:j].isdigit() and j < n and s[j] in "<>":
                 i = j  # a file descriptor's number: its redirection follows
                 continue
+            texts.append(s[i:j])
             cmd.words.append(w)
-            i = j
+            i = last_end = j
+
+    def comment(self, i: int) -> int:
+        """Record the comment at s[i] (a #); the index of its line's end."""
+        j = self.s.find("\n", i)
+        j = self.n if j < 0 else j
+        self.comments.append((self.o[i], self.o[j]))
+        return j
+
+    def keyword(self, i: int, word: str) -> bool:
+        return self.s.startswith(word, i) and (i + len(word) >= self.n or self.s[i + len(word)] in WORD_END)
+
+    def blanks(self, i: int, lines: bool) -> int:
+        """The index after blanks (and, when LINES, newlines and comments) from i."""
+        s, n = self.s, self.n
+        while i < n:
+            if s[i] in " \t" or (lines and s[i] == "\n"):
+                i += 1
+            elif s.startswith("\\\n", i):
+                i += 2
+            elif lines and s[i] == "#":
+                i = self.comment(i)
+            else:
+                break
+        return i
+
+    def test(self, i: int) -> tuple[list, int]:
+        """The words of a [[ test from just after its [[, as data, and the index after its ]]."""
+        s, n, out = self.s, self.n, []
+        while True:
+            i = self.blanks(i, True)
+            if i >= n:
+                raise Unparsed(s)
+            if self.keyword(i, "]]"):
+                return out, i + 2
+            if s[i] in "()|&<>!;":  # an operator, a group, or part of a regex
+                i += 1
+                continue
+            w, i = self.word(i)
+            out.append(w)
+
+    def array(self, i: int, data: list) -> int:
+        """An array's elements, from just after its (, onto DATA; the index after its )."""
+        s, n = self.s, self.n
+        while True:
+            i = self.blanks(i, True)
+            if i >= n:
+                raise Unparsed(s)
+            if s[i] == ")":
+                return i + 1
+            if s[i] in WORD_END and not s.startswith(("<(", ">("), i):
+                raise Unparsed(s)
+            w, i = self.word(i)
+            data.append(w)
+
+    def case(self, i: int) -> tuple[list, list, int]:
+        """A case statement from just after its `case`: its subject and patterns (data, never argv), each item's
+        script, and the index after its esac."""
+        s, n = self.s, self.n
+        i = self.blanks(i, False)
+        if i >= n or s[i] in WORD_END:
+            raise Unparsed(s)
+        subject, i = self.word(i)
+        data, bodies = [subject], []
+        i = self.blanks(i, True)
+        if not self.keyword(i, "in"):
+            raise Unparsed(s)
+        i = self.blanks(i + 2, True)
+        while True:
+            if i >= n:
+                raise Unparsed(s)
+            if self.keyword(i, "esac"):
+                return data, bodies, i + 4
+            if s[i] == "(":
+                i = self.blanks(i + 1, False)
+            while True:  # patterns: WORD | WORD ... )
+                if i >= n or s[i] in WORD_END:
+                    raise Unparsed(s)
+                w, i = self.word(i)
+                data.append(w)
+                i = self.blanks(i, False)
+                if i < n and s[i] == "|":
+                    i = self.blanks(i + 1, False)
+                    continue
+                if i < n and s[i] == ")":
+                    i += 1
+                    break
+                raise Unparsed(s)
+            body, i = self.script(i, "case")
+            bodies.append(body)
+            i = self.blanks(i, True)
 
     def heredocs(self, i: int, pending: list) -> int:
         """Read the body of each here-document in PENDING ((redirect, its delimiter word's source)) from line start
@@ -263,8 +403,8 @@ class _Parser:
         if s.startswith(("<(", ">("), i):
             script, j = self.nested(self.script, i + 2, ")")
             return [Sub(self.o[i], self.o[j], s[i:i + 2], script)], j
-        j = i + 1
-        while j < n and s[j] not in stop and s[j] not in SPECIAL:
+        j = i + 1  # a literal run; a <( or >( in it (inside ${ }) is a process substitution
+        while j < n and s[j] not in stop and s[j] not in SPECIAL and not s.startswith(("<(", ">("), j):
             j += 1
         return [Lit(self.o[i], self.o[j])], j
 
@@ -273,26 +413,31 @@ class _Parser:
             return self.nested(self.expansion, i)
         return self.expansion(i)
 
+    def arith(self, i: int, skip: int) -> tuple[Arith, int]:
+        """The arithmetic at s[i] ($(( or ((, SKIP long) up to its )); the index after."""
+        s, n = self.s, self.n
+        parts, depth, j = [], 0, i + skip
+        while j < n:
+            c = s[j]
+            if c in "$`\"'\\":
+                got, j = self.piece(j, "")
+                parts += got
+                continue
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                if depth == 0:
+                    if s.startswith("))", j):
+                        return Arith(self.o[i], self.o[j + 2], parts), j + 2
+                    raise Unparsed(s)
+                depth -= 1
+            j += 1
+        raise Unparsed(s)
+
     def expansion(self, i: int):
         s, n = self.s, self.n
         if s.startswith("$((", i):
-            parts, depth, j = [], 0, i + 3
-            while j < n:
-                c = s[j]
-                if c in "$`\"'\\":
-                    got, j = self.piece(j, "")
-                    parts += got
-                    continue
-                if c == "(":
-                    depth += 1
-                elif c == ")":
-                    if depth == 0:
-                        if s.startswith("))", j):
-                            return Arith(self.o[i], self.o[j + 2], parts), j + 2
-                        raise Unparsed(s)
-                    depth -= 1
-                j += 1
-            raise Unparsed(s)
+            return self.arith(i, 3)
         if s.startswith("$(", i):
             script, j = self.script(i + 2, ")")
             return Sub(self.o[i], self.o[j], "$(", script), j
@@ -366,7 +511,7 @@ def commands(script: Script):
     """Every command in SCRIPT and in every substitution and here-document inside it, at any depth."""
     for cmd in script.commands:
         yield cmd
-        words = cmd.words + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
+        words = cmd.words + cmd.data + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
         for w in words:
             for sub in subs(w.parts):
                 yield from commands(sub.script)
@@ -404,6 +549,11 @@ def exempt(text: str) -> set[int]:
         tree = parse(text)
     except Unparsed:
         return set()
+    return tree_exempt(text, tree)
+
+
+def tree_exempt(text: str, tree: Script) -> set[int]:
+    """exempt() of TEXT, already parsed into TREE."""
     out: set[int] = set()
     for cmd in commands(tree):
         for w in template_words(text, cmd):
@@ -421,6 +571,63 @@ def scan_text(text: str) -> str:
     if not skip:
         return text
     return "".join(" " if k in skip and c != "\n" else c for k, c in enumerate(text))
+
+
+SHELL_SUFFIXES = (".sh", ".bash", ".zsh", ".ksh")
+SHEBANG = re.compile(r"#!\s*\S*(?:/|env\s+)(?:ba|z|k|da)?sh\b")
+RUN_BLOCK = re.compile(r"(\s*)(?:-\s+)?run:\s*\|[-+0-9]*\s*(?:#.*)?$")
+
+
+def scan_file(path: str, text: str) -> list[str]:
+    """Each line of TEXT (split at \\n) as a noclobber scan reads it: comments dropped and template words blanked.
+    A shell file (by suffix or #!), and each `run: |` block of a YAML file, is parsed whole, so a here-document, a
+    line continuation or a quote across lines is read in its context: a here-document's # is no comment, and its
+    substitutions run. Any other text, and a script that does not parse whole, is read line by line."""
+    lines = text.split("\n")
+    if path.endswith(SHELL_SUFFIXES) or SHEBANG.match(text):
+        blocks = [(0, len(lines))]
+    elif path.endswith((".yml", ".yaml")):
+        blocks = run_blocks(lines)
+    else:
+        blocks = []
+    out: list = [None] * len(lines)
+    for a, b in blocks:
+        got = scan_block(lines[a:b])
+        if got is not None:
+            out[a:b] = got
+    return [scan_text(code(line)) if got is None else got for line, got in zip(lines, out)]
+
+
+def run_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    """The (first, end) line ranges of each `run: |` block scalar in a YAML file's LINES."""
+    out, k = [], 0
+    while k < len(lines):
+        m = RUN_BLOCK.match(lines[k])
+        k += 1
+        if not m:
+            continue
+        base, j = len(m.group(1)), k
+        while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip(" ")) > base):
+            j += 1
+        out.append((k, j))
+        k = j
+    return out
+
+
+def scan_block(lines: list[str]) -> list[str] | None:
+    """LINES read as one script (their common indent removed): each line's scan text; None when it does not parse."""
+    indent = min((len(line) - len(line.lstrip(" ")) for line in lines if line.strip()), default=0)
+    text = "\n".join(line[indent:] for line in lines)
+    found: list = []
+    try:
+        tree = parse(text, found)
+    except Unparsed:
+        return None
+    skip = tree_exempt(text, tree) if "mktemp" in text else set()
+    for a, b in found:
+        skip.update(range(a, b))
+    blanked = "".join(" " if k in skip and c != "\n" else c for k, c in enumerate(text))
+    return [" " * indent + line if line else line for line in blanked.split("\n")]
 
 
 # The review fixtures of the misses, each a line a lint must flag.
@@ -441,6 +648,11 @@ MISSES = (
     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$',
     # 4. A comment was cut at any whitespace-led #, quoted or not (teamleaderleo/leo-workspace#4346, F2).
     "printf '%s' 'foo # bar' > /tmp/out.$$",
+    # 5. The parse tree's own misses (manaflow-ai/cmux#41306 review at 7e60a832, F1: an array's words read as a
+    #    command; manaflow-ai/cmuxterm-hq#9338 review at 0ea8b97f, F1: a process substitution in ${ } read as text).
+    #    F2 there, a here-document read line by line, is in FILES.
+    "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
+    "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX",
 )
 
 
@@ -456,6 +668,52 @@ COMMENTS = (
 )
 
 
+# Words the tree does not model as argv (an array's elements, a case's subject and patterns, an arithmetic command,
+# a here-document's body), and a mktemp out of command position: none exempts anything. A mktemp in command position
+# inside a case item, a function or after (( )) still does.
+NOT_COMMANDS = (
+    ("paths+=(mktemp /tmp/out.$$.XXXXXX)", True),
+    ("paths=( mktemp /tmp/out.$$.XXXXXX )", True),
+    ("paths=(\n  mktemp\n  /tmp/out.$$.XXXXXX\n)", True),
+    ("declare -a p=(mktemp /tmp/out.$$.XXXXXX)", True),
+    ("local -a p=(mktemp /tmp/out.$$.XXXXXX)", True),
+    ("readonly -a p=(mktemp /tmp/out.$$.XXXXXX)", True),
+    ("declare -a p; p=(mktemp /tmp/out.$$.XXXXXX)", True),
+    ("p=(a $(mktemp /tmp/$USER.XXXXXX) b)", False),
+    ("typeset -A m; m[k]=$(mktemp /tmp/$USER.XXXXXX)", False),
+    ("case $x in (mktemp) echo /tmp/out.$$.XXXXXX ;; esac", True),
+    ("case mktemp in /tmp/out.$$.XXXXXX) : ;; esac", True),
+    ("case $x in a|b) mktemp /tmp/$USER.XXXXXX ;; *) printf s > /tmp/out.$$ ;; esac", True),
+    ("case $x in a) mktemp /tmp/out.$$.XXXXXX ;; esac", False),
+    ("(( mktemp /tmp/out.$$.XXXXXX ))", True),
+    ("(( n = 1 )) && mktemp /tmp/out.$$.XXXXXX", False),
+    ("(( $(mktemp /tmp/$USER.XXXXXX) ))", False),
+    ("x=$(( $(mktemp /tmp/$USER.XXXXXX) )); echo > /tmp/out.$$", True),
+    ("x=mktemp /tmp/out.$$.XXXXXX", True),
+    ("echo mktemp /tmp/out.$$.XXXXXX", True),
+    ("for f in mktemp /tmp/out.$$.XXXXXX; do :; done", True),
+    ("cat <<EOF\nmktemp /tmp/out.$$.XXXXXX\nEOF", True),
+    ("f() (mktemp /tmp/$USER.XXXXXX)", False),
+    ("f() { mktemp /tmp/$USER.XXXXXX; }", False),
+    ("f() { (mktemp /tmp/$USER.XXXXXX); }", False),
+    # After a reserved word a command starts again; a [[ test's words, groups and regexes are data.
+    ('[[ "$a" =~ ^(x|y)$ ]] && mktemp /tmp/$USER.XXXXXX', False),
+    ("[[ mktemp == /tmp/out.$$.XXXXXX ]]", True),
+    ("[[ $(printf s > /tmp/out.$$) ]]", True),
+    ("if (( n )); then mktemp /tmp/$USER.XXXXXX; fi", False),
+    ('while (($#)); do case "$1" in -a) d=$(mktemp -d /tmp/$USER.XXXXXX);; esac; shift; done', False),
+    ("for ((i = 0; i < 3; i++)); do printf s > /tmp/out.$$; done", True),
+    ("if ! (mktemp /tmp/$USER.XXXXXX); then exit 1; fi", False),
+)
+# A substitution inside an expansion is a command too: $( ), backticks, <( ) and >( ) in ${ }.
+EXPANSIONS = (
+    ("mktemp ${TMPDIR:-a>(printf s > /tmp/out.$$)}/x.XXXXXX", True),
+    ("mktemp ${TMPDIR:-${HOME:-$(printf s > /tmp/out.$$)}}/x.XXXXXX", True),
+    ("mktemp ${TMPDIR:-`printf s > /tmp/out.$$`}/x.XXXXXX", True),
+    ("x=${y:-<(printf s > /tmp/out.$$)}", True),
+    ("mktemp ${TMPDIR:-/tmp/$USER}/x.XXXXXX", False),
+    ("mktemp ${TMPDIR:-$(mktemp -d /tmp/$USER.XXXXXX)}/x.XXXXXX", False),
+)
 # Text the parser must refuse, so it exempts nothing and its name is flagged: not shell bash reads (NOT_SHELL), or
 # nested past MAX_DEPTH. (MAX_DEPTH levels of the same parse, and stay safe.)
 NOT_SHELL = ("mktemp /tmp/a.$$.XXXXXX)", "(mktemp /tmp/a.$$.XXXXXX", 'mktemp "/tmp/a.$$.XXXXXX',
@@ -481,7 +739,8 @@ def _wrap(inner: str, form: str) -> str:
 def corpus() -> list[tuple[str, bool]]:
     """(shell, whether it writes a guessable shared-temp name): nesting depth 0-3 x substitution form x the
     template's quoting x a plain or nested template x where the unsafe write sits (none: the line is safe), then
-    COMMENTS, UNPARSED (flagged: nothing is exempt), MAX_DEPTH levels deep, and the MISSES."""
+    COMMENTS, UNPARSED, NOT_COMMANDS and EXPANSIONS, MAX_DEPTH levels deep, and the MISSES. Whole files are in
+    FILES."""
     out: dict[str, bool] = {}
     templates = {"bare": "/tmp/$USER.XXXXXX", "double": '"${TMPDIR:-/tmp}/$USER.XXXXXX"',
                  "single": "'/tmp/$USER.XXXXXX'"}
@@ -505,6 +764,7 @@ def corpus() -> list[tuple[str, bool]]:
                         "in the template": ('mktemp "/tmp/' + inner_sub + 'x.XXXXXX"', ""),
                         "here-document": ("mktemp " + t, "; cat <<'EOF' > " + bad + "\nbody\nEOF"),
                         "here-document body": ("mktemp " + t, "\ncat <<EOF\n" + inner_sub + "\nEOF"),
+                        "in an expansion": ("mktemp ${TMPDIR:-" + inner_sub + "}/x.XXXXXX", ""),
                     }
                     for place, (core, tail) in places.items():
                         line = core
@@ -517,6 +777,8 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     for line in UNPARSED:
         out[line] = True
+    for line, unsafe in NOT_COMMANDS + EXPANSIONS:
+        out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
     for line in MISSES:
@@ -524,8 +786,40 @@ def corpus() -> list[tuple[str, bool]]:
     return sorted(out.items())
 
 
+# Whole files (path, text, whether a line in it must be flagged), which a sweep reads through scan_file(): the
+# here-document, continuation and multi-line quote cases a line-by-line read gets wrong. A sweep's test writes each
+# into a scanned folder of a scratch repository and runs its hits() there.
+FILES = (
+    # manaflow-ai/cmuxterm-hq#9338 review at 0ea8b97f, F2: line by line, this body line reads as a comment.
+    ("scripts/heredoc-comment.sh", "#!/bin/sh\ncat <<EOF\n# $(printf secret > /tmp/out.$$)\nEOF\n", True),
+    ("scripts/heredoc-tabs.sh", "cat <<-EOF\n\t# `printf secret > /tmp/out.$$`\n\tEOF\n", True),
+    ("scripts/heredoc-quoted.sh", "cat <<'EOF' > \"$f\"\n# printf secret > /tmp/out.$$\nEOF\n", True),
+    ("scripts/heredoc-then.sh", "cat <<EOF > \"$f\"\nhello\nEOF\nprintf s > /tmp/out.$$\n", True),
+    ("scripts/heredoc-safe.sh", "d=$(mktemp -d /tmp/$USER.XXXXXX)\ncat <<EOF > \"$d/x\"\n# a comment-like line\nEOF\n",
+     False),
+    ("scripts/continued.sh", "d=$(mktemp -d \\\n  /tmp/$USER.XXXXXX)\n", False),
+    ("scripts/continued-write.sh", "mktemp /tmp/$USER.XXXXXX \\\n  > /tmp/out.$$\n", True),
+    ("scripts/quote-lines.sh", 'echo "one\n# two > /tmp/out.$$"\n', True),
+    ("scripts/quote-template.sh", 'd=$(mktemp -d "${TMPDIR:-/tmp}/$USER\\\n.XXXXXX")\n', False),
+    ("scripts/case.sh", "case $1 in\n  a) d=$(mktemp -d /tmp/$USER.XXXXXX) ;;\nesac\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n",
+     True),
+    ("scripts/case-safe.sh", "case $1 in\n  a) d=$(mktemp -d /tmp/$USER.XXXXXX) ;;\n  *) exit 1 ;;\nesac\n", False),
+    ("scripts/array.sh", "SSH=(ssh -o BatchMode=yes)\npaths=(mktemp\n  /tmp/out.$$.XXXXXX)\n", True),
+    ("scripts/array-safe.sh", "SSH=(ssh -o BatchMode=yes)\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", False),
+    ("scripts/shebang", "#!/usr/bin/env bash\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n", True),
+    ("scripts/workflow.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          cat <<EOF\n          # $(printf s > /tmp/out.$$)\n"
+     "          EOF\n", True),
+    ("scripts/workflow-safe.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          d=$(mktemp -d \\\n"
+     "            /tmp/$USER.XXXXXX)\n", False),
+)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--corpus"]:
         json.dump(corpus(), sys.stdout)
+    elif sys.argv[1:] == ["--files"]:  # [[path, text], ...] -> [scan_file(path, text), ...]
+        json.dump([scan_file(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
+    elif sys.argv[1:] == ["--file-corpus"]:
+        json.dump(FILES, sys.stdout)
     else:
         json.dump([scan_text(code(t)) for t in json.load(sys.stdin)], sys.stdout)
