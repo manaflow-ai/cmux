@@ -231,9 +231,13 @@ nonisolated struct SidebarDragLook {
         return (layout, at..<at + k)
     }
 
-    /// The node a row of a section belongs to (its own, or its group's); the header comes before every node.
+    /// The node a row of a section belongs to (its own, or its group's); the header, and one list's "Workspaces"
+    /// heading, come before every node.
     private static func node(of row: SidebarRow) -> Int {
-        if case .section = row.key { return -1 }
+        switch row.key {
+        case .section, .listHeader: return -1
+        default: break
+        }
         return row.parentIndex ?? row.siblingIndex
     }
 

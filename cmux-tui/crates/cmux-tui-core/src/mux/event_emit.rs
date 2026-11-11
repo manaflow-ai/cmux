@@ -229,6 +229,8 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {

@@ -143,19 +143,19 @@ const yesterday = () =>
   );
 
 /// A Cloud chat of two turns whose prompts each have a machine checkpoint taken before they ran, as
-/// the handshake's `cloudTurnRewind` names them (App.tsx). `answer`: how the host's `chat.rewindTurn`
-/// answers; `delayMs`: how long it takes.
+/// the handshake's `cloudTurnRewind` names them (`user-<seq>`, the marks cloudTurnCheckpoints.ts
+/// reads; App.tsx). `answer`: how the host's `chat.rewindTurn` answers; `delayMs`: how long it takes.
 const REWIND_PROMPT = "Now cover it with a test that fakes two timeouts";
 const rewindChat = (answer: unknown = { seconds: 9.4 }, delayMs?: number) => ({
-  ready: { cloudMachineID: "vm_gallery_cloud", cloudTurnRewind: ["rewind-1", "rewind-4"] },
+  ready: { cloudMachineID: "vm_gallery_cloud", cloudTurnRewind: ["user-1", "user-4"] },
   native: { "chat.rewindTurn": answer },
   ...(delayMs !== undefined && { nativeDelayMs: { "chat.rewindTurn": delayMs } }),
   snapshot: claude(
     chat([
-      user("Add retry with backoff to the uploader", 9, { id: "rewind-1", seq: 1 }),
+      user("Add retry with backoff to the uploader", 9, { id: "user-1", seq: 1 }),
       assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
       summary(8.5, { seq: 3, status: "completed" }),
-      user(REWIND_PROMPT, 6, { id: "rewind-4", seq: 4 }),
+      user(REWIND_PROMPT, 6, { id: "user-4", seq: 4 }),
       assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
       summary(5, { seq: 6, status: "completed" }),
     ]),
@@ -163,7 +163,7 @@ const rewindChat = (answer: unknown = { seconds: 9.4 }, delayMs?: number) => ({
 });
 const REWIND = ".cv-user__actions .cv-turn-rewind";
 /// The latest prompt's rewind button.
-const LATEST_REWIND = `[data-row-id="rewind-4"] ${REWIND}`;
+const LATEST_REWIND = `[data-row-id="user-4"] ${REWIND}`;
 
 /// Hovers the latest prompt and waits for its rewind button to show.
 const hoverRewind = async (ctx: PlayContext) => {

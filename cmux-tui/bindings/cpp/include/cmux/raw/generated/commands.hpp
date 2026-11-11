@@ -275,6 +275,7 @@ public:
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_column_dock(const SetColumnDockRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> set_divider_visible(const SetDividerVisibleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_frontend_browser_history(const SetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetHostSizePolicyResult> set_host_size_policy(const SetHostSizePolicyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_layout_sizes(const SetLayoutSizesRequest& request, RequestOptions options = {});

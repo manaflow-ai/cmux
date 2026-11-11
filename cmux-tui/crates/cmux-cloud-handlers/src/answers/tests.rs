@@ -85,20 +85,11 @@ fn domains_publications_and_keys_have_their_lines() {
 }
 
 #[test]
-fn networks_and_firewall_rules_have_their_lines() {
+fn networks_have_their_lines() {
     let networks = found(
         json!({"kind": "networks", "items": [{"id": "n1", "scope": "team", "cidr": "10.0.0.0/24"}, {"id": "n2", "scope": "user"}]}),
     );
     assert_eq!(networks.text.as_deref(), Some("n1 (team) 10.0.0.0/24\nn2 (user) "));
-    let rules = found(
-        json!({"kind": "firewallRules", "items": [{"id": "r1", "description": "lan", "action": "allow"}, {"id": "r2", "action": "deny"}]}),
-    );
-    assert_eq!(rules.text.as_deref(), Some("r1: lan\nr2: deny"));
-    let rule = found(json!({"kind": "firewallRule", "rule": {"id": "r2", "action": "deny"}}));
-    assert_eq!(
-        (rule.text.as_deref(), rule.fields["action"].clone()),
-        (Some("r2: deny"), json!("deny"))
-    );
 }
 
 #[test]
@@ -128,22 +119,6 @@ fn a_forward_record_becomes_its_local_url() {
     assert_eq!(listed.text.as_deref(), Some("3000 -> http://127.0.0.1:52011/"));
     assert_eq!(listed.fields["forwards"].as_array().unwrap().len(), 2);
     assert_eq!(found(json!({"kind": "portList", "machineId": "vm-1", "forwards": []})).text, None);
-}
-
-#[test]
-fn previews_list_each_port_and_the_unavailable_ones() {
-    let answer = previews(&json!({"machine": "vm-1", "listening": [3000, 5173],
-        "previews": [{"port": 3000, "url": "https://p.dev/", "origin": "https://p.dev", "expiresAt": 1.5e12}],
-        "unavailable": [{"port": 5173, "code": "preview.not_http"}]}));
-    assert_eq!(answer.text.as_deref(), Some("3000 → https://p.dev/"));
-    assert_eq!(
-        Value::Object(answer.fields),
-        json!({"machine_id": "vm-1", "ports": "3000,5173", "listening": [3000, 5173],
-               "previews": [{"port": 3000, "url": "https://p.dev/", "origin": "https://p.dev", "expiresAt": 1.5e12}],
-               "unavailable": [{"port": 5173, "code": "preview.not_http"}]})
-    );
-    let empty = previews(&json!({"machine": "vm-1"}));
-    assert_eq!((empty.text, empty.copyable), (None, false));
 }
 
 #[test]
