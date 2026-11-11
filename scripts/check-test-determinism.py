@@ -5659,6 +5659,13 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     # A `!` right after a name is TypeScript's postfix non-null assertion: the `<` after it compares (F3).
     ("tsx comparison after a non-null assertion", "web/tests/b32.test.tsx",
      "    const n = value! <limit > floor; const o = {\n      a: 1 };\n"),
+    # The type-parameter lookahead reads `<` and `>` as brackets only in the type parameter list, and JSX in a
+    # parameter default as JSX: a comparison in a template hole, or a closing tag's slash, leaves the arrow an arrow
+    # (review of #41452, F1 and F2).
+    ("tsx generic arrow with a comparison in a default's template hole", "web/tests/b33.test.tsx",
+     "    const f = <T extends U>(x = `${a < b}`) => x; const o = {\n      a: 1 };\n"),
+    ("tsx generic arrow with JSX in a parameter default", "web/tests/b34.test.tsx",
+     "    const f = <T extends U>(x = <div></div>) => x; const o = {\n      a: 1 };\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
