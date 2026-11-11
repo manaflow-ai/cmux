@@ -488,6 +488,15 @@ pub struct RemoteRef {
     pub summary: Value,
 }
 
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
+}
+
 /// A session that lives on a peer daemon.
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
