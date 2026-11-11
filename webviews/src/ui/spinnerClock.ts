@@ -32,19 +32,31 @@ export function spinnerStartTime(timelineNow: number, timeOrigin: number, period
   return timelineNow - phase;
 }
 
+/** On an element whose loops took the shared phase from a negative delay at mount (`setLoopPhase`): its
+ * loops' delay is that phase, not an offset of their own, so a later alignment counts it in. */
+export const LOOP_PHASE_ATTRIBUTE = "data-cmux-loop-phase";
+
 /** The bits of a CSS animation the clock reads and sets (a test passes a plain object). */
 export type SpinnerAnimation = {
   animationName?: string;
   startTime: CSSNumberish | null;
-  effect: { getTiming(): { duration?: number | string | CSSNumericValue } } | null;
+  effect: {
+    getTiming(): { duration?: number | string | CSSNumericValue; delay?: number };
+    target?: Element | null;
+  } | null;
 };
 
-/** Moves `animation` onto the shared phase when it runs shared loop keyframes; true if it did. */
+/** Moves `animation` onto the shared phase when it runs shared loop keyframes; true if it did. A loop's own
+ * delay stays an offset from the shared phase (the running wave's place, the mic's staggered dots), except
+ * under `LOOP_PHASE_ATTRIBUTE`, where the delay was the phase itself and is taken out again. */
 export function alignSpinner(animation: SpinnerAnimation, timelineNow: number, timeOrigin: number): boolean {
   if (!animation.animationName || !SHARED_LOOP_KEYFRAMES.has(animation.animationName)) return false;
-  const duration = animation.effect?.getTiming().duration;
+  const timing = animation.effect?.getTiming();
+  const duration = timing?.duration;
   if (typeof duration !== "number" || !(duration > 0)) return false;
-  animation.startTime = spinnerStartTime(timelineNow, timeOrigin, duration);
+  const phased = animation.effect?.target?.closest?.(`[${LOOP_PHASE_ATTRIBUTE}]`);
+  const delay = phased && typeof timing?.delay === "number" ? timing.delay : 0;
+  animation.startTime = spinnerStartTime(timelineNow, timeOrigin, duration) - delay;
   return true;
 }
 
@@ -66,19 +78,50 @@ export function realignSpinners(doc: Document = document): number {
   return moved;
 }
 
-/** Puts the shared loops on `element` and under it on the shared phase now, before the frame paints:
- * a loop that mounts again (a running line the transcript brings back into view as the reader scrolls)
- * otherwise paints its first frame at phase 0, and `animationstart` moves it a frame later, a blink
- * (Leo, 2026-11-03: "not flicker EVER when im scrolling"). `getAnimations` flushes style, so a loop
- * that mounted with the element is there to align. */
-export function alignLoopsIn(element: Element): void {
+/** The variable that holds the shimmer loops' period (desktop.css), which `setLoopPhase` reads once a page. */
+export const SHIMMER_PERIOD_VARIABLE = "--cmux-shimmer-period";
+/** The variable `setLoopPhase` writes: the loops under the element take it as their `animation-delay`. */
+export const LOOP_DELAY_VARIABLE = "--cmux-loop-delay";
+
+const periods = new WeakMap<Document, Map<string, number>>();
+
+/** A CSS time (`2.8s`, `2800ms`) in ms, or undefined. */
+export function cssTimeMs(value: string): number | undefined {
+  const match = /^\s*(-?[\d.]+)(ms|s)\s*$/.exec(value);
+  if (!match) return undefined;
+  const ms = Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+  return ms > 0 ? ms : undefined;
+}
+
+/** `variable`'s period on `doc`'s root, read once per page: nothing changes it after load. */
+function periodOf(doc: Document, variable: string): number | undefined {
+  let byName = periods.get(doc);
+  if (!byName) periods.set(doc, (byName = new Map()));
+  if (!byName.has(variable)) {
+    const view = doc.defaultView;
+    const ms = view ? cssTimeMs(view.getComputedStyle(doc.documentElement).getPropertyValue(variable)) : undefined;
+    if (ms === undefined) return undefined;
+    byName.set(variable, ms);
+  }
+  return byName.get(variable);
+}
+
+/** Puts the shared loops under `element` on the shared phase on the frame they mount: a loop that mounts
+ * again (a running line the transcript brings back into view as the reader scrolls) otherwise paints its
+ * first frame at phase 0, and `animationstart` moves it a frame later, a blink (Leo, 2026-11-03: "not
+ * flicker EVER when im scrolling"). It writes the phase as a negative delay (`LOOP_DELAY_VARIABLE`, which
+ * the loops' rules read) from the period cached per page, and reads no style: asking the element for its
+ * animations flushed style on every running row's mount, about 8% of a streaming chat's main thread on
+ * Leo's Mac (2026-11-11). */
+export function setLoopPhase(element: HTMLElement, variable = SHIMMER_PERIOD_VARIABLE): void {
   const doc = element.ownerDocument;
-  if (doc.documentElement.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
-  const now = doc.timeline?.currentTime;
+  const period = periodOf(doc, variable);
   const origin = doc.defaultView?.performance.timeOrigin;
-  if (typeof now !== "number" || typeof origin !== "number" || typeof element.getAnimations !== "function") return;
-  for (const animation of element.getAnimations({ subtree: true }))
-    alignSpinner(animation as unknown as SpinnerAnimation, now, origin);
+  if (period === undefined || typeof origin !== "number") return;
+  const unixNow = origin + doc.defaultView!.performance.now();
+  const phase = ((unixNow % period) + period) % period;
+  element.setAttribute(LOOP_PHASE_ATTRIBUTE, "");
+  element.style.setProperty(LOOP_DELAY_VARIABLE, `-${phase.toFixed(1)}ms`);
 }
 
 const installed = new WeakSet<Document>();
@@ -94,6 +137,8 @@ export function installSpinnerClock(doc: Document = document): void {
     "animationstart",
     (event) => {
       if (!SHARED_LOOP_KEYFRAMES.has(event.animationName) || !(event.target instanceof Element)) return;
+      // Its delay put it on the phase when it mounted (`setLoopPhase`): no style read for it here.
+      if (event.target.closest(`[${LOOP_PHASE_ATTRIBUTE}]`)) return;
       // A hidden page's loops stay paused: giving one a start time would run it unseen. They take
       // the shared phase when the page shows (below).
       if (root.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
