@@ -39,6 +39,22 @@ import Testing
         #expect(await owner.registrations == 1)
     }
 
+    /// A refused team mint tells the app which team, so it re-reads the account's teams (a team deleted on
+    /// the web stayed selected, Leo 2026-11-10); a minted team tells it nothing.
+    @Test func aRefusedTeamMintNamesTheTeamToTheApp() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let owner = MacTeamAuthOwner(), refused = RefusedTeams()
+        let identity = MacInstallIdentity(store: .files(directory: root), transport: owner, deviceName: "Test Mac",
+                                          clientVersion: "2.4.0", teamRefused: { refused.add($0) })
+        try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
+        _ = try await identity.installToken(team: team)
+        #expect(refused.teams.isEmpty)
+        await owner.deny(team)
+        await #expect(throws: InstallAuthError.refused("auth.forbidden")) { try await identity.installToken(team: team) }
+        #expect(refused.teams == [team])
+    }
+
     @Test func unbindingDuringATeamMintNeverReturnsTheOldUsersToken() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -69,4 +85,11 @@ import Testing
         _ = try? await request.value
         #expect(await owner.cancelledAtToken == true)
     }
+}
+
+private final class RefusedTeams: @unchecked Sendable {
+    private let lock = NSLock()
+    private var list: [String] = []
+    var teams: [String] { lock.withLock { list } }
+    func add(_ team: String) { lock.withLock { list.append(team) } }
 }

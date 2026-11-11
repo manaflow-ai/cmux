@@ -176,7 +176,8 @@ final class CloudService {
                 store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
                                service: "\(configuration.bundleID ?? "cmux").install-key\(configuration.runtimeSelection?.storageNamespace.map { "." + $0 } ?? "").\(api.host ?? "unknown")",
                                team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
-                transport: InstallHTTPTransport(baseURL: api), deviceName: deviceName, clientVersion: clientVersion)
+                transport: InstallHTTPTransport(baseURL: api), deviceName: deviceName, clientVersion: clientVersion,
+                teamRefused: { team in Task { @MainActor in await auth.backendTeamRefused(team) } }) // task-owner: one joined team re-read
         }
         let identity = install(configuration.ownerAPIBaseURL(), "install")
         installIdentity = identity
@@ -342,19 +343,18 @@ final class CloudService {
         })
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                await self?.auth.activeTeam.refreshIfStale() // a team deleted or left on the web falls back (at most once a minute)
                 guard let self, let last = self.lastRefresh, last.duration(to: .now) > .seconds(30) else { continue }
                 await self.refresh()
             }
         })
-        // After sleep the list is stale even with cmux in front: the idle
-        // auto-pause may have parked machines while the lid was closed.
+        // After sleep the list is stale even with cmux in front: the idle auto-pause may have parked machines while the lid was closed.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 await self?.refresh(ifOlderThan: .seconds(30))
             }
         })
-        // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
-        // runs: none goes on in the account signed in after.
+        // A sign-out or a team switch (the user signed in may stay) ends start-session asks and runs: none goes on in the account after.
         observers.append(Task { [weak self] in
             guard let self else { return }
             var last = account

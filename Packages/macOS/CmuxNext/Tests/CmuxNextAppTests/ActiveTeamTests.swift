@@ -51,7 +51,23 @@ struct ActiveTeamTests {
             selectedTeamID = id
         }
 
-        func refreshTeams() async {}
+        /// The account's teams on the server; a re-read loads them. Nil: a read changes nothing.
+        var serverTeams: [String]?
+        private(set) var reads = 0
+        /// Reads wait for ``releaseReads()``.
+        var holdReads = false
+        private var heldReads: [CheckedContinuation<Void, Never>] = []
+        var heldReadCount: Int { heldReads.count }
+        func releaseReads() {
+            heldReads.forEach { $0.resume() }
+            heldReads = []
+        }
+
+        func refreshTeams() async {
+            reads += 1
+            if holdReads { await withCheckedContinuation { heldReads.append($0) } }
+            if let serverTeams { availableTeams = serverTeams.map { CMUXAuthTeam(id: $0, displayName: $0.uppercased()) } }
+        }
 
         /// A relaunch: the account's saved selection replaces the local cache.
         func restore() { if let last = saved.last { selectedTeamID = last } }
@@ -153,6 +169,86 @@ struct ActiveTeamTests {
         private var value = false
         nonisolated var fired: Bool { lock.withLock { value } }
         nonisolated func fire() { lock.withLock { value = true } }
+    }
+
+    // MARK: Re-reading the teams (Leo, 2026-11-10: a team deleted on the web stayed selected)
+
+    /// A clock the throttles read, moved by hand.
+    @MainActor final class TestClock {
+        var now = ContinuousClock.now
+        func advance(_ by: Duration) { now = now.advanced(by: by) }
+    }
+
+    private func reading(_ source: Source) -> (ActiveTeam, TestClock) {
+        let active = ActiveTeam(source: source), clock = TestClock()
+        active.now = { clock.now }
+        return (active, clock)
+    }
+
+    @Test func aTeamDeletedOnTheWebFallsBackWhenCmuxComesToTheFront() async {
+        let source = Source(teams: ["a", "b"], selected: "b")
+        let (active, _) = reading(source)
+        let changed = Changed()
+        withObservationTracking { _ = active.id } onChange: { changed.fire() }
+        source.serverTeams = ["a"] // "b" deleted on the web
+        await active.refreshIfStale()
+        #expect(source.reads == 1)
+        #expect(active.id == "a", "the selection the account no longer has falls back to the first team")
+        #expect(changed.fired, "the team change reaches what follows the active team (the composer's chip)")
+    }
+
+    @Test func comingToTheFrontReReadsAtMostOnceAMinute() async {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        let (active, clock) = reading(source)
+        await active.refreshIfStale()
+        clock.advance(.seconds(30))
+        await active.refreshIfStale()
+        #expect(source.reads == 1)
+        clock.advance(.seconds(31))
+        await active.refreshIfStale()
+        #expect(source.reads == 2)
+    }
+
+    @Test func asksWhileAReadIsInFlightJoinIt() async {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        source.holdReads = true
+        let (active, _) = reading(source)
+        let first = Task { await active.refresh() }
+        for _ in 0..<100 where source.heldReadCount == 0 { await Task.yield() }
+        let second = Task { await active.refreshIfStale() }
+        let third = Task { await active.teamRefused("a") }
+        for _ in 0..<100 { await Task.yield() }
+        source.releaseReads()
+        await first.value; await second.value; await third.value
+        #expect(source.reads == 1)
+    }
+
+    @Test func aRefusalForTheActiveTeamReReadsOnceAndNeverLoops() async {
+        let source = Source(teams: ["a", "b"], selected: "b")
+        let (active, clock) = reading(source)
+        await active.refreshIfStale() // a read a moment ago does not hold back a refusal's
+        source.serverTeams = ["a", "b"] // still listed: the refusal stands, the team stays
+        await active.teamRefused("b")
+        #expect(source.reads == 2)
+        #expect(active.id == "b")
+        for _ in 0..<5 { await active.teamRefused("b") } // a caller retrying
+        #expect(source.reads == 2, "one re-read per refused team a minute")
+        await active.teamRefused("a") // not the active team
+        #expect(source.reads == 2)
+        clock.advance(.seconds(61))
+        source.serverTeams = ["a"] // now gone
+        await active.teamRefused("b")
+        #expect(source.reads == 3)
+        #expect(active.id == "a", "a refused team that is gone is not kept as the selection")
+    }
+
+    @Test func signedOutNeverReReads() async {
+        let source = Source(teams: ["a"], selected: "a")
+        source.isAuthenticated = false
+        let (active, _) = reading(source)
+        await active.refreshIfStale()
+        await active.teamRefused("a")
+        #expect(source.reads == 0)
     }
 
     // MARK: Settings > Accounts
