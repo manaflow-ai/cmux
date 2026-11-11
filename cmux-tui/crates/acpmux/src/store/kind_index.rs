@@ -247,10 +247,10 @@ impl LocalStore {
             let copy =
                 if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
             match copy {
-                // A copy covers the segment's first `from` bytes, whole lines: what comes after
-                // them (a log load copies up to the end; less than `COPY_AFTER` grows past it
-                // before a scan copies again) is read from the segment, then the copy. No seek
-                // for `before`: its probes would read more of the segment than the copy holds.
+                // A copy covers the segment's first `from` bytes, whole lines: what was written
+                // after them (none in a segment a log load sealed and copied, at most the segment
+                // in the one being written) is read from the segment, then the copy. No seek for
+                // `before`: its probes read more of the segment than its copy holds.
                 Some((lines, from, _)) => {
                     for_each_line_rev_between(&mut file, from, u64::MAX, &mut line)?;
                     if !done.get() {
