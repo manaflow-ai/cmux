@@ -279,10 +279,7 @@ async function playThenReady(): Promise<void> {
   const variant = entry.variants[variantName];
   const play = variant?.play;
   if (play) {
-    const { drawNeutralFrame, runPlay } = await import("./playRunner");
-    // EXPERIMENT (#41211): does a neutral frame before the first measured step take away the long
-    // frame of the first click or key step on the CI runner?
-    await drawNeutralFrame();
+    const { runPlay } = await import("./playRunner");
     const report = await runPlay(play, {
       anchors: entry.anchors,
       checks: { ...entry.checks, ...variant.checks },
