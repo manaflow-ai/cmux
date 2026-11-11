@@ -327,7 +327,9 @@ private enum FeedTick {
     case diskBack
 }
 
-@MainActor
+// Not on the main actor: these cells run seconds of work, and the kit's other
+// suites share the process and its main actor (LinkControllerTests waits on
+// wall-clock bounds there). Only the Feed cell needs it, and it yields.
 @Suite struct TickHarnessCellsTests {
     /// 10,000 link losses from 100 ms to 8 h, with lost, late and duplicated
     /// dial results, background/resume and presence noise. Asserts: every
@@ -369,6 +371,7 @@ private enum FeedTick {
     /// re-list, at most one per gap. A 2,000-delta run over 1,000
     /// workspaces reports the cost per delta at 5x the rows.
     @Test func cellTickTenThousandDeltas() async throws {
+        // Off the main actor: the loop and the projection actor share no main-actor state.
         let seed = TickRandom.seed(default: 40_961)
         // The 1,000-workspace run is shorter: it is there for the cost per delta at 5x the rows.
         for (variant, workspaces, deltas) in [("200-workspaces", 200, 10_000), ("1000-workspaces", 1_000, 2_000)] {
@@ -397,7 +400,7 @@ private enum FeedTick {
     /// the disk is back, and no more bytes at 10,000 events than at 5,000
     /// (past the cap the disk is flat). Scrolling to the end brings every
     /// spilled row back once.
-    @Test func cellTickFeedUnderPressureAndDiskFull() async throws {
+    @MainActor @Test func cellTickFeedUnderPressureAndDiskFull() async throws {
         let seed = TickRandom.seed(default: 40_962)
         var random = TickRandom(seed: seed)
         var clock = TickClock<FeedTick>()
@@ -426,6 +429,8 @@ private enum FeedTick {
         while let tick = clock.next(until: .seconds(Int64(events) * 60)) {
             switch tick {
             case .event:
+                // FeedStore is main-actor state: give other main-actor work a turn.
+                if emitted % 50 == 0 { await Task.yield() }
                 let ask = random.chance(0.01)
                 let id = "e\(emitted)"
                 store.upsert(FeedItem(id: id, kind: ask ? .needsInput : .finished, workspaceID: "w\(emitted % 40)", tabID: "t",
