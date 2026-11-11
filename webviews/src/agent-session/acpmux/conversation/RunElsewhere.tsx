@@ -161,7 +161,7 @@ export function RunElsewhereBelow({ toolCallId, command }: { toolCallId: string;
  * no control: the line is the answer, and the row goes on as it was. */
 function RunElsewhereLine({ text, busy }: { text: string; busy?: boolean }) {
   return (
-    <output className="cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
+    <output className="cv-tool-error cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
       {text}
     </output>
   );

@@ -9,10 +9,11 @@
    the row's trailing slot, `card` gives it the panel's ring and fill. */
 .cv-run-elsewhere-looks[data-note="edge"] .cv-run-elsewhere-line {
   max-width: 40%;
-  margin: calc(-1 * var(--cv-tool-row-height, 28px)) 0 0 auto;
+  margin-left: auto;
   padding-left: 0;
-  line-height: var(--cv-tool-row-height, 28px);
+  line-height: var(--cv-tool-row-height);
   text-align: right;
+  transform: translateY(-100%);
 }
 .cv-run-elsewhere-looks[data-note="card"] .cv-run-elsewhere-line {
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
