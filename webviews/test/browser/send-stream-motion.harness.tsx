@@ -162,6 +162,9 @@ if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook)
 // `?foldLook=`: how a reader's toggle folds (fold.ts FoldLook), for the looks' numbers.
 const foldLookParam = query.get("foldLook");
 if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);
+// `?turnEnd=`: how a turn's end folds (turnEndFold.ts TurnEndLook), for the looks' numbers.
+const turnEndParam = query.get("turnEnd");
+if (turnEndParam) document.documentElement.setAttribute("data-turn-end-fold", turnEndParam);
 
 /// The rows mounted this frame (RowSample's fields).
 function rowSamples(scroller: HTMLElement): RowSample[] {
