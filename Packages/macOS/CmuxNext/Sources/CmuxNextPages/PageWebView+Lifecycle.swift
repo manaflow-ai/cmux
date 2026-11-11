@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 public import WebKit
 
 @MainActor
@@ -19,24 +20,44 @@ extension PageWebView {
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be
-    /// acknowledged (or its fallback reload to finish).
+    /// acknowledged (or its fallback reload to finish). A cancelled wait returns at once and leaves
+    /// no waiter on the page.
     public func waitUntilLoaded() async {
-        guard !loaded || claimState.pending else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            loadWaiters.append(continuation)
-        }
+        _ = await waitForLoad(deadline: nil)
     }
 
-    /// ``waitUntilLoaded()`` for at most `deadline`: false when the deadline came first.
+    /// ``waitUntilLoaded()`` for at most `deadline` (a one-shot DemandTimer): false when the deadline
+    /// or a cancel came first, so a page that never loads cannot hold its caller.
     public func waitUntilLoaded(within deadline: Duration) async -> Bool {
-        await waitUntilLoaded()
-        return true
+        await waitForLoad(deadline: deadline)
+    }
+
+    private func waitForLoad(deadline: Duration?) async -> Bool {
+        guard !loaded || claimState.pending else { return true }
+        let id = UUID()
+        let timer = DemandTimer(owner: "page.load.deadline")
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                guard !Task.isCancelled else { return continuation.resume(returning: false) }
+                loadWaiters.append((id, continuation))
+                if let deadline { timer.schedule(after: deadline) { @MainActor [weak self] in self?.resumeLoadWaiter(id) } }
+            }
+        } onCancel: {
+            MainDelivery().later { [weak self] in self?.resumeLoadWaiter(id) }
+        }
     }
 
     func resumeLoadWaiters() {
         let waiters = loadWaiters
         loadWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.continuation.resume(returning: true) }
+    }
+
+    /// Ends one wait unloaded (its deadline or its cancel).
+    private func resumeLoadWaiter(_ id: UUID) {
+        guard let index = loadWaiters.firstIndex(where: { $0.id == id }) else { return }
+        loadWaiters.remove(at: index).continuation.resume(returning: false)
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
