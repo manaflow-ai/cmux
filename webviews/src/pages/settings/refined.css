@@ -274,9 +274,11 @@
 :root[data-settings-look="refined"] .settings .search-input:not(.ui-input) { min-height: var(--ds-control-primary); border-radius: var(--ds-radius-lg); }
 /* Pills: popups and buttons sit on a soft fill with no outline, the chevron at the end. */
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn) {
-  border-color: transparent;
+  /* These carry the page's 1 px field border: it is the control's one hairline. An inset edge inside
+     a transparent border drew two (the fill showed through the border as a ring outside it). */
+  border-color: var(--look-control-line, transparent);
   background: var(--look-control-fill, var(--polish-hover));
-  box-shadow: var(--look-control-edge, none);
+  box-shadow: none;
 }
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):is(:hover, [data-popup-open]):not(:disabled) {
   background: var(--look-control-fill-hover, var(--polish-pressed));

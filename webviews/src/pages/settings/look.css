@@ -168,8 +168,10 @@
      background ... do not make it black"; Aside's "Google ⌃⌄"): no fill of its own at rest, a faint
      ink lift on hover, and the edge, solid and mixed into the base so it recedes on dark, does the
      drawing. */
-  --look-control-fill: transparent;
-  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 4%, transparent);
+  /* A clear control read darker than its card inside the brighter edge (Lucas 2026-11-12), so it
+     takes the card's own lift once more: the inside reads as the card's grey, a step up at most. */
+  --look-control-fill: color-mix(in srgb, var(--polish-ink) 4%, transparent);
+  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 7%, transparent);
   --look-control-line: light-dark(
     color-mix(in srgb, var(--polish-ink) 14%, transparent),
     color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base))
@@ -214,6 +216,20 @@
   background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base)));
   box-shadow: var(--elevation-1);
   color: var(--polish-ink);
+}
+
+/* Focus is the control's own edge, brighter, never a second ring outside it (Lucas 2026-11-12:
+   "there's like 2 borders"): the page's button ring (refined.css) drew 2 px off the hairline, so a
+   menu that closed and handed focus back showed edge, gap and ring. */
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button, .row-control .button):focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--polish-focus);
+}
+
+/* The bordered ones (the page's field border is their hairline) brighten that border instead. */
+:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):focus-visible {
+  border-color: var(--polish-focus);
+  box-shadow: none;
 }
 
 /* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
