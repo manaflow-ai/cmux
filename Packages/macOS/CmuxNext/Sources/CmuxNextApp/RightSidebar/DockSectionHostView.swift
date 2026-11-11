@@ -5,9 +5,9 @@ import CmuxNextLayout
 import SwiftUI
 
 /// Hosts the Dock section for one window: follows the shown workspace's
-/// layout (its `LayoutModel` is observable) and, through the window's
-/// `content` (`refresh()` on each swap), the next shown workspace; runs
-/// the column actions through the registry.
+/// layout (its `LayoutModel` is observable) from each `refresh()`; runs
+/// the column actions through the registry. No surface shows it now: the
+/// right sidebar that held it is gone.
 final class DockSectionHostView: NSView, RightSidebarRefreshing {
     let model = DockSectionModel()
     private weak var controller: WindowController?
@@ -15,7 +15,7 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
 
     init(controller: WindowController) {
         self.controller = controller
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         let registry = controller.services.registry
         let actions = DockSectionActions(
             focus: { [weak controller] pane in controller?.focus.send(.focusPane(pane, source: .intent)) },

@@ -119,6 +119,21 @@
   opacity: 0.4;
 }
 
+/* ui.css's dialog button spacing and keycap, at no specificity so ui.css and the rule below still win:
+   the agent pane loads no ui.css, and a DialogButton there with no button class of its own drew its key
+   jammed on the label at full size ("Cancel⎋"; Leo, 2026-11-11: "the weird symbol after cancel?"). */
+:where(.ui-dialog-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+:where(.ui-keyhint) {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  opacity: 0.6;
+}
+
 /* A dialog button's keycap (ui/DialogButton) in a shared button: caption size in the button's own ink,
    quieter, in every host (the agent pane loads no ui.css). */
 .ui-btn .ui-keyhint {
