@@ -178,6 +178,18 @@ public nonisolated enum RefusalStrings {
     public static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
     public static func noTab(_ id: String) -> String { text("handlers.refusal.tabGone", "That tab is no longer open.") }
     public static func noPaneID(_ id: String) -> String { text("handlers.refusal.paneGone", "That pane is no longer open.") }
+    /// `agent.chat.perf` (`cmux app chat perf`): a capture length out of range.
+    public static func chatPerfSeconds(_ max: Int) -> String { format("control.refusal.chatPerfSeconds", "seconds must be a whole number from 1 to %lld", max) }
+    /// `agent.chat.perf` without the tab to measure.
+    public static var chatPerfNeedsTab: String { text("control.refusal.chatPerfNeedsTab", "Name the chat tab to measure.") }
+    /// `agent.chat.perf` on a terminal, browser or other tab that holds no agent chat.
+    public static var chatPerfNotAgentChat: String { text("control.refusal.chatPerfNotAgentChat", "That tab isn't an agent chat.") }
+    /// `agent.chat.perf` on a chat whose page was never made this launch; measuring never opens it.
+    public static var chatPerfPageNotLoaded: String { text("control.refusal.chatPerfPageNotLoaded", "That chat's page isn't loaded. Open the chat once, then measure it again.") }
+    /// `agent.chat.perf` on a page whose web UI has no capture (an older page).
+    public static var chatPerfNoCapture: String { text("control.refusal.chatPerfNoCapture", "That chat's page can't measure itself. Update cmux, then try again.") }
+    /// `agent.chat.perf` while another capture of the same chat runs.
+    public static var chatPerfRunning: String { text("control.refusal.chatPerfRunning", "That chat is already being measured. Try again when that capture ends.") }
     public static var workspaceArgumentRequired: String { text("handlers.refusal.workspaceArgumentRequired", "a workspace argument is required") }
     /// A workspace that is not open (closed, or never was). `id` is for call
     /// sites and logs only: a toast or the socket never shows a raw id.

@@ -34613,6 +34613,798 @@
           }
         }
       }
+    },
+    "control.refusal.chatPerfSeconds": {
+      "comment": "A capture length that is not a whole number of seconds from 1 to the maximum (`cmux app chat perf --seconds`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds must be a whole number from 1 to %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds は 1 から %lld までの整数にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون الثواني عددًا صحيحًا من 1 إلى %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunde moraju biti cijeli broj od 1 do %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunder skal være et helt tal fra 1 til %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunden müssen eine ganze Zahl von 1 bis %lld sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "los segundos deben ser un número entero de 1 a %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les secondes doivent être un nombre entier de 1 à %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i secondi devono essere un numero intero da 1 a %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិនាទីត្រូវតែជាចំនួនគត់ពី 1 ដល់ %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초는 1부터 %lld까지의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunder må være et heltall fra 1 til %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liczba sekund musi być liczbą całkowitą od 1 do %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "os segundos devem ser um número inteiro de 1 a %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "секунды должны быть целым числом от 1 до %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วินาทีต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saniye 1 ile %lld arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "секунди мають бути цілим числом від 1 до %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "số giây phải là số nguyên từ 1 đến %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒数必须是 1 到 %lld 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒數必須是 1 到 %lld 之間的整數"
+          }
+        }
+      }
+    },
+    "control.refusal.chatPerfNeedsTab": {
+      "comment": "Measuring a chat's page without naming the tab (`cmux app chat perf`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the chat tab to measure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測するチャットのタブを指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد علامة تبويب الدردشة المراد قياسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite karticu chata koju treba izmjeriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv den chatfane, der skal måles."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Chat-Tab an, der gemessen werden soll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la pestaña de chat que quieres medir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’onglet de discussion à mesurer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la scheda della chat da misurare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជាក់ផ្ទាំងជជែកដែលត្រូវវាស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "측정할 채팅 탭을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi chatfanen som skal måles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż kartę czatu do zmierzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indique a aba de chat a medir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите вкладку чата для измерения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุแท็บแชทที่จะวัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ölçülecek sohbet sekmesini belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть вкладку чату для вимірювання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chỉ định thẻ trò chuyện cần đo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定要测量的聊天标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定要測量的聊天分頁。"
+          }
+        }
+      }
+    },
+    "control.refusal.chatPerfNotAgentChat": {
+      "comment": "Measuring a tab that is not an agent chat (a terminal or browser tab).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That tab isn't an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのタブはエージェントチャットではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب هذه ليست دردشة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kartica nije chat s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fane er ikke en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist kein Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa pestaña no es un chat de agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est pas une discussion avec un agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella scheda non è una chat con un agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនោះមិនមែនជាការជជែកជាមួយភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 탭은 에이전트 채팅이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fanen er ikke en agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta nie jest czatem z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa aba não é um chat de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка не является чатом с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนั้นไม่ใช่แชทกับเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme bir ajan sohbeti değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка не є чатом з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đó không phải là cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该标签页不是代理聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該分頁不是代理聊天。"
+          }
+        }
+      }
+    },
+    "control.refusal.chatPerfPageNotLoaded": {
+      "comment": "Measuring a chat whose page was never made this launch; measuring never opens it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page isn't loaded. Open the chat once, then measure it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは読み込まれていません。一度チャットを開いてから、もう一度計測してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة غير محمّلة. افتح الدردشة مرة واحدة، ثم قِسها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata nije učitana. Otvorite chat jednom, pa ga ponovo izmjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side er ikke indlæst. Åbn chatten én gang, og mål den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats ist nicht geladen. Öffne den Chat einmal und miss ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no está cargada. Abre el chat una vez y vuelve a medirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion n’est pas chargée. Ouvrez la discussion une fois, puis mesurez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non è caricata. Apri la chat una volta, poi misurala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះមិនទាន់ផ្ទុកទេ។ សូមបើកការជជែកម្តង រួចវាស់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지가 로드되지 않았습니다. 채팅을 한 번 연 다음 다시 측정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten er ikke lastet inn. Åpne chatten én gang, og mål den så på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu nie jest wczytana. Otwórz czat raz, a potem zmierz go ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não está carregada. Abra o chat uma vez e meça novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата не загружена. Откройте чат один раз, затем измерьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นยังไม่ได้โหลด เปิดแชทหนึ่งครั้ง แล้ววัดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası yüklenmedi. Sohbeti bir kez açın, sonra yeniden ölçün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінку цього чату не завантажено. Відкрийте чат один раз, а потім виміряйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó chưa được tải. Hãy mở cuộc trò chuyện một lần rồi đo lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面尚未加载。请先打开一次该聊天，然后再测量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面尚未載入。請先開啟一次該聊天，然後再測量。"
+          }
+        }
+      }
+    },
+    "control.refusal.chatPerfNoCapture": {
+      "comment": "Measuring a chat page whose web UI has no capture (an older page).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page can't measure itself. Update cmux, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは計測に対応していません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لصفحة هذه الدردشة قياس نفسها. حدّث cmux، ثم حاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata ne može sama sebe izmjeriti. Ažurirajte cmux, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side kan ikke måle sig selv. Opdater cmux, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats kann sich nicht selbst messen. Aktualisiere cmux und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no puede medirse. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion ne peut pas se mesurer. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non può misurarsi. Aggiorna cmux, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះមិនអាចវាស់ខ្លួនឯងបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 스스로 측정할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten kan ikke måle seg selv. Oppdater cmux, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu nie może się zmierzyć. Zaktualizuj cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não consegue se medir. Atualize o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата не может себя измерить. Обновите cmux и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นวัดตัวเองไม่ได้ อัปเดต cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası kendini ölçemiyor. cmux'u güncelleyin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка цього чату не може себе виміряти. Оновіть cmux і спробуйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó không tự đo được. Hãy cập nhật cmux rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面无法测量自身。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面無法測量自身。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "control.refusal.chatPerfRunning": {
+      "comment": "Measuring a chat while another capture of the same chat runs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat is already being measured. Try again when that capture ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはすでに計測中です。その計測が終わってから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري قياس هذه الدردشة بالفعل. حاول مجددًا عند انتهاء ذلك القياس."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat se već mjeri. Pokušajte ponovo kada to mjerenje završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat bliver allerede målt. Prøv igen, når den måling er færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wird bereits gemessen. Versuche es erneut, wenn diese Messung endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat ya se está midiendo. Vuelve a intentarlo cuando termine esa medición."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion est déjà en cours de mesure. Réessayez quand cette mesure sera terminée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat è già in fase di misurazione. Riprova quando quella misurazione finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះកំពុងត្រូវបានវាស់រួចហើយ។ សូមព្យាយាមម្តងទៀតនៅពេលការវាស់នោះបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 이미 측정 중입니다. 해당 측정이 끝나면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten blir allerede målt. Prøv igjen når den målingen er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat jest już mierzony. Spróbuj ponownie, gdy ten pomiar się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat já está sendo medido. Tente novamente quando essa medição terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат уже измеряется. Попробуйте снова, когда это измерение закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นกำลังถูกวัดอยู่แล้ว ลองอีกครั้งเมื่อการวัดนั้นสิ้นสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet zaten ölçülüyor. O ölçüm bitince yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат уже вимірюється. Спробуйте знову, коли це вимірювання завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó đang được đo. Hãy thử lại khi lần đo đó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天正在测量中。请在本次测量结束后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天正在測量中。請在本次測量結束後再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

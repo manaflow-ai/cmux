@@ -126,6 +126,8 @@ final class AppControl {
             },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
+            // A chat page's frames and record-to-paint times over a window (`cmux app chat perf`), read-only.
+            AgentChatPerfControl.controlMethod(services),
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS

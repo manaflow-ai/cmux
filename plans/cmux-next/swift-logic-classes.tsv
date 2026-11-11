@@ -2975,6 +2975,7 @@ CmuxNextApp	class	UIInspectorController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextApp	class	UIInspectorHighlightView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/UIInspectorController.swift	from class UIInspectorController:14: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	UpdaterService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService+App.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	AppResourceSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift	from class AppResourceSource:26: Process sampling (OS APIs)
+CmuxNextApp	enum	AgentChatPerfControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AgentChatPerfControl.swift	agent.chat.perf control method: finds a chat tab's page without focusing it and runs the page's own capture (webviews chatPerfCapture.ts); the measurement logic and the CLI's rendering are in TypeScript and Rust
 CmuxNextApp	enum	ResourceControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/ResourceControl.swift	resources control method
 CmuxNextApp	class	AgentHistorySource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/AgentHistorySource.swift	from class AgentHistorySource:6: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	SessionVault	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/SessionVault.swift	from class SessionVault:13: session vault list relay
