@@ -273,6 +273,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"cloud_capability_header" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::HeaderRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::header(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_answer" => {
+                use cmux_cloud_start_core::capability;
+                let request: capability::AnswerRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_drop" => {
+                cmux_cloud_start_core::capability::forget();
+                b"{}".to_vec()
+            }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]

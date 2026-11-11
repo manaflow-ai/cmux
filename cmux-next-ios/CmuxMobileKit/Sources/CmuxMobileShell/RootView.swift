@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileArtifacts
@@ -93,6 +94,9 @@ public struct RootView: View {
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
+    /// App Store plans (Settings → Plan), built once for the process so its
+    /// `Transaction.updates` listener outlives every screen; nil hides Plan.
+    @State private var billing: BillingModel?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -168,6 +172,21 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        .environment(billing)
+        // Plans follow the account: a purchase StoreKit still holds is delivered
+        // for whoever signs in; sign-out forgets the old account's plan.
+        .onChange(of: auth.isResolved ? auth.isSignedIn : nil, initial: true) { _, signedIn in
+            guard let signedIn else { return }
+            guard signedIn else { billing?.resetForSignOut(); return }
+            if let billing {
+                // Another account signed in: deliver what StoreKit still holds for it now.
+                Task { await billing.retryUndeliveredTransactions() }
+            } else {
+                // Built once, on the first sign-in (start() also retries held transactions).
+                billing = auth.makeBillingModel(bundleIdentifier: Bundle.main.bundleIdentifier)
+                billing?.start()
+            }
+        }
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task {
@@ -498,6 +517,8 @@ final class KeptModel<Model: AnyObject> {
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
 /// a four-tab `TabView`.
 struct ShellView: View {
+    /// App Store plans from the root (nil hides Settings → Plan).
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
     @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
@@ -540,7 +561,9 @@ struct ShellView: View {
         SidebarContainer(
             model: shell.sidebar,
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),
-            content: ShellTabs(shell: shell).environment(shell.store)
+            // The container hosts the tabs in their own hosting controller: pass the
+            // root's objects across it (Settings → Plan reads the billing model).
+            content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
         )
         .ignoresSafeArea()
         .cmuxMobileToast($shell.toast)
