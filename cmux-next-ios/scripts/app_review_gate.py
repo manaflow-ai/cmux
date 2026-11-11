@@ -79,6 +79,10 @@ HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
+# Each lane's shipping configuration and the bundle its binary must carry: the
+# appstore lane is the public app, the internal lane TestFlight's cmux INTERNAL.
+LANE_CONFIG = {"appstore": APPSTORE_CONFIG, "internal": "TestFlight"}
+LANE_BUNDLE_ID = {"appstore": APPSTORE_BUNDLE_ID, "internal": "dev.cmux.app.internal"}
 # The App Store distribution configurations (AppStore, TestFlight,
 # TestFlightStaging) sign with these; project.yml says so.
 APPSTORE_ENTITLEMENTS = (
@@ -341,23 +345,41 @@ class Lint:
 
     def check_apple_sign_in_ships(self) -> None:
         """Debug builds hide the Apple button (CMUX_MOBILE_APPLE_SIGN_IN = NO);
-        the App Store configurations must turn it on and carry the entitlement,
-        or the shipped app offers Google and GitHub without Apple (4.8)."""
+        this lane's shipping configuration (AppStore, or TestFlight for the
+        internal lane) must turn it on and sign with entitlements that carry
+        Sign in with Apple, or the shipped app offers Google and GitHub without
+        Apple (4.8). Another configuration turning it on proves nothing."""
         self.ran("signin-apple-shipping")
+        name = LANE_CONFIG.get(self.lane, APPSTORE_CONFIG)
         project = self.root / PROJECT_YML
         text = project.read_text(errors="ignore") if project.is_file() else ""
-        if not re.search(r"CMUX_MOBILE_APPLE_SIGN_IN:\s*\"?YES", text):
+        blocks = config_blocks(text, name)
+        # The last value set for this configuration wins (the target's over the project's).
+        values = [m.group(1) for b in blocks for m in re.finditer(r"^\s*CMUX_MOBILE_APPLE_SIGN_IN:\s*\"?(\w+)", b, re.M)]
+        if not values or values[-1] != "YES":
             self.add("signin.apple-shipping", "4.8", "blocker",
-                     "no configuration sets CMUX_MOBILE_APPLE_SIGN_IN to YES, so the shipped app hides Sign in with Apple", PROJECT_YML)
-        ents = self.root / APPSTORE_ENTITLEMENTS[0]
-        if ents.is_file():
+                     f"the {name} configuration does not set CMUX_MOBILE_APPLE_SIGN_IN to YES, so the shipped app "
+                     "hides Sign in with Apple", PROJECT_YML)
+        ents = [m.group(1) for b in blocks
+                for m in re.finditer(r"^\s*CMUX_MOBILE_ENTITLEMENTS_(?:NO|YES):\s*\"?([\w./-]+)", b, re.M)]
+        if not ents:
+            self.add("signin.apple-entitlement", "4.8", "blocker",
+                     f"the {name} configuration names no entitlements file, so nothing shows it carries Sign in with Apple",
+                     PROJECT_YML)
+        for rel in dict.fromkeys(ents):
+            path = self.root / APP_DIR / rel
+            where = f"{APP_DIR}/{rel}"
+            if not path.is_file():
+                self.add("signin.apple-entitlement", "4.8", "blocker",
+                         f"the {name} configuration signs with {where}, which does not exist", where)
+                continue
             try:
-                body = plistlib.loads(ents.read_bytes())
+                body = plistlib.loads(path.read_bytes())
             except plistlib.InvalidFileException:
                 body = {}
             if "com.apple.developer.applesignin" not in body:
                 self.add("signin.apple-entitlement", "4.8", "blocker",
-                         "the App Store entitlements lack com.apple.developer.applesignin", APPSTORE_ENTITLEMENTS[0])
+                         f"{where} ({name}) lacks com.apple.developer.applesignin", where)
 
     def store_rules(self):
         """scripts/cmux-next/check-app-store-rules.py from the judged source:
@@ -453,13 +475,26 @@ class Lint:
 
     # ---------------------------------------------------------------- binary
 
-    def check_app_bundle(self, app: Path) -> None:
+    def check_app_bundle(self, app: Path, expect_commit: str = "") -> None:
         self.ran("binary")
         info_path = app / "Info.plist"
         if not info_path.is_file():
             self.add("binary.info-plist", "2.1", "blocker", "the bundle has no Info.plist", str(app))
             return
         info = plistlib.loads(info_path.read_bytes())
+        # The binary must be this lane's app, built from the judged commit:
+        # a stale or internal artifact is never this build's verdict.
+        want_bundle = LANE_BUNDLE_ID.get(self.lane)
+        if want_bundle and info.get("CFBundleIdentifier") != want_bundle:
+            self.add("binary.bundle-id", "2.1", "blocker",
+                     f"the binary's CFBundleIdentifier is {info.get('CFBundleIdentifier')!r}, not {want_bundle}: "
+                     "it is not this lane's app", f"{app.name}/Info.plist")
+        if expect_commit:
+            built = str(info.get("CmuxMobileSourceCommit") or "")
+            if not built or built != expect_commit:
+                self.add("binary.source-commit", "2.1", "blocker",
+                         f"the binary was built from {built or 'an unrecorded commit'}, not {expect_commit}: "
+                         "it is not the build being judged", f"{app.name}/Info.plist")
         self.check_info_plist(info, f"{app.name}/Info.plist")
         if info.get("CmuxMobileAppleSignIn") not in ("YES", "1", True, "true"):
             self.add("binary.apple-sign-in", "4.8", "blocker",
@@ -634,6 +669,24 @@ def config_block(text: str, name: str) -> str | None:
     return None
 
 
+def config_blocks(text: str, name: str) -> list[str]:
+    """Every `configs: NAME:` block in project.yml (the project's at indent 4,
+    each target's at indent 8), in file order."""
+    lines = text.splitlines()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        indent = len(line) - len(line.lstrip())
+        if line.strip() != f"{name}:" or indent not in (4, 8):
+            continue
+        block = []
+        for follow in lines[i + 1:]:
+            if follow.strip() and len(follow) - len(follow.lstrip()) <= indent:
+                break
+            block.append(follow)
+        out.append("\n".join(block))
+    return out
+
+
 def marketing_version(root: Path, lane: str) -> str:
     """The version App Store Connect holds for this lane: the AppStore
     configuration's MARKETING_VERSION for appstore, else the base one."""
@@ -677,7 +730,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     elif args.app:
         app = Path(args.app)
     if app:
-        lint.check_app_bundle(app)
+        lint.check_app_bundle(app, args.expect_commit or "")
     url_results = lint.check_urls(urls) if args.check_urls else []
     history = lint.check_history()
     result = {
@@ -818,7 +871,8 @@ def xcresult_findings(path: Path) -> list[dict]:
 
     def count(node: dict) -> None:
         nonlocal ran
-        if node.get("nodeType") == "Test Case":
+        # A skipped test judged nothing: only executed ones count.
+        if node.get("nodeType") == "Test Case" and node.get("result") != "Skipped":
             ran += 1
         for k in node.get("children") or []:
             count(k)
@@ -832,7 +886,8 @@ def xcresult_findings(path: Path) -> list[dict]:
         out.append({
             "rule": "uitest.none-ran", "guideline": "2.1(a)", "severity": "blocker",
             "source": f"reviewer-path suite ({device})",
-            "message": f"the {device} suite ran no tests, so the reviewer path is unjudged there", "where": device,
+            "message": f"the {device} suite ran no tests (or skipped every one), so the reviewer path is unjudged there",
+            "where": device,
         })
     return out
 
@@ -942,6 +997,8 @@ def main(argv: list[str] | None = None) -> int:
     lint.add_argument("--ipa")
     lint.add_argument("--check-urls", action="store_true")
     lint.add_argument("--json")
+    lint.add_argument("--expect-commit", default="",
+                      help="the full SHA the binary's CmuxMobileSourceCommit must name")
     report = sub.add_parser("report")
     report.add_argument("--lint", action="append")
     report.add_argument("--asc-validate", action="append")

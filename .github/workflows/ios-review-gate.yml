@@ -205,12 +205,14 @@ jobs:
       - name: Lint
         env:
           WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
+          JUDGED_SHA: ${{ needs.plan.outputs.sha }}
         run: |
           set -euo pipefail
           args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
           ipa="$(find ipa -name '*.ipa' 2>/dev/null | head -n 1 || true)"
           if [ -n "$ipa" ]; then
-            args+=(--ipa "$ipa")
+            # The binary must be built from the judged commit.
+            args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
           elif [ "$WANT_IPA" = true ]; then
             # Asked to judge an exact binary and none arrived: never lint
             # the source alone and call that the binary's verdict.

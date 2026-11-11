@@ -41,7 +41,11 @@ class AppReviewGateTests(unittest.TestCase):
               "configs:\n  TestFlight: release\n  AppStore: release\nsettings:\n  MARKETING_VERSION: 1.2.0\n  configs:\n"
               "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n      MARKETING_VERSION: 1.0.0\n"
               "targets:\n  CmuxMobileApp:\n    type: application\n"
-              "    settings:\n      configs:\n        TestFlight:\n          CMUX_MOBILE_APPLE_SIGN_IN: \"YES\"\n"
+              "    settings:\n      base:\n        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n      configs:\n"
+              "        TestFlight:\n          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n"
+              "          CMUX_MOBILE_APPLE_SIGN_IN: \"YES\"\n"
+              "        AppStore:\n          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n"
+              "          CMUX_MOBILE_APPLE_SIGN_IN: \"YES\"\n"
               "    info:\n      path: App/Info.plist\n      properties:\n        ITSAppUsesNonExemptEncryption: false\n")
         write(self.root, "cmux-next-ios/App/CmuxMobileApp-TestFlight.entitlements",
               plistlib.dumps({"aps-environment": "production", "com.apple.developer.applesignin": ["Default"]}).decode())
@@ -123,6 +127,56 @@ class AppReviewGateTests(unittest.TestCase):
         project = self.root / "cmux-next-ios/project.yml"
         project.write_text(project.read_text().replace('"YES"', '"NO"'))
         self.assertIn("signin.apple-shipping", self.rules(self.run_lint()))
+
+    def test_apple_sign_in_is_judged_in_this_lanes_configuration_only(self) -> None:
+        # TestFlight turning it on proves nothing about the AppStore build.
+        project = self.root / "cmux-next-ios/project.yml"
+        text = project.read_text()
+        head, tail = text.split("        AppStore:\n", 1)
+        project.write_text(head + "        AppStore:\n" + tail.replace('"YES"', '"NO"', 1))
+        self.assertIn("signin.apple-shipping", self.rules(self.run_lint("appstore")))
+        self.assertNotIn("signin.apple-shipping", self.rules(self.run_lint("internal")))
+
+    def test_a_missing_app_store_entitlements_file_blocks(self) -> None:
+        (self.root / "cmux-next-ios/App/CmuxMobileApp-TestFlight.entitlements").unlink()
+        self.assertIn("signin.apple-entitlement", self.rules(self.run_lint()))
+
+    def test_a_configuration_with_no_entitlements_blocks(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        text = project.read_text()
+        head, tail = text.split("        AppStore:\n", 1)
+        tail = tail.replace("          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n", "", 1)
+        project.write_text(head + "        AppStore:\n" + tail)
+        self.assertIn("signin.apple-entitlement", self.rules(self.run_lint()))
+
+    def bundle(self, **info) -> Path:
+        app = self.root / "Payload/CmuxMobileApp.app"
+        app.mkdir(parents=True, exist_ok=True)
+        body = {"CFBundleExecutable": "CmuxMobileApp", "ITSAppUsesNonExemptEncryption": False,
+                "CmuxMobileAppleSignIn": "YES", "CFBundleIdentifier": "com.cmux.app",
+                "CmuxMobileSourceCommit": "a" * 40}
+        body.update(info)
+        (app / "Info.plist").write_bytes(plistlib.dumps(body))
+        (app / "PrivacyInfo.xcprivacy").write_text("x")
+        (app / "CmuxMobileApp").write_bytes(b"\x00")
+        return app
+
+    def test_the_binary_must_be_this_lanes_app_from_the_judged_commit(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(self.bundle(), "a" * 40)
+        self.assertFalse({"binary.bundle-id", "binary.source-commit"} & self.rules(lint))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(self.bundle(CFBundleIdentifier="dev.cmux.app.internal"), "a" * 40)
+        self.assertIn("binary.bundle-id", self.rules(lint))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(self.bundle(CmuxMobileSourceCommit="b" * 40), "a" * 40)
+        self.assertIn("binary.source-commit", self.rules(lint))
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_app_bundle(self.bundle(CmuxMobileSourceCommit=""), "a" * 40)
+        self.assertIn("binary.source-commit", self.rules(lint))
+        lint = gate.Lint(self.root, "internal")
+        lint.check_app_bundle(self.bundle(), "a" * 40)
+        self.assertIn("binary.bundle-id", self.rules(lint))
 
     def test_app_store_entitlements_without_sign_in_with_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/App/CmuxMobileApp-TestFlight.entitlements",
@@ -219,6 +273,16 @@ class AppReviewGateTests(unittest.TestCase):
         code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(empty), "--out", str(out)])
         self.assertEqual(code, 1)
         self.assertIn("ran no tests", out.read_text())
+
+    def test_a_device_whose_every_test_skipped_is_never_a_pass(self) -> None:
+        skipped = self.root / "iphone.json"
+        skipped.write_text(json.dumps({"testNodes": [{"nodeType": "Test Plan", "name": "p", "children": [
+            {"nodeType": "Test Case", "name": "testA()", "result": "Skipped"},
+            {"nodeType": "Test Case", "name": "testB()", "result": "Skipped"}]}]}))
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(skipped), "--out", str(out)])
+        self.assertEqual(code, 1)
+        self.assertIn("uitest.none-ran", {f["rule"] for f in gate.xcresult_findings(skipped)})
 
     def test_a_suite_that_exited_nonzero_with_no_failed_test_blocks(self) -> None:
         # xcodebuild can crash or refuse the xctestrun after a passing test
