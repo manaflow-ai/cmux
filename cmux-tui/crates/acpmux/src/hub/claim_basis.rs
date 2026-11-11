@@ -261,6 +261,21 @@ const RUNNERS: &[&str] = &[
 /// which run no code of their arguments.
 const VALUE_LITERALS: &[&str] = &["true", "false", "yes", "info"];
 
+/// Words of a key or an option that names a command to run (`--hook`, `mcp_servers.x.command`,
+/// `notify`, `args`): a value literal under one is a program word, not a value.
+const COMMAND_KEYS: &[&str] = &[
+    "command", "commands", "cmd", "hook", "hooks", "exec", "execute", "notify", "run", "shell",
+    "program", "script", "spawn", "launch", "args", "argv", "server", "servers", "mcp",
+];
+
+/// Whether word `word` (an option or a part of an argument) has a word of [`COMMAND_KEYS`], split
+/// on `-`, `_` and `.`, case folded.
+fn names_command(word: &str) -> bool {
+    word.to_lowercase()
+        .split(['-', '_', '.'])
+        .any(|w| COMMAND_KEYS.contains(&w) || w.starts_with("mcp"))
+}
+
 /// What a launch's program is ([`Launch::program`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Program {
@@ -462,6 +477,7 @@ impl Launch<'_> {
     fn args_understood(&self, args: &[String], interpreted: bool) -> bool {
         let cwd = self.folder.written.as_path();
         let mut after_option = false;
+        let mut option: Option<&str> = None;
         for arg in args {
             for (word, option_value) in arg_paths(arg, after_option) {
                 let at = Path::new(word);
@@ -474,10 +490,11 @@ impl Launch<'_> {
                     return false;
                 }
             }
-            if !self.parts_understood(arg) {
+            if !self.parts_understood(arg, option) {
                 return false;
             }
             after_option = arg.starts_with('-') && arg != "-" && arg != "--" && !arg.contains('=');
+            option = after_option.then_some(arg.as_str());
         }
         true
     }
@@ -488,16 +505,22 @@ impl Launch<'_> {
     /// (`{"command":"node","args":["./srv.js"]}`) and a command string (`node hook.js`) are read
     /// part by part, case folded. A part names something of the folder when it is a path inside
     /// it, or (in a word of more than one part) a relative path to something it holds.
-    fn parts_understood(&self, arg: &str) -> bool {
+    ///
+    /// A value literal ([`VALUE_LITERALS`]) is no program only as a value: a part after the
+    /// first of a word, or the word after option `option`, and only when neither the word nor
+    /// `option` has a key of a command ([`names_command`]: `--hook info`, `command=true`).
+    fn parts_understood(&self, arg: &str, option: Option<&str>) -> bool {
         let cwd = self.folder.written.as_path();
         let parts: Vec<&str> = arg
             .split(|c: char| c.is_whitespace() || "\"'`[]{}()=:,;".contains(c))
             .filter(|p| !p.is_empty())
             .collect();
         let composite = parts.as_slice() != [arg];
-        parts.iter().all(|part| {
+        let commands = option.is_some_and(names_command) || parts.iter().any(|p| names_command(p));
+        parts.iter().enumerate().all(|(i, part)| {
+            let value = !commands && (i > 0 || option.is_some());
             let at = Path::new(part);
-            !self.names_program(part)
+            !self.names_program(part, value)
                 && if at.is_absolute() {
                     !self.folder.holds(at)
                 } else {
@@ -509,8 +532,8 @@ impl Launch<'_> {
     /// Whether word `part` names a program other than an agent CLI: a runner of [`RUNNERS`] (case
     /// folded, any version; any name that starts with `python` or `pypy`), an absolute path to a
     /// program, or a bare name that `PATH` resolves to a program and that is no value literal
-    /// ([`VALUE_LITERALS`]).
-    fn names_program(&self, part: &str) -> bool {
+    /// ([`VALUE_LITERALS`]) where `value` says the part is a value.
+    fn names_program(&self, part: &str, value: bool) -> bool {
         let name = name_of(part);
         if program_of(name) == Some(Program::Agent) {
             return false;
@@ -524,7 +547,7 @@ impl Launch<'_> {
         if at.is_absolute() {
             return is_program(at);
         }
-        !VALUE_LITERALS.contains(&lower.as_str())
+        !(value && VALUE_LITERALS.contains(&lower.as_str()))
             && !part.contains('/')
             && !part.starts_with('-')
             && part.chars().any(|c| c.is_ascii_alphabetic())
@@ -839,13 +862,13 @@ mod tests {
     }
 
     /// A folder of stand-in programs (empty scripts that are programs) of every name a believed
-    /// launch runs, and a `PATH` that finds them first: no result depends on what the machine has.
+    /// launch runs, and of names that are value literals too (`true`, `info`), and a `PATH` that
+    /// finds them first: no result depends on what the machine has.
     fn tools() -> (tempfile::TempDir, Vec<PathBuf>) {
         use std::os::unix::fs::PermissionsExt as _;
         let tools = tempfile::tempdir().unwrap();
-        for name in
-            ["opencode", "codex", "python3", "python3.10", "python3.11", "python3.12", "node"]
-        {
+        let programs = ["opencode", "codex", "python3", "python3.10", "python3.11", "python3.12"];
+        for name in programs.into_iter().chain(["node", "true", "yes", "info", "ls"]) {
             let program = tools.path().join(name);
             std::fs::write(&program, "#!/bin/sh\n").unwrap();
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -896,8 +919,10 @@ mod tests {
     }
 
     /// A value literal of the words acpmux reads (`true`, `false`, `yes`, the log level `info`) is
-    /// no program, in any case, though `PATH` holds programs of those names; any other bare word
-    /// that `PATH` resolves is one.
+    /// no program as a value, in any case, though `PATH` holds programs of those names; any other
+    /// bare word that `PATH` resolves is one. As the program, a bare word that follows no option,
+    /// or the value of a command key (`--hook info`, `command=true`) a literal is a program
+    /// (lead, #40158).
     #[test]
     fn a_value_literal_is_no_program() {
         let dir = tempfile::tempdir().unwrap();
@@ -909,7 +934,17 @@ mod tests {
         ] {
             assert_eq!(judge(&launch(argv, &[]), dir.path(), &path), None, "{argv:?}");
         }
-        for argv in [&["opencode", "--hook", "ls"][..], &["codex", "-c", r#"notify=["sh"]"#]] {
+        for argv in [
+            &["opencode", "--hook", "ls"][..],
+            &["codex", "-c", r#"notify=["sh"]"#],
+            // A literal is safe only as a value, never as a program word.
+            &["opencode", "--hook", "info"],
+            &["opencode", "--hook=true"],
+            &["codex", "-c", "mcp_servers.x.command=true"],
+            &["opencode", "--mcp-config", r#"{"s":{"command":"yes"}}"#],
+            &["opencode", "run", "true"],
+            &["true"],
+        ] {
             let why = judge(&launch(argv, &[]), dir.path(), &path);
             assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
         }

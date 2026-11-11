@@ -100,8 +100,10 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
     case folded. Every other program refuses, also one acpmux cannot find.
   - Argument parts (`Launch::parts_understood`): every argument word is split on whitespace,
     quotes, brackets and `=`, `:`, `,`, `;`. A part that names a runner (case folded, any version),
-    an absolute path to a program, or a bare word that `PATH` resolves (except the value literals
-    `true`, `false`, `yes`, `info`) refuses, as does a part that is a path in the folder.
+    an absolute path to a program, or a bare word that `PATH` resolves refuses, as does a part that
+    is a path in the folder. The value literals `true`, `false`, `yes`, `info` are no program only as
+    a value (a later part of a word, or the word after an option), never as the program, a bare
+    word after no option, or under a command key (`--hook info`, `command=true`) (lead).
   - Env allowlist (`env_kept`): `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `COLORTERM`,
     `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `TZ`, `RUST_LOG`, `RUST_BACKTRACE`, `PYTHONUNBUFFERED`,
     `PYTHONDONTWRITEBYTECODE`, `PYTHONIOENCODING`, `PYTHONSAFEPATH`, `PYTHONNOUSERSITE`,
