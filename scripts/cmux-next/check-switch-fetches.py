@@ -42,6 +42,9 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
+    "`git.status` as the page shows only when its chat started or ended a turn while hidden (the "
+    "read it held back then, `owed`); a switch away and back with no turn reads nothing",
     (f"{ACPMUX}/chatSnapshot/live.ts", "visibilitychange"): "writes the chat's drawn copy for the "
     "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
