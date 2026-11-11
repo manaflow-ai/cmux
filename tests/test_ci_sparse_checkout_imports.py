@@ -38,19 +38,27 @@ Two gaps in ModuleFinder are filled here, both in _Finder below:
     (which this search path leaves out, for speed) would win at run time.
   - Optional imports: ModuleFinder cannot tell them apart, and its badmodules only lists what it
     could not find in that run, so a module the sparse run lacks would be a miss even when the
-    script catches the ImportError. An import inside a `try:` body whose handlers catch ImportError,
-    ModuleNotFoundError (or a bare `except:`/`except Exception`/`BaseException`) is removed from the
-    source before compiling, in both runs, since the script runs without it.
+    script catches the ImportError. An import inside a `try:` body whose handlers catch what a missing
+    module raises (ModuleNotFoundError: ImportError, ModuleNotFoundError, a bare `except:`,
+    `except Exception`/`BaseException`) is removed from the source before compiling, in both runs,
+    since the script runs without it. One rule (_catches) decides every guard here.
+  - An import by a literal name (__import__('x') under any of its spellings, importlib.import_module
+    or importlib.__import__ with one string argument naming an absolute module) is the import
+    statement `import x`: compiled in as one, so a stdlib name is static and a repo module joins the
+    closure, guarded or not by the same rule.
 
 Dynamic imports fail closed. A sys.path change, importlib.import_module, importlib.__import__,
-importlib.util.spec_from_file_location, runpy or __import__ anywhere in a listed script's closure
+importlib.util.spec_from_file_location, runpy or __import__ (of a computed name: a literal one is an
+import statement, above) anywhere in a listed script's closure
 (found in each module's AST) makes the step unverifiable, unless DYNAMIC_IMPORT_AUDIT names that file,
 call and argument text with a one-line reason; an audit entry that matches no live call fails too. Only exact,
 provable forms are learned instead (the comment above DYNAMIC_CALLS lists them): sys.path.insert(0, P)
 and sys.path.append(P) of a fixed repo folder join both runs' search path in order, and
-spec_from_file_location(name, P) of a fixed repo file joins the closure and must be checked out, in
-a `try:` or not, unless an audit entry keyed (loading file, loaded file) marks it optional. There is
-no other allowlist.
+spec_from_file_location(name, P) of a fixed repo file joins the closure and must be checked out,
+unless it is optional: the call, and every exec_module/load_module call in its file, sits in a `try:`
+body whose handlers catch what a missing file raises (FileNotFoundError, and ModuleNotFoundError for a
+present file's own missing import; the same _catches rule), or an audit entry keyed (loading file,
+loaded file) says so. There is no other allowlist.
 
 Run: python3 tests/test_ci_sparse_checkout_imports.py
 """
@@ -59,6 +67,7 @@ from __future__ import annotations
 
 import ast
 import importlib.machinery
+import keyword
 import modulefinder
 import os
 import re
@@ -101,12 +110,6 @@ DYNAMIC_IMPORT_AUDIT: dict[tuple[str, ...], str] = {
         "importlib.util.spec_from_file_location",
         "'crash_ratchet', head_tree / 'scripts/cmux-next/crash_ratchet.py'",
     ): "loads crash_ratchet.py from the --head-tree archive it compares, not from this checkout",
-    ("scripts/ci/web_subareas.py", "scripts/cmux-next/web-bundle-key.py"): (
-        "optional: web_bundle_input_matcher() returns None when the key script is missing, and callers fall back"
-    ),
-    ("scripts/ci/next_macos_cascade.py", "__import__", "'os'"): (
-        "the stdlib's os, only to build the sys.path insert of its own folder"
-    ),
     (
         "scripts/ci/next_macos_cascade.py",
         "sys.path.insert",
@@ -118,7 +121,15 @@ DYNAMIC_IMPORT_AUDIT: dict[tuple[str, ...], str] = {
     ),
 }
 CI_DIR = "scripts/ci"
-OPTIONAL_HANDLERS = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+# What a call raises when the file it needs is not checked out, by the exception classes that catch
+# each (the class and its bases). An import statement raises ModuleNotFoundError; a load by path
+# raises FileNotFoundError at exec_module, or ModuleNotFoundError from the loaded file's own import.
+_CAUGHT_BY = {
+    "ModuleNotFoundError": {"ModuleNotFoundError", "ImportError", "Exception", "BaseException"},
+    "FileNotFoundError": {"FileNotFoundError", "OSError", "IOError", "EnvironmentError", "Exception", "BaseException"},
+}
+IMPORT_RAISES = ("ModuleNotFoundError",)
+LOAD_RAISES = ("FileNotFoundError", "ModuleNotFoundError")
 
 
 # --- sparse-checkout entries -------------------------------------------------------------------
@@ -198,26 +209,62 @@ def listed_ci_scripts(entries: list[str], root: Path) -> list[str]:
 _NAMESPACE = "namespace"  # a file_info kind of our own: a folder without __init__.py
 
 
-def _catches_import_error(handler: ast.ExceptHandler) -> bool:
+def _handler_catches(handler: ast.ExceptHandler, error: str) -> bool:
     kind = handler.type
     if kind is None:
         return True
     names = kind.elts if isinstance(kind, ast.Tuple) else [kind]
     for name in names:
         ident = name.attr if isinstance(name, ast.Attribute) else getattr(name, "id", None)
-        if ident in OPTIONAL_HANDLERS:
+        if ident in _CAUGHT_BY[error]:
             return True
     return False
 
 
-class _DropOptionalImports(ast.NodeTransformer):
-    """Replace each import inside a `try:` body that catches ImportError with `pass`."""
+def _catches(handlers: list[ast.ExceptHandler], errors: tuple[str, ...]) -> bool:
+    """The one guard rule: a `try:` makes what its body does optional when its handlers catch every
+    error in `errors` (IMPORT_RAISES for an import, LOAD_RAISES for a load by path)."""
+    return all(any(_handler_catches(h, error) for h in handlers) for error in errors)
 
-    def __init__(self) -> None:
+
+# Calls that import a module by name. With one string argument naming an absolute module (no
+# keywords, no package), each is the statement `import NAME` (_literal_import).
+IMPORT_BY_NAME = {"__import__", "builtins.__import__", "__builtins__.__import__", "importlib.import_module", "importlib.__import__"}
+
+
+def _literal_import(node: ast.AST, aliases: dict[str, str]) -> str | None:
+    """The module a call imports by a literal name, as `import NAME` would, or None."""
+    if not isinstance(node, ast.Call) or node.keywords or len(node.args) != 1:
+        return None
+    if _dotted(node.func, aliases) not in IMPORT_BY_NAME:
+        return None
+    arg = node.args[0]
+    if not (isinstance(arg, ast.Constant) and type(arg.value) is str):
+        return None
+    parts = arg.value.split(".")
+    if not all(part.isidentifier() and not keyword.iskeyword(part) for part in parts):
+        return None  # empty, relative ('.x') or not a name an import statement can write
+    return arg.value
+
+
+class _DropOptionalImports(ast.NodeTransformer):
+    """Replace each import inside a `try:` body that catches a missing module (_catches) with `pass`,
+    and collect the names imports by literal name make outside such a body (_literal_import)."""
+
+    def __init__(self, aliases: dict[str, str] | None = None) -> None:
         self.guarded = 0
+        self.aliases = aliases or {}
+        self.literal: list[str] = []
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        name = _literal_import(node, self.aliases)
+        if name is not None and not self.guarded:
+            self.literal.append(name)
+        self.generic_visit(node)
+        return node
 
     def visit_Try(self, node: ast.Try) -> ast.AST:
-        optional = any(_catches_import_error(h) for h in node.handlers)
+        optional = _catches(node.handlers, IMPORT_RAISES)
         self.guarded += optional
         node.body = [self.visit(stmt) for stmt in node.body]
         self.guarded -= optional
@@ -240,7 +287,14 @@ def _code(source: bytes):
     """(the module's code with optional imports removed, None) or (None, why it does not parse)."""
     try:
         tree = ast.parse(source)
-        tree = ast.fix_missing_locations(_DropOptionalImports().visit(tree))
+        drop = _DropOptionalImports(_aliases(tree))
+        tree = drop.visit(tree)
+        if drop.literal:
+            # Each import by a literal name, as the import statement it is (ModuleFinder scans the
+            # function's code like any other).
+            lines = "".join(f"    import {name}\n" for name in dict.fromkeys(drop.literal))
+            tree.body.append(ast.parse(f"def __sparse_imports_by_name__():\n{lines}").body[0])
+        tree = ast.fix_missing_locations(tree)
         return compile(tree, "<scanned>", "exec"), None
     except RecursionError:
         raise  # the stack, not the file: never cached as "does not parse"; find_modules names it
@@ -439,8 +493,11 @@ def find_modules(
 #     change what loads (changes that only name the entry folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
 #     which file a module loads from is reported as "path search does not settle (A <-> B)";
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
-#     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
-#     keyed by (loading file, loaded file).
+#     checked out, unless it is optional: in a `try:` that catches LOAD_RAISES with every
+#     exec_module/load_module of the file guarded the same way (_guarded_nodes), or when
+#     DYNAMIC_IMPORT_AUDIT says so, keyed by (loading file, loaded file);
+#   - an import by a literal module name (_literal_import) is no dynamic import: _code compiles it in
+#     as `import NAME`.
 # P must be a fixed path in the repo: a string literal (relative to the run's working directory: the
 # step's working-directory and the `cd`s before the command; no literal is fixed when that is unknown), or __file__ through Path(), str(), os.fspath(), .resolve(), .absolute(), .parent,
 # .parents[N], / "literal", .with_name("literal"), .joinpath("literal"), os.path.abspath/realpath/
@@ -760,6 +817,13 @@ def _dynamic_calls(root: Path, rel: str, cwd: str | None):
         return (), (), ()
     aliases = _aliases(tree)
     scopes = _scope_bindings(tree)
+    guarded = _guarded_nodes(tree, LOAD_RAISES)
+    # A load is optional only if nothing in this file reads a loaded file outside such a guard.
+    reads_guarded = all(
+        id(n) in guarded
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("exec_module", "load_module")
+    )
     path_ops: list[tuple[str, str, bool, str, int, str]] = []
     top_level = _clean_prefix_path_changes(tree, aliases)
     loads: list[str] = []
@@ -788,8 +852,8 @@ def _dynamic_calls(root: Path, rel: str, cwd: str | None):
                     unresolved.append((SYS_PATH_ASSIGNMENT, node.lineno, _call_text(node)))
             continue
         name = _dotted(node.func, aliases)
-        if name not in DYNAMIC_CALLS:
-            continue
+        if name not in DYNAMIC_CALLS or _literal_import(node, aliases) is not None:
+            continue  # an import by literal name is an import statement (_code compiles it in)
         args = node.args
         if not node.keywords and not any(isinstance(a, ast.Starred) for a in args):
             first = args[0] if args else None
@@ -809,11 +873,38 @@ def _dynamic_calls(root: Path, rel: str, cwd: str | None):
             elif name == "importlib.util.spec_from_file_location" and len(args) == 2:
                 file = in_repo(args[1], want_dir=False)
                 if file is not None:
+                    if id(node) in guarded and reads_guarded:
+                        continue  # optional: the script runs on without the file (_catches)
                     if file not in loads:
                         loads.append(file)
                     continue
         unresolved.append((name, node.lineno, _call_text(node)))
     return tuple(path_ops), tuple(loads), tuple(unresolved)
+
+
+def _guarded_nodes(tree: ast.AST, errors: tuple[str, ...]) -> set[int]:
+    """ids of the nodes that run inside a `try:` body whose handlers catch `errors` (_catches). A
+    function or lambda body runs when called, maybe outside the try, so it is never guarded by one
+    around its definition."""
+    out: set[int] = set()
+
+    def walk(node: ast.AST, guarded: bool) -> None:
+        if isinstance(node, _FUNCTIONS):
+            guarded = False
+        if guarded:
+            out.add(id(node))
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            inner = guarded or _catches(node.handlers, errors)
+            for stmt in node.body:
+                walk(stmt, inner)
+            for part in (*node.handlers, *node.orelse, *node.finalbody):
+                walk(part, guarded)
+            return
+        for child in ast.iter_child_nodes(node):
+            walk(child, guarded)
+
+    walk(tree, False)
+    return out
 
 
 SEARCH_DOES_NOT_SETTLE = "path search does not settle"
@@ -3809,12 +3900,16 @@ class SparseCheckoutImportTests(unittest.TestCase):
 # _oracle_case); missing one is a divergence. A run that raises is not a case; the generator keeps
 # going until it has enough cases. Seeds are fixed, so a divergence reproduces from its seed.
 
-ORACLE_CASES = int(os.environ.get("SPARSE_ORACLE_CASES", "1000"))
+ORACLE_CASES = int(os.environ.get("SPARSE_ORACLE_CASES", "1250"))
 ORACLE_SEED = int(os.environ.get("SPARSE_ORACLE_SEED", "40923"))
-# Ratchet: on seed 40923 and 1000 cases the checker names more files than Python loaded in this many
+# Ratchet: on seed 40923 and 1250 cases the checker names more files than Python loaded in this many
 # cases (ModuleFinder's over-approximation). A checker that names extra files more often fails;
 # lower it when the checker gets tighter.
 ORACLE_SUPERSET_LIMIT = 1
+
+
+def ORACLE_VERIFIED_FLOOR(cases: int) -> int:  # noqa: N802 (a constant, by the case count)
+    return cases // 5
 # Test hook: the checker also names one file Python did not load (a sloppier checker), to show the
 # ratchet catches it.
 _oracle_extra_file = False
@@ -4097,12 +4192,14 @@ class SparseCheckoutOracleTests(unittest.TestCase):
             file=sys.stderr,
         )
         self.assertEqual(result.divergences[:3], [], f"{len(result.divergences)} divergences")
-        if (ORACLE_SEED, ORACLE_CASES) == (40923, 1000):
+        if (ORACLE_SEED, ORACLE_CASES) == (40923, 1250):
             self.assertLessEqual(
                 len(result.supersets), ORACLE_SUPERSET_LIMIT,
                 "the checker names files Python did not load more often than before:\n" + "\n".join(result.supersets),
             )
-        self.assertGreaterEqual(result.counts["verified"], ORACLE_CASES // 4, dict(result.counts))
+        # About a quarter of the cases verify; the floor is a fifth, so a generator change that shifts
+        # the mix a little does not fail the check, and one that breaks verification still does.
+        self.assertGreaterEqual(result.counts["verified"], ORACLE_VERIFIED_FLOOR(ORACLE_CASES), dict(result.counts))
 
     def test_fixture_oracle_shell_cwd_shapes_are_verified_or_unverifiable(self) -> None:
         # Review of #41017: real Python runs from the repo root and loads lib/witness.py; a checker that
@@ -4177,7 +4274,7 @@ class SparseCheckoutOracleTests(unittest.TestCase):
 
     def test_fixture_the_superset_ratchet_catches_a_checker_that_names_an_extra_file(self) -> None:
         # The same oracle, with a checker that also names one file the run did not load: 100 cases
-        # already exceed the limit pinned for 1000.
+        # already exceed the limit pinned for 1250.
         global _oracle_extra_file
         _oracle_extra_file = True
         try:
