@@ -10,11 +10,7 @@ import {
 import { cloudStartKeys, oneCloudStart, type CloudStartKeyStore } from "./cloudRun";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
-function harness(
-  reserve: () => Promise<unknown> = async () => ({}),
-  store?: CloudStartKeyStore,
-  prefix = "compose",
-) {
+function harness(reserve: () => Promise<unknown> = async () => ({}), store?: CloudStartKeyStore, prefix = "compose") {
   const calls: [string, Record<string, unknown>][] = [];
   const timers: { run: () => void; live: boolean; at: number; ms: number }[] = [];
   let sequence = 0;
