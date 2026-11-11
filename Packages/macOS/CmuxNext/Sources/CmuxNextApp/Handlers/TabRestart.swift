@@ -60,6 +60,10 @@ enum TerminalTabContent {
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
+        // A pane that still starts offers Close in its label: Close Tab on this tab, the one path of
+        // its shortcut on the focused pane and of the tab's close button (the tab keeps its id at the confirm).
+        let close = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        entry.session.view.onCloseStarting = { [weak registry = services.registry] in _ = registry?.perform("closeTab", invocation: close) }
         return .terminal(entry)
     }
 }

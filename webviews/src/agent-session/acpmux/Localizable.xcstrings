@@ -4142,138 +4142,6 @@
         }
       }
     },
-    "context.ringTooltipEmpty": {
-      "comment": "Agent pane composer: tooltip of the context usage ring before the chat reports any usage",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يظهر استخدام السياق بعد الرد الأول"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upotreba konteksta prikazuje se nakon prvog odgovora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontekstforbrug vises efter det første svar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Kontextnutzung erscheint nach der ersten Antwort"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Context usage shows after the first reply"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El uso del contexto aparece tras la primera respuesta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’utilisation du contexte s’affiche après la première réponse"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’uso del contesto appare dopo la prima risposta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンテキストの使用量は最初の返信の後に表示されます"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការប្រើបរិបទបង្ហាញបន្ទាប់ពីការឆ្លើយតបដំបូង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "컨텍스트 사용량은 첫 답변 후에 표시됩니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontekstbruk vises etter det første svaret"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Użycie kontekstu pojawi się po pierwszej odpowiedzi"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O uso do contexto aparece após a primeira resposta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Использование контекста появится после первого ответа"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การใช้บริบทจะแสดงหลังคำตอบแรก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bağlam kullanımı ilk yanıttan sonra görünür"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використання контексту з’явиться після першої відповіді"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mức dùng ngữ cảnh hiện sau câu trả lời đầu tiên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "首次回复后显示上下文用量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "首次回覆後顯示上下文用量"
-          }
-        }
-      }
-    },
     "started.prReady": {
       "comment": "A chat card's pull request status: it is ready to merge",
       "extractionState": "manual",
@@ -259034,7 +258902,12 @@
             "state": "translated",
             "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
           }
-        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}},
+    "hat.questions.replyPlaceholder": {"comment":"Agent pane: the composer hat's reply field under another chat's question, for an answer in the person's own words (placeholder and accessibility label)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ردّ بكلماتك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori svojim riječima"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar med dine egne ord"}},"de":{"stringUnit":{"state":"needs_review","value":"In eigenen Worten antworten"}},"en":{"stringUnit":{"state":"translated","value":"Reply in your own words"}},"es":{"stringUnit":{"state":"needs_review","value":"Responde con tus palabras"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre avec vos mots"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi con parole tue"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分の言葉で返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតបដោយពាក្យរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"직접 답하기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar med egne ord"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz własnymi słowami"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responda com suas palavras"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить своими словами"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบด้วยคำของคุณเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kendi sözlerinle yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти своїми словами"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời bằng lời của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"用自己的话回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"用自己的話回覆"}}}},
+    "hat.questions.recommended": {"comment":"Agent pane: the composer hat's quiet word on the answer button the agent recommended","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مُوصى به"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preporučeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Anbefalet"}},"de":{"stringUnit":{"state":"needs_review","value":"Empfohlen"}},"en":{"stringUnit":{"state":"translated","value":"Recommended"}},"es":{"stringUnit":{"state":"needs_review","value":"Recomendado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Recommandé"}},"it":{"stringUnit":{"state":"needs_review","value":"Consigliato"}},"ja":{"stringUnit":{"state":"needs_review","value":"おすすめ"}},"km":{"stringUnit":{"state":"needs_review","value":"បានណែនាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"추천"}},"nb":{"stringUnit":{"state":"needs_review","value":"Anbefalt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zalecane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recomendado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Рекомендуется"}},"th":{"stringUnit":{"state":"needs_review","value":"แนะนำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Рекомендовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đề xuất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"推荐"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"推薦"}}}},
+    "hat.questions.reply": {"comment":"Agent pane: the composer hat's button that shows a reply field for an answer to another chat's question in the person's own words","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ردّ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Antworten"}},"en":{"stringUnit":{"state":"translated","value":"Reply"}},"es":{"stringUnit":{"state":"needs_review","value":"Responder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi"}},"ja":{"stringUnit":{"state":"needs_review","value":"返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតប"}},"ko":{"stringUnit":{"state":"needs_review","value":"답장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"回覆"}}}},
+    "composer.recordScreen": {"comment":"Agent pane: the composer's + menu row that records the screen (the system's Screenshot toolbar in its video mode) and attaches the recording","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تسجيل الشاشة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Snimi ekran…"}},"da":{"stringUnit":{"state":"needs_review","value":"Optag skærm…"}},"de":{"stringUnit":{"state":"needs_review","value":"Bildschirm aufnehmen …"}},"en":{"stringUnit":{"state":"translated","value":"Record Screen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Grabar pantalla…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistrer l’écran…"}},"it":{"stringUnit":{"state":"needs_review","value":"Registra schermo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"画面を収録…"}},"km":{"stringUnit":{"state":"needs_review","value":"ថតអេក្រង់…"}},"ko":{"stringUnit":{"state":"needs_review","value":"화면 녹화…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ta opp skjerm…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nagraj ekran…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Gravar tela…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Записать экран…"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึกหน้าจอ…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ekranı kaydet…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Записати екран…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay màn hình…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"录制屏幕…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"錄製螢幕…"}}}},
+    "turn.timeline.model": {"comment":"Agent pane: the last Timeline row, the turn's time outside every tool call and thought (the model reading, deciding and writing), so the rows add up to the turn's total","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Model, no tool running"}},"ar":{"stringUnit":{"state":"needs_review","value":"النموذج، دون أداة قيد التشغيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model, bez alata u radu"}},"da":{"stringUnit":{"state":"needs_review","value":"Model, intet værktøj kører"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell, kein Tool aktiv"}},"es":{"stringUnit":{"state":"needs_review","value":"Modelo, sin herramienta en curso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modèle, aucun outil en cours"}},"it":{"stringUnit":{"state":"needs_review","value":"Modello, nessuno strumento in esecuzione"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデル(ツール実行なし)"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែល គ្មានឧបករណ៍កំពុងដំណើរការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델, 실행 중인 도구 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modell, ingen verktøy kjører"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model, bez działającego narzędzia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modelo, sem ferramenta em execução"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель, без инструментов"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดล ไม่มีเครื่องมือทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model, çalışan araç yok"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель, без інструментів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình, không công cụ nào chạy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型(无工具运行)"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型(無工具執行)"}}}}
   },
   "version": "1.0"
 }

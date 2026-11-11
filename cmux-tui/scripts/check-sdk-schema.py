@@ -40,6 +40,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
     "LayoutSizeWire": "LayoutSizeValue",
+    "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
