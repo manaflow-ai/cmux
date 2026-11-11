@@ -1514,7 +1514,7 @@ describe("clean-room provider key probe", () => {
   });
 
   test("a key set through an index, a call, a Dockerfile, make or fish, or ended by a control byte, is read", () => {
-    const keys = ["Wf8Ap3Qv7Be2Tu0Yc4Nh9Og1Ir6Kx5Lj", "Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk", "Yh0Cr5Sx9Dg4Vw2Ae6Pj1Qi3Kt8Mz7Nl", "Zi1Ds6Ty0Eh5Wx3Bf7Qk2Rj4Lu9Na8Om", "Aj2Et7Uz1Fi6Xy4Cg8Rl3Sk5Mv0Ob9Pn", "Bk3Fu8Va2Gj7Yz5Dh9Sm4Tl6Nw1Pc0Qo", "Cl4Gv9Wb3Hk8Za6Ei0Tn5Um7Ox2Qd1Rp", "Dm5Hw0Xc4Il9Ab7Fj1Uo6Vn8Py3Re2Sq"];
+    const keys = ["Wf8Ap3Qv7Be2Tu0Yc4Nh9Og1Ir6Kx5Lj", "Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk", "Yh0Cr5Sx9Dg4Vw2Ae6Pj1Qi3Kt8Mz7Nl", "Zi1Ds6Ty0Eh5Wx3Bf7Qk2Rj4Lu9Na8Om", "Aj2Et7Uz1Fi6Xy4Cg8Rl3Sk5Mv0Ob9Pn", "Bk3Fu8Va2Gj7Yz5Dh9Sm4Tl6Nw1Pc0Qo", "Cl4Gv9Wb3Hk8Za6Ei0Tn5Um7Ox2Qd1Rp", "Dm5Hw0Xc4Il9Ab7Fj1Uo6Vn8Py3Re2Sq", "En6Ix1Yd5Jm0Bc8Gk2Vp7Wo9Qz4Sf3Tr", "Fo7Jy2Ze6Kn1Cd9Hl3Wq8Xp0Ra5Tg4Us"];
     const root = plant({
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
@@ -1525,6 +1525,8 @@ describe("clean-room provider key probe", () => {
       "workspace/project/d.dockerfile": `FROM base\nENV MISTRAL_API_KEY ${keys[3]}\n`,
       "workspace/project/e.mk": `GROQ_API_KEY ?= ${keys[4]}\n`,
       "workspace/project/f.fish": `set -gx XAI_API_KEY ${keys[5]}\n`,
+      // A call whose arguments are on their own lines: the name's line holds no `(`, the value is on the next.
+      "workspace/project/i.py": `import os\nos.environ.setdefault(\n    "MISTRAL_API_KEY",\n    "${keys[8]}"\n)\n`,
     });
     // Unquoted values in a binary file, ended by a NUL or by a record's control bytes (a shell-history database row).
     const page = Buffer.alloc(8192);
@@ -1534,6 +1536,7 @@ describe("clean-room provider key probe", () => {
     const rows = Buffer.alloc(8192);
     Buffer.from("SQLite format 3\0").copy(rows, 0);
     Buffer.from(`export GROQ_API_KEY=${keys[7]}\x01\x05`).copy(rows, 5000);
+    Buffer.from(`setdefault(\n  'XAI_API_KEY',\n  '${keys[9]}')`).copy(rows, 6000);
     writeFileSync(join(root, "workspace/project/h.sqlite"), rows);
     try {
       const { probe, out } = run(root);
@@ -1543,8 +1546,10 @@ describe("clean-room provider key probe", () => {
         "file /workspace/project/[a name].js:1: GROQ_API_KEY",
         "file /workspace/project/[a name].py:1: MISTRAL_API_KEY",
         "file /workspace/project/[a name].py:1: XAI_API_KEY",
+        "file /workspace/project/[a name].py:3: MISTRAL_API_KEY",
         // An extension the probe does not list is part of the hidden name.
         "file /workspace/project/[a name]: GROQ_API_KEY",
+        "file /workspace/project/[a name]: XAI_API_KEY",
         "file /workspace/project/[a name]:1: GROQ_API_KEY",
         "file /workspace/project/[a name]:1: XAI_API_KEY",
         "file /workspace/project/[a name]:2: MISTRAL_API_KEY",
@@ -1580,6 +1585,35 @@ except probe.OutOfTime as cut:
       expect(answer.cut).toBe(true);
       expect(answer.hits).toEqual(["OPENAI_API_KEY"]);
       // One 4 MiB read past the deadline at most, not the rest of the gigabyte.
+      expect(answer.s).toBeLessThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the budget holds across many hits in one file, each with a value left open", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-hits-"));
+    const many = join(dir, "many.env");
+    // 20,000 names whose value is open at the line's end, each read ahead past its line: a key first, then the rest.
+    writeFileSync(many, `OPENAI_API_KEY=${named}\n` + "OPENAI_API_KEY=\n".repeat(20_000));
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+try:
+    probe.scan_file(sys.argv[2], t0 + 0.05)
+    print(json.dumps({"cut": False, "s": time.monotonic() - t0}))
+except probe.OutOfTime as cut:
+    print(json.dumps({"cut": True, "hits": [w for _, w in cut.hits], "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, many], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.cut).toBe(true);
+      expect(answer.hits).toContain("OPENAI_API_KEY");
       expect(answer.s).toBeLessThan(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -109,9 +109,10 @@ VALUE = r'[^"\'\s,;)}\x00-\x1f\x7f]*'
 ASSIGN = re.compile(
     r'["\']?\b(?P<name>[A-Za-z][A-Za-z0-9_]*)\b(?=["\']?\]?\s*[?+]?[:=]' + GAP + r'["\']?(?P<value>' + VALUE + r'))'
 )
-# The forms with no `:` or `=`: a call's quoted first argument, then `,` (`setdefault("NAME", value)`), and spaces after
-# a Dockerfile `ENV` or fish's `set -x`. Each pattern starts on its own literal, so neither is tried at every character.
-CALL_ASSIGN = re.compile(r'\(\s*["\'](?P<name>[A-Za-z][A-Za-z0-9_]*)["\']\s*,' + GAP + r'["\']?(?P<value>' + VALUE + r')')
+# The forms with no `:` or `=`: a quoted name, then `,` (a call's first argument, `setdefault("NAME", value)`, its `(`
+# on this line or an earlier one), and spaces after a Dockerfile `ENV` or fish's `set -x`. Each pattern starts on its own
+# literal, so neither is tried at every character.
+CALL_ASSIGN = re.compile(r'["\'](?P<name>[A-Za-z][A-Za-z0-9_]*)["\']\s*,' + GAP + r'["\']?(?P<value>' + VALUE + r')')
 WORD_ASSIGN = re.compile(
     r'\b(?:ENV|set(?:\s+-[A-Za-z]+)+)[ \t]+(?P<name>[A-Za-z][A-Za-z0-9_]*)[ \t]' + GAP + r'["\']?(?P<value>' + VALUE + r')'
 )
@@ -477,8 +478,8 @@ def scan_text(text):
 
 
 # A key's name or a refresh token's field, then `:` or `=`: its value follows, on this line or a later one.
-OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?\]?)\s*[?+]?[:=]'
-                    + GAP + r'["\']?')
+OPENER = re.compile(r'(?:(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?\]?)\s*[?+]?[:=]'
+                    r'|["\'][A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)["\']\s*,)' + GAP + r'["\']?')
 VALUE_TO_END = re.compile(VALUE)
 # How far past its line a value is followed before it counts as ended: past any real key.
 MAX_VALUE = 1 << 20
@@ -574,7 +575,7 @@ class OutOfTime(Exception):
 
 
 def scan_file(path, deadline=math.inf):
-    """Findings in one whole file: (line number or None, what). Past `deadline` (checked after each read) it raises
+    """Findings in one whole file: (line number or None, what). Past `deadline` (checked at each read and each hit) it raises
     OutOfTime with the findings so far. A binary file (a database, say) is read in overlapping
     chunks, by shape and by key name; a binary has no lines. In a text file only the lines the prefilter hits are checked: most hold none of the
     prefixes, and a Python loop over every line of every file was the walk's cost."""
@@ -596,6 +597,8 @@ def scan_file(path, deadline=math.inf):
                 # rest), so only a short stretch from each hit is checked, not the whole chunk with every shape.
                 tail = window[-OVERLAP:]
                 for hit in PREFILTER.finditer(window):
+                    if time.monotonic() > deadline:
+                        raise OutOfTime([(None, what) for what in sorted(seen)])
                     at = hit.start()
                     stop = at + HIT_SPAN
                     if escape_hit(hit, window[max(0, at - NAME_SPAN):stop].decode("latin-1")):
@@ -616,6 +619,8 @@ def scan_file(path, deadline=math.inf):
                     seen.update(named_kinds(stretch))
             # Hits held back for the next chunk (a value still open) are checked to the file's end.
             for hit in PREFILTER.finditer(tail):
+                if time.monotonic() > deadline:
+                    raise OutOfTime([(None, what) for what in sorted(seen)])
                 stretch = tail[max(0, hit.start() - NAME_SPAN):hit.start() + MAX_VALUE].decode("latin-1")
                 seen.update(shape_kinds(stretch))
                 seen.update(named_kinds(stretch))
@@ -632,6 +637,8 @@ def scan_file(path, deadline=math.inf):
             whole, rest = block[:cut], block[cut:]
             seen_to, last = 0, -1
             for hit in PREFILTER.finditer(whole):
+                if time.monotonic() > deadline:
+                    raise OutOfTime(out)
                 start = whole.rfind(b"\n", 0, hit.start()) + 1
                 if start == last:
                     continue
@@ -649,6 +656,8 @@ def scan_file(path, deadline=math.inf):
                 # and on until a value left open there (`"refresh_token":` then a long token) has ended.
                 stop, ended = end + HIT_SPAN, not chunk
                 while True:
+                    if time.monotonic() > deadline:
+                        raise OutOfTime(out)
                     if stop > len(block) and not ended:
                         need = stop - len(block)
                         more = f.read(need)
