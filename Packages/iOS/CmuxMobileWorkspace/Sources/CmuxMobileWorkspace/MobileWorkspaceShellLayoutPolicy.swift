@@ -68,14 +68,27 @@ public struct MobileWorkspaceShellLayoutPolicy {
     }
 
     /// Whether the phone split detail shows the first workspace when none is
-    /// picked. The phone opens on the list instead: a terminal mounted before
-    /// the Mac connection is up can stay blank until it is remounted.
+    /// picked. The phone opens on the list instead, like the compact layout.
     /// - Parameter hostsSplitDestinationsInSidebar: Whether this is the phone split layout.
     /// - Returns: `false` for the phone split layout.
     public static func splitDetailFallsBackToFirstWorkspace(
         hostsSplitDestinationsInSidebar: Bool
     ) -> Bool {
         !hostsSplitDestinationsInSidebar
+    }
+
+    /// Whether a launch drops the store's startup selection, which is just the
+    /// first cached workspace, so a phone opens on the workspace list in every
+    /// orientation. A pending deep link (a notification tap) keeps its target.
+    /// - Parameters:
+    ///   - isPhoneIdiom: Whether the device is a phone.
+    ///   - hasPendingDeeplink: Whether a deep link is waiting to open a workspace.
+    /// - Returns: `true` when the phone should start on the list.
+    public static func launchClearsWorkspaceSelection(
+        isPhoneIdiom: Bool,
+        hasPendingDeeplink: Bool
+    ) -> Bool {
+        isPhoneIdiom && !hasPendingDeeplink
     }
 
     /// Whether a column visibility hides the phone split sidebar.

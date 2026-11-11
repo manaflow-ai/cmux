@@ -369,6 +369,8 @@ struct WorkspaceShellView: View {
     /// Set while a launch shows the hidden-by-choice sidebar only because no
     /// workspace is picked yet, so that showing is not remembered.
     @State private var splitSidebarShownUntilWorkspacePicked = false
+    /// Once per process, so a later fold or unfold keeps the user's pick.
+    @MainActor private static var launchSelectionHandled = false
     #if os(iOS)
     /// Measured width of the split sidebar column. Feeds the root toolbar's
     /// content-width environment so the computer picker budgets against the
@@ -528,6 +530,7 @@ struct WorkspaceShellView: View {
                     detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
                 )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
+                clearLaunchWorkspaceSelectionIfNeeded()
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
@@ -1118,6 +1121,7 @@ struct WorkspaceShellView: View {
             // `.automatic` lets portrait collapse the sidebar while the binding
             // still reads `.automatic`, which hides the detail's show-sidebar
             // control. An explicit state keeps the toggle reachable.
+            clearLaunchWorkspaceSelectionIfNeeded()
             if hostsSplitDestinationsInSidebar, splitColumnVisibility == .automatic {
                 let hasSelectedWorkspace = store.selectedWorkspaceID != nil
                 splitSidebarShownUntilWorkspacePicked = !hasSelectedWorkspace && splitSidebarHidden
@@ -1444,6 +1448,21 @@ struct WorkspaceShellView: View {
             ),
             Int64(unreadCount)
         )
+    }
+
+    /// Drops the store's startup selection (the first cached workspace) so a
+    /// phone launch opens on the workspace list. Runs from whichever launch
+    /// `onAppear` fires first.
+    private func clearLaunchWorkspaceSelectionIfNeeded() {
+        guard !Self.launchSelectionHandled else { return }
+        Self.launchSelectionHandled = true
+        #if os(iOS)
+        guard MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+            isPhoneIdiom: UIDevice.current.userInterfaceIdiom == .phone,
+            hasPendingDeeplink: store.deeplinkWorkspaceNavigationRequest != nil
+        ) else { return }
+        store.selectedWorkspaceID = nil
+        #endif
     }
 
     private func toggleSplitSidebar() {

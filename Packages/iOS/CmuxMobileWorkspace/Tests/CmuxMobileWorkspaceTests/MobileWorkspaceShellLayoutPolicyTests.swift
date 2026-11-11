@@ -97,6 +97,27 @@ import Testing
         )
     }
 
+    @Test func phoneLaunchStartsOnTheListUnlessADeepLinkIsWaiting() {
+        #expect(
+            MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+                isPhoneIdiom: true,
+                hasPendingDeeplink: false
+            )
+        )
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+                isPhoneIdiom: true,
+                hasPendingDeeplink: true
+            )
+        )
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+                isPhoneIdiom: false,
+                hasPendingDeeplink: false
+            )
+        )
+    }
+
     @Test func onlyTheSidebarColumnCountsAsShown() {
         #expect(MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.detailOnly))
         #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.all))
