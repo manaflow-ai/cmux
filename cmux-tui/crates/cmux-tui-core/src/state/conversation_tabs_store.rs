@@ -588,6 +588,64 @@ pub(crate) fn tab_conversation_wire(
     Ok(record.map(|record| record.wire()))
 }
 
+/// [`tab_conversation_wire`] of each live tab that has a record, by tab id,
+/// for a list of the session's tabs: each of the three tables is read one
+/// time, not one time for each tab. A conversation goes before an agent
+/// session, and an agent session before a page, as for one tab.
+pub(crate) fn tab_conversation_wires(
+    connection: &Connection,
+) -> anyhow::Result<HashMap<String, Value>> {
+    let mut wires = HashMap::new();
+    let mut statement = connection.prepare(
+        "SELECT t.public_id, c.conversation, c.owner FROM resource_tabs AS t
+         JOIN conversation_tabs AS c ON c.browser_id = t.content_id
+         WHERE t.deleted_revision IS NULL",
+    )?;
+    for row in statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ConversationTabRecord::Conversation { conversation: row.get(1)?, owner: row.get(2)? },
+        ))
+    })? {
+        let (tab, record) = row?;
+        wires.entry(tab).or_insert_with(|| record.wire());
+    }
+    let mut statement = connection.prepare(
+        "SELECT t.public_id, a.host, a.session, a.harness, a.host_name FROM resource_tabs AS t
+         JOIN agent_session_tabs AS a ON a.browser_id = t.content_id
+         WHERE t.deleted_revision IS NULL",
+    )?;
+    for row in statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ConversationTabRecord::AgentSession {
+                host: row.get(1)?,
+                session: row.get(2)?,
+                harness: row.get(3)?,
+                host_name: row.get(4)?,
+            },
+        ))
+    })? {
+        let (tab, record) = row?;
+        wires.entry(tab).or_insert_with(|| record.wire());
+    }
+    let mut statement = connection.prepare(
+        "SELECT t.public_id, p.page, p.route FROM resource_tabs AS t
+         JOIN page_tabs AS p ON p.browser_id = t.content_id
+         WHERE t.deleted_revision IS NULL",
+    )?;
+    for row in statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ConversationTabRecord::Page { page: row.get(1)?, route: row.get(2)? },
+        ))
+    })? {
+        let (tab, record) = row?;
+        wires.entry(tab).or_insert_with(|| record.wire());
+    }
+    Ok(wires)
+}
+
 /// What a connection reads of conversation tabs it did not negotiate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConversationTabDowngrade {
