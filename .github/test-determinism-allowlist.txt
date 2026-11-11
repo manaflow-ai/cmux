@@ -360,6 +360,8 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneChromiumMoveTests.
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudPauseStopsCarrierTests.swift	sleep-then-assert	absence check from #41073: a paused machine is dialed no more; no event marks a dial that did not happen
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneVerbsKeyTurnTests.swift	sleep-then-assert	absence checks from #40278: the daemon's echo of a shown zoom or swap applies the layout no more times; no event marks an apply that did not happen
 Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/SocketSettingsWriteTests.swift	sleep-then-assert	absence check from #40464: the 500 ms wait before asserting the locked file is unchanged; give the router a "waiting for the lock" signal to await, then remove
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UpdateClickReadAheadTests.swift	sleep-then-assert	absence check from #40826: a fresh read is not read again on activation; no event marks a fetch that did not happen
+Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests/CloudCarrierDialTests.swift	sleep-then-assert	absence check from #41302: nothing launches while the machine is paused; no event marks a launch that did not happen
 # Timing is the behavior under test, or the host is a fixture string the test never requests.
 tests/test_ci_cmux_next_compile_status.py	assert-on-duration	each elapsed bound (15-20 s) proves the step hands off within its bound instead of the 40-minute long poll it replaced: the hang is the behavior under test, and the bound sits ten times above the expected time
 tests/test_ci_cmux_next_compile_status.py	live-network-host	the URLs are detector fixture strings fed to unbounded_retries(); the test never requests them
