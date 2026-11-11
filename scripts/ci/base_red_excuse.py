@@ -614,7 +614,8 @@ JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: ")}
 # A shell check's own `FAIL: <what>` line (cmuxterm-hq's tests/*.sh: hq#9191's "Skill policy tests" failed only
 # `FAIL: plist content` in its LaunchAgent step), counted by the whole-log comparison (unplaced_signature) of any job,
 # so a second `FAIL:` line is a new failure there. A placed comparison keys it for JOB_ERROR's jobs alone (a `FAIL:`
-# line is no error line for another job's step_errors); a placed red with nothing else to compare is compared whole.
+# line is no error line for another job's step_errors); a placed red with nothing else to compare is compared by
+# identity on its failed sections' own lines (BARE_WHY).
 # A unittest's `FAIL: test (module.Class)` is a failing test (test_reds), not this.
 SHELL_FAIL = re.compile(r"^FAIL: (?!\w+ \([\w.]+\)$)\S")
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
@@ -1513,9 +1514,10 @@ class Unplaced:
 
 UNPLACED = Unplaced()
 # What a caller says when signature() is UNPLACED.
-# What a caller says when a placed head's failed sections name no failing test, error line or crash: compared whole.
+# What a caller says when a placed head's failed sections name no failing test, error line or crash: compared by
+# identity on those sections' own lines alone, on both sides (failed_section_base_evidence), never the whole log.
 BARE_WHY = ("its failed steps' own lines name no failing test or error line (a shell check's `FAIL:` line is one only "
-            "in a whole-log comparison)")
+            "in an identity comparison, which reads those lines alone, on both sides)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
 
@@ -1659,6 +1661,19 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
     return unplaced_signature(base_job, github.log(repo, base_job))
 
 
+def failed_section_base_evidence(repo: str, base: str, name: str, base_run: dict, base_job: dict, github,
+                                 run_reads: dict) -> UnplacedSignature:
+    """unplaced_signature of red base job BASE_JOB's failed sections alone (failed_view, base=True): the base read
+    of a placed head compared by identity (BARE_WHY), which, like the head's, never takes a passing step's line. A
+    base log failed_view does not place has no failed sections to read: Refused."""
+    view = failed_view(base_job, github.log(repo, base_job), base=True,
+                       step_names=job_step_names(repo, base_job, github, run_reads, path=base_run.get("path")))
+    if view is UNPLACED:
+        raise Refused(f"'{name}': {base} run {base_run['id']}'s log does not map one to one onto its steps "
+                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+    return unplaced_signature(base_job, view_text(view))
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -1685,9 +1700,10 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                           + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
-                else "its failed steps name no failing test or error line")
-    return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
+    said_why = ("its log does not map onto its steps, so it was compared whole" if why == UNPLACED_WHY
+                else "its failed steps name no failing test or error line, so their own lines were compared by "
+                     "identity")
+    return (f"excused '{name}': {said_why}: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
 
@@ -5199,11 +5215,14 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
                 or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
     # A placed head whose failed sections name no failing test, error line or crash (hq#9191's `FAIL: plist content`)
-    # is compared whole too, never refused for want of a key: the whole-log identity is the fallback either way.
+    # is compared by identity too, but on its failed sections' own lines alone (view_text), never the whole log: a
+    # passing step's diagnostics are no evidence of the failure (#41220's review, Codex P1 at c7b757f0: a passing
+    # license step's digest error, the same on both sides, excused a failed strings step whose own lines differed).
     bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
             and not chromium_without_diagnostics)
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
+                unplaced_signature(job, head_log) if view is UNPLACED
+                else unplaced_signature(job, view_text(view)) if bare else None)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -5392,7 +5411,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 newest, read = created(base_run), 1
                 while True:
                     try:
-                        theirs = unplaced_base_evidence(repo, base_job, github)
+                        theirs = (unplaced_base_evidence(repo, base_job, github) if view is UNPLACED
+                                  else failed_section_base_evidence(repo, base, name, base_run, base_job, github,
+                                                                    run_reads))
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
