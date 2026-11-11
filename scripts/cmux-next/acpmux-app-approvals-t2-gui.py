@@ -20,6 +20,7 @@ another cmux window.
 Writes NX_ARTIFACTS/t2.json, app.log and window snapshots.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, time
+import tempfile
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
@@ -36,7 +37,9 @@ if not opts.account:
     opts.account = next((l.split("=", 1)[1].strip().strip("'\"") for l in open(opts.creds) if l.strip().removeprefix("export ").startswith("CMUX_UITEST_STACK_EMAIL=")), "")
 if opts.worker != "https://cmux-api-development.debussy.workers.dev":
     sys.exit("development Worker only")
-OUT = os.environ.get("NX_ARTIFACTS") or f"/tmp/kvmz-t2-{os.getpid()}"
+# One private dir (short, for the sockets): a guessable /tmp name could be planted by another account first.
+PRIV = tempfile.mkdtemp(prefix="kvmz-", dir="/tmp")
+OUT = os.environ.get("NX_ARTIFACTS") or os.path.join(PRIV, "t2")
 os.makedirs(OUT, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 STEPS = []
@@ -128,8 +131,8 @@ for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/t
     if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
         os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 # Short: acpmux puts unix sockets under its home, and a socket path over 104 bytes traps NWConnection.
-HOME_ACP = f"/tmp/kvmz-acp-home-{os.getpid()}"
-ACP_SOCKET = f"/tmp/kvmz-acp-{os.getpid()}.sock"
+HOME_ACP = os.path.join(PRIV, "acp-home")
+ACP_SOCKET = os.path.join(PRIV, "acp.sock")
 os.makedirs(HOME_ACP, mode=0o700, exist_ok=True)
 os.chmod(HOME_ACP, 0o700)
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
