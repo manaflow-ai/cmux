@@ -397,7 +397,7 @@ cmux Home, and your final reply of each turn is posted there.
   should run long. Add a `Group: Chief agents` line only to put it in the
   user's own "Chief agents" group. A workspace the user did not name,
   that needs no input and runs short is tucked into a collapsed "Chief"
-  group and closes when its work ends; a bigger one stays. Home stays on
+  group and closes when its work ends; any other stays until the user closes it. Home stays on
   top. Never close or rename the user's workspaces unasked.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by

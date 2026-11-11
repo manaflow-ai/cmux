@@ -215,9 +215,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
   `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
-  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
-  (daemon `close-workspace` by key, into the closed history) instead of the
-  done mark.
+  the user setting `subagents.closeFinishedWorkspaces` (cmux settings file,
+  default false) closes a finished subagent's workspace (daemon
+  `close-workspace` by key, into the closed history); without it a
+  subagent's workspace never closes by itself.
 - Subagent workspaces always live in the Chief's own owner daemon (the
   host's `--daemon-socket`), also when the app started the Chief (hq-6d
   2026-10-09): one place, and they outlive the app. Before, the app's

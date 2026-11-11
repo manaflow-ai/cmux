@@ -148,6 +148,56 @@
             "length",
             "words"
           ]
+        },
+        {
+          "key": "subagents.showWorkspaces",
+          "name": "showAll",
+          "note": "Every Chief subagent gets a sidebar workspace when it starts, whatever the Chief or the rules choose (the older Chief setting, read by the host from cmux-next.json at each spawn; unset there, the Chief's own optchat/settings.json value applies). Aziz 2026-11-05: the CLI wrote this key, but the host read only its own file, so it looked like it went back to false.",
+          "title": {
+            "key": "settings.chief.subagentsShowWorkspaces",
+            "text": "Show Each Subagent in the Sidebar"
+          },
+          "help": {
+            "key": "settings.chief.subagentsShowWorkspaces.help",
+            "text": "Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "subagent",
+            "workspace",
+            "sidebar",
+            "show",
+            "hidden",
+            "agent"
+          ]
+        },
+        {
+          "key": "subagents.closeFinishedWorkspaces",
+          "name": "closeFinished",
+          "note": "A finished subagent's workspace closes, for fewer workspaces in the sidebar. Off by default: only a tucked workspace (the collapsed Chief group) closes when its work ends; any other stays until the person closes it (Aziz 2026-11-05: \"why are your agents disappearing from sidebar?\"). Replaces OPTCHAT_SUBAGENT_ON_FINISH. Read by the host when a subagent finishes.",
+          "title": {
+            "key": "settings.chief.subagentsCloseFinished",
+            "text": "Close Finished Subagent Workspaces"
+          },
+          "help": {
+            "key": "settings.chief.subagentsCloseFinished.help",
+            "text": "When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "subagent",
+            "workspace",
+            "sidebar",
+            "close",
+            "finished",
+            "done",
+            "auto",
+            "agent"
+          ]
         }
       ]
     }

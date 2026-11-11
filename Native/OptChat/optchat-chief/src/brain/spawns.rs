@@ -78,11 +78,6 @@ fn span(d: std::time::Duration) -> String {
     }
 }
 
-/// A subagent run shorter than this, that left nothing to land, is a short
-/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
-/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
-pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -903,6 +898,7 @@ impl Brain {
                 s.workspace.as_deref() != Some(key.as_str())
             }
         }) {
+            self.trace_workspace_close(id, "superseded");
             if let Some(workspaces) = self.workspaces.clone() {
                 let (log, id) = (self.log.clone(), id.to_owned());
                 std::thread::spawn(move || {
@@ -952,7 +948,7 @@ impl Brain {
     }
 
     /// Workspace `key` is gone (opening it failed at spawn or on `control
-    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// show`): it is hidden, and the next `show` opens under a fresh key (a half-made
     /// workspace was closed under this one, and the daemon replays its
     /// mutations).
     pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
@@ -1750,7 +1746,21 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Under the close setting, closes a finished subagent's workspace.
+    /// Closes a finished subagent's workspace in two cases only:
+    /// - the person's opt-in `subagents.closeFinishedWorkspaces`
+    ///   (subagent_settings.rs, off by default) closes every finished one and
+    ///   forgets its key;
+    /// - the reaper (action_lifetime.rs) closes a tucked one (the collapsed
+    ///   "Chief" group) once its work ends, unless the run was stopped or its
+    ///   report left work to land, and only while none of its terminals runs
+    ///   a command, so a shell the person started there is never ended.
+    ///
+    /// Any other workspace never closes by itself, short task or long: only
+    /// the person closes it. A short-task close (runs under 30 minutes)
+    /// closed workspaces whose agent was still working, waiting on a build or
+    /// a reply, and Chief went on driving it with nothing left in the sidebar
+    /// (Aziz 2026-11-05: "why are your agents disappearing from sidebar?";
+    /// a38's closed mid-run).
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
     /// a name the user or the Chief gave it stays.
@@ -1773,8 +1783,8 @@ impl Brain {
         else {
             return;
         };
-        // A tucked one keeps a short task's guards: a stopped run, or a report that left work to
-        // land (its landing follow-up resumes it), keeps its workspace.
+        // A tucked one keeps its guards: a stopped run, or a report that left work to land (its
+        // landing follow-up resumes it), keeps its workspace.
         let reap =
             crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
                 && !sub.stopped
@@ -1782,29 +1792,18 @@ impl Brain {
                     .report
                     .as_deref()
                     .is_some_and(crate::sub_watch::unlanded);
-        // Every finished one under the close setting; else a short task's
-        // (a run under SHORT_TASK whose report left nothing to land), so a
-        // sidebar does not fill with workspaces of one-off asks. Its chat
-        // stays readable (zoom).
-        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
-            && sub.run_ms > 0
-            && !sub.stopped
-            && !sub
-                .report
-                .as_deref()
-                .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short || reap) {
+        let explicit = self.close_finished_subagent_workspaces();
+        if !(explicit || reap) {
             return;
         }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, and its
-        // key is forgotten once that close succeeds (a kept one stays).
-        // The reaper closes a tucked workspace like a short task's: only while none of its
-        // terminals runs a command, so a shell the person started there is never ended.
-        let explicit = self.sub_close_on_finish;
+        let reason = if explicit {
+            "close_finished_setting"
+        } else {
+            "tucked_reaper"
+        };
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.workspace = None;
@@ -1813,15 +1812,21 @@ impl Brain {
             self.save();
         }
         let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
+        let trace = self.trace.clone();
         std::thread::spawn(move || {
             let closed = if explicit {
                 workspaces.close(&key).map(|()| true)
             } else {
                 workspaces.close_idle(&key)
             };
+            // Traced once the workspace is gone, not when the close is tried: a
+            // busy terminal keeps a tucked one open (#36980 review).
+            if matches!(closed, Ok(true)) {
+                super::subagent_settings::trace_close(&trace, &log, &id, reason);
+            }
             match closed {
-                // A short task's key is forgotten once its workspace is gone,
-                // so a later `control show` opens a new one.
+                // A reaped workspace's key is forgotten once it is gone, so a later
+                // `control show` opens a new one.
                 Ok(true) if !explicit => {
                     let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
                 }

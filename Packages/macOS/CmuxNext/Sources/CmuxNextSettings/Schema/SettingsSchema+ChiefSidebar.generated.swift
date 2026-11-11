@@ -16,6 +16,12 @@ extension ChiefSidebarSettingsSchema {
     nonisolated static let minWordsPath = ["chief", "subagentSidebarMinWords"]
     nonisolated static let minWordsDefault: Double = 50
     nonisolated static let minWordsRange: ClosedRange<Double> = 0...1000
+    /// `subagents.showWorkspaces`: Every Chief subagent gets a sidebar workspace when it starts, whatever the Chief or the rules choose (the older Chief setting, read by the host from cmux-next.json at each spawn; unset there, the Chief's own optchat/settings.json value applies). Aziz 2026-11-05: the CLI wrote this key, but the host read only its own file, so it looked like it went back to false.
+    nonisolated static let showAllPath = ["subagents", "showWorkspaces"]
+    nonisolated static let showAllDefault = false
+    /// `subagents.closeFinishedWorkspaces`: A finished subagent's workspace closes, for fewer workspaces in the sidebar. Off by default: only a tucked workspace (the collapsed Chief group) closes when its work ends; any other stays until the person closes it (Aziz 2026-11-05: "why are your agents disappearing from sidebar?"). Replaces OPTCHAT_SUBAGENT_ON_FINISH. Read by the host when a subagent finishes.
+    nonisolated static let closeFinishedPath = ["subagents", "closeFinishedWorkspaces"]
+    nonisolated static let closeFinishedDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -69,6 +75,26 @@ nonisolated enum ChiefSidebarSettingsSchema {
                 kind: .number(SettingNumber(ChiefSidebarSettingsSchema.minWordsRange, step: 10, unit: .count)),
                 default: .number(ChiefSidebarSettingsSchema.minWordsDefault),
                 keywords: ["chief", "subagent", "sidebar", "workspace", "show", "hide", "hidden", "visible", "length", "words"]
+            ),
+            SettingDescriptor(
+                ChiefSidebarSettingsSchema.showAllPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.chief.subagentsShowWorkspaces", "Show Each Subagent in the Sidebar"),
+                help: SettingsText.keyed("settings.chief.subagentsShowWorkspaces.help", "Each subagent the Chief starts gets its own workspace in the sidebar. Off, subagents run hidden and open from their links in the Chief's replies."),
+                kind: .toggle,
+                default: .bool(ChiefSidebarSettingsSchema.showAllDefault),
+                keywords: ["chief", "subagent", "workspace", "sidebar", "show", "hidden", "agent"]
+            ),
+            SettingDescriptor(
+                ChiefSidebarSettingsSchema.closeFinishedPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.chief.subagentsCloseFinished", "Close Finished Subagent Workspaces"),
+                help: SettingsText.keyed("settings.chief.subagentsCloseFinished.help", "When a subagent finishes, its workspace closes, so the sidebar keeps fewer workspaces. Off, a subagent's workspace stays until you close it."),
+                kind: .toggle,
+                default: .bool(ChiefSidebarSettingsSchema.closeFinishedDefault),
+                keywords: ["chief", "subagent", "workspace", "sidebar", "close", "finished", "done", "auto", "agent"]
             ),
         ]
     }

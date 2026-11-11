@@ -1905,8 +1905,6 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
-    // Finished subagents' workspaces stay, names untouched, unless this says close.
-    brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // A person's message steered into the running turn and still unread
     // after 3 s interrupts the turn (brain/steer.rs);
     // OPTCHAT_STEER_DEADLINE_SECONDS=0 waits for the next tool boundary.

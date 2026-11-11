@@ -1624,7 +1624,9 @@
         "chief.subagentSidebar",
         "chief.subagentSidebarShowWords",
         "chief.subagentSidebarHideWords",
-        "chief.subagentSidebarMinWords"
+        "chief.subagentSidebarMinWords",
+        "subagents.showWorkspaces",
+        "subagents.closeFinishedWorkspaces"
       ]
     },
     {

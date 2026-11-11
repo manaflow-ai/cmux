@@ -194,6 +194,7 @@ extension SettingsSchema {
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
         "chief.subagentSidebar": .userOnly, "chief.subagentSidebarShowWords": .userOnly,
         "chief.subagentSidebarHideWords": .userOnly, "chief.subagentSidebarMinWords": .userOnly,
+        "subagents.showWorkspaces": .userOnly, "subagents.closeFinishedWorkspaces": .userOnly,
         // The person decides what the password manager saves, suggests and writes out (decision P2: agents see no sites or usernames, and change none of this).
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,
