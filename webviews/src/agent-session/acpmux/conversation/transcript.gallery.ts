@@ -860,7 +860,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  // The transcript's run gap is the inner gap (transcriptGrid.ts TRANSCRIPT_RUN_GAP, 12 since 2026-11-11).
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-inner)";
   doc.body.append(probe);
   const runGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";

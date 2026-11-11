@@ -42,13 +42,9 @@ function useScrollFades(follow: boolean) {
   const hold = useCallback(() => {
     atEnd.current = false;
   }, []);
-  return { box, content, mark, hold };
-}
-
-/// The running line's count names a call (FindReveal `toolId`, WorkingFor.tsx): the transcript
-/// scrolls its row in, and the box scrolls the call in, a third down, as Find does a match. A text
-/// match scrolls itself in through the boxes around it (VirtualTranscript.tsx `scrollRangeInBoxes`).
-function useRevealCall(box: { current: HTMLDivElement | null }, mark: () => void) {
+  // The running line's count names a call (FindReveal `toolId`, WorkingFor.tsx): the transcript
+  // scrolls its row in, and the box scrolls the call in, a third down, as Find does a match. A text
+  // match scrolls itself in through the boxes around it (VirtualTranscript.tsx `scrollRangeInBoxes`).
   const toolId = useContext(FindReveal)?.toolId;
   useLayoutEffect(() => {
     const node = box.current;
@@ -62,12 +58,12 @@ function useRevealCall(box: { current: HTMLDivElement | null }, mark: () => void
     const top = call.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     mark();
-  }, [box, mark, toolId]);
+  }, [mark, toolId]);
+  return { box, content, mark, hold };
 }
 
 export function RunScroll({ running = false, children }: { running?: boolean; children: ReactNode }) {
   const { box, content, mark, hold } = useScrollFades(running);
-  useRevealCall(box, mark);
   if (experimentArm(runScroll) !== "box") return children;
   return (
     <div ref={box} className="cv-run-scroll" onScroll={mark} onClickCapture={hold}>
