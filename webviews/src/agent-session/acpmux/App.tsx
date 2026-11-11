@@ -97,6 +97,7 @@ import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
+  cloudSendAgent,
   cloudStartModePick,
   holdCloudModePick,
   useCloudModePick,
@@ -12452,11 +12453,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             text,
                             attachments,
                             {
-                              harness,
                               ...cloudStartFolder(cwd),
-                              ...(model ? { model } : {}),
-                              // The Mode chip's pick for this harness goes with New Tab's send too.
-                              ...cloudStartModePick(harness),
+                              // The agent the Mode chip names and its pick: a harness with no
+                              // Cloud start mode is left out, so the machine starts Claude.
+                              ...cloudSendAgent(
+                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
+                                harness,
+                                model,
+                              ),
                             },
                             true,
                           ),
