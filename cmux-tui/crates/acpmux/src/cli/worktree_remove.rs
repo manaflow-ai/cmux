@@ -6,8 +6,9 @@
 //!   `~/.cmux/worktrees/<project>/<name>` or `~/.cmux/worktrees.noindex/...`),
 //!   a session's name (the worktree it works in), or a worktree's name (the
 //!   folder `~/.cmux/worktrees/<project>/<name>`, when one project has it).
-//! - It is refused, changing nothing, while a running session works in it
-//!   (stop it first), and while the worktree has uncommitted changes or
+//! - It is refused, changing nothing, while an open session works in it
+//!   (stop it first): the running daemon's live sessions (a live session's
+//!   `session.json` may not be written yet) and those on disk. Also while the worktree has uncommitted changes or
 //!   commits on no other branch or remote, unless `--discard`; the refusal
 //!   says what keeps it and names `--discard`.
 //! - The folder goes (`git worktree remove`, from the main checkout, git
@@ -18,6 +19,7 @@
 //!
 //! It runs in this process, like `worktree clean`: no daemon needed.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -29,9 +31,16 @@ use serde_json::{Value, json};
 
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
+use crate::rpc::method;
 
 /// How long the removal's git runs may take in all.
 const DEADLINE: Duration = Duration::from_secs(120);
+
+/// How long the running daemon may take to list its live sessions.
+const LIST_WAIT: Duration = Duration::from_secs(30);
+
+/// At most this many pages of the daemon's live sessions.
+const MAX_PAGES: usize = 64;
 
 /// What one removal did.
 struct Removed {
@@ -44,9 +53,9 @@ struct Removed {
     project_folder_removed: bool,
 }
 
-pub fn run(target: &str, discard: bool, json_out: bool) -> Result<()> {
+pub async fn run(target: &str, discard: bool, json_out: bool) -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
-    let sessions = crate::worktree_sessions::on_disk(&home, None);
+    let sessions = sessions(&home).await?;
     let folder = locate(&home, target, &sessions)?;
     let removed = remove(&home, &folder, &sessions, discard)?;
     let shown = shared::shown(&home, &removed.root);
@@ -75,6 +84,51 @@ pub fn run(target: &str, discard: bool, json_out: bool) -> Result<()> {
         println!("  empty project folder {} removed", project.display());
     }
     Ok(())
+}
+
+/// Every session on this machine: the running daemon's live ones, and those
+/// in the state folders on disk (this home's own only when no daemon runs).
+async fn sessions(home: &Path) -> Result<Vec<Session>> {
+    let Some(mut live) = live_sessions().await? else {
+        return Ok(crate::worktree_sessions::on_disk(home, None));
+    };
+    live.extend(crate::worktree_sessions::on_disk(home, Some(&crate::config::home())));
+    Ok(live)
+}
+
+/// The sessions this home's running daemon has open on this machine; None
+/// when no daemon runs. A daemon that runs but does not list them is an
+/// error: without the list, a live session's worktree could be removed.
+async fn live_sessions() -> Result<Option<Vec<Session>>> {
+    let Ok(client) = crate::daemon::connect_running().await else { return Ok(None) };
+    let unread =
+        |why: String| anyhow!("could not read the running acpmux sessions ({why}): try again");
+    let mut params = json!({"localOnly": true, "excludeStatus": ["closed"]});
+    let mut cursors = HashSet::new();
+    let mut found = Vec::new();
+    for _ in 0..MAX_PAGES {
+        let page =
+            tokio::time::timeout(LIST_WAIT, client.request(method::MUX_SESSIONS, params.clone()))
+                .await
+                .map_err(|_| unread("no answer".into()))?
+                .map_err(|e| unread(e.to_string()))?;
+        for row in page["sessions"].as_array().into_iter().flatten() {
+            let Some(cwd) = row["cwd"].as_str() else { continue };
+            found.push(Session {
+                name: row["name"].as_str().unwrap_or_default().to_owned(),
+                cwd: PathBuf::from(cwd),
+                open: true,
+                updated_ms: row["updatedAt"].as_u64().unwrap_or_default(),
+            });
+        }
+        match page["nextCursor"].as_str() {
+            Some(cursor) if !cursor.is_empty() && cursors.insert(cursor.to_owned()) => {
+                params["cursor"] = json!(cursor);
+            }
+            _ => return Ok(Some(found)),
+        }
+    }
+    Err(unread(format!("more than {MAX_PAGES} pages")))
 }
 
 /// The folder TARGET names: a folder, a session's folder, or a worktree's name.

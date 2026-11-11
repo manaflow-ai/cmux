@@ -1097,7 +1097,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
-        Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;

@@ -97,14 +97,14 @@ pub enum PressureArg {
     Critical,
 }
 
-pub fn run(cmd: WorktreeCmd, json_out: bool) -> Result<()> {
+pub async fn run(cmd: WorktreeCmd, json_out: bool) -> Result<()> {
     let store = Store::open(Store::default_dir().ok_or_else(|| anyhow!("no home folder"))?)
         .map_err(|e| anyhow!(e))?;
     match cmd {
         WorktreeCmd::List(scope) => sweep(&scope, false, &store, json_out),
         WorktreeCmd::Clean { scope, dry_run } => sweep(&scope, !dry_run, &store, json_out),
         WorktreeCmd::Remove { target, discard } => {
-            crate::cli::worktree_remove::run(&target, discard, json_out)
+            crate::cli::worktree_remove::run(&target, discard, json_out).await
         }
         WorktreeCmd::Restore { key, path } => {
             let manifest =
