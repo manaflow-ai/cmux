@@ -16,7 +16,7 @@ jobs:
       actions: write
       contents: read
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')) }}
     timeout-minutes: 30
     env:
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash

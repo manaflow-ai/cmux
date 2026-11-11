@@ -82,7 +82,7 @@ permissions: {}
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')) }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -95,7 +95,7 @@ jobs:
           PACKAGE_NPM: ${{ inputs.package_npm }}
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+          LINUX_RUNNER: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')) }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
@@ -180,7 +180,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     needs: plan-build
-    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner), '"blacksmith-') && (contains(toJSON(github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner), '-windows-') && 'windows-2025' || contains(toJSON(github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner) }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -423,7 +423,7 @@ jobs:
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
-    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025'), '"blacksmith-') && 'windows-2025' || (inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025') }}
     timeout-minutes: 60
     env:
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -578,7 +578,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404')) }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -813,7 +813,7 @@ jobs:
         needs.plan-build.result == 'success' &&
         needs.package.result == 'success'
       }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(matrix.runner), '"blacksmith-') && (contains(toJSON(matrix.runner), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(matrix.runner), '-windows-') && 'windows-2025' || contains(toJSON(matrix.runner), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (matrix.runner) }}
     timeout-minutes: 30
     permissions:
       contents: read

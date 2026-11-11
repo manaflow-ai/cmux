@@ -26,7 +26,7 @@ permissions: {}
 jobs:
   build:
     name: build xcframework
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -328,7 +328,7 @@ jobs:
   release:
     name: publish release
     needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 15
     permissions:
       contents: write

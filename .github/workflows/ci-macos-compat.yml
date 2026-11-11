@@ -31,7 +31,7 @@ jobs:
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
             expected_arch: ""
             expected_os_major: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(matrix.os), '"blacksmith-') && (contains(toJSON(matrix.os), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(matrix.os), '-windows-') && 'windows-2025' || contains(toJSON(matrix.os), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (matrix.os) }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
       - name: Checkout

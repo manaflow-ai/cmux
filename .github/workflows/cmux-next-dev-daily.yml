@@ -40,7 +40,7 @@ jobs:
     # temporary directory). The Mac jobs check its output: verify runs codesign
     # on the archive publish ships, and tip runs it before building the DMG.
     # 4 vCPU: packing the app with deflate is CPU-bound.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 30
     permissions:
       actions: read
@@ -328,7 +328,7 @@ jobs:
     name: Cancel older DEV publish runs this one supersedes
     needs: sign
     if: needs.sign.outputs.signed == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -370,7 +370,7 @@ jobs:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -581,7 +581,7 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-trusted-next-signing') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26')) }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -684,7 +684,7 @@ jobs:
     # lease outlives the publish step's own timeout on R2's clock, so it is
     # never taken from a run that is still writing.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404') }}
     # Room for one wait of up to an hour for the API budget's reset (below).
     timeout-minutes: 75
     permissions:
@@ -987,7 +987,7 @@ jobs:
     # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26')), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26')) }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1120,7 +1120,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1189,7 +1189,7 @@ jobs:
     # one Ed25519 signature (scripts/ci/tip_appcast_linux.py), so the notary
     # wait never holds a Mac and no signing secret reaches one. tip-deltas
     # checks the published DMG with Apple's stapler and spctl.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1338,7 +1338,7 @@ jobs:
     # so an older build can never overwrite a newer one.
     environment: release
     # Linux: only R2 writes are left here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1526,7 +1526,7 @@ jobs:
     # rule forbids): the feed write is a compare-and-swap that adds deltas only
     # to this build's item while it is still the newest.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-trusted-next-signing') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 40
     permissions:
       contents: read

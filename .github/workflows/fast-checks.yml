@@ -49,7 +49,7 @@ jobs:
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04') }} # github-hosted-required: light read-only runner admission
     permissions:
       contents: read
     outputs:
@@ -106,7 +106,7 @@ jobs:
     # it avoids trusting mutable repository variables for runner selection.
     # inputs.runner is broker-controlled and limited to this allowlist so a
     # caller cannot inject an arbitrary runner label.
-    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404') }}
     timeout-minutes: 195
     defaults:
       run:
@@ -144,7 +144,8 @@ jobs:
       # Reuse Git objects and tracked files, but remove all prior untracked
       # outputs on checkout. Package caches stay on their separate disk below.
       - name: Mount warm checkout
-        if: startsWith(needs.admit.outputs.runner, 'blacksmith-')
+        # The admitted label may be Blacksmith while CI_BLACKSMITH_OFF=1 sends the job elsewhere (scripts/ci/blacksmith_off.py).
+        if: startsWith(needs.admit.outputs.runner, 'blacksmith-') && vars.CI_BLACKSMITH_OFF != '1'
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-checkout-v1
@@ -212,7 +213,8 @@ jobs:
       # This cache namespace is private to fast checks. Release/signing jobs
       # never read it. Concurrent callers fork snapshots without a global queue.
       - name: Mount package and compilation caches
-        if: startsWith(needs.admit.outputs.runner, 'blacksmith-')
+        # The admitted label may be Blacksmith while CI_BLACKSMITH_OFF=1 sends the job elsewhere (scripts/ci/blacksmith_off.py).
+        if: startsWith(needs.admit.outputs.runner, 'blacksmith-') && vars.CI_BLACKSMITH_OFF != '1'
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-v1

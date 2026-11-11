@@ -62,7 +62,7 @@ jobs:
       ref: ${{ inputs.ref }}
 
   plan:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
@@ -129,7 +129,7 @@ jobs:
     # Only products this repository's CI built, tested at a branch head of this
     # repository: a fork's commit or artifacts never run on an owned Mac.
     # glaeda's hook classes `rerun` as gui, and it takes its root itself.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 60
     env:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"

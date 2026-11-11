@@ -35,6 +35,12 @@ RUNNERS = ROOT / ".github/runners.json"
 HOSTED_MACOS = re.compile(r"(?<![A-Za-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![A-Za-z0-9_.-])")
 # The fork branch: only a repository owner other than manaflow-ai reaches it.
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-z0-9._-]+'|matrix\.hosted_runner)")
+# CI_BLACKSMITH_OFF's fork branch (scripts/ci/blacksmith_off.py, Leo 2026-11-10: "just stop using blacksmith
+# temporarily"): with the switch on, a fork's pull request event that would have taken Blacksmith macOS takes a
+# GitHub-hosted Mac, never an owned one. Unset, the switch's whole route is skipped.
+SWITCH_FORK_BRANCH = re.compile(
+    r"github\.event\.pull_request && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && 'macos-(?:15|26)'")
 # Script test fixtures and unit tests describe hosted jobs they must recognise; they route nothing.
 SCRIPT_SKIP_PARTS = {"tests", "fixtures", "__pycache__", "node_modules"}
 SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", ".yaml"}
@@ -42,6 +48,12 @@ SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", "
 # "<path relative to the repository root>:<exact line>" -> why it may name a GitHub-hosted Mac.
 # No job is exempt: every job has an owned or Blacksmith route, x86_64 included (Rosetta).
 EXEMPT: dict[str, str] = {
+    "scripts/ci/blacksmith_off.py:" + 'HOSTED_MACOS_15 = "macos-15"': (
+        "CI_BLACKSMITH_OFF's fork branch: a fork's pull request event may not take an owned Mac"
+    ),
+    "scripts/ci/blacksmith_off.py:" + 'HOSTED_MACOS_26 = "macos-26"': (
+        "CI_BLACKSMITH_OFF's fork branch: a fork's pull request event may not take an owned Mac"
+    ),
     ".github/workflows/test-e2e.yml:" + "      CMUX_CI_XCODE_APP: ${{ (contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '' }}": (
         "reads the picked label (a Blacksmith macos-26 pool) to choose Xcode; it selects no runner"
     ),
@@ -76,7 +88,7 @@ def workflow_hits(root: Path) -> list[str]:
                 content = strip_comment(line)
                 if not content:
                     continue
-                if HOSTED_MACOS.search(FORK_BRANCH.sub("", content)):
+                if HOSTED_MACOS.search(FORK_BRANCH.sub("", SWITCH_FORK_BRANCH.sub("", content))):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
     return hits
 

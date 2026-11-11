@@ -65,12 +65,13 @@ jobs:
     # label alone stalling flipped the whole fleet four times. A drill probes
     # only its own label.
     name: Blacksmith probe (${{ matrix.label }})
-    if: github.repository_owner == 'manaflow-ai'
+    # Skipped while CI_BLACKSMITH_OFF=1 (scripts/ci/blacksmith_off.py): nothing uses Blacksmith, so there is nothing to probe or fail over.
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_BLACKSMITH_OFF != '1'
     strategy:
       fail-fast: false
       matrix:
         label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label) }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -79,7 +80,8 @@ jobs:
 
   watch:
     name: Watch the probe and switch overflow
-    if: github.repository_owner == 'manaflow-ai'
+    # Skipped while CI_BLACKSMITH_OFF=1 (scripts/ci/blacksmith_off.py): nothing uses Blacksmith, so there is nothing to probe or fail over.
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_BLACKSMITH_OFF != '1'
     # Its own bounded selector over CI_TRUSTED_RUNNER, the variable the other
     # GLAEDA_ROUTE_APP_KEY control jobs read (ci-owned-pool-rescue, ci-stale-run-janitor).
     # The expression bounds the value to one-job Blacksmith Linux VMs (2 or 8 vCPU), so no
@@ -93,7 +95,7 @@ jobs:
     # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
     # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
     # (Python and gh only).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404') }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
     timeout-minutes: 25
     permissions:
       actions: write

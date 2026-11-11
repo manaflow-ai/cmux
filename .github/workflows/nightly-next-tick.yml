@@ -64,7 +64,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
     # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404') }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick
@@ -277,7 +277,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
     # no variable may put it on a machine this line does not name (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404') }}
     # Two bounded steps of reads and at most one cancel and one re-run.
     timeout-minutes: 25
     concurrency:

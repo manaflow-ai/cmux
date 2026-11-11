@@ -30,8 +30,9 @@ jobs:
     name: cmux-tui Rust setup
     # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
     # elsewhere rather than queue forever for a runner a fork cannot have.
-    if: github.repository_owner == 'manaflow-ai'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    # Skipped while CI_BLACKSMITH_OFF=1 (scripts/ci/blacksmith_off.py): a Testbox is a Blacksmith VM.
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_BLACKSMITH_OFF != '1'
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON('blacksmith-32vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || ('blacksmith-32vcpu-ubuntu-2404') }}
     environment:
       # The environments API shows (2026-10-06): one custom deployment
       # protection rule, the cmux-ci-testbox-approver App; no required
@@ -278,7 +279,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
-          RUNNER_LABEL: blacksmith-32vcpu-ubuntu-2404
+          RUNNER_LABEL: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON('blacksmith-32vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || ('blacksmith-32vcpu-ubuntu-2404') }}
         shell: bash
         run: |
           set -euo pipefail

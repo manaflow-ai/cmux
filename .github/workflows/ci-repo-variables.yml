@@ -46,7 +46,7 @@ jobs:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404') }}
     timeout-minutes: 5
     permissions:
       contents: read

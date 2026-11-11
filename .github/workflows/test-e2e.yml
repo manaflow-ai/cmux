@@ -88,7 +88,7 @@ jobs:
     # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (four or five API calls; see e2e_runner_pool.py for the budget), and the
@@ -239,7 +239,7 @@ jobs:
     # otherwise surface only once a full compile had already been paid for.
     # It reads the pool only to turn video off on owned Macs.
     needs: [runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     outputs:
       target: ${{ steps.filter.outputs.target }}
       filter: ${{ steps.filter.outputs.filter }}
@@ -412,7 +412,7 @@ jobs:
     # Linux, so this run holds no macOS runner meanwhile; the build job then
     # adopts that product through its reuse step. See e2e_sibling_build.py.
     needs: [resolve-ref, runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -442,7 +442,7 @@ jobs:
     needs: [resolve-ref, filter, runner, sibling]
     # The sibling wait never gates the build.
     if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
-    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '"blacksmith-') && (contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-windows-') && 'windows-2025' || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label) }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
@@ -481,7 +481,7 @@ jobs:
       # same Xcode build and macOS major. The intra-run handoff uses the
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+      CMUX_PRODUCT_RUNNER: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '"blacksmith-') && (contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-windows-') && 'windows-2025' || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label) }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -1250,7 +1250,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '"blacksmith-') && (contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-macos-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-windows-') && 'windows-2025' || contains(toJSON(needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label), '-arm"') && 'ubuntu-24.04-arm' || (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64')) || (needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label) }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"

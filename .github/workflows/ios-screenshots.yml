@@ -90,7 +90,7 @@ jobs:
     # release at parse time (#12149). A release call and an App Store upload
     # always keep MACOS_RUNNER_IOS. A capture an owned Mac leaves queued or
     # refuses is re-run by ci-owned-pool-rescue.yml on retry_runs_on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 5
     outputs:
       label: ${{ steps.pool.outputs.label }}
@@ -173,7 +173,7 @@ jobs:
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on)), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on)) }}
     # Nine localized languages are captured serially on each required device
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
@@ -349,7 +349,7 @@ jobs:
   app-store-upload:
     needs: [resolve-ref, screenshots]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'glaeda-std-xcode-26.6') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26') }}
     # No upload from CI has been timed yet. deliver deletes the version's screenshots
     # (overwrite_screenshots) before it uploads about 14 locales x 2 devices x 10 shots
     # and waits for Apple's processing, so a timeout part way leaves the pending
