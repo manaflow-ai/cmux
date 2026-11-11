@@ -328,6 +328,14 @@ def sweep(journey: Journey) -> list[str]:
     return left
 
 
+def pane_mode_chip(journey, pane):
+    """The cell's own pane's Mode chip as drawn (chat_state's composer chips, keyed by their menu label),
+    never a page-wide query that also reads other panes' chips."""
+    chips = journey.pane("chat_state", pane).get("composer") or {}
+    value = chips.get("Mode") if isinstance(chips, dict) else None
+    return str(value).strip() if value is not None else ""
+
+
 def composer_snapshot(journey, pane, chip):
     """The chip text next to what the composer decided it from (the debug chat_state verb's
     composerInputs and runPlace) and the Cloud start it sent, for a red that reads a bare "Mode"."""
@@ -369,6 +377,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     opened: dict = {}
     if journey.launch_pane:
         opened = journey.call("action.run", {"action": "palette.newAgentChat", "target": journey.launch_pane})
+        cell["targeted_open"] = {"target": journey.launch_pane, "answer": opened}
         if not opened.get("error") or still_opening(opened):
             journey.home_pane = journey.launch_pane
     targeted = bool(journey.launch_pane) and (not opened.get("error") or still_opening(opened))
@@ -428,8 +437,11 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     cell["team_tag"] = " ".join(journey.page_text(".acpmux-team-tag-name")).strip()
     if account == "removed" and journey.args.removed_team and journey.args.removed_team in cell["team_tag"]:
         problems.append("the team tag names a team the account is not in")
-    mode_chip = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
+    mode_chip = pane_mode_chip(journey, pane)
     cell["mode_chip"] = mode_chip
+    # The page-wide read the cell used before (debug.page query: every agent pane's chips, not this one's):
+    # run 43098103951 read "Mode" there while this pane's own chip read "Manual". Kept for comparison.
+    cell["mode_chip_page_wide"] = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
     cell["composer_before_mode"] = composer_snapshot(journey, pane, mode_chip)
     if mode_chip == "Mode":
         problems.append('the Mode chip reads a bare "Mode"')
@@ -441,7 +453,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         if clicked.get("error"):
             problems.append(f"Mode menu offers no Bypass permissions with Cloud picked ({clean(clicked['error'], 120)})")
         journey.pane("close_menus", pane)
-        cell["mode_chip_after"] = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
+        cell["mode_chip_after"] = pane_mode_chip(journey, pane)
         cell["composer_after_mode"] = composer_snapshot(journey, pane, cell["mode_chip_after"])
         if cell["mode_chip_after"] and "Bypass" not in cell["mode_chip_after"]:
             problems.append(f"the Mode chip reads {cell['mode_chip_after']!r} after picking Bypass permissions")
