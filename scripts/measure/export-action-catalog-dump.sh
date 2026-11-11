@@ -17,8 +17,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/warm-swiftpm.sh"
 root="$(git rev-parse --show-toplevel)"
 dump=plans/cmux-next/action-catalog.json
 cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
+# The dump is written before its test compares it, so another failing test of the suite still
+# leaves it current; as in regenerate-action-exports.sh the step then warns and still passes,
+# because the fleet returns an artifact only from a step that passed.
+status=0
 CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} \
-  --package-path "$root/Packages/macOS/CmuxNext" --skip-build --filter ActionCatalogDumpTests
+  --package-path "$root/Packages/macOS/CmuxNext" --skip-build --filter ActionCatalogDumpTests || status=$?
 mkdir -p "$root/.build"
 # A one-line header first: the fleet's artifact store refuses a 0-byte file.
 {
@@ -27,3 +31,4 @@ mkdir -p "$root/.build"
 } > "$root/.build/action-catalog.patch"
 git -C "$root" diff --stat -- "$dump"
 echo "patch: .build/action-catalog.patch ($(wc -l < "$root/.build/action-catalog.patch" | tr -d ' ') lines)"
+(( status == 0 )) || echo "::warning::ActionCatalogDumpTests failed (exit $status); the dump was still regenerated"
