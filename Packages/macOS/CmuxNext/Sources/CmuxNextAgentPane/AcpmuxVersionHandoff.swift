@@ -259,7 +259,7 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
 /// on ``AcpmuxVersionHandoff/handOffIfStale(_:environment:)`` at its first chat (2026-11-10: after
 /// an update the daemon kept running the old build when that one-shot handoff timed out; that
 /// handoff now retries, and stays the fallback for a relaunch that did not come through here).
-public nonisolated enum AcpmuxUpdateHandoff {
+public nonisolated struct AcpmuxUpdateHandoff: Sendable {
     public enum Outcome: Equatable, Sendable {
         /// No daemon answered on the app's socket.
         case noDaemon
@@ -278,10 +278,17 @@ public nonisolated enum AcpmuxUpdateHandoff {
     /// version handoff.
     public static let quitLimit: Duration = .milliseconds(1500)
 
-    /// ``handOff(_:within:)`` within ``quitLimit``, logged: the update quit's step.
-    @concurrent public static func handOffForQuit(_ environment: AcpmuxEnvironment?) async {
-        let outcome = await handOff(environment, within: quitLimit)
-        logger.notice("update relaunch: acpmux \(String(describing: outcome), privacy: .public)")
+    /// The app's daemon, or nil when it has none (``handOff(within:)`` answers ``Outcome/noDaemon``).
+    let environment: AcpmuxEnvironment?
+
+    public init(_ environment: AcpmuxEnvironment?) {
+        self.environment = environment
+    }
+
+    /// ``handOff(within:)`` within ``quitLimit``, logged: the update quit's step.
+    @concurrent public func handOffForQuit() async {
+        let outcome = await handOff(within: Self.quitLimit)
+        Self.logger.notice("update relaunch: acpmux \(String(describing: outcome), privacy: .public)")
     }
 
     /// Whether the update's relaunch stops the daemon `status` describes: never an attached daemon
@@ -297,7 +304,7 @@ public nonisolated enum AcpmuxUpdateHandoff {
 
     /// Stops the daemon of `environment` for the update's relaunch and waits up to `within` for it
     /// to exit (the kernel's exit event). Each request has a 1 s deadline.
-    @concurrent public static func handOff(_ environment: AcpmuxEnvironment?, within: Duration) async -> Outcome {
+    @concurrent func handOff(within: Duration) async -> Outcome {
         guard let environment, FileManager.default.fileExists(atPath: environment.socketPath) else { return .noDaemon }
         let status: AcpmuxStatus
         do {
@@ -307,11 +314,11 @@ public nonisolated enum AcpmuxUpdateHandoff {
         } catch {
             return .failed(String(describing: error))
         }
-        guard case .restart = decide(status, attached: environment.isAttached), let pid = status.pid else {
-            if case .keep(let why) = decide(status, attached: environment.isAttached) { return .kept(why) }
+        guard case .restart = Self.decide(status, attached: environment.isAttached), let pid = status.pid else {
+            if case .keep(let why) = Self.decide(status, attached: environment.isAttached) { return .kept(why) }
             return .kept("its pid is unknown")
         }
-        logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
+        Self.logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: .seconds(1))
         } catch {

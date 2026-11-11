@@ -102,14 +102,23 @@ final class StagedUpdateRefresh {
             updater.presentUpdateUI?()
             return
         }
-        if hasFreshRead(updater) {
-            // The feed and the pulled list were read just before the click: they decide it now.
+        if hasFreshRead(updater), !updater.isKnownPulled(staged) {
+            // The feed and the pulled list were read just before the click: they decide it now. A
+            // staged build known pulled takes the path below: settling here, inside the phase sync
+            // that ran the click, would end ``clickWaits`` before that sync's own pulled follow-up
+            // (``UpdaterService/followPulled()``) and drop the build twice.
             clicks += 1
             pendingClick = PendingClick(install: install, click: clicks, probed: true, listAnswered: true)
             updater.log.append("install click: the feed and the pulled list were read in the last \(Int(Self.clickReadFreshness)) s; deciding now")
+            #if DEBUG || CMUX_BENCH_HOOKS
+            UpdateHarness.mark("install_click.read_ahead")
+            #endif
             return settleClick(answered: true, updater: updater)
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("install_click.feed_read")
+        #endif
         clicks += 1
         let click = clicks
         pendingClick = PendingClick(install: install, click: click)
@@ -205,7 +214,8 @@ final class StagedUpdateRefresh {
     }
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it. A
-    /// build Sparkle just downloaded is the feed's newest for the followed ring as of now (Sparkle
+    /// build Sparkle just checked for or downloaded (its silent driver may stage straight from the
+    /// check) is the feed's newest for the followed ring as of now (Sparkle
     /// read the feed to pick it, and read the pulled list just before, ``UpdateController/prepareUpdate``),
     /// so the card's appearance records that answer (``UpdaterService/lastFeedRead``) and reads
     /// nothing: a read here would land after a click it raced and act on the staged build again.
@@ -217,7 +227,7 @@ final class StagedUpdateRefresh {
         }
         if !wasReady {
             wasReady = true
-            if case .downloading = previous, let staged = updater.stagedBuild(), !staged.isEmpty {
+            if previous == .checking || previous.isDownloading, let staged = updater.stagedBuild(), !staged.isEmpty {
                 updater.lastFeedRead = FeedRead(newest: staged, at: updater.now(), ring: updater.ring)
             }
         }
