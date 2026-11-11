@@ -73,7 +73,7 @@ impl Hub {
             && !rest.is_empty()
             && self.peer(host).is_some()
         {
-            let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let map = self.remote_sessions.read();
             let names = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))

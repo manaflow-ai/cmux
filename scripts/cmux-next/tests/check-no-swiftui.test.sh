@@ -2,6 +2,8 @@
 # check-no-swiftui.py (NO-SWIFTUI): a macOS file that imports SwiftUI outside
 # the allowlist fails, a stale allowlist entry fails, an AppKit file passes.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-no-swiftui.py"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-check-no-swiftui.XXXXXX")"
