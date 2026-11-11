@@ -41,6 +41,8 @@ on:
     paths:
       - App/**
       - cmux.xcodeproj/**
+      # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - THIRD_PARTY_LICENSES.md
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -361,6 +363,8 @@ on:
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
+      # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - THIRD_PARTY_LICENSES.md
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**

@@ -515,6 +515,9 @@ public final class ChiefSession {
     /// The raw error of the newest failed engine read (diagnostics only).
     public private(set) var engineError: (any Error)?
 
+    /// An engine read for the composer's `/` list runs (``loadSlashSkillsIfNeeded()``).
+    @ObservationIgnored var slashSkillsLoading = false
+
     /// The waits between engine reads while one keeps failing: 2, 4, 8,
     /// 16, then every 30 s.
     nonisolated static func retryDelay(attempt: Int) -> Duration {
