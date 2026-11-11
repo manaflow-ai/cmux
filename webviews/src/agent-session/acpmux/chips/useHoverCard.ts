@@ -1,9 +1,19 @@
 // A hover card's open and close (ui/hoverIntent.ts): it opens after the card dwell on hover, at
 // once on keyboard focus, and closes after a short grace unless the pointer or the keyboard focus
 // moved into the card, or a menu the card opened (Open in) is still open. Every link's card shares
-// it (LinkHoverCard.tsx): reply links, pull request chips and the pull request bars.
+// it (LinkHoverCard.tsx): reply links, pull request chips and the pull request bars. A wheel or
+// touchpad scroll puts the card away at once, and a link sliding under a still pointer opens
+// nothing until the pointer moves on it (ui/scrollHover.ts).
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { HOVER_INTENT, HoverBridge, type Point } from "../../../ui/hoverIntent";
+import {
+  movedFrom,
+  onWheel,
+  pointerPlace,
+  slidUnderStillPointer,
+  trackPointerRest,
+  type PointerPlace,
+} from "../../../ui/scrollHover";
 import { focusRingShown } from "../../../ui/focusModality";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
@@ -48,6 +58,11 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   const bridgeId = useRef(0);
   bridgeId.current ||= ++nextBridgeId;
   const bridge = useRef<HoverBridge | null>(null);
+  /// The pointer is on the trigger, from pointer enter to leave.
+  const onTrigger = useRef(false);
+  /// The trigger came under a still pointer (a scroll, a layout change), or a scroll put its card
+  /// away with the pointer on it: the card waits for the pointer to move from this place.
+  const parked = useRef<PointerPlace | null>(null);
   bridge.current ??= new HoverBridge({
     dwell,
     grace: HOVER_INTENT.cardGrace,
@@ -83,12 +98,36 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     unwatch.current = undefined;
   };
   const move = (event: PointerEvent<HTMLElement>) => {
+    const still = parked.current;
+    if (still) {
+      if (!movedFrom(still, event)) return;
+      // The pointer itself moved on the trigger: the normal dwell starts here. Not through `enter`:
+      // the document's capture listener has already put this move's place in `last`, so the slide
+      // check would read it as still and park it again on every move (review of #40035, F1).
+      parked.current = null;
+      start("trigger", event);
+      return;
+    }
     refresh();
     bridge.current?.move(point(event));
   };
   const enter = (region: "trigger" | "card", event: PointerEvent<HTMLElement>, immediate = false) => {
     if (region === "trigger") {
       trigger.current = event.currentTarget;
+      onTrigger.current = true;
+      if (!immediate && slidUnderStillPointer(event)) {
+        parked.current = { x: event.clientX, y: event.clientY };
+        return;
+      }
+    }
+    start(region, event, immediate);
+  };
+  /// Hover intent on `region`, past the slide check: the trigger's data starts, and the dwell.
+  const start = (region: "trigger" | "card", event: PointerEvent<HTMLElement>, immediate = false) => {
+    if (region === "trigger") {
+      trigger.current = event.currentTarget;
+      onTrigger.current = true;
+      parked.current = null;
       intent.current?.();
     }
     watch();
@@ -101,6 +140,10 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     );
   };
   const leave = (region: "trigger" | "card", event?: PointerEvent<HTMLElement>) => {
+    if (region === "trigger" && event) {
+      onTrigger.current = false;
+      parked.current = null;
+    }
     refresh();
     bridge.current?.leave(
       region,
@@ -119,6 +162,23 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     },
     [],
   );
+
+  // A wheel or touchpad scroll, momentum included, puts the card (or its pending dwell) away at
+  // once; one inside the card itself keeps it. With the pointer still on the trigger, the card waits
+  // for the pointer to move again.
+  useEffect(() => {
+    trackPointerRest();
+    return onWheel((target) => {
+      const state = bridge.current;
+      // Most chips have nothing open and no pointer: they skip the card lookup.
+      if (!state || menuOpen.current || !(state.open || onTrigger.current)) return;
+      if (target instanceof Node && cardElement()?.contains(target)) return;
+      if (onTrigger.current && !parked.current) parked.current = pointerPlace() ?? { x: NaN, y: NaN };
+      stopWatching();
+      state.stop();
+      setOpen(false);
+    });
+  }, []);
 
   // Stable across renders, so a caller's Escape listener can depend on it.
   const dismiss = useCallback(() => {

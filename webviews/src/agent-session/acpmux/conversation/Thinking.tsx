@@ -13,7 +13,7 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -24,15 +24,18 @@ import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
-import { ShimmerText } from "./ShimmerText";
+import { LiveShimmer } from "./LiveShimmer";
 import { Slot } from "../../../slots/Slot";
-import { thinkingIndicatorSlot } from "../../../slots/thinkingIndicator";
+import { slotVariant, useSlotVariant } from "../../../slots/registry";
+import { thinkingIndicatorSlot, type ThinkingIndicatorProps } from "../../../slots/thinkingIndicator";
+import { DefaultThinkingIndicator } from "../../../slots/thinkingIndicator/DefaultThinkingIndicator";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
 import { compactTokens, hasTokens, tokenDetail } from "./turnTokensModel";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { WorkingCountsContext, workingParts } from "./workingForModel";
+import { motionAllowed } from "../subagents/trayMotionModel";
 import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
@@ -69,16 +72,35 @@ function useQuiet(key: string | undefined, ms: number, since?: number, now: () =
 }
 
 /// The words the live line said before its latest change, and how many changes it has rolled.
-type Roll = { key?: string; label: string; lead?: { lead: string; rest: string }; turns: number; out?: Roll };
+type Roll = {
+  key?: string;
+  label: string;
+  lead?: { lead: string; rest: string };
+  turns: number;
+  out?: Roll;
+  /// What followed the words when they rolled out: their time and counts ("1m · 1.7K tokens").
+  tail?: string;
+};
 
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
-/// changing tool calls at the bottom"): the old words rise and fade out above as the new rise in
-/// from below (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
+/// changing tool calls at the bottom"): the old words roll up and out of the line as the new roll in
+/// from below, both opaque and clipped to the line (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
 /// own rotation keeps one key, so only a new call or state rolls. Undefined (the line waits on the
 /// person, retries or shows a start look) rolls nothing, and neither do the first words after it.
-function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Roll {
+///
+/// The whole line rolls as one, its time and counts with its words (Leo, 2026-11-11, on "Thinking 1m
+/// · 1.7K tokens" turning to "Sending a message 1m" and back to "Thinking 1m 5s · 2.5K tokens": "the
+/// animation system is so borked and unintegrated"): the old line's tail as it was last drawn
+/// (`drawn`, the last commit's) rolls out with its words, and the new tail rolls in with the new
+/// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
+function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
+  // The tail as last committed: read only when the key changes, so a tick costs no second render.
+  const drawn = useRef(tail);
+  useLayoutEffect(() => {
+    drawn.current = tail;
+  });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
     setRoll({
@@ -87,10 +109,60 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Ro
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      out: rolls ? { ...roll, out: undefined } : undefined,
+      out: rolls ? { ...roll, out: undefined, tail: drawn.current } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
   return roll;
+}
+
+/// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
+/// is so borked and unintegrated"): a count that moves sideways while the line does not roll (its
+/// time grows a digit, its words change width under one key) slides from where it was drawn on the
+/// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
+/// (`useRoll`), and the gates that stop the roll stop this too.
+function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
+  const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+  useLayoutEffect(() => {
+    const node = line.current;
+    if (!node) return;
+    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+    const lefts = counts.map((count) => count.offsetLeft);
+    const before = drawn.current;
+    drawn.current = { turns, lefts };
+    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
+    counts.forEach((count, index) => {
+      const from = before.lefts[index];
+      const dx = from === undefined ? 0 : from - lefts[index]!;
+      if (Math.abs(dx) < 0.5) return;
+      count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
+        duration: arriveMs(node),
+        easing: "cubic-bezier(0.2, 0, 0, 1)",
+      });
+    });
+  });
+}
+
+/// The same gates as the roll (conversation.css `cv-roll-*`).
+function countsMove(node: Element): boolean {
+  const root = node.ownerDocument.documentElement;
+  const cmux = root.getAttribute("data-cmux-motion");
+  return (
+    cmux !== "off" &&
+    cmux !== "reduced" &&
+    root.getAttribute("data-agent-motion") !== "off" &&
+    root.getAttribute("data-status-indicators") !== "static"
+  );
+}
+
+/// The arrival step (`--agent-motion-arrive`), in ms.
+function arriveMs(node: Element): number {
+  const value = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-arrive").trim();
+  const ms = value?.endsWith("ms")
+    ? Number.parseFloat(value)
+    : value?.endsWith("s")
+      ? Number.parseFloat(value) * 1000
+      : NaN;
+  return Number.isFinite(ms) ? ms : 120;
 }
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
@@ -148,6 +220,31 @@ function useAsked(waiting: WaitingOn | undefined): [boolean, () => void] {
     return () => clearTimeout(timer);
   }, [waiting]);
   return [asked, () => setAsked(false)];
+}
+
+/// The words inside the live line's `<output>`. The thinking indicator is a theme slot
+/// (schemas/theme/slots.json `chat.thinkingIndicator`); a named step is the line's own. While the slot
+/// draws cmux's default variant, both are ONE `LiveShimmer` here, so the shimmer band is one element
+/// from "Thinking" through each step and back (test/transcript-live-line-continuous-browser.test.ts:
+/// "one shimmer band from the first frame to the last"). `<Slot>` for the default at this place made
+/// React mount a new band at each change between the two. A theme's own variant draws through `<Slot>`
+/// (its error boundary, its own mark) and a step then mounts the line's shimmer in its place.
+function LiveWords({
+  decorative,
+  lead,
+  ...indicator
+}: ThinkingIndicatorProps & { decorative: boolean; lead: Roll["lead"] }) {
+  const selected = useSlotVariant(thinkingIndicatorSlot);
+  const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
+  if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
+  return (
+    <LiveShimmer
+      label={indicator.label}
+      verbs={decorative ? indicator.verbs : undefined}
+      lead={lead}
+      elapsed={indicator.elapsed}
+    />
+  );
 }
 
 export function Thinking({
@@ -278,7 +375,6 @@ export function Thinking({
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
   const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
-  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
   // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
@@ -348,6 +444,25 @@ export function Thinking({
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
+  // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
+  // to roll out with them (`useRoll`).
+  const tokenText =
+    showTokens && tokens
+      ? oneCount
+        ? t("turn.working.tokens", { n: tokens, tokens: compactTokens(language, tokens) })
+        : compactTokens(language, tokens)
+      : undefined;
+  const tail = [
+    elapsed,
+    own && !waiting && timesLook !== "hover" ? turnClock : undefined,
+    tokenText,
+    ...parts.map((part) => part.label),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
+  const lineRef = useRef<HTMLDivElement>(null);
+  useCountGlide(lineRef, roll.turns);
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
@@ -390,9 +505,12 @@ export function Thinking({
   return (
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
     <div
+      ref={lineRef}
       className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
       data-find-skip
       data-compacting={compacting && !waiting ? "" : undefined}
+      // The line's tail rolls in with its words (conversation.css `cv-roll-*`).
+      data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
     >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
@@ -418,6 +536,7 @@ export function Thinking({
               inert
               data-lead={roll.out.lead?.lead}
               data-text={roll.out.lead ? roll.out.lead.rest : roll.out.label}
+              data-tail={roll.out.tail ? `\u2002${roll.out.tail}` : undefined}
             />
           )}
           <output
@@ -428,29 +547,14 @@ export function Thinking({
           >
             {compactLook === "calm" ? (
               label
-            ) : decorative ? (
-              // The thinking indicator is a theme slot (schemas/theme/slots.json `chat.thinkingIndicator`):
-              // its default variant draws exactly the shimmer below did for this case.
-              <Slot slot={thinkingIndicatorSlot} props={{ label, verbs, elapsed, elapsedMs }} />
             ) : (
-              <ShimmerText
-                text={label}
-                baseText={
-                  lead ? (
-                    <>
-                      <span className="cv-worked__lead">{lead.lead}</span>
-                      {lead.rest}
-                    </>
-                  ) : (
-                    label
-                  )
-                }
-                lit={
-                  <>
-                    <span className="cv-shimmer__lit-label" data-text={label} />
-                    {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
-                  </>
-                }
+              <LiveWords
+                decorative={decorative}
+                label={label}
+                lead={lead}
+                verbs={verbs}
+                elapsed={elapsed}
+                elapsedMs={elapsedMs}
               />
             )}
           </output>

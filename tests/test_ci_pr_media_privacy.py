@@ -22,11 +22,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from nightly_workflow_text import nightly_text  # noqa: E402
-spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
-assert spec and spec.loader
-privacy = importlib.util.module_from_spec(spec)
-sys.modules["pr_media_privacy"] = privacy
-spec.loader.exec_module(privacy)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import pr_media_privacy as privacy  # noqa: E402
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
@@ -163,7 +170,7 @@ class TermSourceTests(unittest.TestCase):
             self.assertEqual(privacy.local_names(Path("/h")), ["glow-box", "glow-box.local"])
 
     def test_agent_authors_come_from_the_variable_or_the_workspace_list(self) -> None:
-        env = {"HOME": str(self.home)}
+        env = git_fixture_env.fixture_env({"HOME": str(self.home)})
         self.assertEqual(privacy.load_agent_authors(env), frozenset())
         self.write("Projects/leo-workspace/machines/agent-authors.json", ["Bot-A"])
         self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
@@ -172,7 +179,7 @@ class TermSourceTests(unittest.TestCase):
 
     def test_the_workspace_list_is_read_in_its_own_format(self) -> None:
         # leo-workspace's file is {"_doc": ..., "authors": [...]}, as tools/agent_authors.py reads it.
-        env = {"HOME": str(self.home)}
+        env = git_fixture_env.fixture_env({"HOME": str(self.home)})
         self.write("Projects/leo-workspace/machines/agent-authors.json", {"_doc": "who", "authors": ["Bot-A"]})
         self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
         self.write("Projects/leo-workspace/machines/agent-authors.json", {"authors": "bot-a"})
@@ -224,7 +231,7 @@ class CheckFilesTests(unittest.TestCase):
         self.assertNotIn("g1ow", json.dumps(report))
 
     def test_a_refusal_names_the_category_and_the_fix_never_the_term(self) -> None:
-        env = {"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
+        env = git_fixture_env.fixture_env({"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_AGENT_AUTHORS": "bot-a"})
         lookup = mock.Mock(return_value={10: "teammate"})
         with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(privacy.Refused) as raised:
             privacy.check_upload([("10/notes.html", self.file("notes.html", "ssh glow-box")),
@@ -270,9 +277,9 @@ class CheckCommandTests(unittest.TestCase):
         tool = self.root / "ocr.sh"
         tool.write_text('#!/bin/sh\ncase "$1" in *leak*) echo "ssh glоw-bоx" ;; *) echo ok ;; esac\n')
         tool.chmod(0o755)
-        self.env = {"HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(tool),
+        self.env = git_fixture_env.fixture_env({"HOME": str(self.root), "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVACY_OCR": str(tool),
                     "PR_MEDIA_PRIVATE_TERMS": '{"terms": ["glow-box"]}', "PR_MEDIA_AGENT_AUTHORS": "bot-a",
-                    "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": ""}
+                    "PR_MEDIA_PRIVATE_TERMS_FILE": "", "CMUX_HQ": ""})
 
     def run_check(self, prefix: str, *names: str):
         paths = []
@@ -316,7 +323,7 @@ class RepoCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.remote = self.root / "remote.git"
         self.work = self.root / "work"
-        git("init", "-q", "--bare", str(self.remote), cwd=self.root)
+        git_fixture_env.init_repo(self.remote, "--bare", cwd=self.root, env={**os.environ, **GIT_ENV})
         git("init", "-q", "-b", privacy.BRANCH, str(self.work), cwd=self.root)
         git("remote", "add", "origin", str(self.remote), cwd=self.work)
         self.ocr = self.root / "ocr.sh"
@@ -801,9 +808,9 @@ class GatePreflightTests(unittest.TestCase):
         tool = self.ocr("cmux@cmux-mac-mini-7 ~ %")
         out = io.StringIO()
         with contextlib.redirect_stderr(io.StringIO()):
-            self.gate.preflight(CANARY, env={"HOME": str(self.root), "GITHUB_ACTIONS": "true",
+            self.gate.preflight(CANARY, env=git_fixture_env.fixture_env({"HOME": str(self.root), "GITHUB_ACTIONS": "true",
                                              "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                                             "PR_MEDIA_PRIVACY_OCR": tool}, privacy=privacy, out=out)
+                                             "PR_MEDIA_PRIVACY_OCR": tool}), privacy=privacy, out=out)
         self.assertNotIn("glow-box", out.getvalue())
         self.assertIn("1 private term", out.getvalue())
 

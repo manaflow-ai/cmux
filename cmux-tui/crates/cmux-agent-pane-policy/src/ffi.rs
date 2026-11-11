@@ -14,15 +14,22 @@
 //!
 //! The host sends a fresh serialization of `frame`, never the page's bytes.
 //!
+//! What the host decides with its own state (tickets, the click's intent, the
+//! folder check on disk) it asks the same rules for, through the JSON ops
+//! ([`Pane::call`], [`call`]): the pick of a method and params that came as
+//! no frame, the digest an intent holds a question's answers by, a prompt's
+//! own id, whether an option is a known allow, and the folder keys.
+//!
 //! Every function may run on any thread at once (the state is under locks)
 //! and none unwinds across the boundary ([`ERR_PANIC`]). A reply buffer
 //! ([`CmuxAgentPaneBytes`]) belongs to the caller, who frees it with
 //! [`cmux_agent_pane_policy_bytes_free`].
 
-use crate::check::{Checked, FrameState, PaneScope, check_frame};
+use crate::canonical::canonical_digest;
+use crate::check::{Checked, FrameState, GesturePick, PaneScope, check_frame, own_prompt_id};
 use crate::data::policy;
 use crate::error::Refusal;
-use crate::frame::{raw_id, refusal_frame};
+use crate::frame::{RefusalNote, raw_id, refusal_frame_noted};
 use crate::gesture::PermissionOptions;
 use crate::reply::filtered_reply;
 use crate::sessions::PaneSessions;
@@ -32,7 +39,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -136,6 +143,13 @@ impl Pane {
                 );
                 Ok(json!({"deny": deny}))
             }
+            "is_known_allow" => {
+                let allow = self.options.is_known_allow(
+                    text("permission").ok_or(ERR_INVALID)?,
+                    text("option").ok_or(ERR_INVALID)?,
+                );
+                Ok(json!({"allow": allow}))
+            }
             other => call(other, request),
         }
     }
@@ -145,10 +159,19 @@ impl Pane {
 ///
 /// - `policy`: the data the host reads once (`initialize`,
 ///   `maximum_frame_bytes`, `gesture_ticket_key`, `reply_shape_methods`,
-///   `question_answers`, `starting`, `handoff_records`).
-/// - `refusal_frame` `{id, code, method?, root_requested?}`:
-///   `{"frame": text}`, the error frame answering a refused request.
+///   `question_answers`, `starting`, `handoff_records`, `path_keys`).
+/// - `refusal_frame` `{id, code, method?, root_requested?, detail?, reason?}`:
+///   `{"frame": text}`, the error frame answering a refused request
+///   ([`RefusalNote`] for `detail` and `reason`).
 /// - `raw_id` `{value}`: `{"id": raw|null}`, a JSON-RPC id as raw JSON.
+/// - `pick` `{method?, params?}`: `{"pick": {"method": m|null, "params":
+///   {..}|null}}`, the pick a gesture ticket is bound to ([`GesturePick`]) for
+///   a method and params the host has outside a frame check (a page op, a
+///   seeded prompt). `params` null: no match.
+/// - `own_prompt_id` `{id}`: `{"id": text}`, a prompt's id without a hand-off
+///   turn's label ([`own_prompt_id`]).
+/// - `canonical_digest` `{value}`: `{"digest": hex|null}`, the sha256 of the
+///   value's canonical JSON ([`canonical_digest`]); null when it has none.
 pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
     let text = |key: &str| request.get(key).and_then(Value::as_str);
     match op {
@@ -156,11 +179,30 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
         "refusal_frame" => {
             let refusal = text("code").and_then(Refusal::from_code).ok_or(ERR_INVALID)?;
             let root = request.get("root_requested").and_then(Value::as_bool).unwrap_or(false);
-            let frame =
-                refusal_frame(text("id").ok_or(ERR_INVALID)?, refusal, text("method"), root);
-            Ok(json!({"frame": frame}))
+            let note = RefusalNote { detail: text("detail"), reason: text("reason") };
+            let id = text("id").ok_or(ERR_INVALID)?;
+            Ok(json!({"frame": refusal_frame_noted(id, refusal, text("method"), root, note)}))
         }
         "raw_id" => Ok(json!({"id": request.get("value").and_then(raw_id)})),
+        "pick" => {
+            let method = match request.get("method") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(method)) => Some(method.as_str()),
+                Some(_) => return Err(ERR_INVALID),
+            };
+            let empty = Map::new();
+            let params = match request.get("params") {
+                None | Some(Value::Null) => &empty,
+                Some(Value::Object(params)) => params,
+                Some(_) => return Err(ERR_INVALID),
+            };
+            Ok(json!({"pick": GesturePick::new(method, params).to_json()}))
+        }
+        "own_prompt_id" => Ok(json!({"id": own_prompt_id(text("id").ok_or(ERR_INVALID)?)})),
+        "canonical_digest" => {
+            let value = request.get("value").ok_or(ERR_INVALID)?;
+            Ok(json!({"digest": canonical_digest(value)}))
+        }
         // A pane's own op without a pane.
         op if PANE_OPS.contains(&op) => Err(ERR_NULL),
         _ => Err(ERR_UNKNOWN_OP),
@@ -168,8 +210,8 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
 }
 
 /// The ops of [`Pane::call`]: without a pane they answer [`ERR_NULL`].
-pub const PANE_OPS: [&str; 6] =
-    ["add", "sent", "contains", "is_unstarted", "question_keys", "is_deny"];
+pub const PANE_OPS: [&str; 7] =
+    ["add", "sent", "contains", "is_unstarted", "question_keys", "is_deny", "is_known_allow"];
 
 /// The `policy` op's reply.
 pub fn policy_json() -> Value {
@@ -191,6 +233,7 @@ pub fn policy_json() -> Value {
         },
         "starting": crate::sessions::STARTING,
         "handoff_records": crate::sessions::HANDOFF_RECORDS,
+        "path_keys": p.path_keys,
     })
 }
 

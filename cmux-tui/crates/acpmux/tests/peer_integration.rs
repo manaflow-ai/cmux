@@ -1073,6 +1073,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         record: root.join("home").join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
@@ -1320,6 +1321,7 @@ async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_p
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
     let (relay, from_b) = recording_relay(port).await;
@@ -1405,6 +1407,7 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let a = hub(config(PermissionPolicy::Ask)).await;
     let mut cfg = config(PermissionPolicy::Ask);
@@ -1519,6 +1522,7 @@ async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_with
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let mut local = client(a.clone()).await;
     for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
@@ -1552,6 +1556,7 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let config = || {
         let mut cfg = config(PermissionPolicy::Ask);
@@ -1638,6 +1643,7 @@ async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_wri
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     // Keep the port reserved but do not listen; no other test can turn this into a live peer.
     let bound = tokio::net::TcpSocket::new_v4().unwrap();

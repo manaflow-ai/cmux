@@ -1,6 +1,6 @@
 // The composer hat's × and Escape (Leo, 2026-11-11: "there's no close button :("): each puts the
 // shown question away through `actions.dismiss`, the × holds its room in the head at rest (so a
-// hover moves nothing), and a started chat's name has a line of its own over its question.
+// hover moves nothing), and a started chat's name keeps the head's line, its question under it.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -78,6 +78,7 @@ async function render(dismissed: HatQuestion[]): Promise<HTMLElement> {
   });
   const actions: HatQuestionActions = {
     answer: () => Promise.resolve(),
+    reply: () => Promise.resolve(),
     type: () => undefined,
     showCard: () => undefined,
     open: () => undefined,
@@ -115,12 +116,11 @@ test("Escape with the focus in the band puts the shown question away", async () 
 test("a started chat's name has the head's line, its question the line under it", async () => {
   const band = await render([]);
   const head = band.querySelector(".acpmux-hat-questions__head")!;
-  const who = head.querySelector<HTMLElement>(".acpmux-hat-questions__who")!;
-  expect(who.dataset.line).toBe("true");
+  expect(head.querySelector(".acpmux-hat-questions__who")?.textContent).toContain("claude-sr2-coord");
   expect(head.querySelector(".acpmux-hat-questions__prompt")).toBeNull();
-  expect(band.querySelector(".acpmux-hat-questions__under .acpmux-hat-questions__prompt")?.textContent).toContain(
-    "cosmic-gray",
-  );
+  expect(
+    band.querySelector(".acpmux-hat-questions__question[data-asker] > .acpmux-hat-questions__words")?.textContent,
+  ).toContain("cosmic-gray");
   // The head's order: the mark, the name, the pager, then the ×, which is always laid out.
   const order = [...head.children].map((child) => child.className.split(" ")[0]);
   expect(order.at(-1)).toBe("ui-button");

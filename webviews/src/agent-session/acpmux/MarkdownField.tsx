@@ -107,6 +107,10 @@ export type MarkdownFieldHandle = {
   /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
   /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
   atStart(): boolean;
+  /// Whether the caret is on the prompt's first visual line ("up") or its last ("down"), wrapped
+  /// lines counted: ↑ or ↓ there has no line of the prompt to move to. True before the editor is
+  /// made (one line of plain text).
+  caretOnEdgeLine(direction: "up" | "down"): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -1579,6 +1583,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             $from.depth === 1 &&
             $from.parent.type.name === "paragraph"
           );
+        },
+        caretOnEdgeLine: (direction) => {
+          const current = view.current;
+          if (!current) return true;
+          const { doc, selection } = current.state;
+          // The selection's top (↑) or bottom (↓) end, as endOfTextblock measures it. A selected
+          // block (a rule) has no line to move within.
+          const $end = direction === "up" ? selection.$from : selection.$to;
+          if (!$end.parent.isTextblock) return true;
+          // No text block before (↑) or after (↓) the end's, a rule or other block atom between
+          // them aside, and the end on its block's top (or bottom) visual line: ProseMirror
+          // measures the wrapped layout.
+          const beyond =
+            direction === "up"
+              ? Selection.findFrom(doc.resolve($end.before()), -1, true)
+              : Selection.findFrom(doc.resolve($end.after()), 1, true);
+          if (beyond) return false;
+          return current.endOfTextblock(direction);
         },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;

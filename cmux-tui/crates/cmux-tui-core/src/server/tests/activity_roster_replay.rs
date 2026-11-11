@@ -87,3 +87,32 @@ fn an_activity_subscriber_from_mid_replay_ends_at_the_final_live_count() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The activity subscriber cap counts live subscribers only. A connection that
+/// closed is dropped from the stream when the next one subscribes, not first
+/// at the worker's next send: until then a new subscriber was refused "too
+/// many activity subscribers" although none of the counted ones was open.
+#[test]
+fn closed_activity_subscribers_do_not_count_against_the_cap() {
+    let mux = test_mux();
+    let mut closed = Vec::new();
+    for _ in 0..16 {
+        let (writer, _outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(&mux, client, Command::SubscribeActivity, &writer).unwrap();
+        closed.push(writer);
+    }
+    for writer in &closed {
+        writer.close();
+    }
+
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let subscribed = handle_command(&mux, client, Command::SubscribeActivity, &writer);
+
+    assert!(
+        subscribed.is_ok(),
+        "a subscriber was refused while every counted subscriber was closed: {:?}",
+        subscribed.err()
+    );
+}

@@ -6,7 +6,11 @@
 // dual thing where you can go through it and, like, click left and right through things and be able
 // to answer things as they come").
 import { useState, type CSSProperties } from "react";
-import { HatQuestions, type HatQuestionActions } from "../../agent-session/acpmux/question/HatQuestions";
+import {
+  HatQuestions,
+  type HatQuestionActions,
+  type HatReplyLook,
+} from "../../agent-session/acpmux/question/HatQuestions";
 import type { HatQuestion } from "../../agent-session/acpmux/question/hatModel";
 
 export const STAGE_QUESTIONS: readonly HatQuestion[] = [
@@ -46,19 +50,45 @@ export const STAGE_QUESTIONS: readonly HatQuestion[] = [
   },
 ];
 
+/// A started chat's question as Leo met it (2026-11-10): who asks and what about, a question longer
+/// than two lines, a recommended choice, and Other. Answered here, in the hat.
+export const CHILD_QUESTION: HatQuestion = {
+  id: "acpmux:perm-cleanup",
+  source: "child",
+  sessionId: "coord-deputy",
+  who: "coord-deputy",
+  about: "Cleanup",
+  prompt:
+    "The uplink on the build Mac is still saturated (round trips about 5 s, down from 11.5 s), which keeps GitHub calls from that Mac slow. Two stale worktrees from the last run hold 40 GB there and keep the disk at its floor. Remove both now, or leave them for the owner to look at first?",
+  answers: [
+    { id: "Remove both (Recommended)", label: "Remove both", recommended: true },
+    { id: "Leave them", label: "Leave them" },
+  ],
+  typed: true,
+};
+
 export function HatQuestionsStage({
   count = 3,
   look,
+  child = false,
+  replyLook,
+  refuse = false,
   dismissLook,
   first,
 }: {
   count?: number;
   look?: "band" | "line" | "chip";
+  /// Leo's case: one started chat's question, answered in the hat.
+  child?: boolean;
+  replyLook?: HatReplyLook;
+  /// The host refuses the answer (the band says so and takes input again).
+  refuse?: boolean;
   dismissLook?: "hover" | "always" | "corner";
   /// Which question leads: the stills of the started chat's question start on it.
   first?: "child";
 }) {
-  const start = () => {
+  const start = (): readonly HatQuestion[] => {
+    if (child) return [CHILD_QUESTION];
     const some = STAGE_QUESTIONS.slice(0, count);
     return first === "child"
       ? [...some.filter((q) => q.source === "child"), ...some.filter((q) => q.source !== "child")]
@@ -74,9 +104,18 @@ export function HatQuestionsStage({
   const actions: HatQuestionActions = {
     // The source says it is over a moment after the click, as acpmux's decision record does.
     answer: (question, answer) =>
-      new Promise((resolve) =>
+      new Promise((resolve, reject) =>
         setTimeout(() => {
+          if (refuse) return reject(new Error("refused"));
           drop(question.id, `answered: ${answer.label}`);
+          resolve(undefined);
+        }, 120),
+      ),
+    reply: (question, text) =>
+      new Promise((resolve, reject) =>
+        setTimeout(() => {
+          if (refuse) return reject(new Error("refused"));
+          drop(question.id, `replied: ${text}`);
           resolve(undefined);
         }, 120),
       ),
@@ -111,7 +150,13 @@ export function HatQuestionsStage({
         <div style={{ flex: 1 }} />
         <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
           {questions.length > 0 && (
-            <HatQuestions questions={questions} actions={actions} look={look} dismissLook={dismissLook} />
+            <HatQuestions
+              questions={questions}
+              actions={actions}
+              look={look}
+              replyLook={replyLook}
+              dismissLook={dismissLook}
+            />
           )}
           <div className="acpmux-composer">
             <form

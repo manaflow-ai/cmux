@@ -266,7 +266,7 @@ fn approved_rules(run: PromptRun, approval: Option<&Value>) -> PromptRun {
 
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
-fn queue_waits(session: &Session) -> bool {
+pub(super) fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     queue.iter().any(|q| !q.aside())
 }

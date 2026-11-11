@@ -68,7 +68,7 @@ mod checkpoint;
 mod fenced;
 mod meta;
 mod new_folders;
-mod repair;
+pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
 

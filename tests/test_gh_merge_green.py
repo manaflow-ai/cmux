@@ -1,4 +1,5 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import atexit
 import copy
 from datetime import datetime, timedelta, timezone
 import base64
@@ -10,15 +11,26 @@ import subprocess
 import tempfile
 import os
 import shlex
+import shutil
 import signal
 import textwrap
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
-os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
+# A missing folder inside a private one: a fixed name in the shared temp folder could be planted with a repo.
+_NO_REPO_PARENT = tempfile.mkdtemp(prefix="gh-merge-green-")
+atexit.register(shutil.rmtree, _NO_REPO_PARENT, True)
+os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(_NO_REPO_PARENT, "no-repo")
 # Under GH_MERGE_GREEN_TEST the freeze check reads GH_MERGE_GREEN_FREEZE_ISSUES and
 # GH_MERGE_GREEN_FREEZE_EVENTS, never the repository's issues. Every run gets empty
 # fixtures (no freezes); a test run without them refuses.
@@ -1431,7 +1443,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         directory = Path(directory)
         origin = directory / "origin.git"
         work = directory / "work"
-        self.git("init", "-q", "--bare", str(origin), cwd=directory)
+        git_fixture_env.init_repo(origin, "--bare", cwd=directory)
         self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=directory)
         for args in (("config", "user.email", "t@example.invalid"), ("config", "user.name", "t")):
             self.git(*args, cwd=work)

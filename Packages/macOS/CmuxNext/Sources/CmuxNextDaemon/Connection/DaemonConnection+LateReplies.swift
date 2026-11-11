@@ -102,6 +102,18 @@ extension DaemonConnection {
         }
     }
 
+    /// `create-workspace {first_tab}` (`workspace-first-tab-v1`): workspace `key` and its first browser tab in one
+    /// request, waited for through late replies under one mutation identity and one tab key (the daemon replays
+    /// both), as ``createWorkspaceWaitingForReply(name:key:)`` waits. A refusal made nothing.
+    public func createWorkspaceWithFirstTabWaitingForReply(name: String? = nil, key: WorkspaceKey,
+                                                           firstTab: WorkspaceFirstBrowserTab) async throws -> WorkspaceMutationResult {
+        guard identity?.supports(DaemonCapability.workspaceFirstTab.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.workspaceFirstTab.rawValue])
+        }
+        let request = CreateWorkspaceRequest(name: name, key: key, firstTab: firstTab, mutation: mutation())
+        return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+    }
+
     /// Runs `send` again while it misses its reply or start deadline, and repeats one keyed change the daemon
     /// replays. It ends on the reply, the daemon's refusal or any other error, the connection's end (`notConnected`,
     /// `connectionClosed`) or the task's cancellation (`CancellationError`), never on a client clock (principled-audit

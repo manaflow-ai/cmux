@@ -422,8 +422,8 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
+        Command::CreateWorkspace { name, key, first_tab, mutation } => {
+            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
         }
         Command::CreateTerminal {
             workspace,
