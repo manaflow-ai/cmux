@@ -411,6 +411,31 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
     Ok(transcript.page(chat, after, limit, more, cursor))
 }
 
+/// A read page (`cmux chat read`'s shape) of `events`, a chat's records oldest first that another
+/// place read: a chat on a Cloud VM, whose records its machine prints (cloud_start_chat.rs
+/// `read_existing`). `more_before`: older records exist that `events` does not hold.
+pub(in crate::cli) fn page_of_events(
+    chat: &str,
+    events: &[Value],
+    after: u64,
+    limit: usize,
+    more_before: bool,
+) -> Value {
+    let mut once = Some(json!({"events": events, "hasMore": false}));
+    let read = load(after, limit, |_| {
+        Ok(once.take().unwrap_or_else(|| json!({"events": [], "hasMore": false})))
+    });
+    let (transcript, more, cursor) = match read {
+        Ok(read) => read,
+        Err(_) => (Transcript::default(), false, after),
+    };
+    let mut page = transcript.page(chat, after, limit, more, cursor);
+    if more_before {
+        page.set("older_not_read", json!(true));
+    }
+    page
+}
+
 /// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
 /// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
 pub(in crate::cli) fn turn_items(

@@ -49,7 +49,7 @@ answers workspace_id and tab_id from `cmux chat`. Exit codes: 0 ok, 1 refused or
 failed, 2 bad arguments or the agent waits on a permission, 3 --timeout passed
 (chat.wait_timeout, details.answer.timed_out true).
 
-A chat here, by its session id (a UUID or acp:…), or `last`:
+A chat here or on a Cloud VM, by its session id (a UUID or acp:…), or `last`:
   cmux chat read SESSION|last [--after ID] [--limit N]   Its transcript (`cmux agents chat read`)
   cmux chat wait SESSION|last [--timeout DURATION]        Wait for its turn to end, print the reply
 
@@ -61,8 +61,8 @@ A chat here, by its session id (a UUID or acp:…), or `last`:
 const WAIT_USAGE: &str = "\
 usage: cmux chat wait SESSION|last [--timeout DURATION] [--json]
 
-Waits until the chat SESSION here (a UUID or acp:…; `last`: the last chat this terminal started
-or sent to) stops working and prints the reply of its
+Waits until the chat SESSION (a UUID or acp:…, here or on a Cloud VM; `last`: the last chat this
+terminal started or sent to) stops working and prints the reply of its
 last turn, as `cmux chat send SESSION TEXT --wait` does. --timeout defaults to 900 seconds.
 Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent waits on a
 permission, 3 --timeout passed (chat.wait_timeout).
@@ -209,25 +209,33 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         let Some(last) = super::last_chat::recall() else {
             return super::wire::print_local_error(&super::last_chat::none_yet(), global.output, 1);
         };
-        if let Some(vm) = last.vm {
-            let error = refusal(
-                "chat_target.vm_chat",
-                format!(
-                    "the last chat ({}) runs on vm:{vm}; chat {verb} reads a chat here",
-                    last.session
-                ),
-                "cmux chat send -w 'TEXT' sends to it and prints the reply",
-                json!({"session_id": last.session, "vm": vm}),
-            );
-            return super::wire::print_local_error(&error, global.output, 1);
-        }
         words[0] = last.session;
+        // Its VM, as recorded: no lookup in the app's topology.
+        if let Some(vm) = last.vm {
+            let words = cloud_start_chat::lift_output_of(
+                &words,
+                &mut global.output,
+                &["--timeout", "--after", "--limit"],
+            );
+            return on_vm(global, verb, &vm, &words);
+        }
     }
     let words = cloud_start_chat::lift_output_of(
         &words,
         &mut global.output,
         &["--timeout", "--after", "--limit"],
     );
+    // A chat a Cloud VM's workspace shows is read and waited on there, as `chat send` sends there.
+    if let Some(session) = words.first().filter(|word| is_session_id(word))
+        && let Ok(Place::Vm(vm)) = locate(
+            session,
+            None,
+            || topology(global),
+            || cloud_start_chat::app_machines(global),
+        )
+    {
+        return on_vm(global, verb, &vm, &words);
+    }
     if verb == "read" {
         let mut agents = chat_start::global_words(global);
         agents.extend(["agents", "chat", "read"].map(str::to_owned));
@@ -236,6 +244,40 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
     }
     match parse_wait(&words) {
         Ok(Some((session, timeout))) => turn::run(global, &Begin::Wait { session }, timeout),
+        Ok(None) => {
+            print!("{WAIT_USAGE}");
+            0
+        }
+        Err(error) => super::app::failure(
+            "usage.invalid",
+            &format!("cmux: {}\n{WAIT_USAGE}", error.0),
+            global.output,
+            2,
+        ),
+    }
+}
+
+/// `chat read|wait SESSION …` for a chat on Cloud VM `vm`: the same flags as here, read on the VM
+/// (cloud_start_chat.rs `read_existing`, `wait_existing`).
+fn on_vm(global: &GlobalArgs, verb: &str, vm: &str, words: &[String]) -> i32 {
+    if verb == "read" {
+        let mut read = vec!["read"];
+        read.extend(words.iter().map(String::as_str));
+        return match super::agents::chat::parse(&read) {
+            Ok(super::agents::chat::ChatCommand::Read { target, after, limit }) => {
+                cloud_start_chat::read_existing(global, vm, &target, after, limit)
+            }
+            Ok(_) => 2,
+            Err(error) => super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {}\n{USAGE}", error.0),
+                global.output,
+                2,
+            ),
+        };
+    }
+    match parse_wait(words) {
+        Ok(Some((session, timeout))) => cloud_start_chat::wait_existing(global, vm, &session, timeout),
         Ok(None) => {
             print!("{WAIT_USAGE}");
             0
