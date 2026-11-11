@@ -77,6 +77,16 @@ HOSTED_LOOP_JOBS = {
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral hosted VM; on the signer it held the whole Mac",
 }
+# A secret-free preflight on GitHub-hosted Ubuntu, ahead of decide. job -> why. It judges whether the labels the run
+# would wait on (vars.CI_NIGHTLY_MINI, or the nightly-only label) have an online runner, so it must not wait on one of
+# them itself: 2026-11-10 CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z, and every
+# job, decide first, sat queued for 3+ h while the dedicated nightly Macs were idle. It holds no secret and reads only
+# vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py, tests/test_nightly_runner_preflight.py). Its cost: a
+# hosted queue delays decide by that queue's wait.
+HOSTED_PREFLIGHT_JOBS = {
+    "runner-preflight": "fails the run in minutes when its routing label has no online runner; on that label it "
+                        "would itself wait for hours",
+}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
 # short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -144,7 +154,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
+            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
                 continue
             runs_on = str(job.get("runs-on", ""))
             if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
@@ -186,8 +196,13 @@ class EveryJobOnOurMinis(unittest.TestCase):
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
-        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
+        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS),
                          "a nightly job may not reach a GitHub-hosted runner")
+        for name in HOSTED_PREFLIGHT_JOBS:
+            with self.subTest(job=name):
+                self.assertNotIn("secrets.", json.dumps(JOBS[name]), "the preflight holds no secret")
+                # issues: write only, for the nightly-next-failure notice (the job's GITHUB_TOKEN; no secret).
+                self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
                 self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")

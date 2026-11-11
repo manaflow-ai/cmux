@@ -50,7 +50,14 @@
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
-#     (Native/OptChat; unless --no-fmt).
+#     (Native/OptChat; unless --no-fmt);
+#   - Cargo locks: every tracked Cargo.lock that no longer matches its
+#     workspace's manifests is rewritten with `cargo update --workspace` (only
+#     what the manifests now need; scripts/cmux-next/cargo-locks.py fix; with
+#     --locks). A manifest change in one workspace leaves another workspace's
+#     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
+#     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
+#     request until #40883. Only Cargo.lock files are written.
 # Dependency order: the docs shortcuts and app-host files are rewritten from
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
@@ -68,10 +75,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -87,11 +94,12 @@ while (( $# > 1 )); do
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
+    --locks) locks=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -402,5 +410,14 @@ if (( fmt )); then
     after="$(git -C "$repo" status --porcelain -- "$crate")"
     [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in $crate"
   done
+fi
+
+# 5. Cargo locks (scripts/cmux-next/cargo-locks.py): a lock is never frozen, and the fixer writes only Cargo.lock files.
+if (( locks )); then
+  if command -v cargo >/dev/null 2>&1; then
+    python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
+  else
+    echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
 fi
 exit 0

@@ -11,9 +11,10 @@
 // On the gallery stage (agent-pane.composer-hat-linger, `last-leaves`: one running command, a 1 s
 // grace), the command finishes and the pointer stays off the hat; a per-frame sampler
 // reads the stack's height and top and the composer's top after every painted frame until the hat and its copy
-// are gone. The stack loses exactly the hat's height, it takes at least 150 ms of wall time from its
-// full height to its final one with at least two painted heights in between (frame-rate independent:
-// headless WebKit paints sparse frames), and the composer never moves. With Reduce Motion the hat goes in one
+// are gone. The stack loses exactly the hat's height, it takes at least 70% of the leave's
+// own length (read from the leaving copy: the settle token, 180 ms) of wall time from its full height
+// to its final one with at least two painted heights in between (frame-rate independent: headless
+// WebKit paints sparse frames), and the composer never moves. With Reduce Motion the hat goes in one
 // step (folds snap). The samples are printed, for the PR.
 //
 // Real Chromium and WebKit. CI fails the file when it cannot launch them (requireBrowserLane).
@@ -31,6 +32,21 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     for (let index = items.length - 1; index >= 0; index -= 1) if (test(items[index]!)) return index;
     return -1;
   }
+
+  // How much of the leave's own length the stack must take from its full height to its final one.
+  // The copy folds on the house settle, cubic-bezier(0.16, 1, 0.3, 1), which is front-loaded: of the
+  // 28 px hat 0.121 px is left 70% into the animation (126 ms of the 180 ms) and 0.0625 px at 75.3%
+  // (135.5 ms). Layout heights are in 1/64 px steps, so a height reads "final" (within this file's
+  // 0.05 px) when less than 0.0625 px is left: a fold that plays whole reads 135.5 ms or more, and
+  // the frame grid only adds to that (the last full frame is at or before the start, the first final
+  // frame at or after that point). One cut short (the copy removed early, the jump this replaces)
+  // reads less. 70% leaves 9.5 ms for a frame time that the engine rounds. The bound was a literal
+  // 150 ms, which is what 60.0 Hz reads with no margin: 9 frames of 16.67 ms, as a sum of doubles
+  // 149.99999999999977 on Chromium, and 9 frames of 16.1 ms = 145 ms on the lane's WebKit, each a
+  // whole fold. A hat under 14.5 px would settle sooner than this share.
+  const FOLD_SHARE = 0.7;
+  // Frame times are doubles: a span that equals the bound may read a few ulps under it.
+  const CLOCK_SLACK_MS = 0.001;
 
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.composer-hat-linger";
@@ -80,7 +96,18 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     await vite?.close();
   });
 
-  type Sample = { at: number; dock: number; dockTop: number; composerTop: number; tray: number | null; ghost: boolean };
+  type Sample = {
+    at: number;
+    dock: number;
+    dockTop: number;
+    composerTop: number;
+    tray: number | null;
+    ghost: boolean;
+    /// The leaving copy's own animation length (ms) as the page resolves it, once the copy is drawn.
+    leaveMs: number | null;
+    /// The leaving copy's `animation-name` (`none` = the copy plays no animation).
+    leaveName: string | null;
+  };
 
   /// Finishes the command, takes the pointer off the hat, and samples every frame until the hat and
   /// its copy have been gone for a few frames.
@@ -101,13 +128,23 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
         new Promise<Sample[]>((resolve, reject) => {
           const out: Sample[] = [];
           let goneFor = 0;
+          let leaveMs: number | null = null;
+          let leaveName: string | null = null;
           const until = performance.now() + 8_000;
           // Each painted frame's state, read after it paints (support/paintedFrames.ts).
           window.cmuxAfterPaint((at) => {
             const dock = document.querySelector<HTMLElement>("main.acpmux-main[data-dock=float] > .acpmux-dock")!;
             const composer = document.querySelector<HTMLElement>(".acpmux-composer")!;
             const tray = dock.querySelector<HTMLElement>(".acpmux-running-tray:not(.acpmux-running-tray--ghost)");
-            const ghost = dock.querySelector(".acpmux-running-tray--ghost") !== null;
+            const copy = dock.querySelector(".acpmux-running-tray--ghost");
+            const ghost = copy !== null;
+            // The leave's name and length, read once from the copy (subagents.css `--acpmux-tray-leave`).
+            if (copy && leaveMs === null) {
+              const style = getComputedStyle(copy);
+              const length = style.animationDuration.split(",")[0]!.trim();
+              leaveMs = Number.parseFloat(length) * (length.endsWith("ms") ? 1 : 1000);
+              leaveName = style.animationName.split(",")[0]!.trim();
+            }
             const box = dock.getBoundingClientRect();
             out.push({
               at,
@@ -116,6 +153,8 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
               composerTop: composer.getBoundingClientRect().top,
               tray: tray ? tray.getBoundingClientRect().top : null,
               ghost,
+              leaveMs,
+              leaveName,
             });
             goneFor = tray || ghost ? 0 : goneFor + 1;
             if (goneFor >= 6) {
@@ -150,8 +189,11 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     const spanMs = tail[firstFinal]!.at - tail[lastFull]!.at;
     const between = tail.filter((sample) => sample.dock < full - 0.05 && sample.dock > final + 0.05).length;
     const composerMoves = Math.max(...samples.map((sample) => Math.abs(sample.composerTop - samples[0]!.composerTop)));
+    const read = samples.find((sample) => sample.leaveMs !== null);
+    const leaveMs = read?.leaveMs ?? null;
+    const leaveName = read?.leaveName ?? null;
     console.log(
-      `composer-hat-leave-fold ${engine}${reduce ? " (Reduce Motion)" : ""}: hat ${hat.toFixed(1)} px, total drop ${total.toFixed(1)} px, largest step ${largest.toFixed(1)} px, ${moving} frames moving, ${between} heights between, ${spanMs.toFixed(0)} ms full to final, composer moved ${composerMoves.toFixed(1)} px`,
+      `composer-hat-leave-fold ${engine}${reduce ? " (Reduce Motion)" : ""}: hat ${hat.toFixed(1)} px, total drop ${total.toFixed(1)} px, largest step ${largest.toFixed(1)} px, ${moving} frames moving, ${between} heights between, ${spanMs.toFixed(0)} ms full to final${leaveMs === null ? "" : ` of a ${leaveMs.toFixed(0)} ms leave`}, composer moved ${composerMoves.toFixed(1)} px`,
     );
     console.log(
       `  per frame (ms, dock height, dock top, ghost): ${tail.map((sample) => `+${(sample.at - before.at).toFixed(0)}:${sample.dock.toFixed(1)}/${sample.dockTop.toFixed(1)}${sample.ghost ? "g" : ""}`).join(" ")}`,
@@ -164,6 +206,8 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
       moving,
       between,
       spanMs,
+      leaveMs,
+      leaveName,
       composerMoves,
       ghosted: samples.some((sample) => sample.ghost),
     };
@@ -176,7 +220,14 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
       expect(Math.abs(run.total - run.hat), "the stack loses exactly the hat's height").toBeLessThanOrEqual(1);
       // Headless WebKit paints sparse frames and the settle is front-loaded, so this counts wall time
       // and heights in between, not frames: the jump this replaces went from full to 0 in one frame.
-      expect(run.spanMs, "the stack takes at least 150 ms from full to final").toBeGreaterThanOrEqual(150);
+      // A copy with no animation reads `none` and 0 ms; without these two the bound below is 0.
+      expect(run.leaveName ?? "none", "the leaving copy has an animation").not.toBe("none");
+      expect(run.leaveMs ?? 0, "the leaving copy's animation has a length above zero").toBeGreaterThan(0);
+      const least = FOLD_SHARE * run.leaveMs!;
+      expect(
+        run.spanMs,
+        `the stack takes at least ${least} ms (${FOLD_SHARE} of its ${run.leaveMs} ms leave) from full to final`,
+      ).toBeGreaterThanOrEqual(least - CLOCK_SLACK_MS);
       expect(run.between, "at least two painted heights between full and final").toBeGreaterThanOrEqual(2);
       expect(run.composerMoves, "the composer never moves").toBeLessThanOrEqual(0.5);
     });

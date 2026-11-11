@@ -1,4 +1,5 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import atexit
 import copy
 from datetime import datetime, timedelta, timezone
 import base64
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import os
 import shlex
+import shutil
 import signal
 import textwrap
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -25,7 +27,10 @@ spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
-os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
+# A missing folder inside a private one: a fixed name in the shared temp folder could be planted with a repo.
+_NO_REPO_PARENT = tempfile.mkdtemp(prefix="gh-merge-green-")
+atexit.register(shutil.rmtree, _NO_REPO_PARENT, True)
+os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(_NO_REPO_PARENT, "no-repo")
 # Under GH_MERGE_GREEN_TEST the freeze check reads GH_MERGE_GREEN_FREEZE_ISSUES and
 # GH_MERGE_GREEN_FREEZE_EVENTS, never the repository's issues. Every run gets empty
 # fixtures (no freezes); a test run without them refuses.

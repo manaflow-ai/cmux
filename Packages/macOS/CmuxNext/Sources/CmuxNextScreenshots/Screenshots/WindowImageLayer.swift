@@ -87,7 +87,7 @@ package nonisolated enum WindowImageLayer: Sendable {
     ///   - image: Chromium's image of the page, the size of the page's own area.
     ///   - rect: The page's own area in window coordinates (beside docked DevTools, only its part).
     ///   - holes: Where the page window shows the window instead (window coordinates).
-    ///   - clip: The page window's shape (window coordinates), which DevTools share; nil for none.
+    ///   - clip: The page window's shape (window coordinates), for the page's image only; nil for none.
     ///   - devTools: The docked DevTools' area (window coordinates) and Chromium's image of them;
     ///     nil with none docked.
     /// - Returns: The layers to paint.
@@ -96,7 +96,9 @@ package nonisolated enum WindowImageLayer: Sendable {
         let shape = WindowImageClip(clip)
         var layers: [WindowImageLayer] = []
         if let devTools {
-            layers.append(devTools.image.map { .page($0, devTools.area, clip: shape) } ?? .notCaptured(devTools.area))
+            // Not the page window's clip: it is worked out from the page's own area, so it holds no
+            // part of DevTools beside the page and would cut their whole image away.
+            layers.append(devTools.image.map { .page($0, devTools.area) } ?? .notCaptured(devTools.area))
         }
         layers.append(.page(image, rect, holes: holes, clip: shape))
         return layers
