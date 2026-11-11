@@ -94,6 +94,7 @@ import {
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
+  remoteStartMode,
   shownModes,
 } from "./harnessModes";
 import {
@@ -960,7 +961,19 @@ export function ComposerPickers({
   // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
   // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
   // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  // A new chat whose first send starts it on a Cloud machine (`startsOnCloud`) begins in the
+  // harness's asking mode there (Claude's Manual, the Codex bridge's Ask: acpmux sets no start mode
+  // on a remote start and holds the `ask` policy, web_modes.rs). The chip names that mode, as the
+  // model chip names its model, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird").
+  const cloudStart =
+    awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
+      ? remoteStartMode(
+          summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
+          chipHarness,
+        )
+      : undefined;
   const startMode: KeptStartMode | undefined =
+    (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
     (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
     (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
@@ -976,7 +989,8 @@ export function ComposerPickers({
   // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
   // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
   // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
-  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  // sets none here (the harness's own mode applies) and for a chat on another machine (a peer, a
+  // remote host) or a harness whose Cloud start mode cmux does not know.
   const shownStart: StartMode | undefined = startMode?.borrowed
     ? startMode.modeId
       ? startMode

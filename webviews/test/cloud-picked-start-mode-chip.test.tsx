@@ -4,7 +4,10 @@
 // starts the chat, in what it decides (an asking mode: the Cloud start's policy `ask`). The access
 // chip named this Mac's acpmux start mode instead, "Bypass permissions", and the chat then came up
 // in Manual on the machine (cloud-ergo-start-chat capture, 2026-11-09). With Cloud picked, the chip
-// names no mode, as a Cloud chat's own chip does before it reports one. The real composer chips, in JSDOM.
+// names the mode the Cloud machine starts the chat in: the harness's asking mode (acpmux sets no
+// start mode on a remote start and holds the `ask` policy, web_modes.rs), Claude's Manual and the
+// Codex bridge's Ask, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird"). The real
+// composer chips, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -104,7 +107,7 @@ async function catalog(): Promise<Snapshot["catalog"]> {
 }
 
 /// A new chat on this Mac in FOLDER, before its first send; `startsOnCloud`: Cloud is picked.
-async function newChat(startsOnCloud: boolean): Promise<Snapshot> {
+async function newChat(startsOnCloud: boolean, harness = "claude"): Promise<Snapshot> {
   return {
     type: "snapshot",
     protocolVersion: 1,
@@ -116,7 +119,7 @@ async function newChat(startsOnCloud: boolean): Promise<Snapshot> {
     queue: [],
     canLoadOlder: false,
     catalog: await catalog(),
-    summary: { sessionId: "", harness: "claude", turnCount: 0, cwd: FOLDER } as Summary,
+    summary: { sessionId: "", harness, turnCount: 0, cwd: FOLDER } as Summary,
     ...(startsOnCloud ? { startsOnCloud: true } : {}),
   } as Snapshot;
 }
@@ -146,7 +149,12 @@ test("a new chat that starts on this Mac names the mode this Mac's acpmux starts
   expect(chipText()).toBe("Bypass permissions");
 });
 
-test("with Cloud picked, the chip does not promise this Mac's start mode for the Cloud chat", async () => {
+test("with Cloud picked, the chip names the mode the Cloud machine starts a Claude chat in, not this Mac's", async () => {
   await render(await newChat(true));
-  expect(chipText()).toBe("Mode");
+  expect(chipText()).toBe("Manual");
+});
+
+test("with Cloud picked, a Codex chat's chip names the bridge's asking mode", async () => {
+  await render(await newChat(true, "codex"));
+  expect(chipText()).toBe("Ask");
 });
