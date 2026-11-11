@@ -45,7 +45,7 @@ fn flaky_mark() -> String {
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE]},
+            "fake": {"family": "fake", "argv": ["python3", FAKE]},
             // Steers as Claude Code does: a prompt during a turn is read into it.
             "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
             // A turn on a lane report runs until it is cancelled.

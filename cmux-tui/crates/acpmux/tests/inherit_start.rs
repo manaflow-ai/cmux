@@ -33,7 +33,7 @@ fn hub() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
+            "fake": {"family": "fake", "argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
             // A family whose adapter reports no modes, so none that asks.
             "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_ASK_CLAIM": "0"}},
@@ -426,7 +426,7 @@ fn hub_yolo() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
+            "fake": {"family": "fake", "argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
             // A family with a plan mode that asks, as Claude's: "default", "plan" and full access.
             "planner": {"argv": ["python3", FAKE], "family": "planner", "env": {"FAKE_PLAN_MODE": "claude", "FAKE_FULL_ACCESS": "1"}},

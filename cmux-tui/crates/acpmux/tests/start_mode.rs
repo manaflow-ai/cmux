@@ -60,7 +60,7 @@ fn home(name: &str, extra: Value) -> PathBuf {
             "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
             // The same agent, which says it asks before every tool call (the fake's default,
             // `agentCapabilities._meta.acpmux.asksBeforeTools`).
-            "asker": {"argv": ["python3", FAKE_AGENT]},
+            "asker": {"family": "asker", "argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",

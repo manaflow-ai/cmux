@@ -340,7 +340,7 @@ mod tests {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
         let mut config: crate::config::Config =
             serde_json::from_value(json!({"defaultHarness":"fake",
-            "harnesses":{"fake":{"argv":["python3",fixture]}}}))
+            "harnesses":{"fake":{"family": "fake", "argv":["python3",fixture]}}}))
             .unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
         let store =
@@ -547,7 +547,7 @@ mod tests {
         use crate::server::{WsAuth, bind_ws, serve_ws_with};
         let config = || {
             let mut config: crate::config::Config = serde_json::from_value(json!({
-                "defaultHarness":"fake", "harnesses":{"fake":{"argv":["python3",
+                "defaultHarness":"fake", "harnesses":{"fake":{"family": "fake", "argv":["python3",
                     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")] }},
                 "webRoots":[std::env::temp_dir()], "webAskingModes":{"fake":["normal","strict"]}
             }))

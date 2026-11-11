@@ -30,7 +30,7 @@ const REFUSED: &str = "remote.session_cancel_ownership";
 fn hub() -> Arc<Hub> {
     let _ = HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "webRoots": [std::env::temp_dir()],

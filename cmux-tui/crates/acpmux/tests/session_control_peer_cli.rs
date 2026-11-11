@@ -28,7 +28,7 @@ const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef012345
 fn config(root: &Path) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", fake]}},
         "defaultHarness": "fake",
         // A failed turn's held prompts wait for Resume (`queue.rs` `waits_for_resume`).
         "autoResumeDelaysMs": [],

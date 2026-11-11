@@ -410,7 +410,7 @@ async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
     // A paired device prompts only a session that asks before it acts: an asking mode
     // (`remote.mode_not_asking`) and policy (`remote.policy_not_asking`, `hub/web_control.rs`).
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "webAskingModes": {"fake": ["normal"]},

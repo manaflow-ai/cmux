@@ -86,7 +86,7 @@ async fn asking_setup(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let env: BTreeMap<String, String> =
         env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake], "env": env}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", fake], "env": env}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "webAskingModes": {"fake": ["normal"]},

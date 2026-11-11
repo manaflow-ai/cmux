@@ -183,7 +183,7 @@ impl Daemon {
         let dir = std::fs::canonicalize(&dir).unwrap();
         let mut config = json!({
             "harnesses": {
-                "fake": {"argv": ["python3", FAKE]},
+                "fake": {"family": "fake", "argv": ["python3", FAKE]},
                 "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
                 "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
                 "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
