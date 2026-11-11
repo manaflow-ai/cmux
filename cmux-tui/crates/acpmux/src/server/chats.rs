@@ -64,6 +64,7 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
+mod waiting_day;
 mod team_audit;
 mod workspace_purge;
 
@@ -199,6 +200,10 @@ pub(super) async fn route(
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
+    }
+    // When each chat worked or waited on the person (`hub/ledger/waiting_day.rs`): as the ledger.
+    if m == crate::rpc::method::MUX_WAITING_DAY {
+        return waiting_day::handle(hub, conn.origin, &params);
     }
     // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
     if m == crate::rpc::method::MUX_TEAM_AUDIT {

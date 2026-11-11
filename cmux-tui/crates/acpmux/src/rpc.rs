@@ -544,6 +544,9 @@ pub mod method {
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
+    /// When each chat worked or waited on the person, over at most the last two days
+    /// (`hub/ledger/waiting_day.rs`); the local unix socket and the local app only.
+    pub const MUX_WAITING_DAY: &str = "_acpmux/waiting_day";
     /// The team's agent spend from cmux-platform's `GET /v1/usage/audit`, read with this daemon's
     /// cmux sign-in (`server/chats/team_audit.rs`); the local unix socket and the local app only.
     pub const MUX_TEAM_AUDIT: &str = "_acpmux/team_audit";

@@ -1,0 +1,111 @@
+/* Waiting on me (WaitingTimeline.tsx). The section's height is set by its rows' count once the day
+   is in, so nothing below it moves while the lanes scroll. Nothing animates. */
+.acpmux-waiting{
+  --waiting-title:minmax(0,30%);
+  --waiting-total:56px;
+  --waiting-bar:12px;
+  --waiting-working:color-mix(in srgb,var(--agent-status-success) 55%,transparent);
+  --waiting-blocked:var(--agent-status-failure);
+  display:flex;
+  flex-direction:column;
+  gap:var(--ds-space-1);
+  margin-top:var(--ds-space-3);
+  padding:var(--ds-space-2) var(--ds-space-3);
+  border-radius:16px;
+  background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);
+  font-family:var(--font-ui);
+  color:var(--agent-text);
+}
+.acpmux-waiting[data-look=ribbon]{--waiting-bar:6px}
+.acpmux-waiting[data-look=heat]{--waiting-working:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
+.acpmux-waiting-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--ds-space-2)}
+.acpmux-waiting-total{
+  margin:0;
+  font-size:var(--text-body);
+  line-height:20px;
+  letter-spacing:var(--text-body--letter-spacing);
+  font-weight:var(--weight-emphasis);
+  color:var(--agent-muted);
+}
+.acpmux-waiting-total[data-waited]{color:var(--waiting-blocked)}
+.acpmux-waiting-legend{
+  display:flex;
+  align-items:center;
+  gap:var(--ds-space-1);
+  flex:none;
+  font-size:var(--text-caption);
+  letter-spacing:var(--text-caption--letter-spacing);
+  color:var(--agent-muted);
+  white-space:nowrap;
+}
+.acpmux-waiting-legend i{display:inline-block;width:var(--ds-space-2);height:var(--ds-space-2);border-radius:4px;background:var(--waiting-working)}
+.acpmux-waiting-legend i[data-state=blocked]{background:var(--waiting-blocked)}
+.acpmux-waiting-legend i:not(:first-child){margin-left:var(--ds-space-1)}
+.acpmux-waiting-scroll{height:var(--waiting-viewport);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.acpmux-waiting-rows{position:relative;height:var(--waiting-rows)}
+.acpmux-waiting-row{
+  position:absolute;
+  inset-inline:0;
+  top:calc(var(--waiting-index) * var(--waiting-row));
+  height:var(--waiting-row);
+  display:grid;
+  grid-template-columns:var(--waiting-title) 1fr var(--waiting-total);
+  align-items:center;
+  gap:var(--ds-space-2);
+}
+.acpmux-waiting-title{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:var(--text-detail);
+  letter-spacing:var(--text-detail--letter-spacing);
+  color:var(--agent-text);
+}
+.acpmux-waiting-track{position:relative;height:var(--waiting-bar);border-radius:4px;background:color-mix(in srgb,var(--agent-muted) 10%,transparent)}
+.acpmux-waiting-tick{position:absolute;top:0;bottom:0;left:calc(var(--waiting-left) * 100%);width:1px;background:color-mix(in srgb,var(--agent-muted) 18%,transparent)}
+.acpmux-waiting-now{position:absolute;top:0;bottom:0;right:0;width:1px;background:var(--agent-muted)}
+.acpmux-waiting-span{
+  position:absolute;
+  top:0;
+  bottom:0;
+  left:calc(var(--waiting-left) * 100%);
+  width:calc(var(--waiting-width) * 100%);
+  min-width:2px;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:4px;
+  background:var(--waiting-working);
+}
+.acpmux-waiting-span[data-state=blocked]{background:var(--waiting-blocked)}
+.acpmux-waiting-span[data-state=blocked]:hover{background:color-mix(in srgb,var(--waiting-blocked) 80%,var(--agent-text))}
+.acpmux-waiting-span[data-state=blocked]:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-waiting-lane-total{
+  text-align:right;
+  font-size:var(--text-caption);
+  letter-spacing:var(--text-caption--letter-spacing);
+  font-variant-numeric:tabular-nums;
+  color:var(--agent-muted);
+  white-space:nowrap;
+}
+.acpmux-waiting-lane-total[data-waited]{color:var(--waiting-blocked)}
+/* Ribbon: the title sits over a thin ribbon across the whole row. */
+.acpmux-waiting[data-look=ribbon] .acpmux-waiting-row{grid-template-columns:1fr;grid-template-rows:auto var(--waiting-bar);align-content:center;gap:0}
+.acpmux-waiting[data-look=ribbon] .acpmux-waiting-title{font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing);line-height:16px;color:var(--agent-muted)}
+.acpmux-waiting-axis{display:grid;grid-template-columns:var(--waiting-title) 1fr var(--waiting-total);gap:var(--ds-space-2)}
+.acpmux-waiting-axis-track{grid-column:2;position:relative;height:var(--ds-space-4)}
+.acpmux-waiting[data-look=ribbon] .acpmux-waiting-axis{grid-template-columns:1fr}
+.acpmux-waiting[data-look=ribbon] .acpmux-waiting-axis-track{grid-column:1}
+.acpmux-waiting-axis-track span{
+  position:absolute;
+  left:calc(var(--waiting-left) * 100%);
+  transform:translateX(-50%);
+  font-size:var(--text-caption);
+  letter-spacing:var(--text-caption--letter-spacing);
+  line-height:16px;
+  font-variant-numeric:tabular-nums;
+  color:var(--agent-muted);
+  white-space:nowrap;
+}
+.acpmux-waiting-axis-track span:first-child{transform:none}
+.acpmux-waiting-axis-track .acpmux-waiting-now-label{left:auto;right:0;transform:none}

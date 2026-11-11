@@ -22,6 +22,7 @@
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
+    "_acpmux/waiting_day",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel"
   ],
   "notifications": ["session/cancel"],
@@ -168,6 +169,7 @@
     "_acpmux/race/list": {"params": ["parent"], "acpmux": []},
     "_acpmux/race/cancel": {"params": ["parent", "raceId"], "acpmux": []},
     "_acpmux/race/stats": {"params": ["parent"], "acpmux": []},
+    "_acpmux/waiting_day": {"params": ["since", "until"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId", "peer"], "acpmux": []},

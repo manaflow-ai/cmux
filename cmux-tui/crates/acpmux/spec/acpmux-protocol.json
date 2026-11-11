@@ -533,6 +533,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/waiting_day",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/team_audit",
       "params": true,
       "result": true

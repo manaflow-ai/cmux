@@ -207,6 +207,7 @@ import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
+import { HomeWaitingTimeline } from "./waiting/WaitingTimeline";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
@@ -4359,6 +4360,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // Waiting on me (waiting/WaitingTimeline.tsx): the day's lanes come from this page's acpmux, and a
+  // red stretch opens its chat at the turn the wait began in, once that turn's row is drawn.
+  const readWaitingDay = useCallback(
+    (params: { since: number; until: number }) =>
+      directClient.current?.waitingDay(params) ?? Promise.resolve(undefined),
+    [],
+  );
+  // Waiting on me shows only with preview features on (Settings > Advanced > Labs, off by default).
+  const [waitingLabs, setWaitingLabs] = useState(false);
+  const jumpToWait = useCallback(
+    (sessionId: string, turnId?: string) => {
+      selectSession(sessionId);
+      if (turnId) void revealTurnWhenShown(turnId);
+    },
+    [selectSession],
+  );
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -7225,6 +7242,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        // Waiting on me on the home (waiting/WaitingTimeline.tsx) ships dark behind Labs at first.
+        setWaitingLabs(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
@@ -12962,6 +12981,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
+                    {waitingLabs && (
+                      <HomeWaitingTimeline
+                        read={readWaitingDay}
+                        sessions={snapshot.sessions}
+                        linked={linkUp(snapshot.connection)}
+                        onJump={jumpToWait}
+                      />
+                    )}
                   </div>
                 )}
                 {hostLine}
