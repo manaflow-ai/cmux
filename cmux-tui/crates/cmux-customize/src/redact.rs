@@ -167,71 +167,87 @@ fn userinfo(line: &str) -> Vec<(usize, usize)> {
     found
 }
 
-/// The text of each string value whose member name is a credential's, as
-/// byte ranges inside the quotes: `"token": "…"`.
-fn credential_values(line: &str) -> Vec<(usize, usize)> {
-    // Every string literal in the line: (content start, content end).
-    let mut strings = Vec::new();
-    let mut open: Option<usize> = None;
+/// JavaScript's three quotes.
+const QUOTES: [char; 3] = ['"', '\'', '`'];
+
+/// The name a value is given to, read backwards from where the value
+/// starts: `"apiKey":`, `'apiKey' :`, `apiKey:`, `config.apiKey =`. `None`
+/// when what stands before is not a name and a `:` or `=`.
+fn name_before(before: &str) -> Option<&str> {
+    let before = before.trim_end();
+    let named = before.strip_suffix(':').or_else(|| before.strip_suffix('='))?.trim_end();
+    if let Some(quote) = named.chars().next_back().filter(|c| QUOTES.contains(c)) {
+        // A quoted name: back to the quote that opens it.
+        let inner = named.get(..named.len() - 1)?;
+        return inner.get(inner.rfind(quote)? + 1..);
+    }
+    let name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let start = named.rfind(|c: char| !name(c)).map_or(0, |at| at + 1);
+    named.get(start..).filter(|word| !word.is_empty())
+}
+
+/// The string that opens with the quote at byte `open`, as the byte range
+/// inside its quotes. A string the line does not close (a template literal
+/// that runs on) reaches the end of the line.
+fn string_at(line: &str, open: usize, quote: char) -> (usize, usize) {
+    let start = open + quote.len_utf8();
     let mut escaped = false;
-    for (at, c) in line.char_indices() {
-        match open {
-            None if c == '"' => open = Some(at + 1),
-            None => {}
-            Some(_) if escaped => escaped = false,
-            Some(_) if c == '\\' => escaped = true,
-            Some(start) if c == '"' => {
-                strings.push((start, at));
-                open = None;
-            }
-            Some(_) => {}
+    for (at, c) in line.get(start..).unwrap_or_default().char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            c if c == quote => return (start, start + at),
+            _ => {}
         }
     }
+    (start, line.len())
+}
+
+/// The text of each string whose name is a credential's, as byte ranges
+/// inside the quotes. JSON's `"token": "…"`, and what a script writes:
+/// `{apiKey: 'x'}`, `{ 'api-key': "x" }`, `const password = \`x\``.
+///
+/// Every quote is tried as the start of a value, by what stands before it,
+/// so no other quote on the line (the apostrophe in a comment's "don't")
+/// can hide one. That may mask a little prose; it never shows a value.
+fn credential_values(line: &str) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
-    for pair in strings.windows(2) {
-        let [(key_start, key_end), (value_start, value_end)] = pair else { continue };
-        let key = line.get(*key_start..*key_end).unwrap_or_default();
-        // Only `"key" : "value"`: a colon and nothing else between them.
-        let between = line.get(key_end + 1..value_start.saturating_sub(1)).unwrap_or("x");
-        if between.trim() == ":" && credential_key(key) && value_end > value_start {
-            found.push((*value_start, *value_end));
+    let mut after = 0;
+    for (at, c) in line.char_indices() {
+        if at < after || !QUOTES.contains(&c) {
+            continue;
         }
+        if !name_before(line.get(..at).unwrap_or_default()).is_some_and(credential_key) {
+            continue;
+        }
+        let (start, end) = string_at(line, at, c);
+        if end > start {
+            found.push((start, end));
+        }
+        after = end + 1;
     }
     found
 }
 
-/// A credential's member name and its value need not share a line: a
-/// formatter may put `"apiKey":` on one and the string on the next. `awaited`
-/// carries "the last thing read was a credential's name and its colon" from
-/// line to line; the answer is the byte range of the string that then
-/// arrives, inside its quotes. Blank and comment lines keep waiting.
+/// A credential's name and its value need not share a line: a formatter may
+/// put `"apiKey":` (or a script's `apiKey:`, `token =`) on one and the string
+/// on the next. `awaited` carries "the last thing read was a credential's
+/// name and its colon" from line to line; the answer is the byte range of
+/// the string that then arrives, inside its quotes. Blank and comment lines
+/// keep waiting.
 fn split_value(line: &str, awaited: &mut bool) -> Option<(usize, usize)> {
     let trimmed = line.trim();
     let mut found = None;
     if *awaited && !trimmed.is_empty() && !trimmed.starts_with("//") {
         *awaited = false;
-        if trimmed.starts_with('"') {
-            let start = line.len() - line.trim_start().len() + 1;
-            let mut escaped = false;
-            for (at, c) in line.get(start..).unwrap_or_default().char_indices() {
-                match c {
-                    _ if escaped => escaped = false,
-                    '\\' => escaped = true,
-                    '"' => {
-                        found = (at > 0).then_some((start, start + at));
-                        break;
-                    }
-                    _ => {}
-                }
-            }
+        if let Some(quote) = trimmed.chars().next().filter(|c| QUOTES.contains(c)) {
+            let open = line.len() - line.trim_start().len();
+            found = Some(string_at(line, open, quote)).filter(|(start, end)| end > start);
         }
     }
-    // `"name" :` at the end of this line, with nothing after the colon.
-    if let Some(before) = trimmed.strip_suffix(':').map(str::trim_end)
-        && let Some(inner) = before.strip_suffix('"')
-        && let Some(open) = inner.rfind('"')
-    {
-        *awaited = credential_key(inner.get(open + 1..).unwrap_or_default());
+    // A name and its `:` or `=` at the end of this line, with no value yet.
+    if trimmed.ends_with([':', '=']) {
+        *awaited = name_before(line).is_some_and(credential_key);
     }
     found
 }
@@ -333,6 +349,37 @@ mod tests {
         assert_eq!(after.lines().count(), file.lines().count());
         assert_eq!(find_secret(file), Some((5, "a value named like a password or token")));
         assert_eq!(find_secret("{\n  \"name\":\n    \"mine\"\n}\n"), None);
+    }
+
+    #[test]
+    fn a_credential_in_a_script_reads_as_the_mark_however_it_is_quoted() {
+        for (line, masked) in [
+            ("const config = {apiKey: 'private-value'};", "const config = {apiKey: '[redacted]'};"),
+            (
+                "  { 'api-key': \"private-value\", name: 'mine' }",
+                "  { 'api-key': \"[redacted]\", name: 'mine' }",
+            ),
+            ("let password = `private-value`;", "let password = `[redacted]`;"),
+            ("config.authToken = 'private-value'", "config.authToken = '[redacted]'"),
+            (
+                "headers: { Authorization: \"Bearer private-value\" }",
+                "headers: { Authorization: \"[redacted]\" }",
+            ),
+            (
+                "const tokenizer = 'kept'; let title = \"kept: too\";",
+                "const tokenizer = 'kept'; let title = \"kept: too\";",
+            ),
+            (
+                "// don't share: { apiKey: 'private-value' }",
+                "// don't share: { apiKey: '[redacted]' }",
+            ),
+        ] {
+            assert_eq!(text(line), masked);
+            assert_eq!(find_secret(line).is_some(), line != masked, "{line}");
+        }
+        let split = "const config = {\n  apiKey:\n    'private-value',\n  secret =\n    `private-value`\n};\n";
+        assert!(!text(split).contains("private-value"), "{}", text(split));
+        assert_eq!(find_secret(split), Some((3, "a value named like a password or token")));
     }
 
     #[test]

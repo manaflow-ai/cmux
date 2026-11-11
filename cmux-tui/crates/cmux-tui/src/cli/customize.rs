@@ -236,10 +236,21 @@ impl From<Error> for Failure {
         let details = match &error {
             Error::Invalid(problems) => json!({ "problems": problems }),
             Error::Untracked(skipped) => json!({ "skipped": skipped }),
+            Error::Protected(keys) => json!({ "settings": keys }),
             _ => json!({}),
         };
         Failure { code: error.code().to_owned(), message: error.to_string(), details, exit: 1 }
     }
+}
+
+/// The global options the chat commands run with: where the caller pointed
+/// (`--socket`, `--session`, `--machine`), never how it asked for output.
+/// Each chat command is given its own `--json`, so passing the caller's
+/// `--json`, `--jsonl` or `--quiet` on too would give the child two output
+/// flags, and it would refuse them.
+pub(super) fn child_globals(global: &super::GlobalArgs) -> Vec<String> {
+    let global = super::GlobalArgs { output: OutputMode::Human, ..global.clone() };
+    super::chat_start::global_words(&global)
 }
 
 /// Who reads a diff. An agent over MCP sees what the settings tools show it
@@ -283,7 +294,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(0);
     }
     let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
-    let chat = ask::Child { globals: super::chat_start::global_words(&global) };
+    let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env()
         .map_err(Failure::from)
         .and_then(|customize| execute(&customize, request, "cli", now_ms(), &chat));

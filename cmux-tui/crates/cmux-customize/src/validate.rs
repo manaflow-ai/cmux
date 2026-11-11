@@ -83,6 +83,11 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
             Part::Styles => {}
         }
     }
+    // Whatever a validator quoted from a file goes through the same masking
+    // as a diff: a problem is read by agents too.
+    for problem in &mut found {
+        problem.message = crate::redact::text(&problem.message);
+    }
     found
 }
 
@@ -109,7 +114,16 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
     );
     for diagnostic in state.snapshot().diagnostics {
         let (line, column) = line_of_key(text, &diagnostic.path).unzip();
-        found.push(Problem::at(path, line, column, diagnostic.message));
+        // The owner's message quotes the refused value, and a value may be
+        // a credential typed under the wrong key. The key and its line say
+        // where to look; the value stays in the file.
+        let message = match diagnostic.kind {
+            cmux_config::diagnostics::DiagnosticKind::InvalidValue => {
+                format!("{} has a value this setting does not accept", diagnostic.path)
+            }
+            _ => diagnostic.message,
+        };
+        found.push(Problem::at(path, line, column, message));
     }
 }
 
@@ -300,6 +314,22 @@ mod tests {
             check(SETTINGS, "{\n  // mine\n  \"appearance\": {\n    \"density\": 42\n  }\n}\n");
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("settings.json:4:5: "), "{lines:?}");
+    }
+
+    #[test]
+    fn a_problem_never_quotes_the_value_it_refuses() {
+        let lines = check(
+            SETTINGS,
+            "{\n  \"appearance\": { \"density\": { \"apiKey\": \"private-value\" } },\n  \"updates\": { \"channel\": \"my-private-ring\" }\n}\n",
+        );
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        let said = lines.join("\n");
+        assert!(!said.contains("private"), "{said}");
+        assert!(
+            said.contains("appearance.density has a value this setting does not accept"),
+            "{said}"
+        );
+        assert!(said.contains("settings.json:3:"), "{said}");
     }
 
     #[test]

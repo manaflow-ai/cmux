@@ -308,6 +308,11 @@ impl Customize {
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
+        // An open draft's files are in no generation yet, and this writes
+        // over some of them: they are kept by number first, so rollback
+        // brings them back.
+        let label = format!("the preview before the profile {}", profile.name);
+        self.keep_draft_locked(&label, origin, now_ms)?;
         let begun = self.begin_locked(&format!("profile {}", profile.name), origin, now_ms)?;
         let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
         for (path, bytes) in

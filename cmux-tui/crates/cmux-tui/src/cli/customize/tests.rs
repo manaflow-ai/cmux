@@ -308,3 +308,15 @@ fn every_answer_a_person_reads_says_what_to_run_next() {
     assert_eq!(chat_name("  make   it  pop "), "Customize: make it pop");
     assert!(chat_name(&"x".repeat(80)).ends_with('…'));
 }
+
+/// The chat child gets one output flag, its own: `cmux --json customize …`
+/// does not hand it a second.
+#[test]
+fn the_chat_child_never_gets_the_callers_output_flag() {
+    use crate::cli::{GlobalArgs, OutputMode};
+    for output in [OutputMode::Json, OutputMode::JsonLines, OutputMode::Quiet, OutputMode::Human] {
+        let global =
+            GlobalArgs { output, session: Some("work".to_owned()), ..GlobalArgs::default() };
+        assert_eq!(super::child_globals(&global), ["--session", "work"], "{output:?}");
+    }
+}

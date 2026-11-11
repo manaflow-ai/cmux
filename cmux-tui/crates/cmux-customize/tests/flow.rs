@@ -613,10 +613,14 @@ fn two_profile_imports_at_once_lose_neither() {
             settings.contains("\"compact\"") && settings.contains("\"night\""),
             "round {round}: an import was lost: {settings}"
         );
-        // Both are asks of one draft, over one baseline.
+        // Both are asks of one draft, over one baseline. What the first
+        // wrote is kept by number before the second writes over it.
         let status = home.customize().status().unwrap();
         assert_eq!(status.draft.unwrap().asks.len(), 2);
-        assert_eq!(home.customize().generations().unwrap().generations.len(), 1);
+        let history = home.customize().generations().unwrap();
+        assert_eq!(history.current, Some(1));
+        let kinds: Vec<Kind> = history.generations.iter().map(|g| g.kind).collect();
+        assert_eq!(kinds, [Kind::Autosaved, Kind::Baseline]);
     }
 }
 
@@ -708,4 +712,118 @@ fn the_verbs_cost_no_more_than_the_files_they_read() {
         large < small * 8 + std::time::Duration::from_millis(50),
         "status: {small:?} for 100 files, {large:?} for 400"
     );
+}
+
+const CU_ON: &str = "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"computerUse\": { \"enabled\": true }\n}\n";
+const CU_OFF: &str = "{\n  \"appearance\": { \"density\": \"compact\" },\n  \"computerUse\": { \"enabled\": false }\n}\n";
+
+/// An agent's rollback or discard never turns back on what the person
+/// turned off: it is held to the settings an agent may set, like
+/// `settings_set`. The person's own restore goes through.
+#[test]
+fn an_agent_cannot_restore_a_setting_only_the_person_can_change() {
+    let home = Home::new();
+    home.write("cmux-next.json", CU_ON);
+    home.write("themes/night.json", "{ \"name\": \"night\" }\n");
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    // The person turns Computer Use off by hand and applies it.
+    home.write("cmux-next.json", CU_OFF);
+    customize.apply(None, "cli", 2).unwrap();
+
+    match customize.rollback(Some(1), "mcp", 3) {
+        Err(Error::Protected(keys)) => assert_eq!(keys, ["computerUse.enabled"]),
+        other => panic!("the agent turned Computer Use back on: {other:?}"),
+    }
+    assert_eq!(home.read("cmux-next.json").unwrap(), CU_OFF);
+    assert_eq!(customize.generations().unwrap().current, Some(2));
+    let said = Error::Protected(vec!["computerUse.enabled".to_owned()]).to_string();
+    assert!(said.contains("computerUse.enabled") && !said.contains("true"), "{said}");
+
+    // The same through a draft: the person turns it on again without
+    // applying, then off is what a discard would restore. Going the other
+    // way (generation 2 has it off, live has it on) is refused as well: the
+    // gate is the key, not the direction.
+    customize.begin("try a theme", "mcp", 4).unwrap();
+    home.write("cmux-next.json", CU_ON);
+    assert!(matches!(customize.discard("mcp", 5), Err(Error::Protected(_))));
+    assert_eq!(home.read("cmux-next.json").unwrap(), CU_ON);
+    // The person's own discard is theirs to make.
+    customize.discard("cli", 6).unwrap();
+    assert_eq!(home.read("cmux-next.json").unwrap(), CU_OFF);
+
+    // What an agent may set, it may put back: a restore that leaves the
+    // protected settings as they are goes through.
+    home.write("themes/night.json", "{ \"name\": \"midnight\" }\n");
+    home.write("cmux-next.json", &CU_OFF.replace("compact", "cozy"));
+    customize.apply(None, "cli", 7).unwrap();
+    let back = customize.rollback(Some(2), "mcp", 8).unwrap();
+    assert_eq!(back.generation.n, 2);
+    assert_eq!(home.read("cmux-next.json").unwrap(), CU_OFF);
+    assert_eq!(home.read("themes/night.json").unwrap(), "{ \"name\": \"night\" }\n");
+}
+
+/// A script's credentials are hidden however the script quotes them:
+/// in every diff, and in what a saved profile carries.
+#[test]
+fn a_credential_in_a_script_is_hidden_from_diffs_and_profiles() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    home.write("customize/main.js", "const config = {apiKey: 'private-value'};\n");
+    home.write("customize/other.js", "const config = {\n  'token':\n    `private-value`,\n};\n");
+    home.write("customize/plain.js", "const title = 'kept';\n");
+    for reader in [Reader::Agent, Reader::Person] {
+        let live = diff_text(&customize.diff(reader).unwrap());
+        assert!(!live.contains("private-value"), "{reader:?}: {live}");
+        assert!(live.contains("+const config = {apiKey: '[redacted]'};"), "{live}");
+        assert!(live.contains("+const title = 'kept';"), "{live}");
+    }
+    customize.apply(None, "cli", 2).unwrap();
+    let shown = diff_text(&customize.generation_diff(2, Reader::Agent).unwrap());
+    assert!(!shown.contains("private-value"), "{shown}");
+
+    let saved = customize.save_profile("mine", "", 3).unwrap();
+    assert!(!fs::read_to_string(&saved.path).unwrap().contains("private-value"));
+    assert_eq!(saved.files, ["customize/plain.js".to_owned()]);
+    let said = saved.left_out.join("\n");
+    assert!(said.contains("customize/main.js: line 1 looks like a secret"), "{said}");
+    assert!(said.contains("customize/other.js: line 3 looks like a secret"), "{said}");
+}
+
+/// A profile imported into an open preview writes over files no generation
+/// holds yet: they are kept by number first, so rollback brings them back.
+#[test]
+fn a_profile_imported_into_an_open_preview_keeps_what_it_writes_over() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write("customize/main.js", "let v = 1;\n");
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    customize.begin("a bigger sidebar", "cli", 2).unwrap();
+    home.write("customize/main.js", "let v = 2; // the preview\n");
+
+    let profile = profile_of(
+        "{\"appearance.density\":\"compact\"}",
+        "{\"customize/main.js\":\"let v = 3;\\n\"}",
+    );
+    customize.preview_profile(&profile, "cli", 3).unwrap();
+    assert_eq!(home.read("customize/main.js").unwrap(), "let v = 3;\n");
+    let history = customize.generations().unwrap();
+    // The preview is generation 2, kept and not current.
+    assert_eq!(history.current, Some(1));
+    let kept = history.generations.first().unwrap();
+    assert_eq!((kept.n, kept.kind), (2, Kind::Autosaved));
+    assert_eq!(kept.label, "the preview before the profile x");
+
+    // Importing again keeps the first import's result (generation 3), once:
+    // a third import of the same bytes has nothing new to keep.
+    customize.preview_profile(&profile, "cli", 4).unwrap();
+    customize.preview_profile(&profile, "cli", 5).unwrap();
+    assert_eq!(customize.generations().unwrap().generations.len(), 3);
+
+    customize.rollback(Some(2), "cli", 5).unwrap();
+    assert_eq!(home.read("customize/main.js").unwrap(), "let v = 2; // the preview\n");
+    assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
 }

@@ -28,6 +28,28 @@ impl Customize {
         Roots::from_env().map(Customize::open).ok_or(Error::NoHome)
     }
 
+    /// Keeps an open draft's live files as their own generation before
+    /// something writes over them (a profile import into the draft). The
+    /// applied generation stays current. `None` with no draft, or nothing
+    /// to keep. The caller holds the store's lock.
+    pub(crate) fn keep_draft_locked(
+        &self,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Option<u32>, Error> {
+        if self.store.draft()?.is_none() {
+            return Ok(None);
+        }
+        let mut index = self.store.index()?;
+        let tree = self.capture()?;
+        let last = index.generations.last().map(|last| self.store.tree(last.n)).transpose()?;
+        if tree == self.current_tree(&index)? || last.as_ref() == Some(&tree) {
+            return Ok(None);
+        }
+        Ok(Some(self.record(&mut index, Kind::Autosaved, &tree, origin, label, now_ms)?.n))
+    }
+
     pub(crate) fn store(&self) -> &Store {
         &self.store
     }
@@ -376,6 +398,27 @@ impl Customize {
                 wanted.insert(path.clone(), (self.store.object(&entry.sha)?, entry.exec));
             }
         }
+        // An agent may put back only what it may set: a restore that would
+        // also change a setting only the person can change (they turned
+        // Computer Use off since) is refused whole, as `settings_set` refuses
+        // the key. The person's own restore is theirs to make.
+        if origin == AGENT_ORIGIN {
+            let now = tree::read(&self.roots, tree::SETTINGS)?.unwrap_or_default();
+            let then = match wanted.get(tree::SETTINGS) {
+                Some((bytes, _)) => Some(bytes.as_slice()),
+                // A restore that removes the settings file removes every key.
+                None if live.contains_key(tree::SETTINGS)
+                    && !target_tree.contains_key(tree::SETTINGS) =>
+                {
+                    Some(&b""[..])
+                }
+                None => None,
+            };
+            let protected = then.map(|then| protected_changes(&now, then)).unwrap_or_default();
+            if !protected.is_empty() {
+                return Err(Error::Protected(protected));
+            }
+        }
         let mut kept_as = None;
         if live != self.current_tree(index)? {
             let tree = self.capture()?;
@@ -399,6 +442,30 @@ impl Customize {
         self.store.prune(index)?;
         Ok(Restored { generation: target, kept_as, changes: changes(&live, &target_tree, None) })
     }
+}
+
+/// The origin the MCP tools act under: an agent, held to what an agent may
+/// set.
+pub const AGENT_ORIGIN: &str = "mcp";
+
+/// The keys of the settings only the person may change whose value differs
+/// between two texts of the settings file.
+fn protected_changes(now: &[u8], then: &[u8]) -> Vec<String> {
+    let read = |bytes: &[u8]| {
+        cmux_config::jsonc::parse(&String::from_utf8_lossy(bytes))
+            .unwrap_or(serde_json::Value::Null)
+    };
+    let (now, then) = (read(now), read(then));
+    cmux_config::Schema::embedded()
+        .rows
+        .iter()
+        .filter(|row| !row.agent_settable)
+        .filter(|row| {
+            cmux_config::value::value_at(&now, &row.path)
+                != cmux_config::value::value_at(&then, &row.path)
+        })
+        .map(|row| row.key.clone())
+        .collect()
 }
 
 /// What the draft asked for, in one line.

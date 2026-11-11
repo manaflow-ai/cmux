@@ -175,6 +175,9 @@ pub enum Error {
     /// folder) stand where a restore or an import would write; nothing was
     /// changed.
     Untracked(Vec<Skipped>),
+    /// An agent's restore would change settings only the person may change
+    /// (the keys); nothing was changed.
+    Protected(Vec<String>),
 }
 
 impl Error {
@@ -188,6 +191,7 @@ impl Error {
             Error::NothingEarlier => "customize.nothing_earlier",
             Error::Profile(_) => "customize.profile",
             Error::Untracked(_) => "customize.untracked",
+            Error::Protected(_) => "customize.protected",
         }
     }
 }
@@ -213,6 +217,12 @@ impl std::fmt::Display for Error {
             }
             Error::NothingEarlier => f.write_str("there is no earlier generation to roll back to"),
             Error::Profile(why) => f.write_str(why),
+            Error::Protected(keys) => write!(
+                f,
+                "nothing was changed: putting that setup back would also change {} that only the person can change ({}). They can run the same `cmux customize` command themselves in a terminal",
+                count(keys.len(), "setting"),
+                keys.join(", ")
+            ),
             Error::Untracked(files) => {
                 write!(
                     f,
