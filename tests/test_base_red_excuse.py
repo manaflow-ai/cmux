@@ -976,7 +976,8 @@ class PortableGhLog(unittest.TestCase):
 
     def test_logs_use_the_flag_and_strip_ansi_in_python(self):
         raw = self.read("")
-        self.assertIn("\x1b[31mred", raw)
+        # The reader strips the colour gh served, once, so no parser sees it (#41329's review F2).
+        self.assertEqual(raw, "2026-10-30T12:00:00.000Z red log\n")
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
@@ -3794,6 +3795,69 @@ sys.exit(1)
 """
 
 
+class GhReadByMethod(unittest.TestCase):
+    """gh_read (the gh reads GitHub.run keeps for the judgement) classifies by the HTTP method gh sends (review of
+    cmux#41312 at 67c48fb7, F1): an explicit GET reads, any other explicit method writes, a field or --input with no
+    method is gh's POST, and a GraphQL call reads only as a query. A write is never answered from the memo."""
+
+    R = f"repos/{REPO}/commits/{HEAD}"
+    QUERY = "query($owner: String!) { repository(owner: $owner, name: \"cmux\") { id } }"
+    TABLE = (
+        # REST with no method and no body: GET.
+        (["api", R], True),
+        (["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/7/logs"], True),
+        (["api", R, "--jq", ".sha"], True),
+        (["api", "-H", "Accept: application/vnd.github+json", R], True),
+        # An explicit GET reads, in every spelling; its fields are query parameters.
+        (["api", "-X", "GET", R], True),
+        (["api", "--method", "GET", R], True),
+        (["api", "--method=GET", R], True),
+        (["api", "-XGET", R], True),
+        (["api", "--method", "get", R], True),
+        (["api", "-X", "GET", "search/issues", "-f", "q=repo:o/r is:open"], True),
+        # Any other explicit method writes.
+        (["api", "-X", "POST", f"repos/{REPO}/actions/workflows/w.yml/dispatches", "-f", "ref=main"], False),
+        (["api", "--method", "PATCH", f"repos/{REPO}/pulls/1"], False),
+        (["api", "--method=PUT", f"repos/{REPO}/pulls/1/merge"], False),
+        (["api", "-XDELETE", f"repos/{REPO}/git/refs/heads/x"], False),
+        (["api", "-X", "POST", R], False),
+        # A field or --input with no method is gh's POST.
+        (["api", f"repos/{REPO}/issues/1/comments", "-f", "body=hi"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-F", "body=@note.md"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--field", "labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--raw-field=labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-fbody=hi"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input", "status.json"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input=-"], False),
+        # GraphQL: a query reads, a mutation writes, and a body gh_read cannot see is a write.
+        (["api", "graphql", "-f", f"query={QUERY}", "-f", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query={ viewer { login } }"], True),
+        (["api", "graphql", "-F", f"query={QUERY}", "-F", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query=mutation { addComment(input: {}) { clientMutationId } }"], False),
+        (["api", "graphql", "-f", "query=\n  mutation M { x }"], False),
+        (["api", "graphql", "-F", "query=mutation{x}"], False),
+        (["api", "graphql", "-F", "query=@query.graphql"], False),
+        (["api", "graphql", "--input", "body.json"], False),
+        (["api", "graphql", "-f", "owner=o"], False),
+        # Other gh commands: `gh run view` reads; anything else is not a read gh_read knows.
+        (["run", "view", "10", "--repo", REPO, "--job", "7", "--log"], True),
+        (["run", "rerun", "10", "--failed"], False),
+        (["pr", "merge", "1"], False),
+    )
+
+    def test_each_argv_shape_by_its_effective_method(self):
+        for args, read in self.TABLE:
+            with self.subTest(args=args):
+                self.assertIs(excuse.gh_read(args), read)
+
+    def test_the_clients_own_reads_are_reads(self):
+        owner, _, name = REPO.partition("/")
+        blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"expression={HEAD}:Package.swift"]
+        self.assertTrue(excuse.gh_read(blob))
+        self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
+
+
 class OneReadPerJudgement(unittest.TestCase):
     """The real gh client at its wire (subprocess.Popen of gh, under main_fix_evidence.GitHub.run): in one judgement
     each read (`gh api` REST and GraphQL, a job's log) goes out once, however often it is asked, and a write every
@@ -5821,8 +5885,12 @@ class WsCheckGitHub:
                  "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
-            lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
+            # PRINTED is the step's lines, or {unit: lines} for a step split into units: each unit its own group and
+            # result line, labelled "STEP [UNIT]" (leo-workspace ws_check_run.py since its units).
+            for label, out in ([(f"{step} [{unit}]", out) for unit, out in printed.items()]
+                               if isinstance(printed, dict) else [(step, printed)]):
+                lines += [f"##[group]{label}", *out, "##[endgroup]",
+                          f"ws-check step FAILED: {label} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -5897,6 +5965,43 @@ class WsCheckPerTest(unittest.TestCase):
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
         self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_step_split_into_units_is_read_from_each_units_lines(self):
+        # leo-workspace#4322 at aa928f1c (run 43011639090): ws_check_run.py labels each unit's group and result line
+        # "STEP [UNIT]" and ends it with its CPU (", cpu 16.4 s, 18.3 s)"), while WS_CHECK_RESULT names the STEP. Read
+        # only as "ws-check step FAILED: STEP (exit", the red was refused "has no 'ws-check step FAILED: ...' line"
+        # though the log held it, so no red split into units could be excused.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        red = {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned"),
+                       "test_lane_place.py 2/4": self.ws_deploy("test_place")}}
+        self.gh.verdict(HEAD, 1, red, seconds=", cpu 16.4 s, 18.3 s")
+        self.gh.verdict(self.gh.TIP, 2, red, seconds=", cpu 15.0 s, 17.9 s")
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        for suite, test in (("test_ws_deploy_swap.py", "test_old_releases_are_pruned"),
+                            ("test_lane_place.py", "test_place")):
+            self.assertIn(f"excused 'ws-check' test '{other} :: [{suite}] {test} (__main__.FastForward.{test})': "
+                          f"red on main {self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)",
+                          audit)
+        # A test of one unit that main does not fail is still the head's own, whatever unit main's red is in.
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned")}},
+                        seconds=", cpu 15.0 s, 17.9 s")
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_place"):
+            self.judge()
+
+    def test_a_same_named_test_in_another_suite_does_not_excuse_it(self):
+        # cmux#41298 F1: every suite runs as __main__, so test_new.py's and test_old.py's test_check both print
+        # "test_check (__main__.FastForward.test_check)". Read by name alone, main's red in test_old.py excused the
+        # head's new red in test_new.py. A test is named with its suite; only a shard number may differ.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_new.py": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_old.py": self.ws_deploy("test_check")}})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*\[test_new\.py\] test_check"):
+            self.judge()
+        # The same suite in another shard is the same test.
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
@@ -9001,7 +9106,8 @@ LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unpl
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
-NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+# unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read", "unjudged"})
 
 
 def raw_log_reads(source, next_batch_source=None):
@@ -10120,6 +10226,17 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                 self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
                 self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
 
+    def test_a_recap_only_retry_counts_its_titles_once_placed_and_whole(self):
+        # #41329's review F1: two attempts that each recap `a > one` counted it twice, refused against a base that
+        # failed it once. The retry drops the superseded attempt's recap titles too.
+        retried = self.BASE_RECAP + ["--- retry, alone ---"] + self.BASE_RECAP
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(retried, self.BASE_RECAP)[0].startswith("excused "))
+                with self.assertRaisesRegex(excuse.Refused, "a > one"):
+                    path(self.HEAD_RECAP + ["--- retry, alone ---"]
+                         + self.HEAD_RECAP, self.BASE_RECAP)
+
     def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
         # The same rule for a name its results print twice: the placed path compared the window by name alone.
         twice = bun_lines(results=["a > one", "a > one"])
@@ -10135,6 +10252,81 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                     results=["a > one"], fail=2)
                 with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
                     path(unnamed_retry, self.BASE_ONE)
+
+
+
+class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
+    """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
+    recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base
+    alone excuses it, yet the combined window does. For each test, require the identity, diagnostic and count to all
+    hold on one verdict." """
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    NEWEST = bun_lines(recap=["a > one"], fail=1)
+    # bun with no file header names its results by title alone, as the recap does: the same test, its own error.
+    OLDER = ["bun test v1.3.0", "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]",
+             "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+
+    def judge(self, *bases):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, *self.HEAD_RECAP)
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                     "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            github.jobs[run] = failed_job(run, run, BASE_SHA)
+            github.logs[run] = log(SWIFT, TEST_STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_each_base_alone_refuses_it(self):
+        for bases in ((self.NEWEST,), (self.OLDER,)):
+            with self.subTest(base=bases[0][-1]), self.assertRaises(excuse.Refused):
+                self.judge(*bases)
+
+    def test_the_window_does_not_combine_one_verdicts_identity_with_anothers_count(self):
+        with self.assertRaisesRegex(excuse.Refused, "a > one x2"):
+            self.judge(self.NEWEST, self.OLDER)
+
+    def test_one_verdict_with_all_three_still_excuses(self):
+        said = self.judge(self.NEWEST, self.HEAD_RECAP)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+
+class SplitSectionsAreNeverJudgedAgain(unittest.TestCase):
+    """#41329's review follow-up F3 (base_red_excuse.py:1487): "re-parsing the concatenated failed sections runs
+    passed_steps again, so a failed section with no ##[error] can be read as passing and its unnamed Bun count dropped.
+    Parse each failed section on its own, and never re-judge pass or fail on text that's already been split." A
+    FailedView's text is a test_reds.Steps: each section is read as the failed step it was placed as."""
+
+    def sections(self):
+        echo = lambda script: [f"2026-11-11T12:00:0{n}.0Z {line}" for n, line in enumerate(
+            [f"##[group]Run {script}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"])]
+        # A failed step that printed no `##[error]` (the jobs API says it failed), then the step that did.
+        quiet = echo("bun test test/a.test.ts") + [f"2026-11-11T12:00:05.0Z {line}" for line in
+                                                     bun_lines(results=["a > one"], fail=2)]
+        loud = echo("cargo test") + [f"2026-11-11T12:00:09.0Z {line}" for line in (
+            "test tests::reconnects ... FAILED",
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+            "##[error]Process completed with exit code 101.")]
+        return quiet, loud
+
+    def view(self):
+        quiet, loud = self.sections()
+        steps = [{"name": "bun", "conclusion": "failure"}, {"name": "cargo", "conclusion": "failure"}]
+        return excuse.FailedView({"id": 1, "steps": steps}, False, steps,
+                                 [(0, "FAILED", quiet), (1, "FAILED", loud)])
+
+    def test_a_failed_sections_bun_count_is_kept_without_an_error_line(self):
+        view = self.view()
+        own = excuse.owned_unnamed(excuse.test_reds.read("\n".join(sum(self.sections(), []))), view)
+        self.assertEqual(own.unnamed, [" 2 fail"])
+        self.assertTrue(any(why.startswith(excuse.test_reds.UNNAMED_WHY) for why in own.truncated), own.truncated)
+        unnamed: list = []
+        excuse.test_reds.failed_in(excuse.view_text(view), unnamed)
+        self.assertEqual(unnamed, [" 2 fail"])
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):
@@ -11388,6 +11580,13 @@ SCANNERS = {
     "test_reds.volatile": lambda f: TR.volatile(f.log),
     "test_reds.log_lines": lambda f: TR.log_lines(f.log),
     "test_reds.lines_of": lambda f: TR.lines_of(f.log),
+    "test_reds.plain": lambda f: TR.plain(f.log),
+    "test_reds.step_sections": lambda f: TR.step_sections(f.log),
+    "test_reds.unjudged": lambda f: TR.unjudged(f.log),
+    "test_reds.red_steps": lambda f: TR.red_steps(f.log),
+    "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
+    "test_reds.step_lines": lambda f: TR.step_lines(f.log),
     "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
     "test_reds.check_rule_failure": lambda f: TR.check_rule_failure(f.log),
     "test_reds.failed_names": lambda f: TR.failed_names(f.lines),
@@ -11403,6 +11602,7 @@ SCANNERS = {
     "test_reds.signal_of": lambda f: TR.signal_of(f.log),
     "test_reds.bun_diagnostic": lambda f: TR.bun_diagnostic(f.lines, "a.test.ts:1"),
     "test_reds.read_bun": lambda f: TR.read_bun(f.lines, TR.Result()),
+    "test_reds._read_bun_step": lambda f: TR._read_bun_step(f.lines, 0, [], TR.Result()),
     "test_reds.read": lambda f: TR.read(f.log),
     "test_reds.parse_log": lambda f: TR.parse_log(f.log),
     "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
@@ -11575,6 +11775,7 @@ def module_patterns():
 # made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
 KNOWN_SUPERLINEAR = {
     "base_red_excuse.ANSI": "an OSC escape (`\\x1b]`) never closed by BEL or ESC \\\\ reads to the end",
+    "test_reds.ANSI": "base_red_excuse.ANSI's pattern, test_reds' copy since #41382 (its plain()): the same OSC read",
     "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
     "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
     "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
