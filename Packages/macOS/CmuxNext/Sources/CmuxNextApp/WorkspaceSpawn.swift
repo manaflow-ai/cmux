@@ -167,6 +167,8 @@ struct WorkspaceSpawner {
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: start.cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        // A browser workspace: one request, and its window shows it once the tab is there (no terminal, no empty frame).
+        if let tab = spawn.firstBrowser, daemon.supports(DaemonCapability.workspaceFirstTab.rawValue) { return try await FirstTabHold.creating(key.rawValue, windows: windows) { try await spawn.madeFirstBrowser(repair.createBrowserWorkspace(key, name: spawn.name, tab: tab, on: connection), on: connection) } ?? key.rawValue }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).

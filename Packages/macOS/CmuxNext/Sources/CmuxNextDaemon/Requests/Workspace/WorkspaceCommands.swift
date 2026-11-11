@@ -6,18 +6,26 @@ public struct CreateWorkspaceRequest: DaemonRequest {
     public var name: String?
     public var key: WorkspaceKey?
     public var mutation: MutationIdentity?
+    /// `workspace-first-tab-v1`: the workspace's first tab, made by this request; the reply names it
+    /// (``WorkspaceMutationResult/firstTab``). Send it only to a daemon that serves the capability.
+    public var firstTab: WorkspaceFirstBrowserTab?
 
-    public init(name: String? = nil, key: WorkspaceKey? = nil, mutation: MutationIdentity?) {
+    public init(name: String? = nil, key: WorkspaceKey? = nil, firstTab: WorkspaceFirstBrowserTab? = nil, mutation: MutationIdentity?) {
         self.name = name
         self.key = key
+        self.firstTab = firstTab
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case name, key }
+    enum CodingKeys: String, CodingKey {
+        case name, key
+        case firstTab = "first_tab"
+    }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(key, forKey: .key)
+        try c.encodeIfPresent(firstTab, forKey: .firstTab)
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
