@@ -230,13 +230,31 @@ class _DropOptionalImports(ast.NodeTransformer):
 
 @lru_cache(maxsize=None)
 def _code(source: bytes):
-    """The module's code with optional imports removed, or None when it does not parse."""
+    """(the module's code with optional imports removed, None) or (None, why it does not parse)."""
     try:
         tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return None
-    tree = ast.fix_missing_locations(_DropOptionalImports().visit(tree))
-    return compile(tree, "<scanned>", "exec")
+        tree = ast.fix_missing_locations(_DropOptionalImports().visit(tree))
+        return compile(tree, "<scanned>", "exec"), None
+    except RecursionError:
+        raise  # the stack, not the file: never cached as "does not parse"; find_modules names it
+    except Exception as error:  # SyntaxError (non-UTF-8 bytes too), ValueError (null bytes), MemoryError
+        return None, f"it does not parse ({_error_text(error)})"
+
+
+ANALYSIS_FAILED = "analysis failed"
+DEEP_IMPORT_CHAIN = "RecursionError: too deep for this check to follow (its import chain or its code's nesting)"
+
+
+def _error_text(error: BaseException) -> str:
+    """A short, path-free name for an error this check hit, so a finding reads the same in every tree."""
+    if isinstance(error, RecursionError):
+        return DEEP_IMPORT_CHAIN
+    if isinstance(error, SyntaxError):
+        why = error.msg.split(" (", 1)[0] if error.msg else "invalid syntax"
+        return f"{type(error).__name__}: {why}" + (f", line {error.lineno}" if error.lineno else "")
+    if isinstance(error, OSError):
+        return f"{type(error).__name__}: {error.strerror or error}"
+    return f"{type(error).__name__}: {error}"
 
 
 class _Finder(modulefinder.ModuleFinder):
@@ -246,6 +264,8 @@ class _Finder(modulefinder.ModuleFinder):
         super().__init__(path=path)
         self.importer: dict[str, str] = {}  # module -> the module whose import statement loaded it
         self._scanning: list[str] = []
+        self.by_path: set[str] = set()  # modules a spec_from_file_location loads by path, not by name
+        self.failures: list[tuple[str, str]] = []  # (file, why this check cannot follow it)
 
     def scan_code(self, co, m):
         # `from . import x` reaches import_hook with no caller, so the module being scanned is it.
@@ -260,6 +280,17 @@ class _Finder(modulefinder.ModuleFinder):
         # script); Python raises there at run time too, and loads nothing, so skip just that import.
         module = self.modules.get(self._scanning[-1]) if self._scanning else None
         for what, args in super().scan_opcodes(co):
+            if what == "relative_import" and module is not None and module.__name__ in self.by_path:
+                # Loaded by path, its package is whatever name the loader passed, not one this check
+                # can know: the import cannot be followed (ModuleFinder would raise on it).
+                level, fromlist, name = args
+                statement = f"from {'.' * level}{name or ''} import {', '.join(fromlist or ()) or '*'}"
+                self.failures.append((
+                    module.__file__,
+                    f"loaded by path, it makes a package-relative import ({statement}): unresolved, "
+                    "needs the whole package dir; import it by its package name instead",
+                ))
+                continue
             if what == "relative_import" and not args[2] and module is not None:
                 try:
                     self.determine_parent(module, level=args[0])
@@ -294,9 +325,11 @@ class _Finder(modulefinder.ModuleFinder):
             return module
         if kind != modulefinder._PY_SOURCE:
             return super().load_module(fqname, fp, pathname, file_info)
-        code = _code(fp.read())
+        code, why = _code(fp.read())
         module = self.add_module(fqname)
         module.__file__ = pathname
+        if why is not None:
+            self.failures.append((pathname, why))  # Python dies on it too; its imports are unknown
         if code is not None:
             module.__code__ = code
             self.scan_code(code, module)
@@ -320,7 +353,7 @@ def find_modules(
     search: tuple[str, ...],
     module: str | None = None,
     loaded: tuple[tuple[str, str], ...] = (),
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], tuple[tuple[str, str, bool], ...]]:
     """Run ModuleFinder on `script` in `tree` with this search path (tree-relative folders, in order).
 
     `module` is None for `python script.py`, or the dotted name for `python -m module`: then the
@@ -328,26 +361,43 @@ def find_modules(
     run time. `loaded` are (file, loader file) pairs a spec_from_file_location loads by path; each one
     in the tree is scanned too, with the same search path.
 
-    Returns ({module: where it loads from}, {module: its importer}). Places are tree-relative: a
-    file, or a folder ending in "/" for a namespace package. Modules outside the tree (builtins) and
-    the script itself (__main__) are left out.
+    Returns ({module: where it loads from}, {module: its importer}, failures). Places are
+    tree-relative: a file, or a folder ending in "/" for a namespace package. Modules outside the tree
+    (builtins) and the script itself (__main__) are left out. It never raises: each (file, why,
+    fatal) failure names a file this check could not follow (one that does not parse, a loaded-by-path
+    target's package-relative import) or, `fatal`, a scan that stopped on an error, so the closure is
+    unknown (a missing script, an import chain too deep to follow, anything ModuleFinder raises).
     """
     tree = tree.resolve()
     finder = _Finder([str(tree / rel) if rel else str(tree) for rel in search])
+    fatal: list[tuple[str, str, bool]] = []
     with _importer_cache_scope(tree):
-        if module is None:
-            finder.run_script(str(tree / script))
-        else:
-            try:
-                finder.import_hook(module)
-            except ImportError:
-                pass  # the same in both runs when the module is not there
+        try:
+            if module is None:
+                finder.run_script(str(tree / script))
+            else:
+                try:
+                    finder.import_hook(module)
+                except ImportError:
+                    pass  # the same in both runs when the module is not there
+        except Exception as error:
+            fatal.append((script, _error_text(error), True))
         for file, loader in loaded:
             if (tree / file).is_file():
                 name = f"<loaded {file}>"
-                with open(tree / file, "rb") as fp:
-                    finder.load_module(name, fp, str(tree / file), (".py", "rb", modulefinder._PY_SOURCE))
+                finder.by_path.add(name)
+                try:
+                    with open(tree / file, "rb") as fp:
+                        finder.load_module(name, fp, str(tree / file), (".py", "rb", modulefinder._PY_SOURCE))
+                except Exception as error:
+                    fatal.append((file, _error_text(error), True))
                 finder.importer[name] = loader  # a file, not a module: find_misses reads it as a place
+    failures = []
+    for path, why in finder.failures:
+        location = Path(path) if path else None
+        if location is not None and location.is_relative_to(tree):
+            path = location.relative_to(tree).as_posix()
+        failures.append((path or script, why, False))
     places: dict[str, str] = {}
     for name, found in finder.modules.items():
         if name == "__main__":
@@ -362,7 +412,7 @@ def find_modules(
             continue
         if location.is_relative_to(tree):
             places[name] = location.relative_to(tree).as_posix() + suffix
-    return places, finder.importer
+    return places, finder.importer, tuple(dict.fromkeys(failures + fatal))
 
 
 # --- dynamic imports: fail closed -------------------------------------------------------------
@@ -404,6 +454,10 @@ DYNAMIC_CALLS = {
     "runpy.run_path",
     "runpy.run_module",
     "__import__",
+    # The same builtin by its qualified name: `builtins.__import__(...)`, and through _aliases
+    # `import builtins as b; b.__import__(...)` or `from builtins import __import__ as load; load(...)`.
+    "builtins.__import__",
+    "__builtins__.__import__",
 }
 SYS_PATH_ASSIGNMENT = "sys.path assignment"
 
@@ -687,6 +741,13 @@ def dynamic_calls(
     relative string literal names a path from `cwd`, the run's working directory (repo-relative; None
     when this check cannot resolve it, and then no literal is a fixed path)."""
     try:
+        return _dynamic_calls(root, rel, cwd)
+    except Exception as error:  # a file that does not parse is ModuleFinder's finding; anything else is one here
+        return (), (), ((ANALYSIS_FAILED, 0, _error_text(error)),)
+
+
+def _dynamic_calls(root: Path, rel: str, cwd: str | None):
+    try:
         tree = ast.parse((root / rel).read_bytes())
     except (OSError, SyntaxError, ValueError):
         return (), (), ()
@@ -905,7 +966,15 @@ def full_run(
     repeats until neither changes. A search that comes back to an earlier state without settling is
     one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places.
     `base` is sys.path[0] (run_configs): the script's folder for `python script.py`, else the step's
-    working directory. `cwd` is the run's working directory, for relative literals in path changes."""
+    working directory. `cwd` is the run's working directory, for relative literals in path changes.
+    It never raises: a file this check cannot follow is an unresolved (file, ANALYSIS_FAILED, 0, why)."""
+    try:
+        return _full_run(root, script, extra, how, audited, names, base, cwd)
+    except Exception as error:
+        return {}, {}, (), (), ((script, ANALYSIS_FAILED, 0, _error_text(error)),)
+
+
+def _full_run(root, script, extra, how, audited, names, base, cwd):
     if base is None:
         base = default_base(script, how)
     module = how[0] if how else None
@@ -916,10 +985,14 @@ def full_run(
     states: list[tuple] = []
     for _ in range(20):
         search = tuple(dict.fromkeys([*front, base, *extra, *back]))
-        places, importer = find_modules(root, script, search, module, tuple(loaded.items()))
+        places, importer, failures = find_modules(root, script, search, module, tuple(loaded.items()))
+        failed = tuple((file, ANALYSIS_FAILED, 0, why) for file, why, _ in failures)
+        if any(stopped for *_, stopped in failures):
+            # The scan stopped part way: the files it would load are unknown, so report only that.
+            return {}, {}, search, (), failed
         files = dict.fromkeys([script, *(p for p in places.values() if not p.endswith("/"))])
         new_loaded: dict[str, str] = {}
-        unresolved = []
+        unresolved = list(failed)
         rel_ops = []
         for rel in files:
             path_ops, loads, calls = dynamic_calls(root, rel, cwd)
@@ -1018,14 +1091,19 @@ def sparse_runs(
     runs: tuple[tuple[tuple, tuple[str, ...], str | None, tuple[tuple[str, str], ...]], ...],
 ) -> tuple[frozenset[str], dict[tuple, dict[str, str] | None]]:
     """The files this list checks out of `files`, and each run's modules in that tree (None if its
-    script is not in it). A run is keyed as in find_misses, with its search path, module and loaded files."""
+    script is not in it), and each run's failures there (find_modules). A run is keyed as in
+    find_misses, with its search path, module and loaded files."""
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp).resolve()
         present = make_sparse_tree(tree, entries, files, root)
-        return present, {
-            run: find_modules(tree, run[0], search, module, loaded)[0] if run[0] in present else None
-            for run, search, module, loaded in runs
-        }
+        out: dict[tuple, dict[str, str] | None] = {}
+        failed: dict[tuple, tuple[tuple[str, str, bool], ...]] = {}
+        for run, search, module, loaded in runs:
+            if run[0] not in present:
+                out[run] = None
+                continue
+            out[run], _, failed[run] = find_modules(tree, run[0], search, module, loaded)
+        return present, out, failed
 
 
 # --- workflows --------------------------------------------------------------------------------
@@ -1975,11 +2053,18 @@ def run_configs(
     return configs, list(dict.fromkeys(bad))
 
 
-def non_cone_sparse_steps(root: Path):
+def non_cone_sparse_steps(root: Path, unreadable: list[str] | None = None):
     """(workflow, job, step name, entries, workflow document, job) per actions/checkout step with a
-    non-cone sparse list."""
+    non-cone sparse list. A workflow that does not read or parse raises, or with `unreadable` given
+    is one line there naming it, and the rest are still read."""
     for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as error:
+            if unreadable is None:
+                raise
+            unreadable.append(f"{path.name} unverifiable: {_error_text(error)}")
+            continue
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
         for job_id, job in (jobs or {}).items():
             job = job or {}
@@ -2005,7 +2090,19 @@ UNVERIFIABLE = "which this check cannot follow; make the import static or audit 
 def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> list[str]:
     """One line per (step, missing module), naming the module that imports it; one per (step, file,
     call) for an unaudited dynamic import in a listed script's closure, and per (step, script,
-    entry) for a PYTHONPATH entry that cannot be resolved; one per stale audit entry."""
+    entry) for a PYTHONPATH entry that cannot be resolved; one per (step, file, why) for a file this
+    check cannot follow (ANALYSIS_FAILED); one per stale audit entry. It never raises: an error
+    anywhere else is one line naming it, so the guard reports instead of crashing."""
+    try:
+        return _find_misses(root, audit)
+    except Exception as error:
+        return [f"{CHECK_FAILED} ({_error_text(error)})"]
+
+
+CHECK_FAILED = "sparse-checkout import check: unverifiable, the check itself failed"
+
+
+def _find_misses(root: Path, audit: dict[tuple[str, ...], str] | None) -> list[str]:
     root = root.resolve()
     audit = audit or {}
     audited = {normal_audit_key(key) for key in audit}
@@ -2016,7 +2113,8 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
     ran_in: dict[str, set[str | None]] = {}  # file -> working directories its checked runs read it from
-    for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
+    unreadable: list[str] = []  # workflows that do not read or parse, one line each
+    for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root, unreadable):
         listed = listed_ci_scripts(entries, root)
         if not listed:
             continue
@@ -2042,7 +2140,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             files |= _files_for(places, root)
         # Files the list names stay too, so its patterns see the neighbours they see in the real tree.
         files |= {rel for rel in (e.lstrip("/") for e in entries if not e.startswith("!")) if rel and (root / rel).is_file()}
-        present, sparse = sparse_runs(
+        present, sparse, sparse_failed = sparse_runs(
             root,
             tuple(entries),
             frozenset(files),
@@ -2051,15 +2149,23 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
         found: dict[str, tuple[str, str]] = {}  # missing place -> (importer's place, listed script)
         unverifiable: dict[tuple[str, str, str], tuple[int, str]] = {}  # (file, call, args) -> (line, script)
         unsettled: dict[str, str] = {}  # script -> the files its search trades
+        failed: dict[tuple[str, str], str] = {}  # (file, why this check cannot follow it) -> listed script
         for run in runs:
             script = run[0]
             if sparse[run] is None:
                 continue  # excluded by a "!" entry: not checked out, nothing to run
             places, importer, _, _, calls = full[run]
+            if not any(call == ANALYSIS_FAILED for _, call, _, _ in calls):
+                # Only a tree the full run could follow: a file the list leaves out fails here as a miss.
+                calls = calls + tuple((f, ANALYSIS_FAILED, 0, why) for f, why, _ in sparse_failed.get(run, ()))
             for rel, call, line, text in calls:
                 key = (rel, call, text)
                 if call == SEARCH_DOES_NOT_SETTLE:
                     unsettled.setdefault(rel, text)
+                    continue
+                if call == ANALYSIS_FAILED:
+                    if (rel, text) not in failed or rel == script:
+                        failed[(rel, text)] = script
                     continue
                 if key not in audited and (key not in unverifiable or (rel == script and unverifiable[key][1] != rel)):
                     unverifiable[key] = (line, script)
@@ -2091,8 +2197,12 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
                 f"{prefix}{rel} {what} (line {line}), {UNVERIFIABLE}" + ("" if rel == script else f" (via {script})")
             )
         misses += [f"{prefix}{rel} unverifiable: {SEARCH_DOES_NOT_SETTLE} ({what})" for rel, what in sorted(unsettled.items())]
+        misses += [
+            f"{prefix}{rel} unverifiable: {why}" + ("" if rel == script else f" (via {script})")
+            for (rel, why), script in sorted(failed.items())
+        ]
         misses += sorted(set(bad_paths))
-    return misses + stale_audit_entries(root, audit, ran_in)
+    return unreadable + misses + stale_audit_entries(root, audit, ran_in)
 
 
 # --- shell fixtures and the bash oracle -------------------------------------------------------
@@ -3793,6 +3903,19 @@ def _oracle_program(seed: int) -> tuple[dict[str, str], str, dict, str]:
     rng.shuffle(calls)  # functions run in any order, not their definition order
     for _ in range(rng.randint(1, 3)):
         calls.insert(rng.randint(0, len(calls)), import_line())
+    # The builtin __import__ under each of its names, drawn from a stream of its own so every other
+    # seed's program stays as it was. The checker must call each unverifiable, never miss its module.
+    # Rare (5%): each one makes its program unverifiable, and the test keeps a floor of verified runs.
+    dyn = random.Random(seed * 2 + 1)
+    if dyn.random() < 0.05:
+        name = dyn.choice(offered)[0]
+        stmt = dyn.choice((
+            f"__import__({name!r})\n",
+            f"import builtins\nbuiltins.__import__({name!r})\n",
+            f"import builtins as _b\n_b.__import__({name!r})\n",
+            f"from builtins import __import__ as load\nload({name!r})\n",
+        ))
+        calls.insert(dyn.randint(0, len(calls)), stmt)
     files[entry] = "".join(body + functions + calls) + _ORACLE_TRACE
 
     python = "python3" if rng.random() < 0.15 else "python3 -S"
@@ -3823,6 +3946,8 @@ def _unverifiable_reason(root: Path, cwd: str | None, entry: str, unresolved: tu
     rel, call, _line, text = unresolved[0]
     if call == SEARCH_DOES_NOT_SETTLE:
         return SEARCH_DOES_NOT_SETTLE
+    if call == ANALYSIS_FAILED:
+        return f"{ANALYSIS_FAILED}: {text.split(' (', 1)[0]}"
     where = "the entry script" if rel == entry else "an imported module"
     path_ops = dynamic_calls(root, rel, cwd)[0]
     if any(op[3] == call and op[5] == text for op in path_ops):
@@ -4048,6 +4173,156 @@ class SparseCheckoutOracleTests(unittest.TestCase):
             _oracle_extra_file = False
         self.assertGreater(len(result.supersets), ORACLE_SUPERSET_LIMIT, result.report())
         self.assertEqual(result.divergences, [])
+
+
+class GuardNeverRaisesTests(unittest.TestCase):
+    """Review of #40829: the guard reports, never raises. Every input it cannot follow (a loaded-by-path
+    target's package-relative import, a file that does not parse or is not UTF-8, a file that is not
+    there, an import chain deeper than the stack) is a named finding, and the builtin __import__ is a
+    dynamic import under every name it goes by. Strings here are literals, not this file's constants,
+    so the same tests run against an older checker (the red run)."""
+
+    _fixture = SparseCheckoutImportTests._fixture
+    _misses = SparseCheckoutImportTests._misses
+    block = SparseCheckoutImportTests.block
+    PREFIX = "w.yml run Check out: "
+
+    def test_review_40829_f1_a_loaded_target_with_a_package_relative_import_is_a_finding(self) -> None:
+        for body, statement in (
+            ("import deadline_http\nfrom .helper import go\n", "from .helper import go"),
+            ("from . import helper\n", "from . import helper"),
+            ("def later():\n    from ..ci import helper\n", "from ..ci import helper"),
+        ):
+            with self.subTest(statement=statement):
+                more = {
+                    "scripts/ci/relload.py": (
+                        "import importlib.util\nfrom pathlib import Path\n"
+                        "spec = importlib.util.spec_from_file_location('t', Path(__file__).parent / 'rpkg' / 'target.py')\n"
+                    ),
+                    "scripts/ci/rpkg/__init__.py": "",
+                    "scripts/ci/rpkg/target.py": body,
+                    "scripts/ci/rpkg/helper.py": "",
+                }
+                listed = self.block("scripts/ci/relload.py", "scripts/ci/rpkg/target.py", "scripts/ci/deadline_http.py")
+                self.assertEqual(
+                    self._misses(listed, more=more),
+                    [
+                        f"{self.PREFIX}scripts/ci/rpkg/target.py unverifiable: loaded by path, it makes a "
+                        f"package-relative import ({statement}): unresolved, needs the whole package dir; "
+                        "import it by its package name instead (via scripts/ci/relload.py)"
+                    ],
+                )
+
+    def test_review_40829_f2_the_builtin_import_by_its_qualified_and_aliased_names(self) -> None:
+        more = {
+            "scripts/ci/bimp.py": "import builtins\nmod = builtins.__import__('helper')\n",
+            "scripts/ci/bimp_as.py": "import builtins as b\nmod = b.__import__('helper')\n",
+            "scripts/ci/bimp_from.py": "from builtins import __import__ as load\nmod = load('helper')\n",
+            "scripts/ci/bimp_dunder.py": "import os\nmod = __builtins__.__import__('helper')\n",
+        }
+        for script, call in (
+            ("scripts/ci/bimp.py", "builtins.__import__"),
+            ("scripts/ci/bimp_as.py", "builtins.__import__"),
+            ("scripts/ci/bimp_from.py", "builtins.__import__"),
+            ("scripts/ci/bimp_dunder.py", "__builtins__.__import__"),
+        ):
+            with self.subTest(script=script):
+                listed = self.block(script, "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+                self.assertEqual(
+                    self._misses(listed, more=more),
+                    [
+                        f"{self.PREFIX}{script} calls {call}('helper') (line 2), which this check cannot "
+                        "follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                    ],
+                )
+
+    def test_review_40829_f2_real_python_loads_through_the_aliased_builtin(self) -> None:
+        # Under real Python each form loads witness.py; a checker that misses the call names only the
+        # entry script: a divergence. It must say it cannot verify the run.
+        outside = set(sys.stdlib_module_names) | _installed_names()
+        for form in (
+            "import builtins\nbuiltins.__import__('witness')\n",
+            "from builtins import __import__ as load\nload('witness')\n",
+        ):
+            with self.subTest(form=form):
+                files = {"scripts/ci/bentry.py": "import os\n" + form + _ORACLE_TRACE, "scripts/ci/witness.py": ""}
+                outcome, detail = _oracle_judge(files, "scripts/ci/bentry.py", {"run": "python3 scripts/ci/bentry.py"}, outside)
+                self.assertEqual(outcome, "unverifiable", detail)
+
+    def test_review_40829_a_file_that_does_not_parse_is_a_finding(self) -> None:
+        more = {
+            "scripts/ci/bad_syntax.py": "def broken(:\n",
+            "scripts/ci/imports_bad.py": "import bad_mod\n",
+            "scripts/ci/bad_mod.py": "x = (\n",
+        }
+        for listed, file, via in (
+            (("scripts/ci/bad_syntax.py",), "scripts/ci/bad_syntax.py", ""),
+            # Listed, bad_mod.py is an entry script of its own, so the line names it directly.
+            (("scripts/ci/imports_bad.py", "scripts/ci/bad_mod.py"), "scripts/ci/bad_mod.py", ""),
+        ):
+            with self.subTest(file=file):
+                misses = self._misses(self.block(*listed), more=more)
+                self.assertEqual(len(misses), 1, misses)
+                self.assertTrue(misses[0].startswith(f"{self.PREFIX}{file} unverifiable: it does not parse (SyntaxError: "), misses)
+                self.assertTrue(misses[0].endswith(f", line 1){via}"), misses)
+
+    def test_review_40829_a_file_that_is_not_utf8_is_a_finding(self) -> None:
+        for listed, file, via in (
+            (("scripts/ci/latin.py",), "scripts/ci/latin.py", ""),
+            (("scripts/ci/latin_user.py", "scripts/ci/latin.py"), "scripts/ci/latin.py", ""),
+        ):
+            with self.subTest(file=file), tempfile.TemporaryDirectory() as tmp:
+                root = self._fixture(Path(tmp), self.block(*listed), more={"scripts/ci/latin_user.py": "import latin\n"})
+                (root / "scripts/ci/latin.py").write_bytes(b"import os\nname = '\xe9t\xe9'\n")
+                misses = find_misses(root)
+                self.assertEqual(len(misses), 1, misses)
+                self.assertTrue(misses[0].startswith(f"{self.PREFIX}{file} unverifiable: it does not parse (SyntaxError: "), misses)
+                self.assertTrue(misses[0].endswith(f"){via}"), misses)
+        # A workflow file that is not UTF-8 is one named line too, not a UnicodeDecodeError.
+        with tempfile.TemporaryDirectory() as tmp:
+            listed = self.block("scripts/ci/runner.py", "scripts/ci/helper.py", "scripts/ci/deadline_http.py")
+            root = self._fixture(Path(tmp), listed)
+            (root / ".github/workflows/latin.yml").write_bytes(b"name: caf\xe9\n")
+            misses = find_misses(root)
+            self.assertEqual(len(misses), 1, misses)
+            self.assertTrue(misses[0].startswith("latin.yml unverifiable: UnicodeDecodeError: "), misses)
+
+    def test_review_40829_a_file_that_is_not_there_is_a_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture(Path(tmp), self.block("scripts/ci/runner.py")).resolve()
+            places, importer, _, loaded, unresolved = full_run(root, "scripts/ci/gone.py", (), None)
+            self.assertEqual(
+                unresolved,
+                (("scripts/ci/gone.py", "analysis failed", 0, "FileNotFoundError: No such file or directory"),),
+            )
+            self.assertEqual((places, importer, loaded), ({}, {}, ()))
+            # A loaded-by-path target that is not there is the load call's finding (dynamic_calls).
+            more = {
+                "scripts/ci/loads_gone.py": (
+                    "import importlib.util\nfrom pathlib import Path\n"
+                    "spec = importlib.util.spec_from_file_location('g', Path(__file__).with_name('gone.py'))\n"
+                ),
+            }
+            self.assertEqual(
+                self._misses(self.block("scripts/ci/loads_gone.py"), more=more),
+                [
+                    f"{self.PREFIX}scripts/ci/loads_gone.py calls importlib.util.spec_from_file_location('g', "
+                    "Path(__file__).with_name('gone.py')) (line 3), which this check cannot follow; make the "
+                    "import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                ],
+            )
+
+    def test_review_40829_an_import_chain_deeper_than_the_stack_is_a_finding(self) -> None:
+        depth = 3 * sys.getrecursionlimit()
+        more = {f"scripts/ci/deep/d{i}.py": f"import d{i + 1}\n" for i in range(depth)}
+        more[f"scripts/ci/deep/d{depth}.py"] = ""
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/deep/d0.py"), more=more),
+            [
+                f"{self.PREFIX}scripts/ci/deep/d0.py unverifiable: RecursionError: too deep for this check to "
+                "follow (its import chain or its code's nesting)"
+            ],
+        )
 
 
 if __name__ == "__main__":
