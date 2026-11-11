@@ -787,7 +787,16 @@ export function ThreadMinimap({
             return box.top - node.getBoundingClientRect().top - LANDING_OFFSET - topInsetNow.current;
           },
           SETTLE_FRAMES,
-          { explicit: true },
+          {
+            explicit: true,
+            // Until the row is drawn, the landing follows the prompt's top in the transcript's layout
+            // as it is now. A jump to a prompt an older page just brought in reads the layout of the
+            // commit before that page measured, which put the prompt 32,000 px down a 300-turn chat;
+            // the row was never drawn there, so nothing corrected it: a click on prompt 60 left the
+            // reader on prompt 245 (Leo, 2026-11-10: "The scroll rail isn't working right now. ...
+            // I don't know where my last chat just went").
+            unmeasured: () => target() - node.scrollTop,
+          },
         );
       if (how === "scrub" || how === "click" || !row || reducedMotion()) {
         stopScroll(node);
