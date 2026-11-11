@@ -10,8 +10,10 @@ exact-files check fails on a stale file, or a publish step ships it. Only these 
 - a directory a step created for the job (`${{ steps.<id>.outputs.<name> }}`);
 - a workspace directory an earlier `actions/checkout` of the job cleaned (its default clean removes untracked
   files under its `path`, the workspace when it has none), unless `clean: false`. Only a checkout that runs
-  whenever the download does counts: one with no `if:`, or the download's own `if:`, and no `continue-on-error`.
-  A checkout into `path: tooling` cleans `tooling`, not `dist`.
+  whenever the download does counts: one with no `if:`, the download's own `if:`, or one the download's `if:`
+  requires as a top-level `&&` operand; and no `continue-on-error`, unless a retry checkout of the same path
+  follows under `if: steps.<id>.outcome == 'failure'`. A checkout into `path: tooling` cleans `tooling`, not
+  `dist`.
 
 Every download-artifact step of a job on a self-hosted selector must write to one of them. Hosted and Blacksmith
 runners are one-shot VMs and are not held to this.
@@ -58,21 +60,69 @@ def workspace_relative(path: str) -> str | None:
     return "/".join(parts)
 
 
+EXPRESSION = re.compile(r"^\$\{\{(.*)\}\}$", re.DOTALL)
+
+
 def condition(step: Mapping[str, Any]) -> str:
-    return " ".join(str(step.get("if", "")).split())
+    text = " ".join(str(step.get("if", "")).split())
+    match = EXPRESSION.match(text)
+    return " ".join(match.group(1).split()) if match else text
 
 
-def cleans(step: Mapping[str, Any], options: Mapping[str, Any]) -> bool:
+def conjuncts(expression: str) -> list[str]:
+    """The top-level `&&` operands of an expression, each without its enclosing parentheses; [expression] when
+    it has none (a top-level `||` makes it one operand)."""
+    parts, depth, quote, start, i = [], 0, False, 0, 0
+    while i < len(expression):
+        c = expression[i]
+        if c == "'":
+            quote = not quote
+        elif not quote and c == "(":
+            depth += 1
+        elif not quote and c == ")":
+            depth -= 1
+        elif not quote and depth == 0 and expression.startswith("||", i):
+            return [strip_parens(expression)]
+        elif not quote and depth == 0 and expression.startswith("&&", i):
+            parts.append(expression[start:i])
+            start = i + 2
+            i += 1
+        i += 1
+    parts.append(expression[start:])
+    return [strip_parens(part) for part in parts]
+
+
+def strip_parens(expression: str) -> str:
+    expression = expression.strip()
+    while expression.startswith("(") and expression.endswith(")"):
+        depth = 0
+        for i, c in enumerate(expression):
+            depth += c == "("
+            depth -= c == ")"
+            if depth == 0 and i < len(expression) - 1:
+                return expression  # `(a) && (b)`: the outer parentheses are not one group
+        expression = expression[1:-1].strip()
+    return expression
+
+
+def runs_whenever(checkout_if: str, download_if: str) -> bool:
+    """A checkout under `checkout_if` ran whenever a download under `download_if` runs: it has no condition, the
+    same one, or one the download's condition requires as a top-level `&&` operand."""
+    return not checkout_if or checkout_if == download_if or strip_parens(checkout_if) in conjuncts(download_if)
+
+
+def cleans(options: Mapping[str, Any]) -> bool:
     """A checkout that removes the untracked files under its path: `clean` absent or literally true (an
-    expression may be false), and it cannot fail past (`continue-on-error`)."""
+    expression may be false)."""
     clean = options.get("clean", True)
-    return (clean is True or str(clean).strip().lower() == "true") and not step.get("continue-on-error")
+    return clean is True or str(clean).strip().lower() == "true"
 
 
 def stale_downloads(job: Mapping[str, Any]) -> list[str]:
     """The download-artifact steps of one job whose output directory can hold an earlier job's files."""
     found = []
     cleaned: list[tuple[str, str]] = []  # (directory under the workspace, the `if:` its checkout ran under)
+    may_fail: dict[str, str | None] = {}  # id of a cleaning checkout with continue-on-error -> its directory
     for step in job.get("steps") or []:
         if not isinstance(step, dict):
             continue
@@ -80,8 +130,19 @@ def stale_downloads(job: Mapping[str, Any]) -> list[str]:
         options = step.get("with") if isinstance(step.get("with"), dict) else {}
         if uses.startswith("actions/checkout"):
             directory = workspace_relative(str(options.get("path", "")))
-            if directory is not None and cleans(step, options):
-                cleaned.append((directory, condition(step)))
+            if directory is None or not cleans(options):
+                continue
+            if step.get("continue-on-error"):  # it may fail and leave the directory as it was
+                if step.get("id") and not condition(step):
+                    may_fail[str(step["id"])] = directory
+            else:
+                when = condition(step)
+                # The retry of a checkout that may fail (`if: steps.<id>.outcome == 'failure'`): one of the two
+                # cleaned the directory, or the job failed here.
+                retry = re.fullmatch(r"steps\.([A-Za-z0-9_-]+)\.outcome == 'failure'", when)
+                if retry and may_fail.get(retry.group(1)) == directory:
+                    when = ""
+                cleaned.append((directory, when))
         elif uses.startswith("actions/download-artifact"):
             path = str(options.get("path", "")).strip()
             if FRESH_PATH.match(path):
@@ -89,7 +150,7 @@ def stale_downloads(job: Mapping[str, Any]) -> list[str]:
             target = workspace_relative(path)
             when = condition(step)
             if target is not None and any(
-                    (not ran_if or ran_if == when) and (not directory or target == directory
+                    runs_whenever(ran_if, when) and (not directory or target == directory
                                                          or target.startswith(directory + "/"))
                     for directory, ran_if in cleaned):
                 continue
@@ -234,6 +295,27 @@ class SelfHostedDownloads(unittest.TestCase):
         self.assertEqual(len(problems({"w.yml": fixture(POOL, [may_fail, download])})), 1)
         maybe_clean = {"uses": CHECKOUT, "with": {"clean": "${{ inputs.clean }}"}}
         self.assertEqual(len(problems({"w.yml": fixture(POOL, [maybe_clean, download])})), 1)
+
+    def test_a_download_whose_condition_requires_the_checkouts_runs_with_it(self) -> None:
+        checkout = {"uses": CHECKOUT, "if": "env.A != 'true' || steps.r.outputs.x != 'true'"}
+        both = {"uses": DOWNLOAD, "if": "${{ (env.A != 'true' || steps.r.outputs.x != 'true') && (steps.p.outputs.ok != 'true') }}",
+                "with": {"name": "a", "path": "dist"}}
+        self.assertEqual(problems({"w.yml": fixture(POOL, [checkout, both])}), [])
+        either = dict(both, **{"if": "(env.A != 'true' || steps.r.outputs.x != 'true') || steps.p.outputs.ok"})
+        self.assertEqual(len(problems({"w.yml": fixture(POOL, [checkout, either])})), 1)
+        other = dict(both, **{"if": "env.A != 'true' && steps.p.outputs.ok"})
+        self.assertEqual(len(problems({"w.yml": fixture(POOL, [checkout, other])})), 1)
+
+    def test_a_checkout_that_may_fail_counts_only_with_its_retry(self) -> None:
+        download = {"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}
+        first = {"uses": CHECKOUT, "id": "checkout", "continue-on-error": True}
+        retry = {"uses": CHECKOUT, "if": "steps.checkout.outcome == 'failure'"}
+        self.assertEqual(problems({"w.yml": fixture(POOL, [first, retry, download])}), [])
+        self.assertEqual(len(problems({"w.yml": fixture(POOL, [first, download])})), 1)
+        wrong = dict(retry, **{"if": "steps.other.outcome == 'failure'"})
+        self.assertEqual(len(problems({"w.yml": fixture(POOL, [first, wrong, download])})), 1)
+        elsewhere = dict(retry, **{"with": {"path": "tooling"}})
+        self.assertEqual(len(problems({"w.yml": fixture(POOL, [first, elsewhere, download])})), 1)
 
     def test_a_one_shot_runner_is_not_held_to_it(self) -> None:
         for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"):

@@ -294,8 +294,8 @@ jobs:
       # The PyPI publisher runs in a container that mounts the workspace but not the runner's temp
       # directory, so the distributions it uploads are staged into a workspace directory emptied first
       # (this persistent runner may hold an earlier job's files there), and the staged copy is the one
-      # verified. tests/test_ci_self_hosted_downloads_are_fresh.py ContainerActions keeps runner.temp
-      # out of every container action's inputs.
+      # verified. The self-hosted downloads guard's ContainerActions check keeps runner.temp out of
+      # every container action's inputs.
       - name: Stage the bootstrap distributions for the publisher
         run: |
           set -euo pipefail
