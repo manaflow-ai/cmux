@@ -78,6 +78,7 @@ import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 import { AgentMessageRow } from "./AgentMessageRow";
 import { UnverifiedMark } from "./UnverifiedMark";
+import { unnamedSender, whyOf } from "./unverifiedSender";
 import { senderHarness, senderAbout, senderLabel } from "./incomingMessageCardModel";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
@@ -208,7 +209,9 @@ export function SenderChip({
   const recorded = useSenderSessionName(message, false);
   const name =
     (message.chief && chief?.name) ||
-    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
+    (message.unverified && !message.name.trim()
+      ? unnamedSender(t, message.identified)
+      : senderLabel(recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -301,7 +304,7 @@ export function SenderChip({
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}
-      {withMark && message.unverified && <UnverifiedMark />}
+      {withMark && message.unverified && <UnverifiedMark why={whyOf(message)} />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
@@ -470,7 +473,11 @@ export function IncomingMessageLine({
   // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
   // the toggle's label and the reply editor's, the machine already shown beside it.
   const recorded = useSenderSessionName(message, Boolean(person));
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) ||
+    (message.unverified && !message.name.trim()
+      ? unnamedSender(t, message.identified)
+      : senderLabel(recorded, sender.host));
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
@@ -662,7 +669,7 @@ export function IncomingMessageLine({
         previewClassName="cv-received__preview"
         name={from}
         nameSlot={<SenderChip message={message} onOpen={onOpen} />}
-        unverified={message.unverified === true}
+        unverified={message.unverified ? whyOf(message) : false}
         preview={preview || t("message.noText")}
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}

@@ -121,8 +121,10 @@ extension AgentIncoming {
         switch kind {
         case "unverified":
             // No proof names its sender (a plain `acpmux send` at a shell, a script): never the
-            // person's. A name it signs first is its claim (the Mac's `namedFirst`).
-            var card = one("", body)
+            // person's. A name it signs first is its claim (the Mac's `namedFirst`). The program the
+            // daemon itself identified behind the send (`identified.program`, acpmux
+            // sender_program.rs), when it found one, names it instead of "Unverified sender".
+            var card = one(provenance?["identified"]?["program"]?.nonEmpty ?? "", body)
             card.unverified = true
             return card
         case "inbox_notice":

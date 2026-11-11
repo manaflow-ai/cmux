@@ -974,18 +974,21 @@ pub(super) async fn handle_request(
         }
         _ => {}
     }
-    // What the socket peer's process chain shows of a send that names its harness, looked at
-    // once here, before the outbox keeps it or a peer gets it (`sender_harness.rs`).
+    // What the socket peer's process chain shows of a local send (its harness, its app, the
+    // program that ran it), looked at once here, before the outbox keeps it or a peer gets it
+    // (`sender_harness.rs`, `sender_program.rs`). Not for a caller-proven session or the proven
+    // person: the daemon knows who sent theirs.
     if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
         let (pid, carried) = crate::sender_harness::check_trust(
             conn.socket_peer,
             conn.origin == super::Origin::Local,
             conn.origin == super::Origin::Peer && conn.auth.peer_daemon(),
         );
+        let walk = pid.filter(|_| !conn.is_person() && conn.caller().is_none());
         let prompt =
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
-            crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+            crate::sender_harness::stamp_checked(prompt, walk, carried).await;
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
@@ -1787,7 +1790,14 @@ async fn dispatch_request_with_identity(
                 .flatten()
                 .and_then(|sender| sender.relay)
                 .map(|relay| relay.name());
-            let declared = crate::hub::declared_sender(&params)?.or(relayed);
+            // A send naming no sender whose program the host's registry names (`~/.acpmux/
+            // senders.json`, `sender_program.rs`: our outbox relay runs `acpmux send` with no
+            // `--from`) is that sender's, never the person's. Only for a connection that proved
+            // no session and no person; `label` below says whether it is verified.
+            let registered = (conn.caller().is_none() && !person_admitted(conn, &params))
+                .then(|| crate::sender_program::registered_name(&params))
+                .flatten();
+            let declared = crate::hub::declared_sender(&params)?.or(relayed).or(registered);
             // Keep a caller's `--from` label beside authenticated caller provenance. The label
             // is display-only; `fromSessionId` is still stamped below from the caller token.
             let provenance = provenance.map(|provenance| {
@@ -1858,6 +1868,14 @@ async fn dispatch_request_with_identity(
                     claimed_labels(conn, &params),
                 )),
             };
+            // How a sender the daemon could not bind is labelled, by the program it found running
+            // the send (`sender_program::label`): a named sender whose program the registry lists
+            // for that name is `verified` by its program, any other carries what was
+            // `identified`. Labels only: nothing above (the person, the owner's terminal, who may
+            // do what) read them, and none of them makes a prompt the person's.
+            let provenance = provenance.map(|p| {
+                crate::sender_program::label(p, crate::sender_program::checked_of(&params))
+            });
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
             let provenance = provenance.map(|p| match conn.origin {
                 super::Origin::Peer => {
@@ -3448,7 +3466,10 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
 /// the person's (`attest_person` reads `person_admitted` only).
 pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
-    let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
+    // A script the daemon found behind the send (`sender_program::scripted`: an interpreter
+    // running a script file, our outbox relay's python) is a program, not the person typing.
+    let scripted = crate::sender_program::scripted(params);
+    let labels = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
         [
             "fromAgent",
             crate::prompt_provenance::FROM_HARNESS,
@@ -3459,6 +3480,7 @@ pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
         .iter()
         .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
     });
+    let claims = scripted || labels;
     conn.origin == super::Origin::Local
         && !conn.is_trigger()
         && conn.caller().is_none()

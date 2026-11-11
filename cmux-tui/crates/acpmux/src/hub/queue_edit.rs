@@ -217,7 +217,7 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
 
 /// The fields of another sender's provenance its card is drawn from (`prompt_sender.rs`, the
 /// apps' `incomingMessage.ts` and `AgentIncoming.swift`): who sent it and how sure acpmux is.
-const SENDER_FIELDS: [&str; 14] = [
+const SENDER_FIELDS: [&str; 17] = [
     "from",
     "fromName",
     "fromShortName",
@@ -232,6 +232,10 @@ const SENDER_FIELDS: [&str; 14] = [
     crate::prompt_provenance::VERIFIED,
     crate::prompt_provenance::TRANSPORT,
     crate::prompt_provenance::FORWARDED_BY,
+    // How the daemon labelled the sender by its program (`sender_program.rs`): labels only.
+    "verifiedBy",
+    "program",
+    crate::sender_program::IDENTIFIED,
 ];
 
 /// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it

@@ -3,22 +3,30 @@
 // Code in Claude desktop, a terminal or the SDK, Codex, an MCP client such as an assistant agent.
 // `claimed` is what the sender's own environment said (self-reported, so anything could have
 // said it); `checked` is what the daemon found walking the process chain from the socket's peer
-// pid. Neither names who sent it: the row's sender stays what acpmux's provenance says.
+// pid, and the program it found running the send (`program`, acpmux sender_program.rs). Neither
+// names who sent it: the row's sender stays what acpmux's provenance says.
 //
 // Leo, 2026-11-07: "could it possibly detect that you sent it as the Claude Code desktop?"
+// A claim the daemon's look does not confirm is never drawn as if proven: when the daemon found the
+// program, the chip names that program and the claim is only said in its tooltip (Leo, 2026-11-11,
+// on our outbox relay's python drawn as an "Xcode" chip: "generally the "unverified sender" things
+// should be more verified").
 
 export type SentFrom = {
   promptId: string;
   /** The harness or app, as it reported itself (`claude-code`, `codex`, an MCP client's name). */
   harness: string;
-  /** What the person reads: "Claude desktop", "Claude Code", "Codex", or the reported name. */
+  /** What the person reads: "Claude desktop", "Claude Code", "Codex", or the reported name; the
+   * program the daemon found (`outbox_relay.py`) when the claim is not confirmed. */
   label: string;
+  /** The claim's own label, when the chip names the found program instead. */
+  claimedLabel?: string;
   /** The harness's own session id (Claude Code's `CLAUDE_CODE_SESSION_ID`, Codex's thread). */
   sessionId?: string;
   /** Claude desktop's own session id (`local_…`). */
   hostSessionId?: string;
   /** What the daemon found in the sender's process chain, when it could look. */
-  checked?: { harness?: string; app?: string; signedBy?: string };
+  checked?: { harness?: string; app?: string; signedBy?: string; program?: string };
   /** The daemon's look agrees with the claim. False with no look, or when it found another. */
   confirmed: boolean;
 };
@@ -55,6 +63,7 @@ export function sentFrom(msg: unknown): SentFrom | undefined {
     ...(field(raw.harness) && { harness: field(raw.harness) }),
     ...(field(raw.app) && { app: field(raw.app) }),
     ...(field(raw.signedBy) && { signedBy: field(raw.signedBy) }),
+    ...(field(raw.program) && { program: field(raw.program) }),
   };
   const entrypoint = field(claimed?.entrypoint);
   const app = field(claimed?.app);
@@ -67,10 +76,13 @@ export function sentFrom(msg: unknown): SentFrom | undefined {
     (checked.harness === harness || (!!app && checked.app === app) || (desktop && checked.app === "Claude.app")) &&
     (!app || checked.app === app) &&
     (!desktop || checked.app === "Claude.app");
+  const claimedLabel = label(harness, entrypoint, app ?? (confirmed ? checked?.app : undefined));
+  const found = !confirmed ? checked?.program : undefined;
   return {
     promptId,
     harness,
-    label: label(harness, entrypoint, app ?? (confirmed ? checked?.app : undefined)),
+    label: found ?? claimedLabel,
+    ...(found && { claimedLabel }),
     ...(field(claimed?.sessionId) && { sessionId: field(claimed?.sessionId) }),
     ...(field(claimed?.hostSessionId) && { hostSessionId: field(claimed?.hostSessionId) }),
     ...(checked && Object.keys(checked).length > 0 && { checked }),

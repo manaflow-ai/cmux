@@ -77,3 +77,35 @@ test("a claim naming Claude.app is confirmed only when the daemon found Claude.a
     sentFrom({ promptId: "p", claimed: byApp, checked: { harness: "claude-code", app: "Claude.app" } })?.confirmed,
   ).toBe(true);
 });
+
+// Leo, 2026-11-11: "generally the "unverified sender" things should be more verified". Our outbox
+// relay, run by the python Xcode ships, claimed "Xcode" from an older CLI; the daemon now names the
+// program it found, and the claim is only said.
+test("an unconfirmed claim with a program the daemon found names that program, never the claim", () => {
+  const from = sentFrom({
+    promptId: "p",
+    claimed: { harness: "Xcode", app: "Xcode.app", source: "process", selfReported: true },
+    checked: { peerPid: 7, program: "outbox_relay.py", programPath: "/t/outbox_relay.py", interpreter: "Python" },
+  });
+  expect(from).toEqual({
+    promptId: "p",
+    harness: "Xcode",
+    label: "outbox_relay.py",
+    claimedLabel: "Xcode",
+    checked: { program: "outbox_relay.py" },
+    confirmed: false,
+  });
+  // A confirmed claim keeps its own label, the program beside it.
+  const desktopFound = sentFrom({
+    promptId: "p",
+    claimed: desktop,
+    checked: { harness: "claude-code", app: "Claude.app", program: "zsh" },
+  });
+  expect(desktopFound?.label).toBe("Claude desktop");
+  expect(desktopFound?.claimedLabel).toBeUndefined();
+  expect(desktopFound?.confirmed).toBe(true);
+  // An old record with no program: as before.
+  expect(sentFrom({ promptId: "p", claimed: desktop, checked: { app: "Terminal.app" } })?.label).toBe(
+    "Claude desktop",
+  );
+});

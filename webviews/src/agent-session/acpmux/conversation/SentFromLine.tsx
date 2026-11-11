@@ -27,13 +27,16 @@ export function SentFromLine({ from, host }: { from: SentFrom; host?: string }) 
   const name = target?.name ? `${from.label} · ${target.name}` : from.label;
   const identity: SenderIdentity = {
     name,
-    harness: from.harness,
+    // A claim the daemon did not confirm draws no harness's mark: the chip names the found program.
+    ...(!from.claimedLabel && { harness: from.harness }),
     known: !!target,
     ...((host ?? target?.host) && { host: host ?? target?.host }),
   };
   const how = from.confirmed
     ? t("sentFrom.checked", { app: from.checked?.app ?? from.label })
-    : t("sentFrom.selfReported");
+    : from.claimedLabel
+      ? t("message.claimedNotProven", { name: from.claimedLabel })
+      : t("sentFrom.selfReported");
   const title = [t("sentFrom.title", { name: from.label }), how, from.checked?.signedBy].filter(Boolean).join("\n");
   const label = <SenderIdentityLabel identity={identity} describe={false} />;
   return (
