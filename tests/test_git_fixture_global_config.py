@@ -96,6 +96,15 @@ class GlobalConfigMatchesPlainGit(unittest.TestCase):
         self.write(self.home / ".config/git/config", "yes-wrong-file")
         self.assertEqual(self.check(self.env(xdg), "custom XDG + ~/.gitconfig"), "false")
 
+    def test_custom_xdg_path_with_quote_and_backslash(self):
+        # The include path is a config-file string: a '"' or '\\' in it must be escaped, not end or bend it.
+        xdg = self.root / 'x"y\\z #;'
+        self.write(xdg / "git/config", "true")
+        self.write(self.home / ".config/git/config", "yes-wrong-file")
+        self.assertEqual(self.check(self.env(xdg), "custom XDG with quote and backslash"), "true")
+        self.write(self.home / ".gitconfig", "false")
+        self.assertEqual(self.check(self.env(xdg), "quoted XDG + ~/.gitconfig"), "false")
+
     def test_custom_xdg_alone(self):
         xdg = self.root / "xdg"
         self.write(xdg / "git/config", "true")
