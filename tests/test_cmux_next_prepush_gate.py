@@ -39,6 +39,7 @@ _process_gone_spec.loader.exec_module(process_gone)
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+
 # The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
 # (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",

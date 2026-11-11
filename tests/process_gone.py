@@ -7,8 +7,8 @@ test that probes with signal 0 fails now and then under load ("it is gone") or p
 runs") while the code under test is right. tests/test_lint_process_gone_checks.py flags every raw signal-0 probe in a test.
 
 died(pid) is True once PID has exited (a zombie counts), within WITHIN seconds. running(pid) is True when PID is live
-now (not gone, not a zombie): the check for a process that must survive. group_died(pgid) is True once no process is
-left in the group; a group's zombies count as members until they are reaped, so it waits for the reap. On Linux
+now (not gone, not a zombie): the check for a process that must survive. group_died(pgid) is True once no live process is
+left in the group; a zombie is a dead member, so it need not wait for the reap. On Linux
 died() waits on a pidfd; elsewhere (macOS: no pidfd, no /proc) it polls signal 0 and `ps -o stat=`, so a zombie
 counts there too. A test child that sleeps for 30 s or more is still alive at the deadline, so a kill that never
 happened still fails.
@@ -84,8 +84,23 @@ def running(pid):
     return not died(pid, within=0)
 
 
+def _live_group_members(pgid):
+    """True when a member of process group PGID that is not a zombie is listed, False when none is, None if unknown."""
+    try:
+        listing = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] == str(pgid) and not fields[1].startswith("Z"):
+            return True
+    return False
+
+
 def group_died(pgid, within=WITHIN):
-    """True once process group PGID has no member left, within WITHIN seconds."""
+    """True once process group PGID has no live member left, within WITHIN seconds. A zombie is a dead member: a member
+    SIGKILLed with its parent gone stays a zombie until init (or a runner's subreaper) reaps it, and signal 0 still
+    finds it (#41316: "process group outlived the gate" with nothing left running)."""
     deadline = time.monotonic() + within
     while True:
         try:
@@ -94,6 +109,8 @@ def group_died(pgid, within=WITHIN):
             return True
         except PermissionError:
             return False
+        if _live_group_members(pgid) is False:
+            return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)

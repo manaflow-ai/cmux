@@ -277,13 +277,15 @@
 .acpmux-cols-row[aria-disabled="true"] { color: var(--agent-muted); }
 .acpmux-cols-tune .acpmux-cols-row { gap: var(--ds-space-3); }
 .acpmux-cols-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* The columns' names stay on one line. The menu is as wide as the longest name of every tab
-   (modelMenuWidth.ts), so a name reads whole; a menu dragged narrower ends it in an ellipsis
-   (Lucas 2026-11-10). */
+/* The columns' names read whole. By default the menu is as wide as the longest name of every tab
+   (modelMenuWidth.ts, Lucas 2026-11-10), so each name sits on one line; a menu narrower than a name
+   (capped by the window, or dragged narrower) wraps it rather than clipping it (Lawrence
+   2026-11-05: "cant see full model name"). */
 .acpmux-cols-body .acpmux-cols-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* A name other rows share, with its model id under it (twinRows). */
 .acpmux-cols-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
