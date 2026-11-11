@@ -4,8 +4,8 @@
 //! hub started must be gone once it is: no task parked on a wake nobody sends, no agent process
 //! left running or unreaped.
 //!
-//! `cargo test -p acpmux --lib owned_scope_bench -- --ignored --exact --nocapture
-//! hub::owned_scope_bench::open_and_close_50_chats_then_the_hub_leaves_no_task_or_process`
+//! `cargo test -p acpmux --lib owned_scope_bench_tests -- --ignored --exact --nocapture
+//! hub::owned_scope_bench_tests::open_and_close_50_chats_then_the_hub_leaves_no_task_or_process`
 //! (Linux: the processes are read from /proc). It prints one `owned-scope-bench` line.
 
 use super::*;

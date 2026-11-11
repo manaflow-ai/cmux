@@ -347,14 +347,22 @@ impl Drop for Scope {
             "a scope was dropped without close: its tasks were cancelled but not joined"
         );
         if strict() && !std::thread::panicking() {
-            panic!(
+            strict_failure(&format!(
                 "the scope of {} was dropped without close while {} task(s) ran: {}",
                 self.owner,
                 running.len(),
                 running.join(", ")
-            );
+            ));
         }
     }
+}
+
+/// Strict mode only (tests, or a debug build with `CMUX_SCOPE_STRICT=1`): a scope dropped without
+/// close fails the test that dropped it. Release builds only warn ([`Scope`]'s drop).
+#[allow(clippy::panic, reason = "strict mode only: tests, or debug with CMUX_SCOPE_STRICT=1")]
+fn strict_failure(message: &str) -> ! {
+    // crash-allow: strict mode only (tests, or debug with CMUX_SCOPE_STRICT=1); release warns.
+    panic!("{message}")
 }
 
 #[cfg(test)]
