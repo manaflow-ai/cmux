@@ -146,6 +146,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
+            // The window sidebar's edge line at rest (DividerHandleView: the split divider's color
+            // override, else the separator), so a page's hairlines can match it (Settings, Lucas 2026-11-11).
+            "--cmux-sidebar-line": Borders.drawsLines
+                ? Self.css(backgrounds.fill(for: .splitDivider, tokens: tokens) ?? tokens.separator) : "transparent",
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
@@ -165,6 +169,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
             // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
             .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // The sidebar's workspace row (height, corner, inset): Settings rows match it.
+            .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]

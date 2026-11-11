@@ -96,6 +96,19 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             closeSide: rowHeight - 2 * base.space2)
     }
 
+    /// A list row's height, corner and content inset as `--cmux-sidebar-row-*` CSS px of a page zoomed
+    /// by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values are the
+    /// list row's (``listRowHeight``, ``codexCornerRadius``, ``contentInset``), so at Default a page
+    /// row is Codex's 30 px row with a 10 px corner and 8 px content inset, as the sidebar draws it.
+    public func rowCSSVariables(pageZoom: CGFloat) -> [String: String] {
+        let zoom = max(pageZoom, 0.01)
+        return [
+            "--cmux-sidebar-row-height": SidebarCardMetrics.px(listRowHeight / zoom),
+            "--cmux-sidebar-row-radius": SidebarCardMetrics.px((codexCornerRadius ?? base.cornerRadius) / zoom),
+            "--cmux-sidebar-row-inset": SidebarCardMetrics.px(contentInset / zoom),
+        ]
+    }
+
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.
     @MainActor public static var current: SidebarRowTokens {
         let sections = DesignSettings.shared.sidebarSections
