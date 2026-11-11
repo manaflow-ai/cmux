@@ -216,6 +216,7 @@ struct MobileSettingsView: View {
                     }
                 }
                 if hasConnectionSection {
+                    if settingsDemonstrationPolicy.allowsPairing {
                     Button {
                         showingSetupHelp = true
                     } label: {
@@ -225,6 +226,7 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsSetUpYourMac")
+                    }
                     Button {
                         showingOnboarding = true
                     } label: {
@@ -1032,6 +1034,14 @@ struct MobileSettingsView: View {
     /// hosted by the workspace shell, the host's Computers action keeps these
     /// entries useful even before a Mac has connected. Previews without a
     /// shell action still omit the section.
+    /// The App Review demonstration account has no Mac and no Tailscale, so it
+    /// never sees the computer-setup (Tailscale / pairing) guide.
+    private var settingsDemonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
+            isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
+        )
+    }
+
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil || showComputers != nil
     }

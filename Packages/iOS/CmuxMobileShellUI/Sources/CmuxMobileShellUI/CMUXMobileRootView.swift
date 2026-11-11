@@ -835,7 +835,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
-            startTailscalePairing: pairingScannerAction,
+            startTailscalePairing: showPairingScanner,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -901,7 +901,8 @@ struct CMUXMobileRootView: View {
     /// higher-priority pairing or explicit-attach flow owns a modal slot.
     private func presentAutoConnectMigrationIfEligible() {
         guard isAutoConnectMigrationReady,
-              rootPresentation.isIdle else {
+              rootPresentation.isIdle,
+              demonstrationPolicy.allowsPairing else {
             return
         }
         handleRootPresentation(.presentAutoConnectMigrationIfIdle)
