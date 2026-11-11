@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider } from "./mockProvider";
 import { ACTION_RUN, CloudOps, type CloudMachine, type CloudRetention } from "./ops";
-import { CloudStore } from "./store";
+import { CloudStore, confirmedValue } from "./store";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const DAY = 86_400_000;
@@ -198,4 +198,62 @@ describe("Cloud cleanup: settings", () => {
     expect(p.retention!.team).toEqual({});
     unsubscribe();
   });
+});
+
+describe("Cloud cleanup: native answers", () => {
+  test("a confirmed op's answer under `value` is unwrapped; a flat or declined answer stays as it is", () => {
+    const machine = { id: "vm_n1" } as CloudMachine;
+    expect(confirmedValue({ confirmed: true, value: { machine, revision: 7 } })).toEqual({
+      confirmed: true,
+      machine,
+      revision: 7,
+    });
+    expect(confirmedValue({ confirmed: true, machine, revision: 7 })).toEqual({
+      confirmed: true,
+      machine,
+      revision: 7,
+    });
+    expect(confirmedValue({ confirmed: false })).toEqual({ confirmed: false });
+    expect(confirmedValue(null)).toBeNull();
+  });
+
+  test("Restore (a confirmed op, answered under `value`): the new machine shows and no Creating… row stays", async () => {
+    const { store, provider: p, unsubscribe } = await started(provider());
+    await store.archiveDelete("vm_b2");
+    for (let i = 0; i < 4; i++) await flush();
+    const [archive] = store.getSnapshot().archives;
+    expect(archive).toBeDefined();
+    await store.restoreArchive({ ...archive!, status: "ready" });
+    for (let i = 0; i < 4; i++) await flush();
+    expect(actions(p, CloudOps.snapshotRestore)).toHaveLength(1);
+    const restored = store.getSnapshot().machines.filter((m) => m.name === "build-cache");
+    expect(restored).toHaveLength(1);
+    expect(store.getSnapshot().pending.filter((intent) => intent.kind === "create")).toEqual([]);
+    expect(store.getSnapshot().rows.filter((row) => row.pending === "create")).toEqual([]);
+    unsubscribe();
+  });
+});
+
+test("Return during the make-room archive wait sends no create; the removal then creates once", async () => {
+  const p = provider();
+  p.archiveAtOnce = false;
+  p.machinesCap = p.machines.length;
+  const { store, unsubscribe } = await started(p);
+  store.openCreate();
+  await flush();
+  store.updateDraft({ memoryMb: 4096 });
+  await store.submitCreate();
+  await store.makeRoom();
+  await flush();
+  expect(store.getSnapshot().create?.waitingFor).toBe("vm_b2");
+  // What Return in the name field calls (CreateSheet onKeyDown).
+  await store.submitCreate();
+  await flush();
+  expect(actions(p, CloudOps.machineCreate)).toHaveLength(1);
+  expect(store.getSnapshot().create?.waitingFor).toBe("vm_b2");
+  p.finishArchives();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(actions(p, CloudOps.machineCreate)).toHaveLength(2);
+  expect(store.getSnapshot().create).toBeUndefined();
+  unsubscribe();
 });

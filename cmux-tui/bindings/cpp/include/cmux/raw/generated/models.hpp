@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e";
+inline constexpr std::string_view kProtocolIrSha256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -175,6 +175,8 @@ struct ServerStatsDiskSegmentKind;
 struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
+struct ServerStatsJournalFollower;
+struct ServerStatsJournalFollowers;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
@@ -538,6 +540,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
+struct SetDividerVisibleRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
 struct SetLayoutSizesRequest;
@@ -2554,6 +2557,7 @@ struct ConversationSnapshotResult {
 };
 
 struct ConversationTabSplit {
+    Field<Id> around{};
     std::string direction{};
     Field<std::string> pane_id{};
     Field<std::string> split_id{};
@@ -3763,6 +3767,8 @@ struct Tab {
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
     std::string title{};
+    Field<std::string> title_activity{};
+    std::optional<std::string> title_text{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
 
@@ -5137,6 +5143,29 @@ struct ServerStatsHookQueue {
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
 };
 
+struct ServerStatsJournalFollower {
+    std::uint64_t client{};
+    std::uint64_t connected_ms{};
+    bool keeps_hook_rows{};
+    bool keeps_report_rows{};
+    std::vector<std::string> kinds{};
+    std::optional<std::uint64_t> left_ms{};
+    std::optional<std::string> max_sensitivity{};
+    bool remote{};
+    std::string stream_id{};
+    friend bool operator==(const ServerStatsJournalFollower&, const ServerStatsJournalFollower&) = default;
+};
+
+struct ServerStatsJournalFollowers {
+    std::vector<ServerStatsJournalFollower> followers{};
+    std::uint64_t grace_ms{};
+    bool hook_rows_kept{};
+    std::optional<bool> journal_hook_keeps_rows{};
+    std::uint64_t keep_all_ms{};
+    bool report_rows_kept{};
+    friend bool operator==(const ServerStatsJournalFollowers&, const ServerStatsJournalFollowers&) = default;
+};
+
 enum class ServerStatsWriterPhase {
     idle,
     waiting_lock,
@@ -5267,6 +5296,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
+    std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
@@ -5347,6 +5377,13 @@ struct SetDefaultColorsRequest {
     Field<ColorHex> selection_bg{};
     Field<ColorHex> selection_fg{};
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
+};
+
+struct SetDividerVisibleRequest {
+    Id split{};
+    Field<std::uint64_t> transaction{};
+    bool visible{};
+    friend bool operator==(const SetDividerVisibleRequest&, const SetDividerVisibleRequest&) = default;
 };
 
 struct SetFrontendBrowserHistoryRequest {
@@ -5650,6 +5687,7 @@ struct SnapshotRequestResult {
 };
 
 struct SplitRequest {
+    Field<Id> around{};
     std::optional<bool> before{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -6085,7 +6123,9 @@ struct TerminalResumeCommandResult {
 };
 
 struct TitleChangedEvent {
+    Field<std::string> activity{};
     Id surface{};
+    std::optional<std::string> text{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
@@ -7386,6 +7426,18 @@ template <>
 struct Codec<ServerStatsHookQueue> {
     static Result<Json> encode(const ServerStatsHookQueue& value);
     static Result<ServerStatsHookQueue> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollower> {
+    static Result<Json> encode(const ServerStatsJournalFollower& value);
+    static Result<ServerStatsJournalFollower> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollowers> {
+    static Result<Json> encode(const ServerStatsJournalFollowers& value);
+    static Result<ServerStatsJournalFollowers> decode(const Json& value);
 };
 
 template <>
@@ -9564,6 +9616,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetDividerVisibleRequest> {
+    static Result<Json> encode(const SetDividerVisibleRequest& value);
+    static Result<SetDividerVisibleRequest> decode(const Json& value);
 };
 
 template <>

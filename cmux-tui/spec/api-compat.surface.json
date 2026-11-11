@@ -1649,6 +1649,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1845,6 +1852,13 @@
       "/entity/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -2852,6 +2866,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3135,6 +3156,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -3420,6 +3448,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3703,6 +3738,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -4256,6 +4298,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4424,6 +4473,13 @@
       "/entity/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -4598,6 +4654,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4767,6 +4830,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4918,6 +4988,10 @@
       }
     },
     "event:title-changed": {
+      "/activity": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4928,6 +5002,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/text": {
+        "ty": "string"
       },
       "/title": {
         "ty": "string"
@@ -5409,6 +5486,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -5741,6 +5825,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6075,6 +6166,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -6407,6 +6505,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6741,6 +6846,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7051,6 +7163,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -10320,6 +10439,10 @@
         "ty": "object",
         "nullable": true
       },
+      "/split/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/split/direction": {
         "ty": "string",
         "required": true
@@ -10383,6 +10506,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -11658,6 +11785,20 @@
         "nullable": true
       }
     },
+    "request:set-divider-visible": {
+      "/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:set-frontend-browser-history": {
       "/history": {
         "ty": "json",
@@ -12173,6 +12314,10 @@
       }
     },
     "request:split": {
+      "/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/before": {
         "ty": "boolean"
       },
@@ -18181,6 +18326,13 @@
         "ty": "string",
         "required": true
       },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/data/workspaces/*/screens/*/short_id": {
         "ty": "string"
       },
@@ -20154,6 +20306,78 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/journal_followers": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/connected_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_hook_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_report_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds/*": {
+        "ty": "string"
+      },
+      "/data/journal_followers/followers/*/left_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/max_sensitivity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/remote": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/stream_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/journal_followers/grace_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/hook_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/journal_hook_keeps_rows": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/keep_all_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/report_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,
@@ -21212,6 +21436,7 @@
       }
     },
     "response:set-default-colors": {},
+    "response:set-divider-visible": {},
     "response:set-frontend-browser-history": {
       "/data": {
         "ty": "json",

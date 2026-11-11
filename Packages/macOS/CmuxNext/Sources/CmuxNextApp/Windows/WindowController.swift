@@ -261,8 +261,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
-        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        let unlisted = services.windows.registry.unlisted(parked.keys, in: state.id) // O(parked), never the window's whole list
+        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
             controller.teardown()
         }
@@ -322,7 +322,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === reserved ? "reserved" : controller === kept ? "warm" : "cold")
         DebugWorkspaceSwitch.mark(self, "content")
-        sidebar.sameTurn.syncNow(rows: (controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        sidebar.sameTurn.syncNow(rows: sidebar.sameTurn.listsAnotherSpace(than: state.profileID.rawValue) || ((controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
         DebugWorkspaceSwitch.mark(self, "root")

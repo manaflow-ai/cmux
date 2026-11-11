@@ -70,8 +70,8 @@ pub(in crate::cli) fn not_run_deadline(timeout: Option<Duration>) -> Duration {
     timeout.map_or(NOT_RUN_DEADLINE_FLOOR, |timeout| timeout.max(NOT_RUN_DEADLINE_FLOOR))
 }
 
-/// One request; an app that says the run never started and why it may pass
-/// (`retry_before_running`) is asked again after the delay it names, doubled
+/// One request; an app that did not get to it for a cause that passes
+/// (`retry_before_running`; never a refusal the app decided) is asked again after the delay it names, doubled
 /// each time up to [`MAX_RETRY_WAIT`], until [`not_run_deadline`] from now.
 /// The caller sees only the last answer.
 pub(in crate::cli) fn request_with_retry(
@@ -88,6 +88,19 @@ pub(in crate::cli) fn request_with_retry(
         timeout,
         Instant::now() + not_run_deadline(timeout),
     )
+}
+
+/// [`request_with_retry`] for a caller with its own shorter budget (an MCP tool call, which its client times
+/// out): not-run refusals are asked again only until `timeout` from now, never the
+/// [`NOT_RUN_DEADLINE_FLOOR`] a person's command waits.
+pub(in crate::cli) fn request_with_retry_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let budget = timeout.min(not_run_deadline(Some(timeout)));
+    request_with_retry_until(stream, method, params, Some(timeout), Instant::now() + budget)
 }
 
 /// [`request_with_retry`] against one absolute `deadline` that a caller's reconnects share. The last wait is cut

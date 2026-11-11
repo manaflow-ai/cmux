@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e'
+IR_SHA256 = '8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0'
 
 
 @dataclass(frozen=True)
@@ -3180,6 +3180,19 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-divider-visible': CommandMetadata(
+        'set-divider-visible',
+        'control',
+        12,
+        'split-divider-visibility-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'split': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-frontend-browser-history': CommandMetadata(
         'set-frontend-browser-history',
         'control',
@@ -3560,6 +3573,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'around': CommandFieldMetadata(12, 'split-around-v1'),
             'before': CommandFieldMetadata(12, 'split-before-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),

@@ -1,0 +1,204 @@
+/* The unread marker (SinceDivider.tsx; design/transcript-overlays.md). Token only: every colour,
+   radius, size and motion here is a theme or design token, never a literal
+   (scripts/check-design-tokens.ts TOKEN_ONLY_FILES fails on one, var() fallbacks included).
+
+   The accent is the theme's (--cmux-app-accent, which every bundled and custom theme sets,
+   cmux-theme-tokens app_theme.rs), not a fixed blue: the line reads as part of the theme in light,
+   dark and over a background image. A page with no theme bridge falls back to the pane's text. */
+.cv-since,
+.acpmux-since-jump {
+  --unread-accent: var(--cmux-app-accent, var(--agent-text));
+  --unread-on-accent: var(--cmux-app-on-accent, var(--agent-page-bg));
+  --unread-accent-text: var(--cmux-app-accent-text, var(--unread-accent));
+  --unread-wash: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+
+/* The static view: a hairline across the text column with a small "New" tag pinned to its end.
+   One control row tall (--ds-control-row, the 28px model.ts estimates), its
+   recap's card under it, so it sits in the message rhythm and never overlaps or moves a row. */
+.cv-since {
+  display: grid;
+  gap: var(--ds-space-2);
+}
+.cv-since__menu {
+  display: block;
+}
+.cv-since__line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  margin: 0;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.cv-since__rule {
+  flex: 1;
+  min-width: 0;
+  border-top: var(--cmux-hairline-ring) solid var(--unread-accent);
+}
+.cv-since__tag {
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--unread-accent);
+  color: var(--unread-on-accent);
+  font-weight: var(--weight-emphasis);
+}
+/* Text: "New" in the accent at the line's end, no fill. */
+.cv-since[data-look="text"] .cv-since__tag {
+  padding: 0;
+  background: none;
+  color: var(--unread-accent-text);
+}
+/* Labelled: the words lead the line where the text column starts (the first look, on tokens). */
+.cv-since__lead {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+}
+.cv-since__label {
+  color: var(--unread-accent-text);
+  font-weight: var(--weight-emphasis);
+}
+.cv-since__count {
+  color: var(--agent-muted);
+}
+.cv-since__count::before {
+  content: "· ";
+}
+/* Read: the line, its tag and its words fade where they are; the row keeps its height, so nothing
+   below it moves, and the recap stays (it is content). */
+.cv-since[data-read] .cv-since__rule,
+.cv-since[data-read] .cv-since__tag,
+.cv-since[data-read] .cv-since__lead {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-since__rule,
+  .cv-since__tag,
+  .cv-since__lead {
+    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
+  }
+}
+
+/* The moving view's zone: the transcript's top start (overlayLayout.ts "top-start"), on the text
+   column's start inset, under the clear line VirtualTranscript.tsx measures. It keeps to the
+   column: --cv-inset-end leaves Session Info's push and the computer use preview their room. */
+.acpmux-over-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  justify-content: flex-start;
+  padding-top: var(--ds-space-2);
+  padding-inline: var(--cv-inset, var(--ds-space-4)) var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
+  pointer-events: none;
+}
+
+/* The banner: a compact glass bar, the glass and fade of Jump to latest, one compact control tall.
+   Expanded it reads "↑ 3 new turns since 3:42 | Mark read | ‹"; collapsed, "↑ 3 ›". Collapsing
+   folds the middle to nothing on the move step while the chevron and the bar's end ride it, so
+   everything that moves moves together.
+   A <fieldset> (a named group for its three controls): its own margin, padding and minimum width
+   are off, so its box is the bar. */
+.acpmux-since-jump {
+  display: inline-flex;
+  align-items: stretch;
+  min-inline-size: auto;
+  max-width: 100%;
+  height: var(--ds-control-compact);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  overflow: hidden;
+  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  --glass-elevation: var(--elevation-2);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+:root[data-borders="none"] .acpmux-since-jump {
+  --glass-edge: transparent;
+}
+.acpmux-since-jump[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-since-jump button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: 100%;
+  margin: 0;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.acpmux-since-jump button:hover {
+  background-image: linear-gradient(var(--unread-wash), var(--unread-wash));
+}
+.acpmux-since-jump__arrow {
+  display: inline-grid;
+  place-items: center;
+  color: var(--unread-accent-text);
+}
+.acpmux-since-jump[data-side="above"] .acpmux-since-jump__arrow {
+  transform: rotate(180deg);
+}
+.acpmux-since-jump__count {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-since-jump__when {
+  color: var(--agent-muted);
+}
+.acpmux-since-jump__more {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 0;
+}
+.acpmux-since-jump__more-inner {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-since-jump[data-collapsed] .acpmux-since-jump__more {
+  grid-template-columns: 0fr;
+  opacity: 0;
+}
+.acpmux-since-jump .acpmux-since-jump__action {
+  border-inline-start: var(--cmux-hairline) solid var(--unread-separator);
+  color: var(--unread-accent-text);
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-since-jump .acpmux-since-jump__toggle {
+  justify-content: center;
+  width: var(--ds-control-compact);
+  padding: 0;
+  color: var(--agent-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-since-jump {
+    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-since-jump[data-shown] {
+    transition-duration: var(--agent-motion-in);
+  }
+  .acpmux-since-jump__more {
+    transition:
+      grid-template-columns var(--agent-motion-move) var(--agent-ease-out),
+      opacity var(--agent-motion-move) var(--agent-ease-out);
+  }
+}

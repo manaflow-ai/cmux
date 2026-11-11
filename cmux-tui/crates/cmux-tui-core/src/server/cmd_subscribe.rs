@@ -399,9 +399,15 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }
-        MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
-        }
+        // `text` and `activity` are what the tab shows (D2); `title` stays raw
+        // for clients from before them, which split the glyphs themselves.
+        MuxEvent::TitleChanged { surface, title, shown } => json!({
+            "event": "title-changed",
+            "surface": surface,
+            "title": title.as_ref(),
+            "text": shown.text.as_ref(),
+            "activity": shown.activity.map(crate::TitleActivity::as_str),
+        }),
         MuxEvent::AgentChanged {
             surface,
             state,

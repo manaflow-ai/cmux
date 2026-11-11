@@ -149,7 +149,7 @@ pub(super) struct Room {
 }
 
 impl Room {
-    /// The command that frees it.
+    /// The command that frees it, as this binary runs it as a step (the app's `machine:` words).
     pub(super) fn command(&self) -> Vec<String> {
         let verb = if self.archive { "archive-machine" } else { "kill-machine" };
         let target = format!("machine:{}", self.machine);
@@ -162,8 +162,10 @@ impl Room {
         let command = if self.machine.is_empty() {
             Value::Null
         } else {
+            // Printed in the CLI's VM words (`cmux vm kill-machine --target vm:ID`, vm_words.rs); the
+            // step this binary runs itself keeps the app's `machine:` ([`Room::command`]).
             let words: Vec<String> = self.command().into_iter().take(5).collect();
-            json!(format!("cmux {}", words.join(" ")))
+            json!(super::super::vm_words::respell(&format!("cmux {}", words.join(" "))))
         };
         json!({
             "machine_id": self.machine, "name": self.name,

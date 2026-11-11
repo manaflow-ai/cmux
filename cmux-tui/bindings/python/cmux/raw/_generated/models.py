@@ -725,6 +725,7 @@ class ConversationTabRecord:
 class ConversationTabSplit:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
     direction: str
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     split_id: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -1664,6 +1665,31 @@ class ServerStatsHookQueue:
 
 
 @dataclass(frozen=True)
+class ServerStatsJournalFollower:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollower'
+    client: int
+    connected_ms: int
+    keeps_hook_rows: bool
+    keeps_report_rows: bool
+    kinds: List[str]
+    left_ms: Union[int, None]
+    max_sensitivity: Union[str, None]
+    remote: bool
+    stream_id: str
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalFollowers:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollowers'
+    followers: List[ServerStatsJournalFollower]
+    grace_ms: int
+    hook_rows_kept: bool
+    journal_hook_keeps_rows: Union[bool, None]
+    keep_all_ms: int
+    report_rows_kept: bool
+
+
+@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1783,6 +1809,7 @@ class ServerStatsResult:
     uptime_ms: int
     disk: Union[ServerStatsDisk, MissingType] = field(default=MISSING)
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
+    journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
@@ -2002,6 +2029,8 @@ class Tab:
     terminal_host_fallback: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+    title_activity: Union[str, None, MissingType] = field(default=MISSING)
+    title_text: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4809,6 +4838,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetDividerVisibleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-divider-visible/request'
+    split: Id
+    visible: bool
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetFrontendBrowserHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
     surface: Id
@@ -5046,6 +5083,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     before: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
@@ -6240,6 +6278,8 @@ class TitleChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/title-changed/payload'
     surface: Id
     event: Literal['title-changed']
+    activity: Union[str, None, MissingType] = field(default=MISSING)
+    text: Union[str, MissingType] = field(default=MISSING)
     title: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -6560,6 +6600,8 @@ __all__ = [
     'ServerStatsDiskSegments',
     'ServerStatsHistogram',
     'ServerStatsHookQueue',
+    'ServerStatsJournalFollower',
+    'ServerStatsJournalFollowers',
     'ServerStatsJournalWriter',
     'ServerStatsLockDetail',
     'ServerStatsLockHolder',
@@ -6918,6 +6960,7 @@ __all__ = [
     'SetClientSizingRequest',
     'SetColumnDockRequest',
     'SetDefaultColorsRequest',
+    'SetDividerVisibleRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetHostSizePolicyRequest',
     'SetLayoutSizesRequest',
