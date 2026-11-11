@@ -39,12 +39,12 @@ public import Foundation
         // task-owner: `consentFollower`, cancelled when a warm comes on another connection; each send is bounded by its timeout.
         consentFollower = (connection, Task { @MainActor [weak self] in
             var push = CloudLoginCopyConsentPush()
+            let clock = ContinuousClock()
             for await _ in ObservationStream(consent) {
-                // Read again and numbered in one main-actor step: a warm can read in between the stream's value and here,
-                // and its read must not outnumber a newer one.
-                guard let value = push.next(consent()), let generation = self?.consentGeneration() else { continue }
-                let request = CloudSpareWarmConsentRequest(consent: value, generation: generation)
-                if (try? await connection.request(request, timeout: .seconds(5))) == nil { push.failed() }
+                await push.send(consent, numbered: { self?.consentGeneration() }, { value, generation in
+                    let request = CloudSpareWarmConsentRequest(consent: value, generation: generation)
+                    return (try? await connection.request(request, timeout: .seconds(5))) != nil
+                }, pause: { (try? await clock.sleep(for: $0)) != nil })
             }
         })
     }
@@ -88,4 +88,25 @@ struct CloudLoginCopyConsentPush {
     }
 
     mutating func failed() { sent = nil }
+
+    /// How long a failed send waits before it is sent again, each retry once: a send that fails while the link stays up
+    /// and the consent stays the same has no next state to ride on, and the daemon would keep the old consent for a
+    /// copy in flight (an opt-out it never heard). After the last, the next change or reconnect sends it.
+    static let retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)]
+
+    /// Sends what ``next(_:)`` says for the consent now, and again after each of ``retryDelays`` while the send fails.
+    /// Each try reads the consent afresh and is `numbered` in the same main-actor step (a warm can read in between, and
+    /// its read must not outnumber a newer one); a try stops once the link is down, which a reconnect resends.
+    /// `pause` answers false when the follower is cancelled.
+    @MainActor mutating func send(
+        _ consent: () -> CloudLoginCopyConsentNow, numbered: () -> UInt64?,
+        _ request: (Bool?, UInt64) async -> Bool, pause: (Duration) async -> Bool
+    ) async {
+        for delay in [nil] + Self.retryDelays.map(Optional.some) {
+            if let delay, !(await pause(delay)) { return }
+            guard let value = next(consent()), let generation = numbered() else { return }
+            if await request(value, generation) { return }
+            failed()
+        }
+    }
 }

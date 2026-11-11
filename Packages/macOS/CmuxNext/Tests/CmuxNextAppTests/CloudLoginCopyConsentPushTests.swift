@@ -23,6 +23,34 @@ import Testing
         #expect(push.next(.init(live: true, consent: true)) == .some(true))
     }
 
+    /// Codex #40268 F1: a failed send with the link still up and the consent unchanged has no next state to ride on;
+    /// it is sent again after a pause, so the daemon hears an opt-out before a copy in flight writes.
+    @MainActor @Test func aFailedSendIsRetriedWhileTheLinkStaysUp() async {
+        var push = CloudLoginCopyConsentPush()
+        var sent: [Bool?] = [], pauses: [Duration] = [], answers = [false, false, true], number: UInt64 = 0
+        await push.send({ .init(live: true, consent: false) }, numbered: { number += 1; return number }, { value, _ in
+            sent.append(value)
+            return answers.removeFirst()
+        }, pause: { pauses.append($0); return true })
+        #expect(sent == [false, false, false], "two failures, then the third try lands")
+        #expect(pauses == Array(CloudLoginCopyConsentPush.retryDelays.prefix(2)))
+        #expect(push.next(.init(live: true, consent: false)) == nil, "the landed value is not sent again")
+    }
+
+    @MainActor @Test func aRetryStopsWhenTheLinkDropsOrTheFollowerEnds() async {
+        var push = CloudLoginCopyConsentPush(), live = true, tries = 0
+        await push.send({ .init(live: live, consent: false) }, numbered: { 1 }, { _, _ in
+            tries += 1
+            live = false
+            return false
+        }, pause: { _ in true })
+        #expect(tries == 1, "the link went down: the reconnect resends, not the retry")
+        var cancelled = CloudLoginCopyConsentPush(), calls = 0
+        await cancelled.send({ .init(live: true, consent: true) }, numbered: { 1 }, { _, _ in calls += 1; return false },
+                             pause: { _ in false })
+        #expect(calls == 1, "a cancelled follower stops at its pause")
+    }
+
     @MainActor @Test func everyConsentReadIsNumberedAfterTheLastOne() {
         // A warm numbers its read before it awaits its tokens; the follower's later read gets a larger number, so the
         // daemon (`set_consent`) drops the warm's stale send if it arrives last.
