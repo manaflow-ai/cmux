@@ -993,33 +993,45 @@ mkdir -p node_modules/.bin
 
     def test_a_child_running_a_tool_not_in_child_tools_names_it(self):
         """A child of the hook that needs a tool missing from CHILD_TOOLS got a bare
-        command-not-found; by name, by exec and by shebang it now names the tool and the list."""
+        command-not-found; by name, by exec and by shebang it now names the tool and the list.
+        A hidden executable (.hidden-tool) is a tool like any other: the review of #41254
+        found every name starting with "." skipped. Executability decides, not the name."""
         self.assertEqual(self.install().returncode, 0)
         marker = self.root / "unlisted-ran"
         extra = self.root / "extra-bin"
         extra.mkdir()
-        unlisted = extra / "frobnicate"
-        unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
-        unlisted.chmod(0o755)
-        script = self.root / "child-script"
-        script.write_text("#!/usr/bin/env frobnicate\n")
-        script.chmod(0o755)
-        for how, call in (("by name", "frobnicate --version"),
-                          ("by exec", "exec frobnicate --version"),
-                          ("by shebang", shlex.quote(str(script)))):
-            with self.subTest(how=how):
-                marker.unlink(missing_ok=True)
-                env = self.bootstrap_env()
-                env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
-                bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4",
-                                    install_body=call)
-                try:
-                    result = self.run_pre_commit(env)
-                finally:
-                    bun.unlink()
-                self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
-                self.assertIn("frobnicate isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
-                self.assertIn("exit 127", result.stderr)
+        for tool in ("frobnicate", ".hidden-tool"):
+            unlisted = extra / tool
+            unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
+            unlisted.chmod(0o755)
+            script = self.root / f"child-script{tool}"
+            script.write_text(f"#!/usr/bin/env {tool}\n")
+            script.chmod(0o755)
+            for how, call in (("by name", f"{tool} --version"),
+                              ("by exec", f"exec {tool} --version"),
+                              ("by shebang", shlex.quote(str(script)))):
+                with self.subTest(tool=tool, how=how):
+                    marker.unlink(missing_ok=True)
+                    result = self.run_child_with_extra_path(extra, call)
+                    self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
+                    self.assertIn(f"{tool} isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
+                    self.assertIn("exit 127", result.stderr)
+        # A file on PATH that is not executable is no tool: no stub claims it is one.
+        inert = extra / "inert-file"
+        inert.write_text("#!/bin/sh\n")
+        inert.chmod(0o644)
+        result = self.run_child_with_extra_path(extra, "inert-file --version")
+        self.assertNotIn("inert-file isn't in CHILD_TOOLS", result.stderr)
+        self.assertIn("exit 127", result.stderr)
+
+    def run_child_with_extra_path(self, extra, call):
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
+        bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4", install_body=call)
+        try:
+            return self.run_pre_commit(env)
+        finally:
+            bun.unlink()
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
