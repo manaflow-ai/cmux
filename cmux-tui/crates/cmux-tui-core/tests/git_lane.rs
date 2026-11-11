@@ -12,11 +12,17 @@
 //! - a mutation keeps its place in its connection's order;
 //! - a git that passes its limit is ended, its request gets an error and its
 //!   place is free again;
-//! - a client that ends its writes still gets its replies.
+//! - a client that ends its writes still gets its replies;
+//! - a request that waits when the shutdown begins is refused and does not
+//!   run, and a broken connection's waiting mutation still runs;
+//! - the copies of a shared reply do not fill the connection's reply queue;
+//! - at most [`MUTATION_RUNS`] mutations run at one time, and a connection
+//!   may have [`WAITING_RUNS`] runs that wait.
 //!
 //! The git here is a stand-in on `PATH` that waits at a gate the test holds,
 //! then runs the real git: a reply that arrives while the gate is held was
-//! given while git ran. No sleep decides a result.
+//! given while git ran. No sleep decides a result, but for the test of a
+//! large shared reply, where the client reads nothing for a time.
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
@@ -36,6 +42,12 @@ const GIT_RUNS: usize = 4;
 /// The read places a long read (a diff, a file list or search) may take:
 /// `git_lane::MAX_LONG_READ_RUNS`. The other one is kept for short reads.
 const LONG_GIT_RUNS: usize = 3;
+
+/// The daemon's bound of git mutations that run at one time: `git_lane::MAX_MUTATION_RUNS`.
+const MUTATION_RUNS: usize = 2;
+
+/// The git runs of one connection that may wait: `git_lane::QUEUED_PER_CLIENT`.
+const WAITING_RUNS: usize = 512;
 
 /// The longest a step of a test waits for something that must come.
 const LONG: Duration = Duration::from_secs(60);
@@ -175,6 +187,24 @@ fn wait_for(what: &str, done: impl Fn() -> bool) {
     }
 }
 
+/// Fills each read place of the lane with a git run of `repo`, whose gate
+/// holds every run (`hold-all`): [`LONG_GIT_RUNS`] long reads and one short
+/// read. Returns their ids.
+fn fill_the_read_places(connection: &mut Connection, repo: &str, gate: &Gate) -> Vec<String> {
+    let mut ids = Vec::new();
+    for number in 0..LONG_GIT_RUNS {
+        // A different `context_lines` makes a different read, so no two share a run.
+        let id = format!("fill{number}");
+        let params = json!({"path": repo, "scope": "uncommitted", "context_lines": number + 1});
+        connection.send(&id, "git.diff", params);
+        ids.push(id);
+    }
+    connection.send("fill-short", "git.status", json!({"path": repo}));
+    ids.push("fill-short".to_string());
+    wait_for("full git lane", || gate.active() >= GIT_RUNS);
+    ids
+}
+
 /// A repository with one commit and one changed file, and the gate of its git runs.
 fn repository(name: &str) -> (String, Gate) {
     let name = unique(name);
@@ -246,7 +276,7 @@ impl Connection {
             "operation": operation,
             "params": params,
         });
-        if operation == "diff.comments.save" {
+        if operation == "diff.comments.save" || operation == "git.commit" {
             request["idempotency_key"] = json!(format!("glane-{}-{id}", std::process::id()));
         }
         writeln!(self.writer, "{request}").unwrap();
@@ -281,6 +311,30 @@ impl Connection {
 
     fn reply(&mut self, id: &Value) -> Value {
         self.reply_in(id, LONG).unwrap_or_else(|| panic!("no reply {id} in {LONG:?}"))
+    }
+
+    /// The replies the connection sends, `count` at most, until it closes
+    /// or `wait` ends; and whether it closed.
+    fn replies(&mut self, count: usize, wait: Duration) -> (Vec<Value>, bool) {
+        let mut replies = std::mem::take(&mut self.seen);
+        let deadline = Instant::now() + wait;
+        while replies.len() < count {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            let left = left.max(Duration::from_millis(1));
+            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
+            let mut line = String::new();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return (replies, true),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            // A line that the close cut is not a reply.
+            let Ok(reply) = serde_json::from_str::<Value>(&line) else { return (replies, true) };
+            if reply.get("id").is_some() {
+                replies.push(reply);
+            }
+        }
+        (replies, false)
     }
 
     fn answered(&self, id: &str) -> bool {
@@ -431,11 +485,20 @@ fn git_lane_fifty_queued_reads_run_at_most_the_bound_of_git_children() {
     let mut connections = [Connection::open(&socket), Connection::open(&socket)];
 
     gate.hold("hold-all");
-    for number in 0..50usize {
+    let mut sent = Vec::new();
+    for number in 0..48usize {
         // A different `limit` makes a different read, so no two share a run.
-        let connection = &mut connections[number % 2];
+        let id = format!("b{number}");
         let params = json!({"path": repo, "limit": number + 1});
-        connection.send(&format!("b{number}"), "git.branches", params);
+        connections[number % 2].send(&id, "git.branches", params);
+        sent.push((number % 2, id));
+    }
+    // One short read of each connection: a short read may take the place
+    // that long reads leave free.
+    for (index, connection) in connections.iter_mut().enumerate() {
+        let id = format!("s{index}");
+        connection.send(&id, "git.status", json!({"path": repo}));
+        sent.push((index, id));
     }
     wait_for("full git lane", || gate.active() >= GIT_RUNS);
     // Each connection read all its requests: its later ping is answered.
@@ -452,9 +515,9 @@ fn git_lane_fifty_queued_reads_run_at_most_the_bound_of_git_children() {
     }
 
     gate.release("hold-all");
-    for number in 0..50usize {
-        let reply = connections[number % 2].reply(&json!(format!("b{number}")));
-        assert_eq!(reply["ok"], true, "git.branches {number} failed: {reply}");
+    for (index, id) in &sent {
+        let reply = connections[*index].reply(&json!(id));
+        assert_eq!(reply["ok"], true, "the read {id} failed: {reply}");
     }
     eprintln!(
         "git-lane: 50 reads: most git children while held: {most}; most at the start of any \
@@ -474,14 +537,7 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
 
     // The lane is full: later reads wait.
     busy_gate.hold("hold-all");
-    for number in 0..GIT_RUNS {
-        app.send(
-            &format!("busy{number}"),
-            "git.branches",
-            json!({"path": busy, "limit": number + 1}),
-        );
-    }
-    wait_for("full git lane", || busy_gate.active() >= GIT_RUNS);
+    let fill = fill_the_read_places(&mut app, &busy, &busy_gate);
     for number in 0..5 {
         app.send(&format!("s{number}"), "git.status", json!({"path": repo}));
     }
@@ -499,9 +555,9 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
     }
     let diff = app.reply(&json!("diff"));
     assert_eq!(diff["ok"], true, "git.diff failed: {diff}");
-    for number in 0..GIT_RUNS {
-        let reply = app.reply(&json!(format!("busy{number}")));
-        assert_eq!(reply["ok"], true, "git.branches {number} failed: {reply}");
+    for id in &fill {
+        let reply = app.reply(&json!(id));
+        assert_eq!(reply["ok"], true, "the held read {id} failed: {reply}");
     }
     eprintln!(
         "git-lane: 5 equal git.status that waited: {} git status runs",
@@ -557,19 +613,12 @@ fn git_lane_a_git_past_its_limit_gets_an_error_and_frees_its_place() {
 
     // Never released: each of these git runs ends at the daemon's limit.
     stuck_gate.hold("hold-all");
-    for number in 0..GIT_RUNS {
-        first.send(
-            &format!("x{number}"),
-            "git.branches",
-            json!({"path": stuck, "limit": number + 1}),
-        );
-    }
-    wait_for("full git lane", || stuck_gate.active() >= GIT_RUNS);
+    let fill = fill_the_read_places(&mut first, &stuck, &stuck_gate);
     let asked = Instant::now();
     second.send("status", "git.status", json!({"path": repo}));
 
-    for number in 0..GIT_RUNS {
-        let reply = first.reply(&json!(format!("x{number}")));
+    for id in &fill {
+        let reply = first.reply(&json!(id));
         assert_eq!(reply["ok"], false, "a git held past its limit answered ok: {reply}");
         assert_eq!(reply["error"]["code"], "operation.failed", "{reply}");
     }
@@ -743,4 +792,207 @@ fn git_lane_a_mutation_that_waits_when_its_connection_breaks_still_runs() {
          {closed}): saved: {saved}"
     );
     assert!(saved, "a diff.comments.save the daemon took was dropped when its connection broke");
+}
+
+/// Sends [`GIT_RUNS`] different `operation` reads of a repository whose git
+/// is held, then a `git.status` of another repository on the same
+/// connection: the status must be answered while they are held.
+fn a_git_status_behind_four_held(name: &str, operation: &str, extra: &Value) {
+    let (tree, tree_gate) = repository("tree");
+    let (repo, _gate) = repository("view");
+    let (socket, _mux) = persistent_daemon(name);
+    let mut app = Connection::open(&socket);
+
+    tree_gate.hold("hold-all");
+    for number in 0..GIT_RUNS {
+        // A different `limit` makes a different read, so no two share a run.
+        let mut params = extra.clone();
+        params["path"] = json!(tree);
+        params["limit"] = json!(number + 1);
+        app.send(&format!("t{number}"), operation, params);
+    }
+    let asked = Instant::now();
+    app.send("status", "git.status", json!({"path": repo}));
+    let status = app.reply_in(&json!("status"), Duration::from_secs(5));
+    let waited = asked.elapsed().as_millis();
+    let early: Vec<usize> =
+        (0..GIT_RUNS).filter(|number| app.answered(&format!("t{number}"))).collect();
+
+    tree_gate.release("hold-all");
+    for number in 0..GIT_RUNS {
+        let reply = app.reply(&json!(format!("t{number}")));
+        assert_eq!(reply["ok"], true, "{operation} {number} failed: {reply}");
+    }
+    eprintln!(
+        "git-lane: a git.status behind {GIT_RUNS} held {operation}: answered while they were \
+         held: {} (waited {waited} ms)",
+        status.is_some()
+    );
+    assert!(early.is_empty(), "{operation} {early:?} answered while git was held");
+    let Some(status) = status else {
+        panic!("the git.status waited for {GIT_RUNS} held {operation}");
+    };
+    assert_eq!(status["ok"], true, "git.status failed: {status}");
+}
+
+/// The branches are a long read: a git child for each branch, so their git
+/// work grows with the repository. Four of them do not take the place that
+/// is kept for short reads.
+#[test]
+fn git_lane_a_git_status_is_answered_while_four_git_branches_are_held() {
+    a_git_status_behind_four_held("branches", "git.branches", &json!({}));
+}
+
+/// A checkpoint list with its candidates is a long read: it lists the
+/// untracked and the ignored paths of the whole tree.
+#[test]
+fn git_lane_a_git_status_is_answered_while_four_checkpoint_lists_with_candidates_are_held() {
+    let extra = json!({"include_candidates": true});
+    a_git_status_behind_four_held("candidates", "git.checkpoint.list", &extra);
+}
+
+/// Equal reads that share one run each get a copy of its reply. The copies
+/// of a large reply go to the connection one after the other: all at one
+/// time they are more than the connection's reply queue takes (32 MiB), and
+/// the daemon closes a connection whose queue is full.
+#[test]
+fn git_lane_equal_reads_with_a_large_reply_each_get_it_and_the_connection_stays_open() {
+    const EQUAL: usize = 60;
+    let (busy, busy_gate) = repository("busy");
+    let (repo, _gate) = repository("large");
+    // A change of about 800 KiB: 60 copies of its patch are about 48 MiB.
+    let line = "a line of a large change that a person made in one file\n";
+    std::fs::write(Path::new(&repo).join("a.txt"), line.repeat(14_000)).unwrap();
+    let mut app = Connection::open(&daemon());
+
+    // Each long place is held, so the equal reads wait and share one run.
+    busy_gate.hold("hold-all");
+    let fill = fill_the_read_places(&mut app, &busy, &busy_gate);
+    let params = json!({
+        "path": repo,
+        "scope": "uncommitted",
+        "include_patch": true,
+        "max_patch_bytes": 4_194_304,
+    });
+    for number in 0..EQUAL {
+        app.send(&format!("e{number}"), "git.diff", params.clone());
+    }
+    app.ping(9);
+    app.reply(&json!(9));
+
+    busy_gate.release("hold-all");
+    // The client reads nothing for a time (less than the daemon's 2 s limit
+    // of one write): the daemon has more copies than its queue takes before
+    // the client reads the first.
+    std::thread::sleep(Duration::from_millis(700));
+    let (replies, closed) = app.replies(fill.len() + EQUAL, LONG);
+    let equal: Vec<&Value> = replies
+        .iter()
+        .filter(|reply| reply["id"].as_str().is_some_and(|id| id.starts_with('e')))
+        .collect();
+    let patch_bytes = |reply: &Value| {
+        let files = reply["result"]["files"].as_array();
+        let patches = files.into_iter().flatten().filter_map(|file| file["patch"].as_str());
+        patches.map(str::len).sum::<usize>()
+    };
+    let smallest = equal.iter().copied().map(patch_bytes).min().unwrap_or(0);
+    eprintln!(
+        "git-lane: {EQUAL} equal git.diff that waited, one git run: {} answered, the smallest \
+         patch {smallest} bytes, the connection closed by the daemon: {closed}",
+        equal.len()
+    );
+    assert_eq!(
+        equal.len(),
+        EQUAL,
+        "equal git.diff answered before the connection closed ({closed}) or the wait ended"
+    );
+    assert!(equal.iter().all(|reply| reply["ok"] == true), "an equal git.diff failed");
+    assert!(smallest > 700_000, "the patch of a copy has {smallest} bytes");
+    assert!(!closed, "the daemon closed the connection");
+}
+
+/// The daemon runs at most [`MUTATION_RUNS`] git mutations at one time,
+/// whatever the count of connections. The result of a commit is not this
+/// test's subject: only how many run.
+#[test]
+fn git_lane_three_commits_of_three_connections_run_at_most_the_bound_of_mutations() {
+    let (socket, _mux) = persistent_daemon("commits");
+    let repositories: Vec<(String, Gate)> = (0..3).map(|_| repository("commit")).collect();
+    let mut connections: Vec<Connection> =
+        repositories.iter().map(|_| Connection::open(&socket)).collect();
+    let active = || repositories.iter().map(|(_, gate)| gate.active()).sum::<usize>();
+
+    for (_, gate) in &repositories {
+        gate.hold("hold-all");
+    }
+    for (number, (repo, _)) in repositories.iter().enumerate() {
+        let params = json!({"path": repo, "message": "a commit", "all": true});
+        connections[number].send(&format!("commit{number}"), "git.commit", params);
+    }
+    wait_for("each mutation place held", || active() >= MUTATION_RUNS);
+    // The third commit waits in the daemon, not in git: no more children come.
+    let watch = Instant::now() + Duration::from_millis(1500);
+    let mut most = active();
+    while Instant::now() < watch {
+        most = most.max(active());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    for (_, gate) in &repositories {
+        gate.release("hold-all");
+    }
+    let answered = connections
+        .iter_mut()
+        .enumerate()
+        .filter_map(|(number, connection)| {
+            connection.reply_in(&json!(format!("commit{number}")), LONG)
+        })
+        .count();
+    eprintln!(
+        "git-lane: 3 git.commit of 3 connections: most git children while held: {most}; \
+         answered: {answered}"
+    );
+    assert_eq!(most, MUTATION_RUNS, "git children of mutations at one time");
+    assert_eq!(answered, 3, "each git.commit gets a reply");
+}
+
+/// A connection may have [`WAITING_RUNS`] git runs that wait. One more gets
+/// an error that names the bound and does not run, and the connection stays open.
+#[test]
+fn git_lane_a_request_above_the_waiting_bound_of_its_connection_gets_an_error() {
+    let (busy, busy_gate) = repository("busy");
+    let (repo, gate) = repository("many");
+    let mut app = Connection::open(&daemon());
+
+    busy_gate.hold("hold-all");
+    fill_the_read_places(&mut app, &busy, &busy_gate);
+    // A different `context_lines` makes a different read, so each is a run of its own.
+    let read =
+        |number: usize| json!({"path": repo, "scope": "uncommitted", "context_lines": number});
+    for number in 0..WAITING_RUNS {
+        app.send(&format!("w{number}"), "git.diff", read(number));
+    }
+    app.send("over", "git.diff", read(WAITING_RUNS));
+    let over = app.reply(&json!("over"));
+    app.ping(9);
+    let open = app.reply_in(&json!(9), Duration::from_secs(10)).is_some();
+    let early = (0..WAITING_RUNS).filter(|number| app.answered(&format!("w{number}"))).count();
+    let runs = gate.runs_of("diff");
+    eprintln!(
+        "git-lane: request {} of one connection while {WAITING_RUNS} wait: {}; the connection \
+         answers a later ping: {open}; git diff runs of the waiting requests: {runs}",
+        WAITING_RUNS + 1,
+        over["error"]
+    );
+    // The connection breaks: the daemon drops its reads that wait, so the test ends.
+    app.writer.write_all(b"\xff\n").unwrap();
+    busy_gate.release("hold-all");
+
+    assert_eq!(over["ok"], false, "the request above the bound was taken: {over}");
+    assert_eq!(over["error"]["code"], "operation.failed", "{over}");
+    let error = over["error"].to_string();
+    assert!(error.contains("git_queue_capacity"), "the error does not name the bound: {over}");
+    assert!(open, "the connection closed after the error");
+    assert_eq!(early, 0, "waiting requests answered while each place was held");
+    assert_eq!(runs, 0, "git diff runs of requests that waited");
 }
