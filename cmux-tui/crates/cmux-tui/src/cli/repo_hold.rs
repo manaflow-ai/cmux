@@ -113,6 +113,7 @@ fn hold(dir: &Path, cmd: &[String]) -> i32 {
             return 1;
         }
     };
+    child.detach("the hold outlives this command and the caller's terminal (its own session)");
     let Some(stdout) = child.stdout.take() else { return 1 };
     let mut line = String::new();
     // One blocking read: the child writes its line once it holds the barrier, or exits.
