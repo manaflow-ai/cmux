@@ -37,6 +37,7 @@ extension PageInfoController {
             windows.showSiteData(site: site, provider: provider, send: { [weak self] in self?.send($0) })
         case .deleteSiteData(let domain):
             guard let provider else { return }
+            siteDataMemory.forget(site)
             let host = site.host
             Task { [weak self] in
                 let targets: [String]
