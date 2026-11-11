@@ -1186,25 +1186,7 @@ def _step_marks(declared, names: list[str]) -> list[bool | None] | None:
     return [None] * first + ["name" in step for step in declared] + [None] * len(tail)
 
 
-class Unplaced:
-    """signature()'s answer for a log step_owners does not place: no failed step, test or error line of it is proven
-    the failed steps' own, so it has no signature. Not a tuple and not iterable, so no caller can unpack it into sets
-    or subtract a base's from it; each caller refuses on it, or treats the red as new and never as the base's
-    (#40542's Codex F1 at 76dc160c: next_batch's expand_job subtracted an unplaced base log's signature, whose
-    passing composite printed the head's Sources/New.swift error too, and read the head's new failure as inherited)."""
-    __slots__ = ()
-
-    def __repr__(self) -> str:
-        return "UNPLACED"
-
-
-UNPLACED = Unplaced()
-# What a caller says when signature() is UNPLACED.
-UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
-                "header that is not its step's own), so no line can be told to the step that printed it")
-
-
-def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[str], set[str]] | Unplaced:
+def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[str], set[str]]:
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
     excused because the base's log echoed the same `echo "::error::..."` lines of its step's script). Error lines come
@@ -1213,9 +1195,7 @@ def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[st
     passing step may have printed never matches a head failure (cmux#40542 F1: a composite's extra STEP_START line put
     a passing step's `Sources/New.swift` diagnostic in the base's errors, and judge() excused the head's new failure;
     its fourth Codex BLOCK: a passing step's echoed exit line, or a failing "Complete job", made a passing step's
-    lines base evidence). A log step_owners does not place has no signature: UNPLACED, on either side."""
-    if not placed(job, log):
-        return UNPLACED
+    lines base evidence)."""
     steps = {step["name"] for step in job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
     owned = step_owners(job, log)
@@ -1634,10 +1614,7 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     text = github.log(repo, guard)
     if refused_at_setup(guard, text):
         raise Refused(f"'{name}' was refused at setup by its runner")
-    found = signature(guard, text)
-    if found is UNPLACED:
-        raise Refused(f"'{name}': {UNPLACED_WHY}; its routes are not judged")
-    steps, _, errors = found
+    steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
     # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
@@ -2753,10 +2730,7 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
 def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
     """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps and names a failing
     test of its own (one step's test failure never covers another's compile error); raises Refused."""
-    found = signature(job, head_log)
-    if found is UNPLACED:
-        raise Refused(UNPLACED_WHY)
-    steps, _, _ = found
+    steps, _, _ = signature(job, head_log)
     if other := sorted(steps - set(package["steps"])):
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
@@ -3126,10 +3100,7 @@ def step_failed(step: dict) -> bool:
 def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
     found = test_reds.read(head_log)
-    sig = signature(job, head_log)
-    if sig is UNPLACED:
-        return False  # no failed step's lines are proven, so no quarantine explains them
-    steps, _, errors = sig
+    steps, _, errors = signature(job, head_log)
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
             or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
         return False
@@ -3925,23 +3896,17 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 continue
             except Refused:
                 pass
-        early = signature(job, head_log)
-        # An unplaced head has no signature: no rule below that reads one (the Chromium currency step, the app FFI
-        # pin) applies to it, and the base comparison refuses it (placed, below); per-test web and gallery verdicts
-        # read their own evidence.
-        chromium_without_diagnostics = (early is not UNPLACED and name == CHROMIUM_CURRENCY_JOB
-                                        and CHROMIUM_CURRENCY_STEP in early[0]
-                                        and not (early[1] or early[2] or crash_signals(head_log)))
+        head_steps, head_tests, head_errors = signature(job, head_log)
+        chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
+                                        and CHROMIUM_CURRENCY_STEP in head_steps
+                                        and not (head_tests or head_errors or crash_signals(head_log)))
         # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
         # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
         own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
-        pinned, aside = (None, None)
-        if early is not UNPLACED:
-            head_steps, head_tests, head_errors = early
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log, github)
+        pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log, github)
         if pinned is not None:
             audit.append(pinned)
             continue
@@ -4008,8 +3973,6 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "a silent step or a header that is not its step's own), so no line can be told to the step "
                           "that printed it; nothing is compared with the base")
         head = signature(job, head_log)
-        if head is UNPLACED:  # placed() above: never, and never compared if it were
-            raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
         if aside is not None:
             head = without_ffi_pin(head)
         if not head[1] and not head[2] and not crash_signals(head_log) and not chromium_without_diagnostics:
@@ -4022,10 +3985,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if not placed(found, text):
                 raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
                               "(step_owners), so no base line can be told to a failed step; nothing is compared")
-            said = signature(found, text, base=True)
-            if said is UNPLACED:  # placed() above: never, and never base evidence if it were
-                raise Refused(f"'{name}': {base} run {run['id']}: {UNPLACED_WHY}; nothing is compared")
-            return run, text, said, step_errors(found, text, base=True)
+            return run, text, signature(found, text, base=True), step_errors(found, text, base=True)
         window, newest, read = [red(base_run, base_job)], created(base_run), 1
         while True:
             try:

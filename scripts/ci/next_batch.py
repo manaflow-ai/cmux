@@ -1362,18 +1362,12 @@ class Controller:
         if base_red_excuse.no_verdict(log) is not None:
             # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
             return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
-        found = base_red_excuse.signature(job, log)
+        steps, tests, errors = base_red_excuse.signature(job, log)
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
         if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        if found is base_red_excuse.UNPLACED:
-            # No line of a log step_owners does not place is proven its failed step's, so its signature is not
-            # read: keyed by this job's id, a head's red is its own and a base's inherits nothing (#40542's Codex
-            # F1 at 76dc160c: a passing composite's Sources/New.swift on both sides hid a head's new failure).
-            return {f"{name}: log not placed by step (job {job_id}, never a base red)"}
-        steps, tests, errors = found
         crashes = base_red_excuse.crash_signals(log)  # test_reds covers cut-short evidence; this adds step signals.
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
