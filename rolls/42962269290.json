@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42962269290",
+  "recorded_at": "2026-11-11T05:04:51Z",
+  "reason": "cmux-tui 514107dfeb34 changes the image's cmux-tui (pinned e87165280ac8)",
+  "dry_run": false,
+  "cmux_tui": "514107dfeb342c609d2a3f1da7f370621dc72cca",
+  "fixes": [
+    {
+      "sha": "514107dfeb342c609d2a3f1da7f370621dc72cca",
+      "mergedAt": "2026-11-10T20:41:13-08:00",
+      "subject": "rust panic ratchet: remove the new panic sites that made feat-cmux-next red (cmux-tui-core indexing_slicing 855 > 853)"
+    },
+    {
+      "sha": "23fa4bf9fedbd0538ef9fb52e38d777894f30320",
+      "mergedAt": "2026-11-10T20:37:12-08:00",
+      "subject": "acpmux: cap a watch's match at 2 KiB and keep that much of each stub's text (#40885)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T05:04:51Z",
+    "snapshot_id": "sh-e19a2f215bd149aeb1fcc3e781ab37d8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42962269290): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e08566e98c7716add0011443ce81516ebaee9b56",
+    "image": "cloud-native-auto-514107df-42962269290-1",
+    "revision": "ci-42962269290-1",
+    "at": "2026-11-11T05:04:51Z"
+  },
+  "rolled_back": false
+}
