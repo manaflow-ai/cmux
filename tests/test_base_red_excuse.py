@@ -5227,7 +5227,9 @@ class WsCheckPerTest(unittest.TestCase):
         self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
         self.assertIn(f"not excused 'ws-check' step '{self.RELAY}' (no test names): passes on main",
                       str(caught.exception))
-        self.assertIn("fixed on main; merge main", str(caught.exception))
+        # The merge-base has no verdict, so whether the red was there is unknown (WsCheckFixedOnBase).
+        self.assertIn(f"the merge-base {self.gh.MERGE_BASE[:12]} has no ws-check verdict", str(caught.exception))
+        self.assertNotIsInstance(caught.exception, excuse.FixedOnBase)
 
     def test_main_green_before_the_merge_base_waits_for_a_newer_verdict(self):
         self.gh.statuses.pop(self.gh.TIP)
@@ -5374,10 +5376,10 @@ class WsCheckPerTest(unittest.TestCase):
             self.judge()
 
     def test_main_green_still_refuses_though_the_merge_base_shares_the_failure(self):
-        # Main proved the fix: merging main is the way, as before.
+        # Main proved the fix: updating the branch is the way, and the refusal names the first green commit.
         self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")}, tip={})
         self.gh.verdict(self.gh.TIP, 2, {}, state="success")
-        with self.assertRaisesRegex(excuse.Refused, "fixed on main; merge main"):
+        with self.assertRaisesRegex(excuse.FixedOnBase, f"^fixed on base by {self.gh.OLDER[:12]}: update the branch"):
             self.judge()
 
     def test_a_cmux_red_is_still_judged_by_its_actions_job(self):
