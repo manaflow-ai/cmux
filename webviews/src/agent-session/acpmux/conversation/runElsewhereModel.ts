@@ -27,6 +27,8 @@ export interface RunFile {
 export interface RunPlan {
   eligible: boolean;
   why?: string;
+  /** The host refused the plan (not on its relay allowlist): the panel can say nothing more. */
+  unavailable?: boolean;
   machines: RunMachine[];
   tree?: {
     /** The repository the other machine fetches, without a login. */

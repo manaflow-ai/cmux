@@ -14,6 +14,7 @@ use std::sync::Weak;
 
 mod committed_snapshot;
 mod machines;
+pub(crate) mod scoped_get;
 mod terminal_extra;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
@@ -38,7 +39,7 @@ pub(crate) use committed_snapshot::CommittedSnapshots;
 #[cfg(test)]
 pub(crate) use committed_snapshot::{
     route_wait_times_on_this_thread, route_waits_on_this_thread,
-    set_route_wait_start_hook_on_this_thread,
+    set_live_terminal_hook_on_this_thread, set_route_wait_start_hook_on_this_thread,
 };
 
 #[cfg(test)]
@@ -638,31 +639,25 @@ fn session_snapshot_with_journal_head(
         // after its row commits (`finish_app_terminal_first_view`). A routed runtime with no identity is
         // thus one that closes or gets its first view under this read: it gives no live values (the durable
         // row still shows) and it never fails the whole snapshot, which every client shows as "machine
-        // unreachable".
-        let live_surface = |terminal_id: &TerminalPublicId| {
+        // unreachable". The identity is read ONE time, here, and the builder checks that same value: a close
+        // after this read cannot fail the snapshot, however many terminals close under one read.
+        let live_terminal = |terminal_id: &TerminalPublicId| {
             let routed = routes.catalog_terminal(terminal_id)?;
-            if mux.resource_terminal_host_identity(routed).is_none() {
+            let Some(host) = mux.resource_terminal_host_identity(routed) else {
                 eprintln!(
                     "cmux-tui: snapshot shows terminal {terminal_id} with no live values: its runtime has no durable identity"
                 );
                 return None;
-            }
-            Some(routed.clone())
+            };
+            Some(LiveTerminal { surface: routed.clone(), host: Some(host) })
         };
-        let terminals_of = || {
-            public_terminal_values(
-                mux,
-                &terminal_registry.terminals,
-                terminal_resource_ids.clone(),
-                &topology.tabs,
-                live_surface,
-                &last_sessions,
-            )
-        };
-        // The builder reads the identity of a live surface again. A close that purges it between the two
-        // reads fails the first pass; the second pass finds no identity and shows the durable row. A real
-        // mismatch fails both passes and is the error of the snapshot.
-        let terminals = terminals_of().or_else(|_| terminals_of())?;
+        let terminals = public_terminal_values(
+            &terminal_registry.terminals,
+            terminal_resource_ids.clone(),
+            &topology.tabs,
+            live_terminal,
+            &last_sessions,
+        )?;
 
         let browsers_by_id = topology
             .browsers
@@ -750,6 +745,10 @@ fn session_snapshot_with_journal_head(
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
+        // The rows built for this request move in; `json!` would copy each of
+        // them (a deep copy of every terminal, notification and agent value).
+        // The committed parts are copied: the cached snapshot keeps them. A
+        // map's keys serialize sorted, so the reply bytes do not change.
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
@@ -757,18 +756,22 @@ fn session_snapshot_with_journal_head(
             "screens": committed.screens,
             "panes": committed.panes,
             "tabs": committed.tabs,
-            "terminals": terminals,
-            "browsers": browsers,
             "clients": [],
-            "notifications": notifications,
-            "agents": agents,
-            "frontend_projections": frontend_projections,
-            "sidebar_views": sidebar_views,
             "cursor": {
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
         });
+        for (name, rows) in [
+            ("terminals", terminals),
+            ("browsers", browsers),
+            ("notifications", notifications),
+            ("agents", agents),
+            ("frontend_projections", frontend_projections),
+            ("sidebar_views", sidebar_views),
+        ] {
+            snapshot.set(name, Value::Array(rows));
+        }
         snapshot.set("extra", json!({"state": committed.state}));
         Ok((snapshot, journal_head))
     })()
@@ -804,14 +807,16 @@ fn public_workspace_values(
 /// The session snapshot's `terminals`, in its order: each terminal that a
 /// tab shows, in the tabs' order, then each other live terminal in creation
 /// order. `tabs` are the session's tabs in the full load's order (a tab of
-/// other content is skipped); `surface_of` gives a terminal's live surface.
+/// other content is skipped); `live_of` gives a terminal's live surface with
+/// the durable identity of that runtime. The builder does not read the
+/// identity again: a terminal that closes under the read cannot change it
+/// between two reads.
 /// One builder for the session snapshot and the terminal list.
 fn public_terminal_values(
-    mux: &Mux,
     durable_terminals: &[RegistryTerminal],
     terminal_resource_ids: Vec<(String, TerminalPublicId)>,
     tabs: &[RegistryTab],
-    surface_of: impl Fn(&TerminalPublicId) -> Option<Arc<crate::Surface>>,
+    live_of: impl Fn(&TerminalPublicId) -> Option<LiveTerminal>,
     last_sessions: &HashMap<String, (String, Option<String>)>,
 ) -> anyhow::Result<Vec<Value>> {
     let terminals_by_id = durable_terminals
@@ -877,15 +882,18 @@ fn public_terminal_values(
     terminal_order
         .into_iter()
         .map(|terminal_id| {
-            let surface = surface_of(&terminal_id);
+            let live = live_of(&terminal_id);
+            #[cfg(test)]
+            if let Some(live) = &live {
+                committed_snapshot::run_live_terminal_hook(&live.surface);
+            }
             let host_id = terminal_hosts_by_resource
                 .get(&terminal_id)
                 .with_context(|| format!("terminal {terminal_id} omitted its durable identity"))?;
-            if let Some(surface) = &surface {
-                let runtime_host =
-                    mux.resource_terminal_host_identity(surface).with_context(|| {
-                        format!("terminal {terminal_id} runtime omitted its durable identity")
-                    })?;
+            if let Some(live) = &live {
+                let runtime_host = live.host.as_ref().with_context(|| {
+                    format!("terminal {terminal_id} runtime omitted its durable identity")
+                })?;
                 anyhow::ensure!(
                     runtime_host.terminal_id == *host_id,
                     "terminal {terminal_id} runtime references a mismatched durable host"
@@ -895,10 +903,25 @@ fn public_terminal_values(
                 .get(host_id.as_str())
                 .with_context(|| format!("terminal {terminal_id} references missing {host_id}"))?;
             let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-            public_terminal_snapshot(&terminal_id, durable, surface.as_deref(), tab_ids)
+            let surface = live.as_ref().map(|live| &*live.surface);
+            public_terminal_snapshot(&terminal_id, durable, surface, tab_ids)
                 .map(|terminal| crate::mux::with_agent_session(terminal, last_sessions))
         })
         .collect()
+}
+
+/// A terminal's live surface and the durable identity of that runtime, read
+/// one time by the caller of [`public_terminal_values`]. `host` is `None`
+/// for a runtime with no identity, which the builder refuses.
+struct LiveTerminal {
+    surface: Arc<crate::Surface>,
+    host: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
+}
+
+impl LiveTerminal {
+    fn read(mux: &Mux, surface: &Arc<crate::Surface>) -> Self {
+        Self { surface: surface.clone(), host: mux.resource_terminal_host_identity(surface) }
+    }
 }
 
 /// The stored rows a terminal list is built from: the terminal rows, each
@@ -938,11 +961,10 @@ pub(crate) fn public_terminals(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
             .collect::<HashMap<_, _>>()
     });
     if let Ok(terminals) = public_terminal_values(
-        mux,
         &durable_terminals,
         terminal_resource_ids,
         &tabs,
-        |terminal_id| surfaces.get(terminal_id).cloned(),
+        |terminal_id| surfaces.get(terminal_id).map(|surface| LiveTerminal::read(mux, surface)),
         &last_sessions,
     ) {
         return Ok(terminals);
@@ -956,11 +978,15 @@ pub(crate) fn public_terminals(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
         let (durable_terminals, terminal_resource_ids, tabs) =
             registry.read_state(load_terminal_list_rows)?;
         public_terminal_values(
-            mux,
             &durable_terminals,
             terminal_resource_ids,
             &tabs,
-            |terminal_id| state.terminal_catalog.get(terminal_id).cloned(),
+            |terminal_id| {
+                state
+                    .terminal_catalog
+                    .get(terminal_id)
+                    .map(|surface| LiveTerminal::read(mux, surface))
+            },
             &last_sessions,
         )
     })
@@ -1004,9 +1030,9 @@ pub(crate) fn public_tabs(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
         let panes_by_id =
             topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
         let mut tabs = public_tab_values(&topology, &panes_by_id)?;
-        for tab in &mut tabs {
-            crate::state::values::decorate_value(connection, "tab", tab)?;
-        }
+        // One statement set for the list: each state table is read one time,
+        // not one time for each tab.
+        crate::state::values::decorate_session_tabs(connection, &mut tabs)?;
         Ok(tabs)
     })
     .map_err(operation_failed)
@@ -1189,18 +1215,24 @@ pub(crate) fn public_workspace_topology(
     .map_err(operation_failed)
 }
 
-/// The session snapshot's `cursor` alone (`session.ping`): the topology
-/// generation and resource revision, from the topology frame.
+/// The session snapshot's `cursor` alone (`session.ping`): the registry
+/// generation and the committed resource revision. The revision is one meta
+/// row, read on the registry's point reader, so a ping waits for no heavy
+/// read and walks no workspace (the topology frame it read before walked
+/// every workspace for an active-screen list the cursor does not show; its
+/// generation is the registry's, as here).
 pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
-    let frame = read_committed_registry(mux, |connection, ids| {
-        crate::workspace_registry::load_topology_frame(
-            connection,
-            ids.session_id.clone(),
-            ids.generation.clone(),
-        )
-    })
+    let (_, generation) = mux.registry_identity();
+    let revision = match mux.registry_connection.committed_resource_revision() {
+        Some(revision) => revision,
+        None => mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_revision(),
+    }
     .map_err(operation_failed)?;
-    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
+    Ok(json!({"generation": generation, "revision": revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
