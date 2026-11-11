@@ -10,9 +10,15 @@ mod agent_hook_fences;
 mod agent_hook_retry;
 #[cfg(unix)]
 mod agent_hooks_at_rest;
+#[cfg(unix)]
+mod agent_hooks_at_rest_reopen;
+#[cfg(unix)]
+mod agent_plugin_refresh_at_rest;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
+#[cfg(unix)]
+mod agent_reports_at_rest;
 mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
 mod agent_roster_kind_scope;
@@ -32,6 +38,7 @@ mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
@@ -54,6 +61,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod session_lists;
 mod signaled_mutex;
 mod split_ratio;
 mod stack_layout;

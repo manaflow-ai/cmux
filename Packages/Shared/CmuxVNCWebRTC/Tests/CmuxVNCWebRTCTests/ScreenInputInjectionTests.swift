@@ -161,7 +161,7 @@ struct ScreenInputInjectionTests {
     }
 
     @Test func theCaptureBackendAdvertisesPixelScrollAndModifiedClicks() {
-        #expect(ScreenCaptureBackend(log: { _ in }).inputCapabilities == ["scroll-px", "mods"])
+        #expect(ScreenCaptureBackend(log: { _ in }).inputCapabilities == ["scroll-px", "mods", "paste-image"])
     }
 }
 

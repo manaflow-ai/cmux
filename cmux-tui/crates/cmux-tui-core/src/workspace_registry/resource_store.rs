@@ -11,7 +11,8 @@ pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
 pub(crate) use topology_load::{
-    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+    load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
+    load_terminal_tabs, load_topology_frame,
 };
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -613,12 +614,13 @@ fn advance_agent_hook_apply_cursor_transaction(
     sequence: u64,
 ) -> anyhow::Result<()> {
     let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
-    let changed = transaction.execute(
-        "UPDATE resource_agent_hook_apply_cursor
+    let changed = transaction
+        .prepare_cached(
+            "UPDATE resource_agent_hook_apply_cursor
          SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
          WHERE id = 1",
-        [sequence],
-    )?;
+        )?
+        .execute([sequence])?;
     anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
     Ok(())
 }
@@ -658,16 +660,24 @@ impl WorkspaceRegistry {
             .iter()
             .find(|subject| subject.kind == "terminal")
             .map(|subject| subject.id.as_str());
-        transaction.execute(
-            "INSERT INTO resource_agent_hook_pending(
+        transaction
+            .prepare_cached(
+                "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
              ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
                terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json",
-            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
-        )?;
+            )?
+            .execute(params![
+                producer_id,
+                origin,
+                idempotency_key,
+                terminal_id,
+                i64::try_from(sequence)?,
+                ingress_json
+            ])?;
         Ok(())
     }
 
@@ -762,11 +772,13 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection.get().execute(
-            "DELETE FROM resource_agent_hook_pending
+        self.connection
+            .get()
+            .prepare_cached(
+                "DELETE FROM resource_agent_hook_pending
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            params![producer_id, origin, idempotency_key],
-        )?;
+            )?
+            .execute(params![producer_id, origin, idempotency_key])?;
         Ok(())
     }
 
@@ -851,7 +863,7 @@ impl WorkspaceRegistry {
         let before =
             before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
-        let mut statement = db.prepare(
+        let mut statement = db.prepare_cached(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2
@@ -1395,20 +1407,7 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT terminal_id, public_id
-             FROM resource_terminals
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .map(|row| {
-                let (terminal_id, public_id) = row?;
-                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
-            })
-            .collect()
+        load_live_terminal_resource_ids(&self.connection.get())
     }
 
     /// Resolve the immutable resource-to-host relationship, including after
@@ -1957,6 +1956,28 @@ pub struct RegistryTab {
     pub name_revision: u64,
     pub browser_url: Option<String>,
     pub terminal_id: Option<String>,
+}
+
+/// Each live terminal resource of `connection` with its durable host:
+/// `(host id, terminal id)`, in creation order. The registry's read and a
+/// committed read (a `terminal.list` with no scope, which takes no registry
+/// lock) share it.
+pub(crate) fn load_live_terminal_resource_ids(
+    connection: &Connection,
+) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
+    let mut statement = connection.prepare(
+        "SELECT terminal_id, public_id
+         FROM resource_terminals
+         WHERE deleted_revision IS NULL
+         ORDER BY created_revision ASC, public_id ASC",
+    )?;
+    statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .map(|row| {
+            let (terminal_id, public_id) = row?;
+            Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
