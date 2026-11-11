@@ -18,7 +18,8 @@ nonisolated public struct RollbackSwap {
         var keptCurrent = false
         do {
             // 2. Keep the running build, so the user can move forward again.
-            try store.keep(bundle: current, build: currentBuild, limit: max(1, limit), record: record)
+            // At the click: the full check of this copy waits for the next launch (sealPending).
+            try store.keep(bundle: current, build: currentBuild, limit: max(1, limit), record: record, check: .later)
             keptCurrent = true
             // 3. Atomic swap on the same volume. The kept bundle keeps its own metadata: copying
             // the running bundle's security and creation date onto it is what failed on a fleet

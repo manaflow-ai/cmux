@@ -51,9 +51,12 @@ import Testing
         #expect(RollbackDecision.previous(kept: mixed, running: "999")?.build == "90")
     }
 
-    /// A kept build's record carries its team: listing it checks no whole bundle while its signature
-    /// files are the ones it was kept with, and checks in full once they change.
-    @Test func theRecordSparesTheFullSignatureCheck() throws {
+    /// The keep checks every file once, off the click, and seals what it read: listing the kept
+    /// build then checks no whole bundle while the seal matches, and checks every file again once
+    /// anything in the bundle changed, a bundled script included (cmux#41013 review: a fingerprint of
+    /// the signature files alone let a changed resource through a check that skipped resources).
+    @Test(arguments: ["Contents/Resources/app.js", "Contents/_CodeSignature/CodeResources", "Contents/MacOS/cmux"])
+    func theSealSparesTheFullCheckUntilAnyFileChanges(changed: String) throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
         let full = Counter(), quick = Counter()
@@ -61,14 +64,38 @@ import Testing
                                      quickTeamID: { _ in quick.add(); return "TEAM" })
         let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "100")
-        try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", date: "2026-11-10", teamID: "TEAM",
-                                                                                storeSchemas: ["chats": 3]))
-        let listed = try #require(store.list().first)
-        #expect(listed.teamID == "TEAM" && listed.storeSchemas == ["chats": 3] && listed.date == "2026-11-10")
-        #expect(full.value == 0 && quick.value == 1)
-        // Its signature file changed: the record no longer stands.
-        try Data("other".utf8).write(to: listed.bundle.appending(path: "Contents/_CodeSignature/CodeResources"))
-        _ = store.list()
+        try FileManager.default.createDirectory(at: app.appending(path: "Contents/Resources"), withIntermediateDirectories: true)
+        try Data("ok()".utf8).write(to: app.appending(path: "Contents/Resources/app.js"))
+        try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", date: "2026-11-10", storeSchemas: ["chats": 3]))
+        #expect(full.value == 1, "the keep checks every file once")
+        let listed = try #require(store.list(teams: false).first)
+        #expect(store.checkedTeam(of: listed) == "TEAM")
+        #expect(listed.storeSchemas == ["chats": 3] && listed.date == "2026-11-10")
+        #expect(full.value == 1 && quick.value == 1, "the click checks only the executable")
+        let file = listed.bundle.appending(path: changed)
+        var bytes = try Data(contentsOf: file)
+        bytes.append(contentsOf: Array("//".utf8))
+        try bytes.write(to: file)
+        #expect(store.checkedTeam(of: listed) == "TEAM")
+        #expect(full.value == 2, "a changed file is checked in full again")
+    }
+
+    /// A keep made at a click (the swap) checks nothing then: the copy has no trusted team until
+    /// the next launch checks every file and seals it.
+    @Test func aKeepAtTheClickIsSealedAtTheNextLaunch() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let full = Counter()
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" })
+        let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: app, build: "100")
+        try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", teamID: "TEAM"), check: .later)
+        #expect(full.value == 0)
+        #expect(store.list(teams: false).first?.teamID == nil, "a team nobody checked is not recorded")
+        #expect(store.sealPending() == ["100"])
+        #expect(store.sealPending().isEmpty, "sealed once")
+        let listed = try #require(store.list(teams: false).first)
+        #expect(listed.teamID == "TEAM" && store.checkedTeam(of: listed) == "TEAM")
         #expect(full.value == 1)
     }
 

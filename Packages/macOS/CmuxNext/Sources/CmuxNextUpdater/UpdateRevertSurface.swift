@@ -15,15 +15,18 @@ public struct UpdateRevertSurface {
     }
 
     /// The answer to `op`, or nil for an op this does not own.
-    /// - `cmux.changelog.surface.goBack {build?}`: goes back (no build: the previous one, kept or
-    ///   downloaded); answers `{failure}` when it does not run (the app quits when it does).
+    /// - `cmux.changelog.surface.goBack {build?}`: goes back (no build: the previous one; a build:
+    ///   that one), kept or downloaded; answers `{failure}` when it does not run (the app quits when
+    ///   it does).
     /// - `cmux.changelog.surface.builds {limit?}`: the recent builds, newest first, each with its
     ///   date, its first change titles, and whether going to it needs a download.
     public func call(_ op: String, params: JSONValue) async -> JSONValue? {
         switch op {
         case "cmux.changelog.surface.goBack":
-            let build = params["build"]?.stringValue
-            let failure = await UpdateDropBack(updater).failure(to: build, stateDirectories: updater.pulledWatch.stateDirectories())
+            // A build picked under Other builds goes through the Switch, which takes it kept or
+            // downloads and checks it first (and refuses a pulled one); no build is Go back's own path.
+            let failure = if let build = params["build"]?.stringValue { await updater.switchToBuild(build) }
+                else { await UpdateDropBack(updater).goBack(stateDirectories: updater.pulledWatch.stateDirectories()) }
             return .object(["failure": failure.map(JSONValue.string) ?? .null])
         case "cmux.changelog.surface.builds":
             let limit = UpdaterService.recentBuildsLimit(params["limit"]?.doubleValue ?? 6)

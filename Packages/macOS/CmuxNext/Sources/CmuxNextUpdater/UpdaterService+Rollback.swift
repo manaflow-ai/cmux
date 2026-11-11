@@ -92,8 +92,9 @@ extension UpdaterService {
         installingBuild = build
         guard keptRunningBuild == nil else { return }
         do {
+            // The install is waiting: the full check of the copy runs at the next launch (sealPending).
             try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions,
-                                  record: runningRecord())
+                                  record: runningRecord(), check: .later)
             log.append("kept \(identity.build) for rollback before installing \(build)")
         } catch {
             log.append("could not keep \(identity.build) for rollback: \(error)")
@@ -111,13 +112,16 @@ extension UpdaterService {
         let work = work
         // task-owner: the rollback's read; awaited below.
         async let stored = StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories)
-        var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
-        // The build the rollback would take, when neither its Info.plist nor its record names its
-        // schemas: its own CLI says. Only that one (each probe is a process start, seconds on a
-        // busy Mac); a refusal or another kept build asks none.
+        var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list(teams: false) }) ?? []
+        // Only the build the rollback would take is checked: its team (sealed by the full check when
+        // it was kept, else every file now) and, when neither its Info.plist nor its record names its
+        // schemas, its own CLI (a process start, seconds on a busy Mac). Every other kept build's
+        // team is the record's, unchecked, and the decision never takes one of them.
         let target = build ?? RollbackDecision.previous(kept: kept, running: identity.build)?.build
-        if let index = kept.firstIndex(where: { $0.build == target }), kept[index].storeSchemas == nil {
-            kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
+        if let index = kept.firstIndex(where: { $0.build == target }) {
+            let picked = kept[index]
+            kept[index].teamID = (try? await work.run(.userVisible, mayBlock: .files) { store.checkedTeam(of: picked) }) ?? nil
+            if kept[index].storeSchemas == nil { kept[index].storeSchemas = await StoreSchemaProbe(bundle: picked.bundle).readable() }
         }
         return RollbackInputs(kept: kept, stored: await stored)
     }
@@ -175,7 +179,7 @@ extension UpdaterService {
         // task-owner: a launch tidy that ends by itself; nobody waits on it.
         Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let tidied = (try? await work.run(.bestEffort, mayBlock: .files) {
-                RollbackSwap.recover(current: bundle, store: store) + store.sweep()
+                RollbackSwap.recover(current: bundle, store: store) + store.sweep() + store.sealPending().map { "sealed \($0)" }
             }) ?? []
             if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
             await self?.refreshRevertOffer()

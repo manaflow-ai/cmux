@@ -25,7 +25,7 @@ extension UpdaterService {
         if await Self.pulled(in: folder).contains(where: { $0.build == build }) { return UpdaterStrings.channelsSwitchPulled }
         // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane.
         let store = keptVersions
-        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
+        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list(teams: false).contains { $0.build == build } }) ?? false
         if !kept {
             revert = RevertProgress(step: .downloading, target: build)
             guard let source = await switchDownload(for: build) else { return failed(UpdaterStrings.channelsSwitchGone, build) }
@@ -169,9 +169,10 @@ nonisolated struct BuildSwitchDownload: Sendable {
         }
         // Kept without a prune: an older build than every kept one would be pruned at once. The
         // swap that follows prunes when it keeps the running build.
-        // The full check just ran: its record lets going back to it skip that check.
+        // The full check just ran on the read-only disk image: the copy is sealed with its team, so
+        // going back to it skips that check.
         let record = KeptRecord(build: build, teamID: teamID)
-        do { try store.keep(bundle: app, build: build, limit: nil, record: record) } catch { return "could not keep it: \(error)" }
+        do { try store.keep(bundle: app, build: build, limit: nil, record: record, check: .checkedSource) } catch { return "could not keep it: \(error)" }
         return nil
     }
 }
