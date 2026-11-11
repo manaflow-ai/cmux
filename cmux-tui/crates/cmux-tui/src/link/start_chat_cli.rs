@@ -434,7 +434,7 @@ fn plan_with_calls(
                     .map(|_| request.key.to_lowercase()),
             };
             let answer = if credential.0.is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
+                Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
             } else {
                 ensure(&ask, credential.0)
             };
@@ -548,10 +548,20 @@ fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
 
 /// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
 /// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+///
+/// Never a refusal of the platform's Cloud table (cmux-platform#1192) but a refused sign-in: a cap, the plan, a rate
+/// limit or a machine's state is the platform's answer for this send, final or retried with the same key, and the
+/// App's own create would only meet it again (a 403 at the team's VM limit went to that create and hit the limit).
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
         E::Status { code: "cloud_environment.not_found", .. } => false,
+        E::Status { code, .. }
+            if *code != "auth.forbidden"
+                && cmux_cloud_machine::refusals::platform(code).is_some() =>
+        {
+            false
+        }
         E::Status { status: 401 | 403 | 404, .. } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
@@ -874,16 +884,37 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                 None => refused("bad_answer", "the cmux platform answered without the machine"),
             }
         }
-        Err(E::Status { status: 404, code: "" | "not_found" }) => {
+        Err(E::Status { status: 404, code: "" | "not_found", .. }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
-        Err(E::Status { status, code }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!(
-                "the cmux platform refused the workspace's machine: {}",
-                format!("{status} {code}").trim_end()
-            ),
-        ),
+        Err(E::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the workspace's machine: {}{}",
+                    format!("{status} {code}").trim_end(),
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            // A refusal of the platform's Cloud table says how it is handled: final (shown, never
+            // retried), a rate limit's wait, or a retry with the same key.
+            if let (Some(row), Value::Object(object)) =
+                (cmux_cloud_machine::refusals::platform(code), &mut line)
+            {
+                let facts = facts.unwrap_or_default();
+                let handling =
+                    cmux_cloud_machine::refusals::handling(status, Some(row.code), facts.retryable);
+                object.insert("handling".into(), json!(handling));
+                object.insert(
+                    "retryable".into(),
+                    json!(handling != cmux_cloud_machine::refusals::Handling::Final),
+                );
+                if handling == cmux_cloud_machine::refusals::Handling::RetryAfter {
+                    object.insert("retry_after_s".into(), json!(facts.wait_s()));
+                }
+            }
+            line
+        }
         Err(E::Unreachable(reason)) => {
             refused("unreachable", format!("the cmux platform did not answer: {reason}"))
         }
