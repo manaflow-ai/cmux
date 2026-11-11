@@ -75,7 +75,10 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                 };
                 Some(json!({"id": word("id")?, "type": word("type")?}))
             });
-            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
+            // The caller's retry key: a start it retries after a timeout is one task.
+            let key = str_param(params, "idempotencyKey");
+            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent, key)
+                .await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
         method::MUX_BG_OUTPUT => {
