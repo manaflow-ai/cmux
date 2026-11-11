@@ -1668,7 +1668,7 @@ fn wait_turn(
                 }
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed",
-                                  "message": turn_failure_message(&turn),
+                                  "message": turn_failure_message(turn),
                                   "details": answer, "retryable": false}),
                     exit: 1,
                 };
