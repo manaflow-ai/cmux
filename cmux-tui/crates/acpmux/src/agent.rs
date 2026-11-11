@@ -150,6 +150,9 @@ const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+/// The most entries logged before an ack while more wait: the host keeps each entry until it
+/// is acked, so this bounds what a streaming link adds to the host's buffer.
+const ACK_BATCH: usize = 64;
 
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
@@ -166,6 +169,11 @@ struct Hosted {
     exit: tokio::sync::Notify,
     /// Last entry whose record reached the store.
     logged: tokio::sync::watch::Sender<u64>,
+    /// Held while a reader logs an entry and moves `logged`: the reader of a closed link may
+    /// still log entries from its queue after a reattach, while the host replays the same
+    /// entries to the new link (it resumes after `logged`). Under this lock each entry is
+    /// logged once: a reader skips an entry at or below `logged` and only acknowledges it.
+    log_turn: tokio::sync::Mutex<()>,
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
@@ -2084,6 +2092,7 @@ impl ChildAgent {
                 inbound,
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
+                log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
@@ -2130,19 +2139,27 @@ impl ChildAgent {
         true
     }
 
-    /// Read `link`'s entries: log each, act on it, then acknowledge it.
+    /// Read `link`'s entries: log each, act on it, then acknowledge it (one ack for a run of
+    /// queued entries, at most [`ACK_BATCH`] apart).
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
+            // Entries logged since the last ack.
+            let mut unacked = 0usize;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 #[cfg(debug_assertions)]
                 let ack_fails = ack_fails_once(&entry);
                 #[cfg(not(debug_assertions))]
                 let ack_fails = false;
-                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                // An entry the reader of an earlier link logged already (its queue outlived its
+                // link, and the host replayed the entry here) is only acknowledged.
+                let turn = hosted.log_turn.lock().await;
+                let fresh = h > *hosted.logged.borrow();
+                if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                    drop(turn);
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
@@ -2164,7 +2181,10 @@ impl ChildAgent {
                         hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
-                hosted.logged.send_replace(h);
+                if fresh {
+                    hosted.logged.send_replace(h);
+                }
+                drop(turn);
                 if is_exit {
                     // Written before anyone hears of the exit: a daemon that
                     // ends the agent and exits at once still acks the Exit.
@@ -2176,8 +2196,19 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if ack_fails || link.ack(h).await.is_err() {
+                if ack_fails {
                     break;
+                }
+                // An ack is cumulative: the host drops every entry through `h` (`host.rs`
+                // `drop_through`, so since the first host build). While more entries wait here
+                // one ack goes per ACK_BATCH entries; the entry that empties the queue is always
+                // acked, so an idle link leaves none unacked.
+                unacked += 1;
+                if unacked >= ACK_BATCH || entries.is_empty() {
+                    if link.ack(h).await.is_err() {
+                        break;
+                    }
+                    unacked = 0;
                 }
             }
             #[cfg(debug_assertions)]

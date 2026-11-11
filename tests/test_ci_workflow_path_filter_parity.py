@@ -26,6 +26,11 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
+    # A feat-cmux-next push that touches the app walks the reviewer path on a macOS
+    # machine; a pull request walks it only when it changes the gate itself, so an
+    # app pull request does not pay for the walk (its push to feat-cmux-next does).
+    "ios-review-gate.yml": "pull requests run the macOS walk only when they change the gate; "
+    "feat-cmux-next pushes run it for every app change",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these

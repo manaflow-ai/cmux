@@ -91117,125 +91117,125 @@
     "action.agentChat.copyAcpmuxSessionFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy acpmux Session File"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Copy cmux Session File"}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نسخ ملف جلسة acpmux"
+            "value": "نسخ ملف جلسة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiraj acpmux datoteku sesije"
+            "value": "Kopiraj cmux datoteku sesije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiér acpmux-sessionsfil"
+            "value": "Kopiér cmux-sessionsfil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux-Sitzungsdatei kopieren"
+            "value": "cmux-Sitzungsdatei kopieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copiar archivo de sesión de acpmux"
+            "value": "Copiar archivo de sesión de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copier le fichier de session acpmux"
+            "value": "Copier le fichier de session cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copia file di sessione acpmux"
+            "value": "Copia file di sessione cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmuxセッションファイルをコピー"
+            "value": "cmuxセッションファイルをコピー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចម្លងឯកសារសម័យ acpmux"
+            "value": "ចម្លងឯកសារសម័យ cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 세션 파일 복사"
+            "value": "cmux 세션 파일 복사"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopier acpmux-øktfil"
+            "value": "Kopier cmux-øktfil"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiuj plik sesji acpmux"
+            "value": "Kopiuj plik sesji cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copiar arquivo de sessão do acpmux"
+            "value": "Copiar arquivo de sessão do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Копировать файл сеанса acpmux"
+            "value": "Копировать файл сеанса cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คัดลอกไฟล์เซสชัน acpmux"
+            "value": "คัดลอกไฟล์เซสชัน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux oturum dosyasını kopyala"
+            "value": "cmux oturum dosyasını kopyala"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Копіювати файл сеансу acpmux"
+            "value": "Копіювати файл сеансу cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sao chép tệp phiên acpmux"
+            "value": "Sao chép tệp phiên cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "复制 acpmux 会话文件"
+            "value": "复制 cmux 会话文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "複製 acpmux 工作階段檔案"
+            "value": "複製 cmux 工作階段檔案"
           }
         }
       }

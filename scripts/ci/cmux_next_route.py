@@ -249,6 +249,7 @@ BUNDLE_INPUTS = (
     "release-notes/next/highlights/*",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",

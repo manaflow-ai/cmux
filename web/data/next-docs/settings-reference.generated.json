@@ -6689,7 +6689,7 @@
         {
           "key": "ssh.linkAllowedHosts",
           "title": "Always Allowed SSH Link Hosts",
-          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
           "kind": "string_list",
           "default": [],
           "group": "SSH Links"
