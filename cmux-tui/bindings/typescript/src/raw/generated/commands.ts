@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d. */
+/* cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb. */
 
 
 import type * as T from "./types.js";
@@ -1098,6 +1098,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  /** The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply. */
+  "first_tab"?: (T.WorkspaceFirstTab) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
@@ -1778,6 +1780,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
+  /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+  "workspace"?: (T.Id) | null;
 }
 export type NewFrontendBrowserTabResult = T.JsonValue;
 
@@ -2416,6 +2420,15 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetDividerVisibleRequest extends CmuxRequestBase {
+  cmd: "set-divider-visible";
+  "split": T.Id;
+  "transaction"?: (bigint) | null;
+  "visible": boolean;
+}
+export type SetDividerVisibleResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
 export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   cmd: "set-frontend-browser-history";
   "history": (T.JsonValue) | null;
@@ -2670,6 +2683,8 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  /** The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down. */
+  "around"?: (T.Id) | null;
   "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
@@ -3239,6 +3254,7 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetColumnDockRequest
   | SetDefaultColorsRequest
+  | SetDividerVisibleRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
   | SetLayoutSizesRequest
@@ -5177,6 +5193,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-divider-visible": {
+    request: SetDividerVisibleRequest;
+    result: SetDividerVisibleResult;
+    authority: "control";
+    since: 12;
+    capability: "split-divider-visibility-v1";
     stream: null;
   };
   "set-frontend-browser-history": {

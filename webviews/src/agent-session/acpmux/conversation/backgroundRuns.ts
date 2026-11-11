@@ -20,6 +20,8 @@
 // turn shaping already does.
 import type { AcpmuxBackgroundRun, AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
+import { experimentArm } from "../../../experiments/experiment";
+import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
 import type { Folds } from "./viewFolds";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
@@ -56,6 +58,9 @@ const bareReply = (row: AcpmuxRow) => row.kind === "assistant" && !row.streaming
 /// line alone while closed, the line and the run's rows while open (`expanded` holds the line's
 /// id). Without such a run, `rows` itself.
 export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
+  // Inline, no "N background updates" line: each member draws as it came, as a tool call's row does
+  // (backgroundTurnLook.experiment.ts).
+  if (backgroundTurnsInline(experimentArm(backgroundTurnLook))) return rows;
   let out: AcpmuxRow[] | undefined;
   let index = 0;
   while (index < rows.length) {

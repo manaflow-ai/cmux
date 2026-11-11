@@ -93,7 +93,7 @@ impl WorkspaceRegistry {
             result_json: canonical_json(result)?,
             project_resource,
             previous_topology: project_resource
-                .then(|| self.resource_topology_snapshot())
+                .then(|| self.resource_topology_for_workspace_commit(workspaces, active_workspace))
                 .transpose()?,
             stated_workspaces,
             session_id: self.session_id.clone(),
@@ -242,7 +242,7 @@ impl WorkspaceCommitIntent {
                 "active workspace is absent from the desired registry: {active_workspace}"
             );
         }
-        let (revision, _) = commit_workspace_registry_in_transaction(
+        let (revision, _, written) = commit_workspace_rows_in_transaction(
             tx,
             mutation,
             fingerprint,
@@ -285,9 +285,19 @@ impl WorkspaceCommitIntent {
                 .iter()
                 .map(|workspace| workspace.public_id.clone())
                 .collect::<HashSet<_>>();
+            // Only the workspaces whose row this commit wrote, or that have no
+            // live resource row yet: every other one is stored as desired
+            // already (its row unchanged, its active screen read from the
+            // store), so the patch's prune would drop it after one query
+            // each. Restating them all made every create O(workspaces) in
+            // queries (#40449: 113 ms per create at 1,000).
             let mut resource_changes = workspaces
                 .iter()
                 .enumerate()
+                .filter(|(_, workspace)| {
+                    written.contains(&workspace.key)
+                        || !active_screens.contains_key(&workspace.public_id)
+                })
                 .map(|(position, workspace)| ResourceChange::UpsertWorkspace {
                     workspace: workspace.clone(),
                     position,
@@ -394,6 +404,70 @@ impl WorkspaceCommitIntent {
     }
 }
 
+/// Add to `deltas` what a workspace commit that moves the active workspace
+/// changes below the workspaces: the active screen and its active pane at
+/// each end that stays live get a new `focused` (as `focus_deltas` states
+/// for a focus change). `before` holds those screens (see
+/// `resource_topology_for_workspace_commit`). Without these two upserts per
+/// end the journal kept `focused: true` for the screen and the pane of the
+/// workspace the focus left, until a later projection had that workspace in
+/// its scope: an events client then showed two focused screens.
+pub(super) fn push_focus_move_upserts(
+    deltas: &mut Vec<Value>,
+    before: &ResourceTopologySnapshot,
+    live_workspaces: &HashSet<WorkspacePublicId>,
+    active_workspace: Option<&str>,
+) -> anyhow::Result<()> {
+    let previous = before.active_workspace.as_ref().map(WorkspacePublicId::as_str);
+    if previous == active_workspace {
+        return Ok(());
+    }
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&before.tabs);
+    let panes_by_id = crate::resource_screen::panes_by_id(&before.panes);
+    for workspace in [previous, active_workspace].into_iter().flatten() {
+        let Some(screen) = before
+            .active_screens
+            .iter()
+            .find(|(id, _)| id.as_str() == workspace && live_workspaces.contains(id))
+            .and_then(|(_, screen)| screen.as_ref())
+            .and_then(|id| before.screens.iter().find(|screen| &screen.public_id == id))
+        else {
+            continue;
+        };
+        let focused = active_workspace == Some(workspace);
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"upsert",
+            "sequence":sequence,
+            "resource":"screen",
+            "id":screen.public_id,
+            "value":crate::resource_screen::screen_value(
+                screen,
+                focused,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?,
+        }));
+        if let Some(pane) = panes_by_id.get(&screen.active_pane) {
+            let sequence = deltas.len();
+            deltas.push(serde_json::json!({
+                "kind":"upsert",
+                "sequence":sequence,
+                "resource":"pane",
+                "id":pane.public_id,
+                "value":{
+                    "id":pane.public_id,
+                    "screen_id":pane.screen_id,
+                    "name":pane.name,
+                    "focused":focused,
+                    "zoomed":screen.zoomed_pane.as_ref() == Some(&pane.public_id),
+                },
+            }));
+        }
+    }
+    Ok(())
+}
+
 /// `deltas` without the workspace upserts whose decorated value `stated` holds already (the public fold:
 /// what the journal states). Every other change stays, renumbered. `keep` (a workspace key) is never dropped.
 fn prune_stated_workspace_upserts(
@@ -402,15 +476,22 @@ fn prune_stated_workspace_upserts(
     stated: &HashMap<String, Value>,
     keep: Option<&str>,
 ) -> anyhow::Result<Value> {
-    let mut decorated = deltas.clone();
+    let raw = deltas.as_array().context("resource deltas are not an array")?;
+    // An upsert whose own fields the journal states already is dropped before it is decorated:
+    // its decorations (presentation, kind, folder, creator) are journaled by the commits that
+    // write them (state/values.rs `fresh_upserts`), and this commit writes none of another
+    // workspace's. Decorating every workspace made each create read the whole session (#40449).
+    let candidates = raw
+        .iter()
+        .filter(|change| !(is_workspace_upsert(change) && raw_upsert_stated(change, stated, keep)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut decorated = Value::Array(candidates.clone());
     crate::state::values::decorate_changes(tx, &mut decorated)?;
     let changes = decorated.as_array().context("resource deltas are not an array")?;
-    let raw = deltas.as_array().context("resource deltas are not an array")?;
-    let mut kept = Vec::with_capacity(raw.len());
-    for (change, decorated_change) in raw.iter().zip(changes) {
-        if text_field(change, "kind") == Some("upsert")
-            && text_field(change, "resource") == Some("workspace")
-        {
+    let mut kept = Vec::with_capacity(candidates.len());
+    for (change, decorated_change) in candidates.iter().zip(changes) {
+        if is_workspace_upsert(change) {
             let id = text_field(change, "id").unwrap_or_default();
             let value = decorated_change.get("value").unwrap_or(&Value::Null);
             let own = keep.is_some_and(|key| {
@@ -429,6 +510,30 @@ fn prune_stated_workspace_upserts(
         kept.push(change);
     }
     Ok(Value::Array(kept))
+}
+
+fn is_workspace_upsert(change: &Value) -> bool {
+    text_field(change, "kind") == Some("upsert")
+        && text_field(change, "resource") == Some("workspace")
+}
+
+/// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
+/// `extra` fields included, so the upsert decorated would equal what the journal states.
+/// The upsert of the workspace keyed `keep` is never dropped here.
+fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Option<&str>) -> bool {
+    let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
+    let Some(stated) = text_field(change, "id").and_then(|id| stated.get(id)) else {
+        return false;
+    };
+    if keep.is_some_and(|key| stated.pointer("/extra/key").and_then(Value::as_str) == Some(key)) {
+        return false;
+    }
+    value.iter().all(|(field, raw)| match (field.as_str(), raw) {
+        ("extra", Value::Object(extra)) => extra.iter().all(|(name, raw)| {
+            stated.get("extra").and_then(|stated| stated.get(name)) == Some(raw)
+        }),
+        _ => stated.get(field) == Some(raw),
+    })
 }
 
 /// A string field of a change, or `None` when it is absent or not a string.

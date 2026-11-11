@@ -202,6 +202,28 @@ impl RouteSnapshot {
             .cloned()
     }
 
+    /// The catalog owner of terminal `id` (the lookup of `State::terminal_catalog`).
+    pub(crate) fn catalog_terminal(&self, id: &TerminalPublicId) -> Option<&Arc<Surface>> {
+        self.catalog.get(id)
+    }
+
+    /// The placed surfaces of each browser content, by the content their resource identity names: the session
+    /// snapshot shows a browser's live values only when exactly one surface shows it, as
+    /// `State::single_placement_of_content` does.
+    pub(crate) fn browser_surfaces_by_content(
+        &self,
+    ) -> HashMap<&crate::resource::ContentPublicId, Vec<&Arc<Surface>>> {
+        let mut shown: HashMap<_, Vec<_>> = HashMap::new();
+        for surface in self.surfaces.values() {
+            if let Some(identity) = surface.resource_identity()
+                && matches!(identity.content_id, crate::resource::ContentPublicId::Browser(_))
+            {
+                shown.entry(&identity.content_id).or_default().push(surface);
+            }
+        }
+        shown
+    }
+
     /// The live terminal whose host id is `terminal_id` (the lookup of `Mux::live_surface_for_terminal`).
     pub(crate) fn live_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
         live_terminal(&self.surfaces, &self.catalog, &self.by_host, terminal_id).cloned()

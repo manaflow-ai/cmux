@@ -3213,9 +3213,12 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": []}[workflow]
-        # Untitled runs are charged in full: two in flight, two simulators each.
-        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": [],
+                        "ios-reliability-matrix.yml": [{"id": 4, "status": "in_progress",
+                                                        "path": ".github/workflows/ios-reliability-matrix.yml"}]}[workflow]
+        # Untitled runs are charged in full: two in flight, two simulators each; the
+        # reliability matrix holds one simulator, like the kit.
+        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 5)
 
     def test_in_flight_ios_runs_are_charged_what_their_title_needs(self):
         def title(package="simulator", family="both", runner="auto"):
@@ -3389,6 +3392,30 @@ class IOSRouting(unittest.TestCase):
         job["conclusion"] = "success"
         self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW), ios_pool.Hold())
 
+    def test_matrix_phone_job_is_a_simulator_job(self):
+        # The phone cells hold the simulator only while they run, like the kit's job; read as a
+        # build, a finished phone job kept one runner and one simulator charged until the run ended.
+        workflow = yaml.safe_load((WORKFLOWS / "ios-reliability-matrix.yml").read_text())
+        self.assertEqual(workflow["jobs"]["runner"].get("name", "runner"), ios_pool.PICKER_JOB)
+        matrix = {"id": 1, "path": ".github/workflows/ios-reliability-matrix.yml", "run_attempt": 1}
+        job = {"name": workflow["jobs"]["ios"]["name"], "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertEqual(ios_pool.hold(matrix, [job], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        job["status"] = "completed"
+        job["conclusion"] = "success"
+        self.assertEqual(ios_pool.hold(matrix, [job], MINI, None, NOW), ios_pool.Hold())
+
+    def test_matrix_nightly_dispatch_may_take_the_owned_pool(self):
+        # The nightly arrives as a workflow_dispatch from main's copy (cmux#40397): GitHub fires
+        # `schedule` only from the default branch, so this file's own cron never runs.
+        steps = yaml.safe_load((WORKFLOWS / "ios-reliability-matrix.yml").read_text())["jobs"]["runner"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "route-token")
+        pick = next(step for step in steps if step.get("id") == "pool")
+        for event in ("workflow_dispatch", "push"):
+            self.assertIn(f"github.event_name == '{event}'", mint["if"], event)
+            self.assertIn(f"github.event_name == '{event}'", pick["env"]["PR_XCODE_APP"], event)
+
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         runs = [{"id": n, "run_attempt": 1, "display_title": title,
@@ -3504,7 +3531,8 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": [],
+                        "ios-reliability-matrix.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
@@ -4429,7 +4457,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py",
+                            "nightly_runner_preflight.py"),
         }
 
         def mappings(value):
@@ -4476,6 +4505,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
             "cmux_next_media_runner.py", "admission_placement.py", "late_placement.py",
             "dev_landing_place.py", "ios_internal_runner.py",
+            # Reads the census to fail a nightly whose routing label has no online runner (#40992).
+            "nightly_runner_preflight.py",
         }
         for workflow in WORKFLOWS.glob("*.yml"):
             doc = yaml.safe_load(workflow.read_text())

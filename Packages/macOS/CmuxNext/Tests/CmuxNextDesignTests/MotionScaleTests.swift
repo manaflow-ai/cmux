@@ -16,6 +16,16 @@ import CmuxNextDesignTokens
         .focusFlash: "the ring flashed where focus moved without a click, fading out slowly enough to be seen",
     ]
 
+    /// Springs that end visibly after the ceiling since 2026-11-10 (no bounce in any motion): their
+    /// damping went from under 1 to 1 and their response stayed (the lead's decision: a response is
+    /// a Motion Lab choice), so each ends later than it did, at 1.18 x its response. Each keeps a
+    /// limit here, so it cannot get slower unseen; a 0.2 s response would end at 236 ms.
+    static let endsAfterTheCeiling: [MotionSpring: (limit: TimeInterval, was: String)] = [
+        .settle: (0.262, "0.22 / 0.85 ended at 235 ms"),
+        .popover: (0.286, "0.24 / 0.86 ended at 238 ms"),
+        .pinDrag: (0.256, "0.215 / 0.84 ended at 238 ms"),
+    ]
+
     static func onScale(_ seconds: TimeInterval) -> Bool {
         seconds == 0 || MotionScale.steps.contains { abs($0 - seconds) < 1e-9 }
     }
@@ -43,6 +53,11 @@ import CmuxNextDesignTokens
         let parameters = try #require(MotionTunables.springDefaults[spring]?.0, "\(spring) has no default")
         let end = parameters.perceivedDuration
         #expect(end > 0)
+        if let late = Self.endsAfterTheCeiling[spring] {
+            #expect(end > MotionScale.ceiling, "\(spring) is listed as ending after the ceiling (\(late.was)) but ends at \(Int(end * 1000)) ms now: take it off the list")
+            #expect(end <= late.limit, "\(spring) (\(parameters.response) / \(parameters.dampingFraction)) ends visibly at \(Int(end * 1000)) ms, past its \(Int(late.limit * 1000)) ms")
+            return
+        }
         #expect(end <= MotionScale.ceiling, "\(spring) (\(parameters.response) / \(parameters.dampingFraction)) ends visibly at \(Int(end * 1000)) ms, past \(Int(MotionScale.ceiling * 1000)) ms")
     }
 

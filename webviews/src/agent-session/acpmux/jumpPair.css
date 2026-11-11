@@ -1,0 +1,24 @@
+/* Jump up (VirtualTranscript.tsx JumpUp, jumpUp.ts; design/transcript-overlays.md): the companion
+   of Jump to latest, stacked on it in the bottom-center zone (overlayLayout.ts). It is the same
+   control: the same glass disc (.acpmux-jump-latest), size, rim, hover, focus and fade, with the
+   arrow turned up. It stands one control and one gap above Jump to latest's place, whether that
+   place shows the disc or the Needs you pill (both --ds-control-primary tall), so the pair reads as
+   one column on the composer's center line and neither ever moves for the other.
+   Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
+.acpmux-jump-latest.acpmux-jump-up {
+  bottom: calc(
+    var(--ds-space-3) + var(--acpmux-dock-space, 0px) + var(--ds-control-primary) + var(--ds-space-2)
+  );
+}
+/* Holding a way back (pressed once), it points down: a second press or Esc returns. */
+.acpmux-jump-up .acpmux-jump-latest__arrow {
+  transform: rotate(180deg);
+}
+.acpmux-jump-up[data-back] .acpmux-jump-latest__arrow {
+  transform: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-jump-up .acpmux-jump-latest__arrow {
+    transition: transform var(--agent-motion-move) var(--agent-ease-out);
+  }
+}

@@ -899,6 +899,7 @@ pub(super) mod interaction_tests {
             app.editor_mut().insert_str(text);
             app.on_key(key);
             loop {
+                // timeout: a test bound on an in-process request channel; a hang fails the test instead of hanging the suite
                 let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
                     .await
                     .unwrap()

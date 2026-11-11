@@ -153,7 +153,7 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
-                      let item = makeChoicesItem(for: descriptor, target: target, in: context)
+                      let item = makeChoicesItem(for: descriptor, target: target, in: context, arguments: arguments)
                 else { continue }
                 if let machineID { scope(item, toMachine: machineID) }
                 item.image = rowIcon(descriptor.symbol)

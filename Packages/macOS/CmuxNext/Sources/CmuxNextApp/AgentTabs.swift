@@ -112,6 +112,8 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     var listTabsScoped: @MainActor () -> [(key: String, record: AgentSessionRef, machine: String)] = { [] }
+    /// The agent tab with id `id` on each machine whose tree lists one, from each store's tab index (``tabKey(_:machine:)``).
+    var tabsNamedScoped: @MainActor (_ id: String) -> [AgentTabKey] = { _ in [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
     /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
@@ -339,6 +341,8 @@ final class AgentTabStore {
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
+    /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
+    var cloudTurnRewind: AgentPaneCloudTurnRewindHost?
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
@@ -349,9 +353,9 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
     var gitLinkScoped: (@MainActor (AgentTabKey) -> AgentPaneGitLink?)?
     var openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
-    /// Cloud destinations exposed to a started chat's title menu. The page receives only the
-    /// current live list; it never invents or persists machine ids.
-    var machineTargets: @MainActor () -> [AgentPaneMoveTarget] = { [] }
+    /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
+    /// receives only the current live list; it never invents or persists machine ids.
+    var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }
     /// Runs the existing CloudMove action for a validated target machine.
     var moveAgentToMachine: @MainActor (_ tab: AgentTabKey, _ machine: String) -> Bool = { _, _ in false }
 
@@ -425,13 +429,8 @@ final class AgentTabStore {
     /// when the state has one unambiguous owner; callers with a pane should always pass its daemon.
     func tabKey(_ key: String, machine: String? = nil) -> AgentTabKey {
         if let machine { return AgentTabKey(machine: machine, key: resolve(key, machine: machine)) }
-        var candidates = Set(views.entries.map { $0.key } + sessions.entries.map { $0.key } + tabStores.entries.map { $0.key })
-            .filter { $0.key == key || $0.key == aliases[AgentTabKey(machine: $0.machine, key: key)] }; if candidates.count == 1, let only = candidates.first { return only }; guard candidates.isEmpty else { return AgentTabKey(machine: "", key: resolve(key)) }
-        candidates.formUnion(listTabsScoped().filter { tab in
-            tab.key == key || resolve(tab.key, machine: tab.machine) == key
-        }.map { AgentTabKey(machine: $0.machine, key: $0.key) })
-        if candidates.count == 1, let only = candidates.first { return only }
-        return AgentTabKey(machine: "", key: resolve(key))
+        return AgentTabIDResolver(aliases: aliases).key(of: key, held: views.keys(ofTab: key) + sessions.keys(ofTab: key) + tabStores.keys(ofTab: key),
+                                                        holds: { views[$0] != nil || sessions[$0] != nil || tabStores[$0] != nil }, listed: { tabsNamedScoped($0) })
     }
 
     func resolvedKey(_ key: AgentTabKey) -> AgentTabKey {
@@ -655,6 +654,10 @@ final class AgentTabStore {
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
         }
+        model.onCloudTurnRewind = { [weak self] request, session in
+            guard let self, let host = self.cloudTurnRewind else { throw AgentPaneHostError.daemonStopped }
+            return try await host.run(chat: self.resolve(provisional, machine: scoped.machine), session: session, request: request)
+        }
         unsentDrafts.wire(model, machine: { scoped.machine }) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
@@ -765,7 +768,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { views[tabKey(key, machine: machine)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
         let scoped = tabKey(key, machine: machine)

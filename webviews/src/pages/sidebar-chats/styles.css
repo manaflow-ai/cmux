@@ -1,0 +1,127 @@
+/* The sidebar's chat history block. The page is transparent over the sidebar list, which draws the
+   sidebar's backdrop under it; every size is the host's metrics (SidebarChatsMetrics, one px is one
+   point), so the rows sit on the grid of the workspace rows beside them: the header in the section
+   header's quiet style, the rows at the row height with the row's hover fill, titles in primary ink
+   (Earlier's in secondary), the age in tertiary. */
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  display: block;
+}
+
+.sc-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  color: var(--cmux-text);
+  cursor: default;
+}
+
+.sc-header,
+.sc-row {
+  all: unset;
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  -webkit-user-drag: none;
+}
+
+.sc-header {
+  flex: none;
+  margin: 0;
+  height: var(--sc-header);
+  padding-inline: var(--sc-header-x) var(--sc-header-end);
+  color: var(--cmux-text-tertiary);
+  font-size: var(--sc-header-size);
+  font-weight: 600;
+}
+
+.sc-header-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sc-chevron {
+  position: absolute;
+  right: var(--sc-chevron-end);
+  top: 50%;
+  display: inline-flex;
+  width: var(--sc-chevron);
+  height: var(--sc-chevron);
+  transform: translateY(-50%);
+  color: var(--cmux-text-tertiary);
+}
+
+.sc-row {
+  flex: none;
+  height: var(--sc-row);
+  margin-bottom: var(--sc-spacing);
+  border-radius: var(--sc-radius);
+  font-size: var(--sc-title-size);
+}
+
+.sc-row:hover {
+  background: var(--cmux-hover);
+}
+
+.sc-row[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+.sc-mark {
+  position: absolute;
+  left: var(--sc-icon-x);
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sc-icon-box);
+  height: var(--sc-icon-box);
+  transform: translateY(-50%);
+  color: var(--cmux-text-secondary);
+}
+
+.sc-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: var(--sc-text-x);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cmux-text);
+}
+
+.sc-title-plain {
+  margin-left: var(--sc-plain-text-x);
+}
+
+.sc-block[data-quiet] .sc-title {
+  color: var(--cmux-text-secondary);
+}
+
+.sc-meta {
+  flex: none;
+  margin-left: var(--sc-edge);
+  margin-right: var(--sc-edge);
+  font-size: var(--sc-meta-size);
+  color: var(--cmux-text-tertiary);
+  white-space: nowrap;
+}
+
+.sc-title:last-child {
+  margin-right: var(--sc-edge);
+}

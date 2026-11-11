@@ -69,7 +69,6 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
-            let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
@@ -77,8 +76,8 @@ extension LayoutRootView {
                 shown.insert(ObjectIdentifier(chrome))
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
-                let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
+                let alpha = host.alphaValue
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenBounds: screen.bounds,
                                              rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key

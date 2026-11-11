@@ -202,6 +202,11 @@ path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_main_thread_large_session.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. A GUI regression test (plans/cmux-next/main-thread-scheduling.md 1.5): it builds the LARGE session in a bench app and types real keys, so it needs a quiet fleet mini with the input grant; each step's author runs scripts/measure/main-thread-large-session.sh --mode=test on the fleet before and after the step. --self-test checks its judge with no app."
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -282,6 +287,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_route_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_same_tree_failed.py"
 lane = "linux-guard"
 
 [[test]]

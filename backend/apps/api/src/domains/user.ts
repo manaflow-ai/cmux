@@ -172,10 +172,51 @@ const withSsoLeft = (state: UserState, team: string, at: number): UserState => {
 }
 
 /**
+ * Most revoked installs one user's head keeps. The head is one SQLite row (STATE_MAX_BYTES in
+ * ownership state-guard.ts): without a bound every sign-in and every bound machine leaves a revoked
+ * install and grant behind for good, until the guard refuses every commit for that user.
+ */
+export const MAX_REVOKED_INSTALLS = 100
+
+/**
+ * Drops the oldest revoked installs (by revoked_at, then id) past MAX_REVOKED_INSTALLS, each with its
+ * grant. An install still named by a pending SSH revoke, a presence key or a push target stays. Every
+ * lookup treats a missing install as unknown, so a dropped install's token stays refused.
+ * withInstallAuthority drops its incarnation in the same commit.
+ */
+export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+  const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
+  if (revoked.length <= keep) return state
+  const held = new Set([
+    ...Object.keys(state.ssh_revoke_pending ?? {}),
+    ...Object.keys(state.confirm?.presence_keys ?? {}),
+    ...Object.values(state.push_targets ?? {}).map((t) => t.install)
+  ])
+  const drop = revoked
+    .filter((i) => !held.has(i.id))
+    .sort((a, b) => a.revoked_at! - b.revoked_at! || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, revoked.length - keep)
+  if (drop.length === 0) return state
+  const installs = { ...state.installs }
+  const grants = { ...state.grants }
+  for (const i of drop) {
+    delete installs[i.id]
+    if (grants[i.grant]?.grantee === i.id) delete grants[i.grant]
+  }
+  return { ...state, installs, grants }
+}
+
+/**
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
  * reaches a revoked device). Shared by install.revoke, install.sign_out and install.revoke_by_team.
+ * The same commit drops the oldest revoked installs past MAX_REVOKED_INSTALLS.
  */
 const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
+  const r = revokeOne(state, cur, now)
+  return r.ok && r.changed !== false ? { ...r, state: pruneRevokedInstalls(r.state) } : r
+}
+
+const revokeOne = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }
   const g = state.grants[cur.grant]
@@ -305,7 +346,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
       }
       case "install.register":
       case "install.register_server": {
-        if (!state.user) return reject("validation.invalid", "call user.ensure first")
+        // Prune first, in this commit: a head already past the size limit heals on its next register.
+        const base = pruneRevokedInstalls(state)
+        if (!base.user) return reject("validation.invalid", "call user.ensure first")
         const d = op === "install.register_server" ? decodeParams<typeof InstallRegisterServerParams.Type>({ params: InstallRegisterServerParams } as unknown as CloudOpDef, params) : decodeParams<typeof InstallRegister.params.Type>(InstallRegister, params)
         if (!d.ok) return d
         const v = d.value as typeof InstallRegisterServerParams.Type
@@ -317,12 +360,12 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         if ((v.kind === "vm") !== (v.bound_machine !== undefined) || (v.kind === "vm" && v.bound_team === undefined)) return reject("validation.invalid", "a vm install names its bound team and machine; no other install does")
         if (v.kind === "team-vm" && v.bound_team === undefined) return reject("validation.invalid", "a team-vm install names its bound team")
         const thumbprint = jwkThumbprint(v.public_jwk)
-        if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
+        if (Object.values(base.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
         }
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
-        const left = p.sso_team ? state.sso_left?.[p.sso_team] : undefined
+        const left = p.sso_team ? base.sso_left?.[p.sso_team] : undefined
         const stampSso = Boolean(p.sso_team) && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && (left === undefined || (v.sso_seen_at ?? -1) > left)))
         const device = v.device ?? ctx.newId("dev")
         // A caller may narrow the default grant (a paired server asks for read and mutate-own), never widen it.
@@ -359,9 +402,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         }
         return {
           ok: true,
-          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(state, p.sso_team) : state), installs: { ...state.installs, [install]: i }, grants: { ...state.grants, [grant]: g } },
+          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(base, p.sso_team) : base), installs: { ...base.installs, [install]: i }, grants: { ...base.grants, [grant]: g } },
           value: i,
-          outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
+          outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: base.user.id } }]
         }
       }
       case "install.ios_cloud_link_migrate": {

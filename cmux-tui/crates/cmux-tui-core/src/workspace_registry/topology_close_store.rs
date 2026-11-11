@@ -10,6 +10,7 @@ use super::resource_store::{
     apply_resource_patch, apply_resource_patch_unrecorded, complete_terminal_close_patch,
     prune_resource_mutations, resource_patch_replay, validate_resource_patch,
 };
+use super::session_journal::journal_resource_record;
 use super::*;
 
 /// A write a batch close makes in its own transaction before the patch
@@ -44,6 +45,7 @@ impl WorkspaceRegistry {
         tab_groups: Option<&TabGroupState>,
         record_closed: bool,
         before_patch: Option<BeforePatch<'_>>,
+        restates_all: bool,
     ) -> anyhow::Result<TopologyCloseCommit> {
         validate_identifier("resource operation", operation)?;
         validate_terminal_batch_close(mutation, terminals)?;
@@ -143,7 +145,8 @@ impl WorkspaceRegistry {
             &result_json,
             sqlite_revision,
         )?;
-        append_resource_journal_record(
+        // The changes as the record states them: decorated one time, here, and folded below.
+        let journaled = journal_resource_record(
             &tx,
             revision,
             previous_revision,
@@ -157,7 +160,9 @@ impl WorkspaceRegistry {
         prune_resource_mutations(&tx)?;
         tx.commit()?;
         drop(db);
-        self.record_public_fold(previous_revision, revision, &deltas, true);
+        // Only the changes of a full projection are the complete live set that may seed an empty
+        // fold; a scoped close states its own workspaces.
+        self.record_journaled_public_fold(previous_revision, revision, &journaled, restates_all);
         Ok(TopologyCloseCommit {
             resource: ResourcePatchCommit { revision, result, replayed: false },
             workspace_revision,

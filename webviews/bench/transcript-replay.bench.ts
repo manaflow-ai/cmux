@@ -33,6 +33,8 @@
 // PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
 // time per record grew most from the first checkpoint to the last: where the O(rows) work is.
 // --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
+// FIXTURE=god plays the god session (bench/godFixture.ts) in the long log's place, alone: its rows are the long log's
+// with `god` after the prefix (transcript_replay.god.long.token_ms pairs with transcript_replay.long.token_ms).
 //   bun bench/transcript-replay.bench.ts [--turns 600] [--checkpoints T,T,...] [--tokens 80] [--updates 30]
 //     [--only long,recorded,mock] [--log FILE]...
 //     [--strict]
@@ -43,7 +45,8 @@ import path from "node:path";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
-import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
+import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
+import { perfRow as printRow, TARGET_MS, type PerfRow } from "./perfRow";
 import {
   BURST_KINDS,
   type BurstKind,
@@ -67,6 +70,9 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
+/// has settled, right after the heap row is read: what holds the heap that row reports.
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 /// The long log's checkpoint turns (`--checkpoints 11,110,1105`: about 50, 500 and 5,000 rows), else
 /// its default fifths.
 const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
@@ -75,6 +81,10 @@ const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
 const TOKENS = flag("--tokens") === undefined ? undefined : Number(flag("--tokens"));
 const UPDATES = flag("--updates") === undefined ? undefined : Number(flag("--updates"));
 const LOG_FILES = argv.flatMap((arg, index) => (argv[index - 1] === "--log" ? [arg] : []));
+const FIXTURE = benchFixture();
+const perfRow = scaledPerfRow(printRow, FIXTURE);
+/// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
+const BURST_LOG = FIXTURE === "god" ? "god" : "long";
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -260,6 +270,18 @@ async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
   return usedSize / 2 ** 20;
+}
+
+async function writeHeapSnapshot(cdp: CDPSession, file: string): Promise<void> {
+  const out = fs.openSync(file, "w");
+  const onChunk = ({ chunk }: { chunk: string }) => fs.writeSync(out, chunk);
+  cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+  try {
+    await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+  } finally {
+    cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+    fs.closeSync(out);
+  }
 }
 
 type Ctx = { browser: Browser; url: (log: ReplayLog) => string };
@@ -461,6 +483,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       await idleCdp!.detach();
     }
     const heapAfter = await heapMb(cdp);
+    if (HEAP_SNAPSHOT && measureIdle) await writeHeapSnapshot(cdp, HEAP_SNAPSHOT);
     const { shifts, long } = await page.evaluate((since) => {
       const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
       return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
@@ -493,7 +516,7 @@ const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floo
 const worst = (values: number[]) => Math.max(0, ...values);
 
 /// The rows and the budget misses of a run (pure).
-export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: string[] } {
+export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: PerfRow[]; misses: string[] } {
   const rows: PerfRow[] = [];
   const misses: string[] = [];
   const row = (r: PerfRow, why: string) => {
@@ -556,7 +579,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
       `a streamed token or tool update took a task over 50 ms (longest ${worst(lives.map((l) => l.longestTaskMs))} ms)`,
     );
   }
-  const longLive = lives.find((l) => l.log === "long");
+  const longLive = lives.find((l) => l.log === burstLog);
   if (longLive) {
     for (const kind of BURST_KINDS) {
       const points = longLive.bursts
@@ -639,7 +662,8 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (ONLY.includes("long"))
+    if (FIXTURE === "god") logs.push(godLog("god"));
+    else if (ONLY.includes("long"))
       logs.push(
         longLog({
           turns: TURNS,
@@ -648,8 +672,8 @@ if (import.meta.main) {
           ...(UPDATES ? { outputUpdates: UPDATES } : {}),
         }),
       );
-    if (ONLY.includes("recorded")) logs.push(recordedLog());
-    if (ONLY.includes("mock")) logs.push(...mockLogs(now));
+    if (FIXTURE === "small" && ONLY.includes("recorded")) logs.push(recordedLog());
+    if (FIXTURE === "small" && ONLY.includes("mock")) logs.push(...mockLogs(now));
     for (const file of LOG_FILES) logs.push(parseLog(path.basename(file), fs.readFileSync(file, "utf8")));
     for (const log of logs) checkSeq(log);
     const daemon = Bun.serve({
@@ -711,7 +735,7 @@ if (import.meta.main) {
         const live =
           log.name.startsWith("mock:") && log.events.length < 8
             ? undefined
-            : await liveRound(ctx, log, log.name === "long");
+            : await liveRound(ctx, log, log.name === BURST_LOG);
         if (live) lives.push(live);
         console.log(
           `transcript-replay: ${log.name} (${log.events.length} records, ${rowsIn(log.events)} rows) open cls ${open.cls} ` +
@@ -719,7 +743,7 @@ if (import.meta.main) {
             (live
               ? ` | live ${live.seconds} s cls ${live.cls} long tasks ${live.longTasks} (longest ${live.longestTaskMs} ms) ` +
                 `heap +${live.heapMb} MB` +
-                (log.name === "long" ? ` idle ${live.idleMsPerS} ms/s` : "")
+                (log.name === BURST_LOG ? ` idle ${live.idleMsPerS} ms/s` : "")
               : ""),
         );
         for (const note of [
@@ -736,17 +760,20 @@ if (import.meta.main) {
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
-          // And where a record's time goes at the largest checkpoint, growing or not.
-          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
-          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
-            console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the smallest and the largest checkpoint, growing or
+          // not: the smallest is the cost every chat pays, however short.
+          for (const at of [first, last]) {
+            console.log(`  ${kind}: most self ms per record at ${at.rows} rows`);
+            for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+              console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          }
         }
       } catch (error) {
         failed += 1;
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const { rows, misses } = judge(opens, lives);
+    const { rows, misses } = judge(opens, lives, BURST_LOG);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);
     if (!misses.length) console.log("transcript-replay: every budget held");

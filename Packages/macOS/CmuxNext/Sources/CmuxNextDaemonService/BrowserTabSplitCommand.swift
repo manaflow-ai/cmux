@@ -17,15 +17,18 @@ public struct BrowserTabSplitCommand: Sendable {
     public let direction: SplitDirection
     /// The address the tab opens (its stand-in shows it as its title).
     public let url: String
+    /// Set for Insert New at a divider: the split wraps `around` and shows its sizing instead of the even one.
+    public let insertion: DividerInsertion?
 
     /// - Parameters:
     ///   - pane: the pane the split is made from.
     ///   - direction: the side of `pane` the new pane goes.
     ///   - url: the address the tab opens.
-    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String) {
+    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String, insertion: DividerInsertion? = nil) {
         self.pane = pane
         self.direction = direction
         self.url = url
+        self.insertion = insertion
     }
 
     /// Whether `daemon` opens a browser tab straight into a split; else the caller makes it in
@@ -39,16 +42,24 @@ public struct BrowserTabSplitCommand: Sendable {
     /// returned work sends `create` with the request's `split` and answers the daemon's surface, or
     /// nil when the person closed the new pane first (its tab closes when it arrives,
     /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
+    /// `minted` runs with the new pane's client-minted id (`pane_<32 hex>`, which the stand-in's pane and
+    /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page;
+    /// `settled` runs with that id and the daemon's surface once a reply names it. Not on an error: a timeout or a
+    /// lost connection can follow a commit whose reply is dropped, and its pane must still mount marked (review of #37733).
     @MainActor
-    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID)
+    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
+                          minted: (@MainActor (_ paneID: String) -> Void)? = nil,
+                          settled: (@MainActor (_ paneID: String, _ surface: SurfaceID?) -> Void)? = nil)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
-        let changes = layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
+        let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
-        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url))
+        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url)).wrapping(insertion?.around)
+        minted?(provisional.paneID)
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
         let request = ConversationTabSplit(direction: direction, paneID: provisional.paneID,
-                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil)
+                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil,
+                                           around: insertion?.around)
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
@@ -56,6 +67,7 @@ public struct BrowserTabSplitCommand: Sendable {
                 if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error
             }
+            settled?(request.paneID, surface)
             ProvisionalTab.created(transaction, surface: surface, in: store)
             // Every event the daemon sent before the reply: the split settles there.
             if let sequence = await daemon.connection?.eventSequence() {
@@ -94,12 +106,22 @@ public struct BrowserTabSplitRequest {
     /// Runs with the new tab's surface once the daemon made it, or nil when it was refused or the
     /// person closed the new pane first.
     public let finished: @MainActor (SurfaceID?) -> Void
+    /// Set for Insert New at a divider (``BrowserTabSplitCommand/insertion``).
+    public let insertion: DividerInsertion?
+    /// An agent asked for it (the CLI, MCP or a script): its pages are marked agent-driven before
+    /// they exist, so no saved password fills and the agent's URL rules hold from the first load.
+    public let agentDriven: Bool
 
     /// - Parameters:
     ///   - direction: the side of the pane the split goes.
+    ///   - insertion: Insert New at a divider's target, `around` and sizing; nil for a plain split.
+    ///   - agentDriven: the CLI, MCP or a script asked for it (``agentDriven``).
     ///   - finished: runs with the new surface, or nil, once the daemon answered.
-    public init(direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) {
+    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, agentDriven: Bool = false,
+                finished: @escaping @MainActor (SurfaceID?) -> Void) {
         self.direction = direction
+        self.insertion = insertion
+        self.agentDriven = agentDriven
         self.finished = finished
     }
 }

@@ -61,7 +61,9 @@ priority = 50
 # on F_FULLFSYNC, which macOS runs one at a time for the whole device, so
 # every other test daemon's commits queue in front of theirs. They run in the
 # timing-alone group and take every test thread, so no other test runs beside
-# them; their budgets do not change. Add a test
+# them; their budgets do not change. Since #40830 the chat tab test
+# (state::group_update_latency_tests) asserts lock turns, not wall time; it
+# stays in this group because it runs 48 busy sessions for 8 s. Add a test
 # only when its subject is latency; a test that fails under load for another
 # reason (a shared resource, a race) gets that cause fixed instead.
 [test-groups]
@@ -117,6 +119,13 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 # on stderr; a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
+success-output = "final"
+
+# The create cost tests (mux/tests/create_commit_cost.rs) print the counts of one create at
+# each session size on stderr; a fleet step shows them only when a passing test's output is
+# kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
 success-output = "final"
 
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their

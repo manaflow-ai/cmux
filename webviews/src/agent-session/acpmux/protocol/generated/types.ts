@@ -65,6 +65,7 @@ export interface AcpmuxRequestMeta {
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
+  senderToken?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -1034,6 +1035,12 @@ export interface ProcessTailParams {
 
 /** What another agent's message asks of the session it goes to. */
 export type PromptClass = ("block" | "question" | "result" | "fyi");
+
+export interface PromptCoachParams {
+  _meta?: RequestMeta;
+  coachId?: unknown;
+  sessionId?: unknown;
+}
 
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;

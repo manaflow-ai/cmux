@@ -40,9 +40,9 @@ pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -559,7 +559,11 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    // acpmux's `agent_login::Agent`s; it answers which way each signs in (`unsupported`).
+    let agent = || {
+        text(&params.agent)
+            .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
+    };
     let (body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {

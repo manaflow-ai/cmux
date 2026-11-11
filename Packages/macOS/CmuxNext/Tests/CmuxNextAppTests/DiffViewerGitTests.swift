@@ -13,9 +13,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffViewerGitTests {
-    final class RecordingGit: DiffGitRunning {
+    final class RecordingGit: @MainActor DiffGitPullRequestRunning {
         var writes: [(AgentPaneGitWrite, String)] = []
         var stages: [(AgentPaneGitStage, String)] = []
+        var pullRequests: [String] = []
+        var isRemote = false
+        var pullRequestOutcome = AgentPaneGitPullRequest.Outcome.opened(url: "https://github.com/o/r/pull/7", number: 7)
         /// The one file's patch the repository's diff shows now.
         var patch = "@@ -1 +1 @@\n-// retry 3 times\n+// retry 9 times\n"
 
@@ -38,9 +41,62 @@ struct DiffViewerGitTests {
             stages.append((request, repository))
             return nil
         }
+
+        func pullRequest(in repository: String) async -> AgentPaneGitPullRequest.Outcome {
+            pullRequests.append(repository)
+            return pullRequestOutcome
+        }
     }
 
     static let repository = "/Users/dev/uploader"
+
+    @Test func createPullRequestUsesTheGrantAndOpensWithoutAnotherClick() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "diff-pr-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grant = try DiffSessionGrant.create(root: root, repository: Self.repository)
+        defer { grant.remove() }
+        let git = RecordingGit()
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: git)
+        var opened: [URL] = []
+        provider.onPullRequestOpened = { opened.append($0) }
+        let page = PageCallContext(page: "cmux.diff")
+        let clicked = PageCallContext(page: "cmux.diff", userGesture: true)
+        let op = "cmux.diff.git.pullRequest"
+        let config = try await provider.call("cmux.diff.config", params: [:], context: page)
+        #expect(config["ops"]?.arrayValue?.contains(.string(op)) == true)
+
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(op, params: [:], context: page)
+        }
+        #expect(git.pullRequests.isEmpty)
+        let reply = try await provider.call(op, params: ["cwd": "/etc", "path": "/etc"], context: clicked)
+        #expect(git.pullRequests == [Self.repository])
+        #expect(reply["url"]?.stringValue == "https://github.com/o/r/pull/7")
+        #expect(opened.map(\.absoluteString) == ["https://github.com/o/r/pull/7"])
+
+        // `gh pr create --web` has already opened its compare form. The viewer reports the
+        // result without routing the URL through LinkRouter a second time.
+        git.pullRequestOutcome = .formOpened(url: "https://github.com/o/r/compare/main...feature?expand=1")
+        let form = try await provider.call(op, params: [:], context: clicked)
+        #expect(form["url"]?.stringValue == "https://github.com/o/r/compare/main...feature?expand=1")
+        #expect(opened.map(\.absoluteString) == ["https://github.com/o/r/pull/7"])
+
+        git.pullRequestOutcome = .refused("The remote branch is protected; push a feature branch.")
+        do {
+            _ = try await provider.call(op, params: [:], context: clicked)
+            Issue.record("The remote rejection was hidden")
+        } catch let error as PageError {
+            #expect(error.message == "The remote branch is protected; push a feature branch.")
+        }
+        #expect(opened.count == 1)
+        git.isRemote = true
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(op, params: [:], context: clicked)
+        }
+        #expect(git.pullRequests.count == 3)
+        await provider.close()
+    }
 
     /// Remote Changes uses the daemon's patch and never starts a local sidecar
     /// or reads the same path on this Mac.

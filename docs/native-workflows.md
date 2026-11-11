@@ -22,7 +22,7 @@ return await pipeline(replies, reply => reply.summary);
 Start it from the project directory and read its result:
 
 ```sh
-cmux --json workflow start check.workflow.js --args-json '["Review the last commit"]'
+cmux --json workflow start check.workflow.js --args '["Review the last commit"]'
 cmux --json workflow status <run-id>
 cmux workflow pause <run-id>
 cmux workflow resume <run-id>

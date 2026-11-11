@@ -34,6 +34,12 @@ extension ScreenContentView {
     /// travel (``ClosingPanes/settle(frames:row:)``), the ones nothing moves over hide now, as before S3c, and with
     /// nothing moving on the screen the hosts its closes retired go now (`reconcile` leaves that to this while closing panes
     /// wait for the cameras).
+    ///
+    /// The panes that stay are placed here one time, with nothing shown: the rules take each side's start at their first
+    /// placement (`ClosingPanesRules.rects`), and it must be the frames the line above just read. A key's turn holds the
+    /// presentation for the next frame tick (`LayoutRootView.syncWithModelForNextFrame`), one spring step later: a
+    /// neighbour with a little more than half a point to go here has less than that there, so a pane kept for that
+    /// neighbour's travel got no travel at its first placement and kept its whole place until the landing took it away.
     func settleClosing() {
         guard closingPanes.hasAwaiting else { return }
         let still = closingPanes.settle(frames: paneFrames, row: rowScrollTravel)
@@ -41,7 +47,20 @@ extension ScreenContentView {
             closingPanes.drop(pane)
             context.closingHost(pane, of: screenID)?.isHidden = true
         }
+        if !closingPanes.isEmpty {
+            let restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
+            _ = closingPanes.rects(frames: paneFrames, fixed: geometry.fixedPanes, row: rowScrollTravel, strip: stripShift, restStrip: restStrip)
+        }
         if !hasMotion { releaseClosing() }
+    }
+
+    /// Whether a landing in this frame would move a side of a closing pane more than `snap` from where this frame's step
+    /// put it, taking its ground away at once (``ClosingPanes/landingMovesAClosingPane(frames:fixed:restStrip:snap:)``).
+    /// With every live frame on its target (the panes landed; a camera or an alpha still moves) a landing moves nothing.
+    func landingMovesAClosingPane(snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+        guard !closingPanes.isEmpty, paneFrames.values.contains(where: { $0.rect != $0.targetRect }) else { return false }
+        let restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
+        return closingPanes.landingMovesAClosingPane(frames: paneFrames, fixed: geometry.fixedPanes, restStrip: restStrip, snap: snap)
     }
 
     /// Where `column`'s row scroll is and where it rests (nil: its rows do not scroll).
