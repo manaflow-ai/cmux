@@ -24,6 +24,11 @@
 //!   `codex resume <id>`), in the old tab's pane unless `--pane`/`--split`
 //!   say otherwise (with no such pane, in the caller's space as a start),
 //!   and closes the exited tab, which gives its name to the new one.
+//! - On a `--session`/`--socket` route not known to be the caller's, a
+//!   start without `--pane` (or with `--pane current` or `caller`) places
+//!   by `CMUX_TUI_TERMINAL_ID` only when the session has that terminal, and
+//!   is refused otherwise (`caller_terminal`); it never falls back to the
+//!   focused pane then.
 //!
 //! Output: `{name, state, reason, dialog, harness, launcher, args, cwd,
 //! placement, workspace_id, screen_id, pane_id, tab_id, terminal_id,
@@ -261,22 +266,44 @@ pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Opt
 }
 
 /// What the process gives a start: the caller's terminal (only when the
-/// command routes to the caller's own session), folder, shell and default
-/// launcher.
+/// command routes to the caller's own session), the terminal it may run in
+/// on another route, folder, shell and default launcher.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct Env {
     pub caller_terminal: Option<String>,
+    /// `CMUX_TUI_TERMINAL_ID` of a command that `--session` or `--socket`
+    /// routes to a session not known to be the caller's (no
+    /// `CMUX_TUI_SOCKET` or `CMUX_MUX_SOCKET` names it).
+    pub unconfirmed_caller: Option<UnconfirmedCaller>,
     pub cwd: Option<String>,
     pub shell: String,
     pub default_launcher: Option<String>,
 }
 
+/// The caller's terminal on a route not known to be the caller's session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) struct UnconfirmedCaller {
+    /// `CMUX_TUI_TERMINAL_ID`.
+    pub terminal: String,
+    /// The `--session` name, else the `--socket` path, for messages.
+    pub session: String,
+}
+
 impl Env {
     fn of_process(global: &GlobalArgs) -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        let terminal = var("CMUX_TUI_TERMINAL_ID");
+        let routed = wire::routes_to_caller_session(global);
+        let session = global
+            .session
+            .clone()
+            .or_else(|| global.socket.as_ref().map(|socket| socket.display().to_string()))
+            .unwrap_or_default();
         Self {
-            caller_terminal: var("CMUX_TUI_TERMINAL_ID")
-                .filter(|_| wire::routes_to_caller_session(global)),
+            caller_terminal: terminal.clone().filter(|_| routed),
+            unconfirmed_caller: terminal
+                .filter(|_| !routed)
+                .map(|terminal| UnconfirmedCaller { terminal, session }),
             cwd: std::env::current_dir().ok().map(|dir| dir.display().to_string()),
             shell: launch::shell_from(var("SHELL").as_deref()),
             default_launcher: var(launch::DEFAULT_LAUNCHER_ENV),
@@ -497,6 +524,48 @@ fn report(
     })
 }
 
+/// The caller's terminal for a start or resume in `snapshot`'s session.
+///
+/// With a `--pane` other than `current` or `caller`, or on a route known to
+/// be the caller's, it is [`Env::caller_terminal`]. On a `--session` or
+/// `--socket` route not known to be the caller's
+/// ([`Env::unconfirmed_caller`]), with no `--pane` or with `--pane current`
+/// or `caller` (all name the caller's pane; the first two fall back to the
+/// focused one), it is `CMUX_TUI_TERMINAL_ID` when a pane of the session
+/// shows that terminal. Else the start is refused
+/// (`agent.start.caller_not_in_session`, exit 2) before it changes
+/// anything: the terminal is another session's, and the focused pane, the
+/// fallback, may be a person's shell. A session with no pane yet has no
+/// pane and so no person's shell: a start without `--pane` still opens a
+/// workspace there.
+fn caller_terminal(
+    snapshot: &Value,
+    env: &Env,
+    options: &Options,
+) -> Result<Option<String>, Failure> {
+    let unconfirmed = match (options.pane.as_deref(), &env.unconfirmed_caller) {
+        (None | Some("current" | "caller"), Some(unconfirmed)) => unconfirmed,
+        _ => return Ok(env.caller_terminal.clone()),
+    };
+    if placement::pane_of_terminal(snapshot, &unconfirmed.terminal).is_some() {
+        return Ok(Some(unconfirmed.terminal.clone()));
+    }
+    if snapshot["panes"].as_array().is_none_or(Vec::is_empty) {
+        return Ok(None);
+    }
+    let message = crate::localization::catalog()
+        .pane_cli
+        .agent_caller_not_in_session
+        .replace("{terminal}", &unconfirmed.terminal)
+        .replace("{session}", &unconfirmed.session);
+    Err(Failure::local(
+        "agent.start.caller_not_in_session",
+        message,
+        json!({"terminal_id": unconfirmed.terminal, "session": unconfirmed.session}),
+        2,
+    ))
+}
+
 /// `agent start NAME`: the report and the exit code.
 pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     daemon: &D,
@@ -523,6 +592,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let harness = options.harness.clone().or_else(|| launch::harness_of(&launcher));
     let launch = Launch { shell: env.shell.clone(), launcher, args: options.args.clone() };
     let cwd = options.cwd.clone().or_else(|| env.cwd.clone());
+    let caller = caller_terminal(&snapshot, env, options)?;
     let fresh = match options.pane {
         None => placement::empty_session_pane(daemon, &snapshot, name, cwd.as_deref())?,
         Some(_) => None,
@@ -530,11 +600,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let (pane, placement) = match &fresh {
         Some((pane, _)) => (pane.clone(), Placement::Tab),
         None => (
-            placement::target_pane(
-                &snapshot,
-                options.pane.as_deref(),
-                env.caller_terminal.as_deref(),
-            )?,
+            placement::target_pane(&snapshot, options.pane.as_deref(), caller.as_deref())?,
             options.placement(),
         ),
     };
@@ -757,14 +823,12 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         .or_else(|| env.cwd.clone());
     let (pane, placement) = match (&exited.pane, &options.pane, &options.split) {
         (Some(pane), None, None) => (pane.clone(), Placement::Tab),
-        _ => (
-            placement::target_pane(
-                &snapshot,
-                options.pane.as_deref(),
-                env.caller_terminal.as_deref(),
-            )?,
-            options.placement(),
-        ),
+        _ => {
+            let caller = caller_terminal(&snapshot, env, options)?;
+            let pane =
+                placement::target_pane(&snapshot, options.pane.as_deref(), caller.as_deref())?;
+            (pane, options.placement())
+        }
     };
     let name = exited.name.as_deref();
     let (created, placement) =

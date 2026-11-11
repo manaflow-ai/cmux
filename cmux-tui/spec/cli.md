@@ -1454,11 +1454,24 @@ rows; else the agent opens as a new tab in that last agent pane (`placement`
 a loop keeps working, and the agent still answers to its name. So a column,
 once there, keeps its width: a new agent never resizes an existing column, the
 caller never goes under 40 columns while it had them, and no pane outside the
-space changes. A start that does not know its caller (no
-`CMUX_TUI_TERMINAL_ID`, or `--session`/`--socket` naming another session than
-the caller's `CMUX_TUI_SOCKET`) uses the focused pane, often the agent the
-last start focused; a target that is itself an agent pane never gets a new
-column, so its agent opens below the last agent of its space too. From a
+space changes. A start with `--session` or `--socket` that names no socket of
+the caller's (`CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`) from a cmux-tui terminal
+(`CMUX_TUI_TERMINAL_ID`), with no `--pane` or with `--pane current` or
+`--pane caller` (one rule for all three), asks that session's snapshot for
+the terminal: when a pane of the session shows it, it is the caller and the
+start places the agent as above (`--pane current` and `--pane caller`: a new
+tab in the caller's pane); else the start is refused before any change with
+`agent.start.caller_not_in_session` (exit 2, details `terminal_id` and
+`session`, a localized message that says to name the pane with `--pane` or to
+run from a terminal of that session). Such a start never uses the focused
+pane, which can be a person's shell. A session with no pane yet is the one
+exception: a start without `--pane` still gets a new workspace named after the
+agent, because the session has no pane and so no person's shell that the agent
+could open beside. The same holds for `resume` when it opens in the caller's
+space. Only a start without `CMUX_TUI_TERMINAL_ID` (a shell outside cmux-tui)
+does not know its caller: it uses the focused pane, often the agent the last
+start focused; a target that is itself an agent pane never gets a new column,
+so its agent opens below the last agent of its space too. From a
 98-column pane: the first agent takes a column (49 | 49 panes, 46 | 46
 terminals) and the next ones stack in it, at most three in a 39-row column;
 beside a person's pane that leaves the caller 49 columns, every agent stacks

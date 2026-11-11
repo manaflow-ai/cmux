@@ -1,8 +1,9 @@
 //! `pane_cli` strings of the CLI catalog (English and Japanese): the labels
 //! of `cmux identify` in a cmux-tui pane (cli/pane_identify.rs), the root
 //! help's heading for scopes that need the cmux app (cli/root_help.rs), the
-//! `cmux skill` usage (cli/skill.rs) and the agent list's note on the rows it
-//! left out (cli/wire/agent_roster.rs).
+//! `cmux skill` usage (cli/skill.rs), the agent list's note on the rows it
+//! left out (cli/wire/agent_roster.rs) and the `agent start` refusal of a
+//! caller from another session (cli/agent_start.rs).
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PaneCliMessages {
@@ -47,6 +48,11 @@ pub(crate) struct PaneCliMessages {
     /// The `agent list` text line for the ended agents of closed terminals
     /// it left out: `{count}` of them.
     pub agent_list_hidden_ended: &'static str,
+    /// `agent start`/`resume` without `--pane` (or with `--pane current` or
+    /// `caller`) on a `--session`/`--socket` route not known to be the
+    /// caller's, to a session that does not show the caller's terminal: `{terminal}` (`CMUX_TUI_TERMINAL_ID`) and
+    /// `{session}` (the `--session` name or `--socket` path).
+    pub agent_caller_not_in_session: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -73,6 +79,7 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     warning: "warning",
     build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
     agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
+    agent_caller_not_in_session: "CMUX_TUI_TERMINAL_ID names terminal {terminal}, which session {session} does not have in a pane; cmux does not use the focused pane, which can be a person's shell. Name the pane with --pane, or run from a terminal of session {session}",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -99,4 +106,5 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     warning: "警告",
     build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
     agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
+    agent_caller_not_in_session: "CMUX_TUI_TERMINAL_ID はターミナル {terminal} を指していますが、セッション {session} のペインにそのターミナルはありません。フォーカス中のペインは人のシェルの場合があるため、cmux はそれを使いません。--pane でペインを指定するか、セッション {session} のターミナルから実行してください",
 };

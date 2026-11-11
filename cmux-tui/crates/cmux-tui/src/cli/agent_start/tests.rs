@@ -9,7 +9,7 @@ use super::super::terminal_talk::send::Daemon;
 use super::super::wire::request_value;
 use super::launch::{self, Launch};
 use super::readiness::{self, Gate, Look, Readiness, Reads, WaitOptions};
-use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, start};
+use super::{Clock, Command, Env, Options, ResumeTarget, UnconfirmedCaller, parse, resume, start};
 
 const OLD: &str = "term_0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d";
 const NEW: &str = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
@@ -306,6 +306,7 @@ fn created(pane: &str, tab: &str, terminal: &str) -> Value {
 fn env() -> Env {
     Env {
         caller_terminal: Some(CALLER.into()),
+        unconfirmed_caller: None,
         cwd: Some("/home".into()),
         shell: "/bin/zsh".into(),
         default_launcher: None,
@@ -1867,7 +1868,7 @@ fn w6f_a_full_agent_stack_opens_the_next_agent_as_a_tab_in_its_last_pane() {
 }
 
 /// W6-F (review of 49b43fbf, finding 2): a start that does not know its
-/// caller (a `--session` call outside the caller's session socket) opens in
+/// caller (a shell outside cmux-tui: no `CMUX_TUI_TERMINAL_ID`) opens in
 /// the focused pane's space, and `agent start` focuses each new agent. The
 /// focused agent pane already is an agent column, so the second start
 /// stacks below it and no column changes width.
@@ -1933,4 +1934,209 @@ fn w6f_an_explicit_split_keeps_its_direction_and_pane() {
     assert_eq!(view.rect(ROOM_SHELL_PANE), shell);
     assert_eq!(view.rect(CALLER_PANE).2, 24, "{:?}", view.rects);
     assert_eq!(view.columns().len(), 2, "{:?}", view.rects);
+}
+
+/// The session a `--session` route names in the W6-F caller tests.
+const OTHER_SESSION: &str = "w6f-other";
+/// A terminal of another session than the one the route names.
+const FOREIGN: &str = "term_f0e1f0e1f0e1f0e1f0e1f0e1f0e1f0e1";
+
+/// `--session` [`OTHER_SESSION`] without `CMUX_TUI_SOCKET`, from a cmux-tui
+/// terminal whose `CMUX_TUI_TERMINAL_ID` is `terminal`.
+fn other_route(terminal: &str) -> Env {
+    Env {
+        caller_terminal: None,
+        unconfirmed_caller: Some(UnconfirmedCaller {
+            terminal: terminal.into(),
+            session: OTHER_SESSION.into(),
+        }),
+        ..env()
+    }
+}
+
+/// The requests that change a session.
+const CHANGES: [&str; 8] = [
+    "pane.split",
+    "pane.run",
+    "pane.split_ratio.set",
+    "workspace.create",
+    "tab.focus",
+    "tab.close",
+    "terminal.close",
+    "terminal.input.write",
+];
+
+/// Runs one start or resume against `room` that must be refused, and checks
+/// that it is the typed refusal and that nothing in the session changed.
+fn refused_in_room(room: Room, env: &Env, step: &RoomStep<'_>) {
+    let before = (room.rects(), room.tabs.clone(), room.terminals.clone());
+    let room = std::rc::Rc::new(RefCell::new(room));
+    let shared = std::rc::Rc::clone(&room);
+    let daemon =
+        Fake::new(move |operation, params, _count| shared.borrow_mut().answer(operation, params));
+    let failure = run_with_clock(|clock| match step {
+        RoomStep::Start(name, options) => start(&daemon, env, clock, name, options),
+        RoomStep::Resume(terminal, options) => {
+            resume(&daemon, env, clock, &ResumeTarget::Terminal((*terminal).into()), options)
+        }
+    })
+    .expect_err("a caller from another session is refused");
+    assert_eq!(failure.exit, 2, "{}", failure.error);
+    assert_eq!(failure.error["code"], "agent.start.caller_not_in_session", "{}", failure.error);
+    assert_eq!(failure.error["details"]["terminal_id"], FOREIGN, "{}", failure.error);
+    assert_eq!(failure.error["details"]["session"], OTHER_SESSION, "{}", failure.error);
+    let message = failure.error["message"].as_str().unwrap_or_default();
+    for fact in [FOREIGN, OTHER_SESSION, "CMUX_TUI_TERMINAL_ID", "--pane"] {
+        assert!(message.contains(fact), "the message names {fact}: {message}");
+    }
+    for change in CHANGES {
+        assert!(daemon.sent(change).is_empty(), "{change} was sent: {:?}", daemon.sent(change));
+    }
+    let room = room.borrow();
+    assert_eq!((room.rects(), room.tabs.clone(), room.terminals.clone()), before);
+}
+
+/// Review of #40878 (W6-F): `--session S` without `CMUX_TUI_SOCKET` does
+/// not prove that S is the caller's session, so the start dropped
+/// `CMUX_TUI_TERMINAL_ID` and opened the agent beside the focused pane, here
+/// a person's shell. Session S has that terminal, so it is the caller: the
+/// agent takes the column beside the caller, the next one stacks below it,
+/// and the person's pane never moves.
+#[test]
+fn w6f_caller_a_session_route_that_has_the_callers_terminal_opens_beside_it() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let shell = room.rects()[ROOM_SHELL_PANE];
+    let caller_cols = room.cols(CALLER_PANE);
+    let options = plain_start();
+    let steps = [RoomStep::Start("a1", &options), RoomStep::Start("a2", &options)];
+    let views = room_run(room, &other_route(CALLER), &steps);
+    assert_region_rules(&views, &[(ROOM_SHELL_PANE, shell)], caller_cols);
+    for (n, view) in views.iter().enumerate() {
+        assert_eq!(view.columns(), [(0, 70), (70, 70)], "start {}: {:?}", n + 1, view.rects);
+    }
+}
+
+/// Review of #40878 (W6-F): `--session S` from a terminal of another
+/// session. S does not have the caller's terminal, and its focused pane may
+/// be a person's shell, so the start is refused (exit 2) before it changes
+/// anything, with a message that says how to name the pane.
+#[test]
+fn w6f_caller_a_session_route_without_the_callers_terminal_is_refused() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    refused_in_room(room, &other_route(FOREIGN), &RoomStep::Start("a1", &plain_start()));
+}
+
+/// The same for `resume` of an agent whose exited tab has no pane any more:
+/// it would open in the caller's space, which session S does not have.
+#[test]
+fn w6f_caller_a_resume_into_the_callers_space_of_another_session_is_refused() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7)).with_exited_agent_without_a_pane();
+    room.focused = ROOM_SHELL_PANE.into();
+    let options = Options { wait: false, ..Options::default() };
+    refused_in_room(room, &other_route(FOREIGN), &RoomStep::Resume(OLD, &options));
+}
+
+/// Guard: `--pane` names the target, so a start on any route opens there,
+/// whether or not the session has the caller's terminal.
+#[test]
+fn w6f_caller_an_explicit_pane_keeps_its_placement_on_any_route() {
+    for terminal in [CALLER, FOREIGN] {
+        let room = Room::new(200, 40, caller_beside_shell(0.7));
+        let before = room.rects();
+        let options = Options { pane: Some(ROOM_SHELL_PANE.into()), ..plain_start() };
+        let views = room_run(room, &other_route(terminal), &[RoomStep::Start("a1", &options)]);
+        let view = &views[0];
+        assert_eq!(view.report["placement"], "tab", "{terminal}: {}", view.report);
+        assert_eq!(view.report["pane_id"], ROOM_SHELL_PANE, "{terminal}: {}", view.report);
+        assert_eq!(view.rects, before, "{terminal}: a pane moved");
+    }
+}
+
+/// Guard: a session with no pane yet has no focused pane to fall back to,
+/// so a start there from another session's terminal still opens a
+/// workspace named after the agent.
+#[test]
+fn w6f_caller_a_session_with_no_pane_still_opens_a_workspace() {
+    let empty = json!({"workspaces": [], "screens": [], "panes": [], "tabs": [],
+                       "terminals": [], "agents": []});
+    let pane = "pane_44444444444444444444444444444444";
+    let shell = "term_5e115e115e115e115e115e115e115e11";
+    let daemon = Fake::new(|operation, _params, _count| match operation {
+        "session.snapshot" => empty.clone(),
+        "workspace.create" => json!({"revision": "1", "value": {"kind": "workspace",
+            "workspace_id": "ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "pane_id": pane,
+            "tab_id": "tab_5e115e115e115e115e115e115e115e11", "terminal_id": shell}}),
+        "pane.run" => created(pane, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        _ => json!({}),
+    });
+    let options = Options { wait: false, focus: false, ..plain_start() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &other_route(FOREIGN), clock, "a1", &options))
+            .expect("start");
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(daemon.sent("workspace.create")[0]["name"], "a1");
+    assert_eq!(daemon.sent("pane.run")[0]["pane"], pane);
+    assert_eq!(daemon.sent("terminal.close")[0]["terminal"], shell);
+}
+
+/// Review of #40878 (W6-F): `--pane current` names the caller's pane, and
+/// with no caller known it fell back to the focused pane, here a person's
+/// shell. On a `--session` route whose session has the caller's terminal,
+/// it is the caller's pane: the agent opens as a tab there, and no pane
+/// moves.
+#[test]
+fn w6f_caller_pane_current_on_a_session_route_opens_in_the_callers_pane() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let before = room.rects();
+    let options = Options { pane: Some("current".into()), ..plain_start() };
+    let views = room_run(room, &other_route(CALLER), &[RoomStep::Start("a1", &options)]);
+    let view = &views[0];
+    assert_eq!(view.report["placement"], "tab", "{}", view.report);
+    assert_eq!(view.report["pane_id"], CALLER_PANE, "{}", view.report);
+    assert_eq!(view.rects, before, "a pane moved");
+}
+
+/// Review of #40878 (W6-F): `--pane current` from a terminal of another
+/// session is refused like a start without `--pane` (exit 2, nothing
+/// changes): the session does not have the caller's terminal, and its
+/// focused pane may be a person's shell.
+#[test]
+fn w6f_caller_pane_current_on_a_session_route_without_the_callers_terminal_is_refused() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let options = Options { pane: Some("current".into()), ..plain_start() };
+    refused_in_room(room, &other_route(FOREIGN), &RoomStep::Start("a1", &options));
+}
+
+/// Review of #40878 (W6-F): `--pane caller` names the caller's pane like
+/// `--pane current`, but on a `--session` route not known to be the
+/// caller's it failed with `selector.not_found`, also when the session has
+/// the caller's terminal. It is the caller's pane there: the agent opens as
+/// a tab in it, and no pane moves.
+#[test]
+fn w6f_caller_pane_caller_on_a_session_route_opens_in_the_callers_pane() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let before = room.rects();
+    let options = Options { pane: Some("caller".into()), ..plain_start() };
+    let views = room_run(room, &other_route(CALLER), &[RoomStep::Start("a1", &options)]);
+    let view = &views[0];
+    assert_eq!(view.report["placement"], "tab", "{}", view.report);
+    assert_eq!(view.report["pane_id"], CALLER_PANE, "{}", view.report);
+    assert_eq!(view.rects, before, "a pane moved");
+}
+
+/// Review of #40878 (W6-F): `--pane caller` from a terminal of another
+/// session is refused like `--pane current` (exit 2,
+/// `agent.start.caller_not_in_session`, nothing changes), not with
+/// `selector.not_found`.
+#[test]
+fn w6f_caller_pane_caller_on_a_session_route_without_the_callers_terminal_is_refused() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let options = Options { pane: Some("caller".into()), ..plain_start() };
+    refused_in_room(room, &other_route(FOREIGN), &RoomStep::Start("a1", &options));
 }

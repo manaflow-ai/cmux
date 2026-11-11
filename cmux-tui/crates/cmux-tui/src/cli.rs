@@ -1695,12 +1695,15 @@ can take a message. Unless --pane or --split say otherwise, your first agent
 takes a new column beside your pane when both keep 40 terminal columns, else
 it goes below your pane. Each later agent goes below your last agent while
 every agent there keeps 8 terminal rows, else it opens as a new tab in your
-last agent's pane. A column, once there, keeps its width. It prints the ids
-and state: ready (exit 0), blocked with the dialog and a reason, such as
-Claude's folder-trust question (exit 4; cmux never answers it), timeout
-(exit 124) or exited (exit 1). NAME is a lowercase letter, then up to 31
-lowercase letters, digits, - or _, unique among running tabs; it works
-wherever a terminal, tab or pane selector goes
+last agent's pane. A column, once there, keeps its width. From a cmux
+terminal with --session or --socket and no --pane (or --pane current or
+--pane caller), your pane must be in that session, else it exits 2 (it
+never uses the focused pane then). It prints the ids and state: ready
+(exit 0), blocked with the dialog and a reason, such as Claude's
+folder-trust question (exit 4; cmux never answers it), timeout (exit 124)
+or exited (exit 1). NAME is a lowercase letter, then up to 31 lowercase
+letters, digits, - or _, unique among running tabs; it works wherever a
+terminal, tab or pane selector goes
 (cmux terminal NAME send --text ... --wait idle).
 agent resume NAME starts an agent that exited again with its recorded harness
 session (claude --resume <id>, codex resume <id>) in the same pane; when that
