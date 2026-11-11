@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43091025760",
+  "recorded_at": "2026-11-11T19:59:58Z",
+  "reason": "cmux-tui 3f0852ca2bba changes the image's cmux-tui (pinned 195193e407d6)",
+  "dry_run": false,
+  "cmux_tui": "3f0852ca2bba38255766006159d2246825c3bf08",
+  "fixes": [
+    {
+      "sha": "76ec39025703aad9d308bdb739ce13f469f97293",
+      "mergedAt": "2026-11-11T19:08:08Z",
+      "subject": "tests: wait for a process's real state instead of probing it with signal 0, and lint every probe (#41326)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T19:59:58Z",
+    "snapshot_id": "sh-a183984980b2420384472560b38a2f89",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43091025760): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4325ed035909d8d648cae846485dde37341a2a44",
+    "image": "cloud-native-auto-3f0852ca-43091025760-1",
+    "revision": "ci-43091025760-1",
+    "at": "2026-11-11T19:59:58Z"
+  },
+  "rolled_back": false
+}
