@@ -383,6 +383,92 @@ class PrePushGateTests(unittest.TestCase):
         self.assertTrue(runs.exists(), "a push that changes check-ui-font.py must run it\n"
                         + result.stdout + result.stderr)
 
+    def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
+        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
+        # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
+        self.copy_arch_rules()
+        self.kit("Cache", "final class Cache {\n    var hits = 0\n    static let shared = Cache()\n}\n")
+        self.kit("Hop", MAIN_HOP)
+        self.commit("adds a stateful singleton and a main hop")
+        summary = self.root / "step-summary.md"
+        env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
+        args = ["--base", "origin/feat-cmux-next", "--head", "HEAD"]
+        plain = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=env, text=True, capture_output=True)
+        advised = subprocess.run(["python3", "-I", GATE, *args, "--advisory"], cwd=self.repo, env=env, text=True,
+                                 capture_output=True)
+        output = advised.stdout + advised.stderr
+        self.assertEqual(advised.returncode, 0, output)
+        self.assertEqual(advised.returncode, plain.returncode, plain.stdout + plain.stderr)
+        self.assertNotIn("::warning", plain.stdout, "without --advisory CI shows nothing new")
+        kit = f"{PKG}/Sources/CmuxNextKit"
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Cache\.swift,line=3,title=prepush advisory \(arch "
+                                         r"ratchet\) \[stateful_singletons\]::", output)
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Hop\.swift,line=2,title=prepush advisory \(guardrails "
+                                         r"line rules\) \[main-async\]::", output)
+        table = summary.read_text()
+        self.assertIn("| arch ratchet | 1 finding(s)", table)
+        self.assertIn("| guardrails line rules | 1 finding(s)", table)
+        self.assertIn("| What's New pictures | clean", table)
+        self.assertRegex(table, r"\| SwiftFormat \| (clean|skipped: |\d+ finding)")
+
+    def copy_arch_rules(self):
+        """The checkout's arch_rules/ (copy_sources copies only the top-level checks): without it the ratchet warns that
+        no rule module ran, which the advisory rightly reports as incomplete."""
+        shutil.copytree(SOURCE / "scripts/cmux-next/arch_rules", self.repo / "scripts/cmux-next/arch_rules",
+                        dirs_exist_ok=True)
+
+    def advisory_run(self, deadline=None):
+        summary = self.root / "step-summary.md"
+        env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
+        if deadline is not None:
+            env["CMUX_PREPUSH_ADVISORY_SECONDS"] = str(deadline)
+        started = time.monotonic()
+        result = subprocess.run(["python3", "-I", GATE, "--base", "origin/feat-cmux-next", "--head", "HEAD", "--advisory"],
+                                cwd=self.repo, env=env, text=True, capture_output=True, timeout=300)
+        return result, time.monotonic() - started, (summary.read_text() if summary.exists() else "")
+
+    def test_ci_advisory_that_stalls_is_killed_at_its_deadline_with_its_process_group_and_the_gate_passes(self):
+        # Codex review of #40811 (F1): the advisory ran on a daemon thread, but a stalled check's executor workers are
+        # joined at interpreter exit, so the gate's 600 s watchdog failed a gate that had passed. The advisory is a
+        # child in its own process group: at its deadline the whole group is killed and the gate's exit code stands.
+        mark = self.root / "stalled-pgid"
+        self.write("scripts/cmux-next/arch-ratchet.py",
+                   "import concurrent.futures, os, subprocess\n"
+                   "def push_refusals(repo, ranges, upstream_ref=None):\n"
+                   "    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)\n"
+                   "    pool.submit(subprocess.run, ['sleep', '300'])\n"
+                   f"    open({str(mark)!r}, 'w').write(str(os.getpgrp()))\n"
+                   "    subprocess.run(['sleep', '300'])\n"
+                   "    return [], []\n")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        result, elapsed, table = self.advisory_run(deadline=3)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3 + 60, output)
+        self.assertIn("::warning title=prepush advisory timed out::", result.stdout, output)
+        self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
+        pgid = int(mark.read_text())
+        self.assertNotEqual(pgid, os.getpgrp(), "the advisory runs in its own process group")
+        with self.assertRaises(ProcessLookupError, msg=f"process group {pgid} outlived the gate"):
+            os.killpg(pgid, 0)
+
+    def test_ci_advisory_marks_a_layer_whose_rule_failed_incomplete_and_names_the_failure(self):
+        # Codex review of #40811 (F2): the checkers' own failure notes were dropped, so a broken rule read "clean".
+        self.copy_arch_rules()
+        self.write("scripts/cmux-next/arch_rules/fixture_boom.py",
+                   "def check(base, head, changes):\n    raise RuntimeError('fixture boom')\n")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        result, _, table = self.advisory_run()
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertRegex(table, r"\| arch ratchet \| incomplete: 0 finding\(s\), 1 check\(s\) did not run", output)
+        self.assertNotIn("| arch ratchet | clean", table)
+        self.assertIn("::warning title=prepush advisory (arch ratchet) incomplete::arch-ratchet: WARNING: arch rule "
+                      "fixture_boom failed (RuntimeError: fixture boom)", result.stdout, output)
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 
@@ -2802,6 +2888,43 @@ class StopCleanlyTests(unittest.TestCase):
             code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
             self.assertEqual(code, 124, out)
             self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
+
+
+class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
+    """advisory_guardrails keeps check_own's own failure warnings (kind "guardrails") as diagnostics (F2, #40811)."""
+
+    def test_a_guardrails_rule_that_raised_is_a_diagnostic_not_clean(self):
+        gate = load_gate_tools()
+
+        class Own:
+            base, head, before = "b", "h", ()
+
+        class PushRange:
+            @staticmethod
+            def as_own_ranges(repo, ranges):
+                return ranges
+
+        class Guardrails:
+            @staticmethod
+            def load_push_range():
+                return PushRange
+
+            @staticmethod
+            def check_own(repo, base, head, before):
+                return [], [("main-async", "a warning hit"), ("guardrails", "rule app-type failed (KeyError: x)")]
+
+            @staticmethod
+            def ghostty_pin_problem(repo, base, head, before):
+                return None
+
+        original = gate.load_guardrails
+        gate.load_guardrails = lambda repo, trusted: Guardrails
+        try:
+            found, diagnostics = gate.advisory_guardrails(Path("."), [Own()])
+        finally:
+            gate.load_guardrails = original
+        self.assertEqual(found, [])
+        self.assertEqual(diagnostics, ["rule app-type failed (KeyError: x)"])
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ _git_fixture_env = importlib.util.spec_from_file_location(
 git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
 _git_fixture_env.loader.exec_module(git_fixture_env)
 
-VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
+VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 # A module the app's live code build does not patch (docs/cmux-next/live-code.md: CmuxNextApp only).
 PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
 SHELL = "Prototypes/ViewShell/Sources/ViewShell/Badge.swift"

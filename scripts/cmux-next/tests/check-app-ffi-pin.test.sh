@@ -127,6 +127,12 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a cmux-remote-browser change kept the pin current: $out"
 fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "the stale report does not name cmux-remote-browser: $out"
+# The stale report tells a pull request author what to do (lead decision, 2026-11-10): a release is published only
+# from a feat-cmux-next push, so a PR cannot pin its own FFI sources; it splits into a Rust-only step A and a Swift
+# step B after the re-pin, and docs/ci/app-ffi-release.md says how.
+[[ "$out" == *"this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin"* ]] \
+  || fail "the stale report does not give the step A / step B rule: $out"
+[[ "$out" == *"docs/ci/app-ffi-release.md"* ]] || fail "the stale report does not point to the doc: $out"
 
 # A pin outside the canonical block fails closed, naming the reader's reason.
 git -C "$repo" checkout -q HEAD~1

@@ -319,6 +319,7 @@ pub(super) fn close_surface_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -347,6 +348,7 @@ pub(super) fn close_pane_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -373,6 +375,7 @@ pub(super) fn close_screen_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -398,6 +401,7 @@ pub(super) fn close_workspace_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
