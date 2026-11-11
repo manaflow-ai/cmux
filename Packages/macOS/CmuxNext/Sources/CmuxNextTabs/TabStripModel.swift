@@ -51,6 +51,10 @@ public final class TabStripModel {
     /// strip shows the new tab in that tab's cell, which leaves with no close, instead of growing
     /// one in while the other shrinks away (Leo 2026-10-13).
     @ObservationIgnored public var successors: [TabID: TabID] = [:]
+    /// The close-selection rule's pick for this strip, set by the App to its window's state (who opened which
+    /// tab; `TabCloseSelection` in CmuxNextBridge): the tab selected after `closed`, the selected tab, left
+    /// `old`, with `surviving` left and `shown` not hidden. Nil: the rule by position (no opener is known).
+    @ObservationIgnored public var closeSuccessor: ((_ closed: TabID, _ old: [TabID], _ surviving: [TabID], _ shown: Set<TabID>) -> TabID?)?
     /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App):
     /// each leaves at once with no close, and the tabs left close up on the strip's move (Leo
     /// 2026-11-07: "you have a thing that you already dragged, and yet you're playing the closed tab
@@ -112,13 +116,34 @@ public final class TabStripModel {
         tabs.filter(\.isPinned) + tabs.filter { !$0.isPinned }
     }
 
-    /// Closing the selected tab selects the tab before it, or the one after it when it was
-    /// first (``FocusAfterClose/tab(selected:old:surviving:shown:)``). Returns the current
-    /// selection when the closed tab was not selected.
-    /// `visible` are the tabs a collapsed group does not hide; the tab before is the nearest visible one.
-    public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], visible: Set<TabID>, selected: TabID?) -> TabID? {
-        guard selected == closed, ordered.contains(closed) else { return selected }
+    /// The selection after `closed` left this strip: the close rule's pick when it was the selected tab
+    /// (over the tabs a collapsed group does not hide), else the selection as it is.
+    func selectionAfterClosing(_ closed: TabID) -> TabID? {
+        let ordered = orderedTabs.map(\.id)
+        guard selectedID == closed, ordered.contains(closed) else { return selectedID }
         let surviving = ordered.filter { $0 != closed }
-        return FocusAfterClose.tab(selected: closed, old: ordered, surviving: surviving, shown: visible.intersection(surviving))
+        return successor(of: closed, old: ordered, surviving: surviving, shown: Set(visibleOrderedTabs.map(\.id)).intersection(surviving))
+    }
+
+    /// The tab selected after `closed`, the selected tab, left `old`: the App's rule state when it gave one
+    /// (``closeSuccessor``), else the rule with no opener known.
+    func successor(of closed: TabID, old: [TabID], surviving: [TabID], shown: Set<TabID>) -> TabID? {
+        if let closeSuccessor { return closeSuccessor(closed, old, surviving, shown) }
+        return CloseSelection<TabID>().successor(ofTab: closed, old: old, surviving: surviving, shown: shown)
+    }
+
+    /// The members of a collapsed group, which the strip does not show: a closed selected tab's successor
+    /// skips them while a shown tab survives (close-focus.md).
+    public var hiddenTabs: Set<String> {
+        let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
+        return collapsed.isEmpty ? [] : Set(tabs.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
+    }
+
+    /// The tab to select as tab group `group` closes: nil when the selected tab is not one of its members
+    /// (the selection stays), else the close rule's pick over the tabs outside the group.
+    public func selectionAfterClosing(group: TabGroupID) -> TabID? {
+        guard let selectedID, tab(selectedID)?.groupID == group else { return nil }
+        let ordered = orderedTabs, surviving = ordered.filter { $0.groupID != group }.map(\.id)
+        return successor(of: selectedID, old: ordered.map(\.id), surviving: surviving, shown: Set(surviving).subtracting(hiddenTabs.map { TabID($0) }))
     }
 }

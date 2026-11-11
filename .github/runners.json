@@ -254,10 +254,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "app-ffi-release.yml#build": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
+    "app-ffi-release.yml#build": "apple-app-build",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -419,6 +416,14 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "ios-internal-nightly.yml#archive": "apple-ios",
+    "ios-review-gate.yml#reviewer-path": {
+      "class": "apple-ios",
+      "picker_followup": "holds the agent pass's Claude token and runs its CLI on the Mac, so it stays on the ephemeral Blacksmith macOS 26 pool; an owned route needs a picker that keeps credentialed jobs off persistent machines"
+    },
+    "ios-review-gate.yml#asc-validate": {
+      "class": "apple-ios",
+      "picker_followup": "writes the App Store Connect key to the runner (release environment), so it stays on the ephemeral Blacksmith macOS 26 pool, as ios-app-store.yml's upload does"
+    },
     "ios-internal-nightly.yml#upload": {
       "class": "apple-ios",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"

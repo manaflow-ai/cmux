@@ -26,6 +26,17 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
+# next_batch.log prints fixture verdicts ("error error: y" at fake shas) into the job log, where
+# base_red_excuse.py's whole-log reading of an unplaced cmux-next checks log took them for a second red
+# beside a step-A PR's app FFI pin (cmux#41132). No test reads them: keep them out of the CI log.
+nb.log = lambda message: None
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
@@ -950,6 +961,52 @@ class BaseReds(unittest.TestCase):
         controller.gh.api.return_value = {"jobs": [
             {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         self.assertEqual(stack - set(controller.failed_jobs(4, detail=True, base=True)), stack)
+
+    def test_a_failure_no_parser_names_is_keyed_by_its_own_job(self):
+        """#41222's review, earlier F1: the unnamed-failure refusal is in test_reds.read(), the reading expand_job
+        shares with judge(), so a cargo log that reports two failures and names one is never subtracted as the
+        base's, even when the base printed the same lines."""
+        controller = self.controller()
+        cargo = ("test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+                 "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s")
+        steps, text = framed(*cargo)
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next rust tests", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = log_of(text)
+        base = set(controller.failed_jobs(1, detail=True, base=True))
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 9, "name": "cmux-next rust tests", "conclusion": "failure", "steps": steps}]}
+        stack = set(controller.failed_jobs(2, detail=True, base=False))
+        self.assertTrue(stack, stack)
+        self.assertTrue(all("never a base red" in key and "more failing tests than it names" in key for key in stack),
+                        stack)
+        self.assertEqual(stack - base, stack)
+
+    def test_a_passing_steps_bun_count_is_not_the_reds_own(self):
+        """#41244's review F1: a passing negative-case step's `(fail)` and ` 2 fail` keyed an unrelated red as the job's
+        own. expand_job reads a placed red's unnamed failures from its failed sections alone (owned_unnamed)."""
+        controller = self.controller()
+        def at(second):
+            return f"2026-10-19T03:02:{second:02d}Z"
+        steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+                  "started_at": at(0), "completed_at": at(1)},
+                 {"number": 2, "name": "Negative cases", "status": "completed", "conclusion": "success",
+                  "started_at": at(2), "completed_at": at(4)},
+                 {"number": 3, "name": "Run tests", "status": "completed", "conclusion": "failure",
+                  "started_at": at(5), "completed_at": at(9)},
+                 {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": at(9), "completed_at": at(9)}]
+        negative = ["bun test v1.3.0", "test/negative.test.ts:", "(fail) negative > reports a red [1.00ms]",
+                    " 0 pass", " 2 fail"]
+        text = "\n".join(["2026-10-19T03:02:00.5Z Current runner version: '2.338.2'",
+                          "2026-10-19T03:02:02.5Z ##[group]Run negative cases", "2026-10-19T03:02:02.6Z ##[endgroup]",
+                          *(f"2026-10-19T03:02:03.5Z {line}" for line in negative),
+                          "2026-10-19T03:02:05.5Z ##[group]Run tests", "2026-10-19T03:02:05.6Z ##[endgroup]",
+                          "2026-10-19T03:02:06.5Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x"]) + "\n"
+        controller.gh.gh.return_value = log_of(text)
+        keys = controller.expand_job("cmux-next swift test", 8, {"steps": steps}, base=False)
+        self.assertIn("cmux-next swift test: test alpha()", keys)
+        self.assertFalse([key for key in keys if "never a base red" in key], keys)
 
     def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
         controller = self.controller()

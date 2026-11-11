@@ -286,7 +286,7 @@ impl Hub {
         // The start's pass runs before the hub is handed out: a card a crash left owed.
         self.send_owed_cards(true);
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("orphan-cards", async move {
             loop {
                 match events.recv().await {
                     Ok(ev) => {

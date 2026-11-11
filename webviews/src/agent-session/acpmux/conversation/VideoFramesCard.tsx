@@ -4,7 +4,8 @@
 // A frame opens large in the pane's image viewer; the name plays the video in Quick Look, the same
 // viewer an attached video's tile opens (`video.quickLook`, which the host checks like any path).
 // Every frame draws in a box of the video's shape before it decodes, so the transcript never moves.
-// `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`.
+// `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`,
+// whose frames wrap down the pane in rows rather than scroll sideways.
 import { useContext, type CSSProperties } from "react";
 import { callChipHost } from "../chips/host";
 import { formatDuration } from "../chips/replyMediaModel";

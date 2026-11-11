@@ -249,6 +249,7 @@ BUNDLE_INPUTS = (
     "release-notes/next/highlights/*",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
@@ -326,8 +327,9 @@ CI_ONLY = (
 # (cmux-tui-tree-inputs.txt, daemon-capabilities.json, scripts/ci/*), the GhosttyKit checksums the download checks (*.txt), the CEF
 # license the app ships (*.txt), and the scripts/ci helpers reload.sh and the signing scripts run. A change to
 # one runs the app compiles. tests/test_cmux_next_route.py's test_native_script_inputs_run_the_app_compiles
-# walks the Xcode project's build phases and the build and packaging scripts and fails on a file they read
-# that routes elsewhere.
+# walks the Xcode project's build phases and the build and packaging scripts, and every script those run or
+# source, and fails on a file they read that routes elsewhere or that cmux-next.yml's push or pull_request
+# paths miss.
 NATIVE_SCRIPT_INPUTS = (
     "THIRD_PARTY_LICENSES.md",
     "scripts/ghosttykit-checksums.txt",
@@ -339,6 +341,9 @@ NATIVE_SCRIPT_INPUTS = (
     # The app's daemon capability list, which a build phase checks the bundled daemon against (also a
     # daemon input), and the Rust cache helper the Chief build phase runs.
     "plans/cmux-next/daemon-capabilities.json", "scripts/ci/fleet-rust-cache.sh",
+    # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
+    # Go toolchain it sources.
+    "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
