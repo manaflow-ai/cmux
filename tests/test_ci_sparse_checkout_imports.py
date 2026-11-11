@@ -2379,6 +2379,30 @@ class SparseCheckoutImportTests(unittest.TestCase):
                     ]
                     self.assertEqual(got, [want])
 
+    def test_fixture_review_41035_after_an_or_the_directory_is_unknown(self) -> None:
+        # In `cd x && a || b`, b runs when the cd or a failed, so b's directory is unknown, and so is
+        # everything after a || in that list and after the list ends. Only a, after the &&, is in x.
+        # Each (run, script) -> the directory `python3 script` starts in; None is unknown.
+        ci = "scripts/ci"
+        cases = {
+            ("cd scripts/ci && true || python3 x.py", "x.py"): None,
+            ("cd scripts/ci && python3 a.py || python3 b.py", "a.py"): ci,
+            ("cd scripts/ci && python3 a.py || python3 b.py", "b.py"): None,
+            ("cd scripts/ci && python3 a.py || python3 b.py && python3 c.py", "c.py"): None,
+            ("cd scripts/ci && true || true\npython3 d.py", "d.py"): None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ci).mkdir(parents=True)
+            for (run, script), want in cases.items():
+                with self.subTest(run=run, script=script):
+                    got = [
+                        shell.copy().feed(line, lambda c: script in c)
+                        for line, _, _, shell in _run_lines_uncached(run, root, "")
+                        if script in line
+                    ]
+                    self.assertEqual(got, [want])
+
     # Python puts the working directory, not the script's folder, first for `python -m`, `python -c`
     # and stdin; relative path literals name paths from it too. Both tests/ and scripts/ci/tests/ hold
     # a `tests` package.
