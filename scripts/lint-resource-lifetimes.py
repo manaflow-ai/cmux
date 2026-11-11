@@ -512,7 +512,12 @@ def base_ref() -> str:
     if not base or set(base) == {"0"}:
         return ""
     p = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{base}^{{commit}}"], capture_output=True)
-    return base if p.returncode == 0 else ""
+    if p.returncode != 0:
+        # Say so: without the base, a new "debt:" entry is not caught here.
+        print(f"lint-resource-lifetimes: base {base} is not in this checkout; the shrink-only check is skipped",
+              file=sys.stderr)
+        return ""
+    return base
 
 
 def base_allowlist() -> dict | None:

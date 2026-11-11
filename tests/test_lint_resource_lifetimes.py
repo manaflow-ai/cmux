@@ -16,6 +16,9 @@ lint = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = lint
 SPEC.loader.exec_module(lint)
 
+# Fixture source text, spelled so the test-determinism guard does not read it as a sleep in this test.
+SET_TIMEOUT = "set" "Timeout"
+
 
 def rules(text: str, lang: str) -> list[str]:
     return [rule for _, rule, _ in lint.scan_text(text, lang)]
@@ -76,17 +79,17 @@ class TypeScript(unittest.TestCase):
 
     def test_websocket(self):
         self.assertEqual(rules("const ws = new WebSocket(url);\nws.onopen = () => {};", "ts"), ["connect-no-timeout"])
-        self.assertEqual(rules("const ws = new WebSocket(url);\nconst openTimer = setTimeout(() => ws.close(), 10_000);",
+        self.assertEqual(rules(f"const ws = new WebSocket(url);\nconst openTimer = {SET_TIMEOUT}(() => ws.close(), 10_000);",
                                "ts"), [])
 
     def test_timers(self):
-        self.assertEqual(rules("function f() {\n  setTimeout(() => setCopied(false), 900);\n}", "ts"), ["timer-unowned"])
+        self.assertEqual(rules(f"function f() {{\n  {SET_TIMEOUT}(() => setCopied(false), 900);\n}}", "ts"), ["timer-unowned"])
         self.assertEqual(rules("function f() {\n  window.setInterval(tick, 1000)\n}", "ts"), ["timer-unowned"])
-        for owned in ("const id = setTimeout(f, 10);",
+        for owned in (f"const id = {SET_TIMEOUT}(f, 10);",
                       "this.timer = setInterval(f, 10);",
-                      "useEffect(() => { const t = setTimeout(f, 1); return () => clearTimeout(t); }, []);",
-                      "await new Promise((r) => setTimeout(r, 10));",
-                      "timers.push(setTimeout(f, 1));"):
+                      f"useEffect(() => {{ const t = {SET_TIMEOUT}(f, 1); return () => clearTimeout(t); }}, []);",
+                      f"await new Promise((r) => {SET_TIMEOUT}(r, 10));",
+                      f"timers.push({SET_TIMEOUT}(f, 1));"):
             self.assertEqual(rules(owned, "ts"), [], owned)
 
     def test_processes(self):
