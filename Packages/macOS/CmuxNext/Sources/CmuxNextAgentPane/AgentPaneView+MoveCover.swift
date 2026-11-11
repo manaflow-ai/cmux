@@ -81,10 +81,11 @@ extension AgentPaneView {
 
     /// `frame` (where the page draws in this view now) at the size it has once its pane rests. A split's new pane gets
     /// its chat while it is on the split's spring: the chat's first layout there is at a size the pane leaves in the
-    /// next frame, and the pane tells the size it will rest at (`RestingPlacement.restContentSizeChange`; the chrome
-    /// around the page does not change size in a spring). `frame` itself at rest or outside a pane.
+    /// next frame, and the pane tells the size it will rest at (`RestingPlacement.liveRestContentSizeChange`: from the
+    /// size the chat has in this frame, a key resize's too; the chrome around the page does not change size in a
+    /// spring). `frame` itself at rest or outside a pane.
     func restingFrame(of frame: NSRect) -> NSRect {
-        guard let change = enclosingRestSizeChange else { return frame }
+        guard let change = enclosingLiveRestSizeChange else { return frame }
         return NSRect(x: frame.minX, y: frame.minY, width: max(0, frame.width + change.width), height: max(0, frame.height + change.height))
     }
 

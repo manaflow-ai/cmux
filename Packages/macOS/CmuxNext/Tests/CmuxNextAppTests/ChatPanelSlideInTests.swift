@@ -6,18 +6,21 @@ import Testing
 
 /// A panel opening on a chat's right is one motion that never resizes the panel (Leo 2026-11-06: "we need to have our
 /// animations be more one-step like codex their agent pane flows smoothly when a thing opens up on the right evne when
-/// there's big lag on the computer"). The chat holds its layout while it moves (the provider's `holdsContentInMotion`), and
-/// the panel enters at its final width from the chat's edge and slides in on the split spring (`PaneArrival.slidingIn`),
-/// so its page lays out once and every frame after only moves it. A split of a pane that does not hold its content
-/// (Cmd-D in a terminal) still grows from a sliver. Frames step at a fixed 120 Hz dt.
+/// there's big lag on the computer"). The panel enters at its final width from the chat's edge and slides in on the split
+/// spring (`PaneArrival.slidingIn`), so its page lays out once and every frame after only moves it. That is the shape of
+/// the panel's arrival (the provider's `slidesNewPaneInBeside`, true for a pane that shows an agent chat); nothing is
+/// held: the chat follows its narrowing pane in every frame, as every kind of content does (Lawrence 2026-11-11: "all
+/// must have smooth transition"). A split of any other pane (Cmd-D in a terminal) still grows from a sliver. Frames step
+/// at a fixed 120 Hz dt.
 @MainActor
 @Suite(.closesItsWindows)
 struct ChatPanelSlideInTests {
     final class Panes: LayoutPaneContentProvider {
-        let holding: Set<PaneID>
-        init(holding: Set<PaneID>) { self.holding = holding }
+        /// The panes a new pane slides in beside (the panes that show an agent chat, in the app).
+        let slidingBeside: Set<PaneID>
+        init(slidingBeside: Set<PaneID>) { self.slidingBeside = slidingBeside }
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
-        func holdsContentInMotion(for pane: PaneID) -> Bool { holding.contains(pane) }
+        func slidesNewPaneInBeside(for pane: PaneID) -> Bool { slidingBeside.contains(pane) }
     }
 
     static let dt = 1.0 / 120
@@ -28,8 +31,8 @@ struct ChatPanelSlideInTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(_ tree: SplitNode, holding: Set<PaneID>) {
-            provider = Panes(holding: holding)
+        init(_ tree: SplitNode, slidingBeside: Set<PaneID>) {
+            provider = Panes(slidingBeside: slidingBeside)
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: tree.panes.first)
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -58,15 +61,16 @@ struct ChatPanelSlideInTests {
     static let opened: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("chat"), b: .leaf("panel"))
 
     @Test func aPanelOpeningBesideAChatSlidesInAtItsFinalWidth() throws {
-        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        let screen = Screen(.leaf("chat"), slidingBeside: ["chat"])
         defer { screen.window.closeAfterTest() }
         screen.show(Self.opened)
+        let chatHost = try #require(screen.root.context.hosts["chat"])
         let panel = try #require(screen.target("panel")), chat = try #require(screen.target("chat"))
         let gap = panel.minX - chat.maxX
         let first = try #require(screen.rect("panel"))
         #expect(first.width == panel.width, "the panel starts at its final width, not as a sliver: \(first)")
         #expect(first.minX > panel.minX + 1, "the panel starts right of where it rests: \(first) vs \(panel)")
-        var landed: Int?, xs: [CGFloat] = []
+        var landed: Int?, xs: [CGFloat] = [], chatWidths: Set<CGFloat> = []
         for frame in 1...120 {
             let moving = screen.step()
             let shown = try #require(screen.rect("panel")), left = try #require(screen.rect("chat"))
@@ -75,17 +79,22 @@ struct ChatPanelSlideInTests {
                     "frame \(frame): the panel resized to \(shown.size)")
             // It rides the chat's edge: one gap between them in every frame, nothing shows between.
             #expect(abs(shown.minX - left.maxX - gap) < 0.01, "frame \(frame): the gap is \(shown.minX - left.maxX), not \(gap)")
+            // The chat beside it is held at no size: its content has its pane's rect in this frame.
+            #expect(chatHost.content.frame == CGRect(origin: .zero, size: chatHost.contentRect.size),
+                    "frame \(frame): the chat's content is at \(chatHost.content.frame) in a pane of \(chatHost.contentRect.size)")
+            chatWidths.insert(chatHost.content.frame.width)
             xs.append(shown.minX)
             if !moving { landed = frame; break }
         }
         #expect(landed != nil, "the slide never landed")
+        #expect(chatWidths.count > 3, "the chat's content did not follow its narrowing pane: its widths were \(chatWidths.sorted())")
         #expect(zip(xs, xs.dropFirst()).allSatisfy { $1 <= $0 + 0.25 }, "the panel moved back: \(xs)")
         #expect(screen.rect("panel") == panel)
     }
 
-    /// Cmd-D in a pane that lays out live (a terminal) keeps its sliver: split-spring-animation/DESIGN.md.
-    @Test func aSplitOfAPaneThatDoesNotHoldItsContentStillGrowsFromASliver() throws {
-        let screen = Screen(.leaf("chat"), holding: [])
+    /// Cmd-D in a pane its provider asks no slide for (a terminal) keeps its sliver: split-spring-animation/DESIGN.md.
+    @Test func aSplitOfAPaneWithNoSlideBesideItStillGrowsFromASliver() throws {
+        let screen = Screen(.leaf("chat"), slidingBeside: [])
         defer { screen.window.closeAfterTest() }
         screen.show(Self.opened)
         let panel = try #require(screen.target("panel"))
@@ -97,7 +106,7 @@ struct ChatPanelSlideInTests {
     /// A pane opening between the chat and another pane would cover that pane if it came in at its full width: it grows.
     @Test func aPaneOpeningBetweenTwoPanesGrowsFromASliver() throws {
         let start: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("chat"), b: .leaf("right"))
-        let screen = Screen(start, holding: ["chat"])
+        let screen = Screen(start, slidingBeside: ["chat"])
         defer { screen.window.closeAfterTest() }
         screen.show(.split("r", axis: .horizontal, ratio: 0.5,
                            a: .split("n", axis: .horizontal, ratio: 0.5, a: .leaf("chat"), b: .leaf("panel")), b: .leaf("right")))
