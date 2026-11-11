@@ -32,11 +32,37 @@
    "unreachable": 2,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 686,
+   "indexing_slicing": 685,
    "string_slice": 94,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 1430,
    "cast_possible_truncation": 215
+  },
+  "acpmux-build-id": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "acpmux-hot": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
   },
   "bindings-rust": {
    "unwrap_used": 0,
@@ -90,6 +116,19 @@
    "arithmetic_side_effects": 75,
    "cast_possible_truncation": 9
   },
+  "cmux-action-catalog": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
   "cmux-agent-pane-policy": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -141,6 +180,45 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 0,
    "cast_possible_truncation": 0
+  },
+  "cmux-automations": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 37,
+   "cast_possible_truncation": 10
+  },
+  "cmux-bookmarks-core": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-bookmarks-ops": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 29,
+   "cast_possible_truncation": 1
   },
   "cmux-browser-host": {
    "unwrap_used": 0,
@@ -194,6 +272,32 @@
    "arithmetic_side_effects": 34,
    "cast_possible_truncation": 5
   },
+  "cmux-classic-import": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 40,
+   "cast_possible_truncation": 2
+  },
+  "cmux-cloud-api": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
   "cmux-cloud-cli": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -206,6 +310,110 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 0,
    "cast_possible_truncation": 0
+  },
+  "cmux-cloud-client": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-cloud-codex-holder": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 1,
+   "cast_possible_truncation": 1
+  },
+  "cmux-cloud-config": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-cloud-environment": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-cloud-handlers": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-cloud-machine": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-cloud-start-core": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 1
+  },
+  "cmux-cloud-tasks": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 12,
+   "cast_possible_truncation": 1
   },
   "cmux-cloud-wire": {
    "unwrap_used": 0,
@@ -233,6 +441,32 @@
    "arithmetic_side_effects": 29,
    "cast_possible_truncation": 2
   },
+  "cmux-command-class": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 123,
+   "cast_possible_truncation": 0
+  },
+  "cmux-conductor-import": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
   "cmux-config": {
    "unwrap_used": 0,
    "expect_used": 2,
@@ -258,6 +492,45 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 29,
    "cast_possible_truncation": 1
+  },
+  "cmux-cookie-sync": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-daemon-conn-core": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-daemon-launch-core": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
   },
   "cmux-encode": {
    "unwrap_used": 0,
@@ -324,6 +597,19 @@
    "arithmetic_side_effects": 10,
    "cast_possible_truncation": 0
   },
+  "cmux-health-core": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 28,
+   "cast_possible_truncation": 3
+  },
   "cmux-history": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -362,6 +648,45 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 53,
    "cast_possible_truncation": 16
+  },
+  "cmux-host-budget": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-imessage": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 10,
+   "cast_possible_truncation": 0
+  },
+  "cmux-journal": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
   },
   "cmux-json": {
    "unwrap_used": 0,
@@ -428,6 +753,32 @@
    "arithmetic_side_effects": 7,
    "cast_possible_truncation": 0
   },
+  "cmux-local-url": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 2,
+   "cast_possible_truncation": 0
+  },
+  "cmux-mcp-connect": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 11,
+   "cast_possible_truncation": 0
+  },
   "cmux-mobile-core": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -461,11 +812,24 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 9,
+   "indexing_slicing": 8,
    "string_slice": 0,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 3,
    "cast_possible_truncation": 11
+  },
+  "cmux-palette-eval": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
   },
   "cmux-palette-ranker": {
    "unwrap_used": 0,
@@ -558,6 +922,19 @@
    "arithmetic_side_effects": 7,
    "cast_possible_truncation": 2
   },
+  "cmux-rd-link": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 42,
+   "cast_possible_truncation": 2
+  },
   "cmux-rd-proto": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -622,19 +999,6 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 4,
    "cast_possible_truncation": 1
-  },
-  "cmux-remote-transcript": {
-   "unwrap_used": 0,
-   "expect_used": 0,
-   "panic": 0,
-   "unreachable": 0,
-   "todo": 0,
-   "unimplemented": 0,
-   "indexing_slicing": 10,
-   "string_slice": 0,
-   "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 14,
-   "cast_possible_truncation": 3
   },
   "cmux-server": {
    "unwrap_used": 0,
@@ -781,12 +1145,12 @@
   },
   "cmux-tui": {
    "unwrap_used": 354,
-   "expect_used": 69,
+   "expect_used": 68,
    "panic": 1,
    "unreachable": 30,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 831,
+   "indexing_slicing": 830,
    "string_slice": 82,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 1188,
@@ -819,10 +1183,10 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1021,
-   "expect_used": 172,
+   "unwrap_used": 1013,
+   "expect_used": 169,
    "panic": 2,
-   "unreachable": 22,
+   "unreachable": 21,
    "todo": 0,
    "unimplemented": 0,
    "indexing_slicing": 853,
@@ -845,7 +1209,7 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-image-paste": {
-   "unwrap_used": 22,
+   "unwrap_used": 21,
    "expect_used": 0,
    "panic": 0,
    "unreachable": 0,
@@ -935,6 +1299,84 @@
    "arithmetic_side_effects": 0,
    "cast_possible_truncation": 0
   },
+  "cmux-url-input": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 11,
+   "cast_possible_truncation": 0
+  },
+  "cmux-vault-egress": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 2,
+   "cast_possible_truncation": 2
+  },
+  "cmux-view-rows": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-vm": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-vm-client": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
+  },
+  "cmux-vnc": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 88,
+   "cast_possible_truncation": 16
+  },
   "cmux-weft": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -960,6 +1402,32 @@
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 65,
    "cast_possible_truncation": 9
+  },
+  "cmux-wg-tun": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 1,
+   "cast_possible_truncation": 3
+  },
+  "cmux-window-rules": {
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
+   "todo": 0,
+   "unimplemented": 0,
+   "indexing_slicing": 0,
+   "string_slice": 0,
+   "panic_in_result_fn": 0,
+   "arithmetic_side_effects": 0,
+   "cast_possible_truncation": 0
   },
   "cmux-worktree-care": {
    "unwrap_used": 0,

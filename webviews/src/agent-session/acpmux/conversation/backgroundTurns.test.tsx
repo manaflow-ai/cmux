@@ -2,12 +2,21 @@
 // The line of a turn the agent ran on its own (backgroundTurns.ts, BackgroundTurnLine.tsx): quiet,
 // it is one closed line the reader can open; running, the same line with the working spinner and its words shimmering; one
 // with something to say draws no line. direct.ts tags the rows (test/agent-pane-background-turns.test.ts).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId, foldBackgroundTurns } from "./backgroundTurns";
 import { turnView } from "./turns";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

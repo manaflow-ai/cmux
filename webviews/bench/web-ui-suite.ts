@@ -82,6 +82,14 @@ export const BENCHES: readonly Bench[] = [
     args: ["--turns", "600"],
     timeoutMs: 150_000,
   },
+  // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
+  // record's arrival to its paint, task ms per call and layout shift.
+  {
+    name: "tool-call-burst",
+    file: "tool-call-burst.bench.ts",
+    args: ["--rounds", "3"],
+    timeoutMs: 120_000,
+  },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
   {
