@@ -1743,6 +1743,14 @@
       "created_at": "2026-11-11T04:54:23Z",
       "repoId": 1144115288,
       "pullRequestNo": 40916
+    },
+    {
+      "name": "tomofusa",
+      "id": 75922,
+      "comment_id": 6794797800,
+      "created_at": "2026-11-11T11:38:37Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 41263
     }
   ]
 }
