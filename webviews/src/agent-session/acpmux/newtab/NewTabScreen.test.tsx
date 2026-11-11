@@ -1699,3 +1699,59 @@ test("New project refused: the reason shows above the card, no chat starts and t
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(names).toEqual(["habit-tracker", "habit-tracker"]);
 });
+
+test("a start refused because the agent is not installed says so in plain words, with Install, Retry and Dismiss", async () => {
+  const asks: unknown[][] = [];
+  const setups: Array<(harness: string) => void> = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => {
+          asks.push(args);
+          return Promise.reject(new Error("spawn claude-agent-acp ENOENT"));
+        }}
+        onSetup={(resume) => setups.push(resume)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the build");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(1);
+  const harness = String(asks[0]?.[0]);
+  const name = noChat().catalog.find((entry) => entry.id === harness)?.name ?? harness;
+  const card = () => container.querySelector<HTMLElement>(".acpmux-switch-failed");
+  // Plain words, never the spawn error itself; the raw words wait under Details.
+  expect(card()?.querySelector(".acpmux-host-error-message")?.textContent).toBe(
+    translate("switch.notInstalled", { agent: name }),
+  );
+  expect(card()?.querySelector("[data-error-detail]")?.textContent).toBe("spawn claude-agent-acp ENOENT");
+  const button = (label: string) =>
+    [...card()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+  // The draft stays for every way out.
+  expect(promptValue()).toBe("fix the build");
+
+  // Retry sends the same request again.
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(2);
+  expect(asks[1]).toEqual(asks[0]);
+
+  // Install opens Agents setup, which continues this draft once the agent can run.
+  await act(async () => button(translate("switch.action.install"))!.click());
+  expect(setups).toHaveLength(1);
+  expect(card()).toBeNull();
+
+  // Dismiss clears a card that is shown again.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => button(translate("worktree.dismiss"))!.click());
+  expect(card()).toBeNull();
+});
