@@ -512,11 +512,6 @@ extension CloudHandlers {
 
     // MARK: Changes the person allows
 
-    /// Machine changes an agent or a script asked for (``change(_:_:_:_:_:sheet:pending:_:)``), by what they ask.
-    @MainActor static let changeRuns = CloudStartRuns<[String: ActionResultValue], Bool>()
-    /// The answer of each run of ``changeRuns`` whose dialog is open, for a caller who joins it then.
-    @MainActor static var changeAsks: [CloudStartRunKey: [String: ActionResultValue]] = [:]
-
     /// A machine change (resize, snapshot, template, restore, fork). `work` gets the person's yes
     /// (``allows(_:_:_:_:shown:)``) to pass on. A person's own run goes as before: `sheet` shows its
     /// answer, else nothing, and past ``machineAnswerWait`` it answers `pending`. An agent's or a
@@ -536,25 +531,25 @@ extension CloudHandlers {
             if sheet { return answer(label, invocation, context, pendingAfter: wait, pending: pending) { try await work(allow) } }
             return result(label, context, pendingAfter: wait, pending: pending) { try await work(allow).fields }
         }
-        let key = changeKey(id, invocation, context), runs = changeRuns
+        let key = changeKey(id, invocation, context), changes = context.services.cloud.machineChanges, runs = changes.runs
         let waiting = pending.merging(["pending": .bool(true), "ask_again_joins": .bool(true)]) { field, _ in field }
         let asked = ask { dialog in
             let asking = waiting.merging(["waiting_for": .string("person"), "dialog_id": .string(String(dialog)),
                                           "dialog": .string(CloudChangeRequest.identifier)]) { field, _ in field }
-            changeAsks[key] = asking
+            changes.asks[key] = asking
             runs.asking(key, asking)
         }
         // The dialog answered: a caller who joins now waits for the change, not the person.
         let allow: @MainActor () async -> Bool = {
             let allowed = await asked()
-            changeAsks[key] = nil
+            changes.asks[key] = nil
             return allowed
         }
         let logger = context.services.cloud.logger
         result(label, context) {
             do {
-                return try await runs.answer(key, within: wait, pending: changeAsks[key] ?? waiting, forgotten: CancellationError(), early: true) {
-                    defer { changeAsks[key] = nil }
+                return try await runs.answer(key, within: wait, pending: changes.asks[key] ?? waiting, forgotten: CancellationError(), early: true) {
+                    defer { changes.asks[key] = nil }
                     let answer = try await work(allow)
                     if sheet { logger.info("\(label, privacy: .public): \(answer.text, privacy: .private)") }
                     return sheet ? answer.fields.merging(["text": .string(answer.text)]) { field, _ in field } : answer.fields
@@ -610,4 +605,12 @@ extension CloudHandlers {
         }
         runTracked("set idle pause", context) { try await set(machineID, minutes) }
     }
+}
+
+/// Machine changes an agent or a script asked for (``CloudHandlers/change(_:_:_:_:_:sheet:pending:ask:_:)``), by what
+/// they ask: their runs, and the answer of each run whose dialog is open, for a caller who joins it then. One per
+/// ``CloudService``.
+@MainActor final class CloudMachineChanges {
+    let runs = CloudStartRuns<[String: ActionResultValue], Bool>()
+    var asks: [CloudStartRunKey: [String: ActionResultValue]] = [:]
 }
