@@ -103,6 +103,8 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     ghost: boolean;
     /// The leaving copy's own animation length (ms) as the page resolves it, once the copy is drawn.
     leaveMs: number | null;
+    /// The leaving copy's `animation-name` (`none` = the copy plays no animation).
+    leaveName: string | null;
   };
 
   /// Finishes the command, takes the pointer off the hat, and samples every frame until the hat and
@@ -125,6 +127,7 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
           const out: Sample[] = [];
           let goneFor = 0;
           let leaveMs: number | null = null;
+          let leaveName: string | null = null;
           const until = performance.now() + 8_000;
           // Each painted frame's state, read after it paints (support/paintedFrames.ts).
           window.cmuxAfterPaint((at) => {
@@ -133,10 +136,12 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
             const tray = dock.querySelector<HTMLElement>(".acpmux-running-tray:not(.acpmux-running-tray--ghost)");
             const copy = dock.querySelector(".acpmux-running-tray--ghost");
             const ghost = copy !== null;
-            // The leave's length, read once from the copy (subagents.css `--acpmux-tray-leave`).
+            // The leave's name and length, read once from the copy (subagents.css `--acpmux-tray-leave`).
             if (copy && leaveMs === null) {
-              const length = getComputedStyle(copy).animationDuration.split(",")[0]!.trim();
+              const style = getComputedStyle(copy);
+              const length = style.animationDuration.split(",")[0]!.trim();
               leaveMs = Number.parseFloat(length) * (length.endsWith("ms") ? 1 : 1000);
+              leaveName = style.animationName.split(",")[0]!.trim();
             }
             const box = dock.getBoundingClientRect();
             out.push({
@@ -147,6 +152,7 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
               tray: tray ? tray.getBoundingClientRect().top : null,
               ghost,
               leaveMs,
+              leaveName,
             });
             goneFor = tray || ghost ? 0 : goneFor + 1;
             if (goneFor >= 6) {
@@ -181,7 +187,9 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     const spanMs = tail[firstFinal]!.at - tail[lastFull]!.at;
     const between = tail.filter((sample) => sample.dock < full - 0.05 && sample.dock > final + 0.05).length;
     const composerMoves = Math.max(...samples.map((sample) => Math.abs(sample.composerTop - samples[0]!.composerTop)));
-    const leaveMs = samples.find((sample) => sample.leaveMs !== null)?.leaveMs ?? null;
+    const read = samples.find((sample) => sample.leaveMs !== null);
+    const leaveMs = read?.leaveMs ?? null;
+    const leaveName = read?.leaveName ?? null;
     console.log(
       `composer-hat-leave-fold ${engine}${reduce ? " (Reduce Motion)" : ""}: hat ${hat.toFixed(1)} px, total drop ${total.toFixed(1)} px, largest step ${largest.toFixed(1)} px, ${moving} frames moving, ${between} heights between, ${spanMs.toFixed(0)} ms full to final${leaveMs === null ? "" : ` of a ${leaveMs.toFixed(0)} ms leave`}, composer moved ${composerMoves.toFixed(1)} px`,
     );
@@ -197,6 +205,7 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
       between,
       spanMs,
       leaveMs,
+      leaveName,
       composerMoves,
       ghosted: samples.some((sample) => sample.ghost),
     };
@@ -209,7 +218,9 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
       expect(Math.abs(run.total - run.hat), "the stack loses exactly the hat's height").toBeLessThanOrEqual(1);
       // Headless WebKit paints sparse frames and the settle is front-loaded, so this counts wall time
       // and heights in between, not frames: the jump this replaces went from full to 0 in one frame.
-      expect(run.leaveMs ?? 0, "the leaving copy plays an animation with a length").toBeGreaterThan(0);
+      // A copy with no animation reads `none` and 0 ms; without these two the bound below is 0.
+      expect(run.leaveName ?? "none", "the leaving copy has an animation").not.toBe("none");
+      expect(run.leaveMs ?? 0, "the leaving copy's animation has a length above zero").toBeGreaterThan(0);
       const least = FOLD_SHARE * run.leaveMs!;
       expect(
         run.spanMs,
