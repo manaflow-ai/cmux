@@ -71,6 +71,17 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     (await count(page, ".acpmux-composer")) > 0 && (await count(page, "[data-harness-notice]")) === 0;
 
   const CASES: Case[] = [
+    // The composer's dock motion (Leo, 2026-11-11: "do we even want stuff to push up vs just simple...
+    // covering stuff?"): each variant plays through, the transcript and the composer drawn.
+    ...["grown-overlay", "grown-reached", "sent-overlay"].map((variant): Case => ({
+      entry: "composer-dock-motion",
+      variant,
+      play: "error",
+      shows: async (page) => (await count(page, ".acpmux-composer")) > 0 && (await count(page, ".acpmux-row")) > 0,
+    })),
+    // Leo's "Thinking 1m · 1.7K tokens" to "Sending a message 1m" and back, at rest and mid-roll.
+    { entry: "status-swap", variant: "leo-sequence", shows: has(".cv-worked--live") },
+    { entry: "status-swap", variant: "leo-sequence-mid-roll", play: "error", shows: has(".cv-roll-out[data-tail]") },
     // The plays assert every recommended/expanded row against a scrambled source catalog.
     ...[
       "family-recommendations-claude",

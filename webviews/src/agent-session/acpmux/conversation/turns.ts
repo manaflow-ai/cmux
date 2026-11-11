@@ -1557,9 +1557,10 @@ function shapeTurn(
       rows.flatMap((row) =>
         isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
       );
-    // Closed over a turn that said something before its answer, the work around each reply folds
-    // into its own line before and after it (turnFoldReplies.experiment.ts), so the replies read in
-    // order with the work between them one click away.
+    // Closed over a turn that said something before its answer, the replies read in order and the
+    // work around them stays under Worked for, as chatgpt.com draws it: no tool call shows beside a
+    // closed fold. The experiment's other arms fold that work into lines before and after each reply
+    // (turnFoldReplies.experiment.ts).
     // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
     const around = open ? undefined : nested ? "replies" : experimentArm(turnFoldReplies);
     const between =

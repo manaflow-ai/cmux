@@ -600,6 +600,56 @@ class ProbeTeams(unittest.TestCase):
             self.run_teams(fake, 1)
         self.assertEqual(fake.team_records, {})
 
+    def test_a_join_lost_to_a_transport_error_is_deleted_so_a_retry_leaves_one_team_in_the_slot(self):
+        # A transport failure (no HTTP status at all) on the join is a failed join too: a URLError before the request
+        # reaches Stack leaves an empty team no membership search finds, and a timeout whose request did land leaves a
+        # joined one. Either way the team is deleted, so the retry that follows makes the slot's only team.
+        class Flaky(ProbeTeamStack):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.failures = [provision.urllib.error.URLError("connection reset"), TimeoutError("timed out")]
+
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "POST" and "/team-memberships/" in url and self.failures:
+                    error = self.failures.pop(0)
+                    if isinstance(error, TimeoutError):  # Stack added the membership; only its answer was lost
+                        super().__call__(method, url, headers, body, timeout)
+                    raise error
+                return super().__call__(method, url, headers, body, timeout)
+        fake = Flaky([self.capture()])
+        with self.assertRaises(provision.urllib.error.URLError):
+            self.run_teams(fake, 1)
+        with self.assertRaises(TimeoutError):
+            self.run_teams(fake, 1)
+        ids, _ = self.run_teams(fake, 1)
+        claims = [t for t in fake.team_records.values() if provision.probe_slot(t) == 1]
+        self.assertEqual([t["id"] for t in claims], [ids[1]])
+        self.assertEqual({t for t, u in fake.memberships if u == "cap"}, {ids[1]})
+        self.assertEqual(len([r for r in fake.requests if r[0] == "DELETE"]), 2)
+
+    def test_a_delete_lost_to_a_transport_error_warns_and_the_join_error_stands(self):
+        class Unreachable(ProbeTeamStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "POST" and "/team-memberships/" in url:
+                    raise provision.urllib.error.URLError("join unreachable")
+                if method == "DELETE":
+                    raise TimeoutError("delete timed out")
+                return super().__call__(method, url, headers, body, timeout)
+        fake = Unreachable([self.capture()])
+        logs = []
+        with self.assertRaisesRegex(provision.urllib.error.URLError, "join unreachable"):
+            provision.probe_teams(stack(fake), 1, log=logs.append)
+        self.assertTrue(any("the join failed and so did its delete" in line for line in logs))
+
+    def test_main_reports_a_transport_error_as_a_run_error(self):
+        env = {"NEXT_PUBLIC_STACK_PROJECT_ID": provision.STAGING_PROJECT_ID, "STACK_SECRET_SERVER_KEY": "s",
+               "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "c"}
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), \
+                mock.patch.object(provision, "probe_teams", side_effect=TimeoutError("timed out")):
+            self.assertEqual(provision.main(["--probe-teams", "1"]), 1)
+        self.assertIn("::error::cloud capture provision: TimeoutError: timed out", out.getvalue())
+
     def test_a_missing_account_is_never_created(self):
         fake = ProbeTeamStack()
         with self.assertRaisesRegex(provision.ProvisionError, "never creates"):
