@@ -20,9 +20,15 @@ pub(super) fn handle_connection_frame(
 ) -> bool {
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
-    // A pipelined message after the acknowledgement must not reach parsing or
-    // dispatch; returning false makes the connection loop close that client.
+    // A message after the shutdown began (an accepted `shutdown-daemon`, or a
+    // SIGTERM at an update, logout or reboot) must not reach dispatch: it
+    // gets the pending handoff's refusal (`daemon_shutdown_pending`, "request
+    // was not executed") so its client can send it again to the next daemon
+    // without typing anything twice, and returning false makes the connection
+    // loop close that client once the refusal is written. A close with no
+    // answer left the client unable to tell whether its input arrived.
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        let _ = pending_handoff::reject_message_during_pending_handoff(message, writer);
         return false;
     }
     // The slow request log's record of this line, from here to its reply written

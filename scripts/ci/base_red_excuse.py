@@ -2009,14 +2009,58 @@ def rest_run(repo: str, run: int, github, seen: dict | None = None) -> dict:
     sha = found.get("head_sha") if isinstance(found, dict) else None
     if not isinstance(found, dict) or "workflow_id" in found or not re.fullmatch(r"[0-9a-f]{40}", str(sha or "")):
         return found
-    seen = {} if seen is None else seen
+    full = head_runs(repo, sha, github, {} if seen is None else seen).get(run)
+    return full if isinstance(full, dict) and isinstance(full.get("workflow_id"), int) else found
+
+
+def head_runs(repo: str, sha: str, github, seen: dict) -> dict:
+    """Every workflow run at SHA by id: `actions/runs?head_sha=SHA`, one paginated read per head kept in SEEN, shared
+    by every run and check one judge call asks about (rest_run, superseding_run)."""
     key = ("runs-at", sha)
     if key not in seen:
         listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", paginate=True)
         seen[key] = {listed_run.get("id"): listed_run for page in listed
                      for listed_run in page.get("workflow_runs") or [] if isinstance(listed_run, dict)}
-    full = seen[key].get(run)
-    return full if isinstance(full, dict) and isinstance(full.get("workflow_id"), int) else found
+    return seen[key]
+
+
+# A cancelled run with a later green run of its workflow file (dep-fleet-6, 2026-11-11). cmux#40850 at 4dd65e96:
+# backend-migrations runs 42921917680 and 42921920329 were cancelled with no job, so they read "no failed job found on
+# the head to compare with the base", while run 42921946667 of the same workflow passed at that head. A cancelled run
+# counts as superseded, not red, only when all of these hold: a later run of the same workflow file (its path, never
+# the display name two workflows can share), at the same head SHA, from the same event (for workflow_dispatch, the same
+# inputs: a run record that does not carry them has unknown inputs, never the same), was created after it and concluded
+# success (not skipped, neutral or cancelled). Anything less stays red. A failed job in a superseded run is still a
+# verdict and is judged as before (head_jobs).
+def superseding_run(repo: str, sha: str, run: int, github, seen: dict) -> dict | None:
+    """The later green run at SHA that supersedes cancelled RUN by the rule above; None when RUN is not a cancelled run
+    the head's run list names, or no later run meets every part of it."""
+    runs = head_runs(repo, sha, github, seen)
+    mine = runs.get(run)
+    if (not isinstance(mine, dict) or mine.get("status") != "completed" or mine.get("conclusion") != "cancelled"
+            or mine.get("head_sha") != sha or not isinstance(mine.get("path"), str) or not mine["path"]
+            or created(mine) is None):
+        return None
+    for other in sorted(runs.values(), key=lambda found: int(found.get("id") or 0)):  # the oldest qualifying first
+        if (other is mine or other.get("id") == run or other.get("head_sha") != sha
+                or other.get("path") != mine["path"] or other.get("event") != mine.get("event")
+                or other.get("status") != "completed" or other.get("conclusion") != "success"):
+            continue
+        if (isinstance(mine.get("workflow_id"), int) and isinstance(other.get("workflow_id"), int)
+                and other["workflow_id"] != mine["workflow_id"]):
+            continue
+        if mine.get("event") == "workflow_dispatch" and (
+                not isinstance(mine.get("inputs"), dict) or other.get("inputs") != mine["inputs"]):
+            continue
+        if (later := created(other)) is None or later <= created(mine):
+            continue
+        return other
+    return None
+
+
+def superseded_name(seen: dict, sha: str, run: int) -> str:
+    """The name of cancelled RUN as the head's run list gives it (its workflow's display name)."""
+    return str((seen.get(("runs-at", sha)) or {}).get(run, {}).get("name") or run)
 
 
 def run_workflow(repo: str, run: int, github, seen: dict):
@@ -2072,7 +2116,24 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         guards = []
         run_rollups = []
         children = []
-        for job in last_real_jobs(repo, run, github):
+        # The run-level pass: a cancelled run a later green run of its workflow file superseded (superseding_run).
+        # Asked only when the run shows no job or a job with no verdict, so a run of failures reads no run list.
+        run_jobs = last_real_jobs(repo, run, github)
+        superseded = (superseding_run(repo, sha, run, github, seen)
+                      if not run_jobs or any(job.get("conclusion") not in (*GREEN, "failure") for job in run_jobs)
+                      else None)
+        if superseded is not None:
+            if ignored is not None:
+                why = (f"is superseded by run {superseded['id']} of the same workflow file ({superseded['path']}), "
+                       f"{superseded.get('event')}, created later and success on {sha}; the newest completed run is "
+                       "the verdict")
+                ignored.append(f"ignored '{superseded_name(seen, sha, run)}': its cancelled run {run} {why}")
+                ignored.extend(f"ignored '{job.get('name', '')}': its {job.get('conclusion')} job {job.get('id')} in "
+                               f"run {run} {why}" for job in run_jobs if job.get("conclusion") in SUPERSEDABLE)
+            # Only its cancelled (or stale) jobs are passed over: a failure or a time-out is a verdict whatever a later
+            # run says, and is judged below as before.
+            run_jobs = [job for job in run_jobs if job.get("conclusion") not in SUPERSEDABLE]
+        for job in run_jobs:
             if (job.get("status") == "completed" and job.get("conclusion") in SUPERSEDABLE
                     and (newer := superseding_check(repo, sha, job, github, seen)) is not None):
                 name = job.get("name", "")
