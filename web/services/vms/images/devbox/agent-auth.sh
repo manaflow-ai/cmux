@@ -362,7 +362,10 @@ cmux_claude_apply_auth_mode() {
       fi
     elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] && ! cmux_claude_settings_has pair; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
-      ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
+      # An unset or empty team key is the placeholder, as acpmux sends it
+      # (codex_cloud_auth.rs): an empty one would let a personal apiKeyHelper
+      # answer the team endpoint.
+      ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY:-$cmux_aa_placeholder}
       export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
       cmux_claude_team_settings=1
     fi

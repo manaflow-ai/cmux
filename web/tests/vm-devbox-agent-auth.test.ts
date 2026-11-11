@@ -276,7 +276,7 @@ describe("Claude Code sign-in precedence", () => {
     const m = machine();
     choose(m, "team");
     mkdirSync(path.join(m.home, ".claude"), { recursive: true });
-    writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: "personal-user", ANTHROPIC_BASE_URL: "https://own.example.test" } }));
+    writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ apiKeyHelper: "/bin/personal-key", env: { ANTHROPIC_AUTH_TOKEN: "personal-user", ANTHROPIC_BASE_URL: "https://own.example.test" } }));
     const { env, status } = await launchWith(
       m,
       `--settings '{"model":"opus","env":{"ANTHROPIC_CUSTOM_HEADERS":"x-personal: 1","CLAUDE_CODE_OAUTH_TOKEN":"personal-flag"}}' --resume x`,
@@ -291,6 +291,18 @@ describe("Claude Code sign-in precedence", () => {
     expect(settings.env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1\nx-cmux-surface-id: sf-1");
     for (const name of PERSONAL_CLEARS) expect(settings.env[name]).toBe("");
+    // No personal credential helper answers the team endpoint.
+    for (const helper of ["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"]) expect(settings[helper]).toBe("");
+  });
+
+  test("team mode with no team key sends the placeholder, never an empty key", async () => {
+    const m = machine();
+    choose(m, "team");
+    // The model plane named an endpoint but no key: agent-config.sh sets an empty team key aside.
+    const env = await launch(m, "claude", { ANTHROPIC_API_KEY: "" });
+    expect(env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    expect(env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
   });
 
   test("team mode refuses a --settings it cannot read rather than guess", async () => {

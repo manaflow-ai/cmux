@@ -343,8 +343,10 @@ impl Hub {
         // that does not resolve keeps own), over the vault's and `machine.env`'s values
         // (`login_env::effective_for`), and its project settings.
         // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
+        // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
         let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY)
+            && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
             && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
         let resolved = match claude_on_cloud.then(|| crate::agent::resolved_profile_env(&p)) {
             Some(Ok(env)) => Some(env),

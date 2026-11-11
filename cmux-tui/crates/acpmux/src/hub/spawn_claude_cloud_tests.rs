@@ -65,6 +65,29 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         got.env.get("ANTHROPIC_API_KEY").map(String::as_str),
         Some(crate::codex_cloud_auth::PLACEHOLDER_KEY)
     );
+    assert!(got.argv.iter().any(|a| a == "--settings"));
+    // A launcher that picks Claude's provider itself keeps it, with no sign-in either: `claude-sr`
+    // (`sr claude proxy`) and `claude-cr` (`cr <route>`, `config/discover.rs`) carry no bound
+    // route, and team mode's --settings env would outrank the provider they export.
+    for argv in [
+        vec!["/usr/local/bin/sr", "claude", "proxy"],
+        vec!["/usr/local/bin/cr", "fast"],
+        vec!["/usr/local/bin/coderouter", "fast"],
+    ] {
+        let mut launcher = profile(&[]);
+        launcher.argv = argv.iter().map(|s| (*s).to_owned()).collect();
+        assert_eq!(crate::config::derive_family(&meta.harness, &launcher), "claude");
+        let got = hub.spawn_profile_for(&meta, &launcher, &none).await.unwrap();
+        assert_eq!(got.env.get("ANTHROPIC_BASE_URL"), None, "{argv:?} got the team plane");
+        assert_eq!(got.env.get("ANTHROPIC_API_KEY"), None, "{argv:?} got the team key");
+        assert!(!got.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER), "{argv:?}");
+        assert_eq!(got.argv, launcher.argv, "{argv:?} got a team --settings");
+    }
+    // Claude itself by its full path still takes team mode.
+    let mut by_path = profile(&[]);
+    by_path.argv = vec!["/usr/local/bin/claude".to_owned()];
+    let got = hub.spawn_profile_for(&meta, &by_path, &none).await.unwrap();
+    assert_eq!(got.env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("https://localhost"));
     // A token of its own keeps own.
     let got = hub
         .spawn_profile_for(&meta, &profile(&[("CLAUDE_CODE_OAUTH_TOKEN", "t")]), &none)

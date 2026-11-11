@@ -136,6 +136,16 @@ pub(crate) fn marked_pair(env: &BTreeMap<String, String>) -> Option<[(String, St
     Some([get("ANTHROPIC_BASE_URL")?, get("ANTHROPIC_API_KEY")?])
 }
 
+/// Whether `argv` starts Claude Code itself, not a launcher that picks Claude's provider on its
+/// own (`claude-sr`'s `sr claude proxy`, `claude-cr`'s `cr <route>`, any wrapper of that kind).
+/// Team mode is only for the former: its `--settings` env outranks the env such a launcher
+/// exports, so it would send a route the person chose to the team's model plane.
+pub(crate) fn launches_claude_itself(argv: &[String]) -> bool {
+    argv.first()
+        .and_then(|program| Path::new(program).file_name())
+        .is_some_and(|name| name == "claude")
+}
+
 /// The settings keys that run a credential helper (`claude_auth.rs` counts the same).
 const HELPERS: [&str; 3] = ["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"];
 
@@ -204,6 +214,11 @@ pub(crate) fn team_settings(
         for (k, v) in pair {
             env.insert(k.clone(), Value::String(v.clone()));
         }
+    }
+    // No personal credential helper answers the team endpoint, whatever a settings file names;
+    // the pair's key alone does not guarantee that.
+    for helper in HELPERS {
+        settings.insert(helper.to_owned(), Value::String(String::new()));
     }
     Value::Object(settings).to_string()
 }
@@ -398,6 +413,9 @@ mod tests {
             assert_eq!(settings["env"][*key], "");
         }
         assert_eq!(settings["env"][HEADERS], "x-cmux-workspace-id: ws-1");
+        for helper in HELPERS {
+            assert_eq!(settings[helper], "");
+        }
         // A remote chain keeps its argv; its own settings take the pair (remote_sandbox.rs).
         let mut env = BTreeMap::new();
         let mut argv = vec!["claude".to_owned()];
@@ -407,6 +425,17 @@ mod tests {
         // No usage header: the name goes on the unset list.
         assert!(!env.contains_key(HEADERS));
         assert!(env[crate::routes::UNSET_KEY].split(',').any(|k| k == HEADERS));
+    }
+
+    #[test]
+    fn only_claude_itself_is_a_launch_team_mode_takes() {
+        let argv = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(launches_claude_itself(&argv(&["claude"])));
+        assert!(launches_claude_itself(&argv(&["/usr/local/bin/claude", "--verbose"])));
+        assert!(!launches_claude_itself(&argv(&["/usr/local/bin/sr", "claude", "proxy"])));
+        assert!(!launches_claude_itself(&argv(&["cr", "fast"])));
+        assert!(!launches_claude_itself(&argv(&["coderouter", "fast"])));
+        assert!(!launches_claude_itself(&[]));
     }
 
     #[test]

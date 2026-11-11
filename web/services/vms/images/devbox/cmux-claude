@@ -67,6 +67,9 @@ if last is not None:
 env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
 for k in clears:
     env[k] = ""
+# No personal credential helper answers in team mode either.
+for k in ("apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"):
+    settings[k] = ""
 for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"):
     env[k] = os.environ.get(k, "")
 # Only the usage attribution headers (x-cmux-*): any other is the user own.
