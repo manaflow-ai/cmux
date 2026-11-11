@@ -68,13 +68,10 @@ class SharedTempAttack(unittest.TestCase):
         return subprocess.run(["bash", "-c", script, "_", str(LIB)], env=env or self.env, cwd=self.root,
                               capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
-    def assert_private(self, config: str):
-        folder = Path(config).parent
+    def assert_private(self, config: str, recorded: str):
+        """recorded: the folder's `kind uid mode` as the process saw it while it ran (it is gone after exit)."""
         self.assertNotEqual(Path(config), self.predictable)
-        info = os.lstat(folder)
-        self.assertTrue(stat.S_ISDIR(info.st_mode), config)
-        self.assertEqual(info.st_uid, os.getuid(), config)
-        self.assertEqual(stat.S_IMODE(info.st_mode), 0o700, config)
+        self.assertEqual(recorded.split(), ["dir", str(os.getuid()), "700"], f"{config}: {recorded}")
 
     def test_shell_ignores_a_planted_then_swapped_shared_config(self):
         self.predictable.write_text(self.evil)
@@ -82,6 +79,9 @@ class SharedTempAttack(unittest.TestCase):
         done = self.bash(
             'source "$1" || exit 9\n'
             'printf "%s\\n" "$GIT_CONFIG_GLOBAL" > global-path\n'
+            # Ownership and mode of the folder while the shell runs (Linux stat, else BSD stat).
+            'd=$(dirname "$GIT_CONFIG_GLOBAL"); [[ -d "$d" && ! -L "$d" ]] && k=dir || k=other\n'
+            '{ echo "$k $(stat -c "%u %a" "$d" 2>/dev/null || stat -f "%u %Lp" "$d")"; } > global-stat\n'
             # The other user rewrites the shared file after the test sourced the helper (Codex's repro).
             'printf "%s" "$EVIL" > "$PREDICTABLE" 2>/dev/null || true\n'
             'git_fixture_init -b main repo && cd repo && git commit -q --allow-empty -m x\n')
@@ -89,7 +89,7 @@ class SharedTempAttack(unittest.TestCase):
         config = (self.root / "global-path").read_text().strip()
         print(f"shell GIT_CONFIG_GLOBAL={config}; hook ran={self.marker.exists()}")
         self.assertFalse(self.marker.exists(), "a hook planted through the shared temp folder ran")
-        self.assert_private(config)
+        self.assert_private(config, (self.root / "global-stat").read_text())
         self.assertFalse(Path(config).parent.exists(), "the private folder outlived the shell")
 
     def test_shell_keeps_an_earlier_exit_trap(self):
@@ -140,12 +140,25 @@ class SharedTempAttack(unittest.TestCase):
                     self.assertNotEqual(Path(config).parent, folder)
                     self.assertNotEqual(Path(config).parent.resolve(), private)
 
-    def test_python_reuses_its_own_private_dir_and_removes_a_fresh_one(self):
-        own = Path(tempfile.mkdtemp(dir=self.root))
-        loaded, _ = self.python_victim(dict(self.env, CMUX_GIT_FIXTURE_GLOBAL_DIR=str(own)), repo=False)
-        self.assertEqual(Path(loaded).parent, own)
-        loaded, _ = self.python_victim(self.env, repo=False)
-        self.assertFalse(Path(loaded).parent.exists(), "the helper's private folder outlived the process")
+    def test_python_child_reuses_the_parents_private_dir_which_is_removed_at_exit(self):
+        child = ("import importlib.util, os, sys\n"
+                 "spec = importlib.util.spec_from_file_location('git_fixture_env', sys.argv[1])\n"
+                 "module = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\n"
+                 "print(os.path.dirname(module.GLOBAL_CONFIG))\n")
+        parent = ("import importlib.util, os, stat, subprocess, sys\n"
+                  "spec = importlib.util.spec_from_file_location('git_fixture_env', sys.argv[1])\n"
+                  "module = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\n"
+                  "folder = os.path.dirname(module.GLOBAL_CONFIG)\ninfo = os.lstat(folder)\n"
+                  "print(folder)\nprint(stat.S_ISDIR(info.st_mode), info.st_uid == os.getuid(), oct(stat.S_IMODE(info.st_mode)))\n"
+                  "print(subprocess.run([sys.executable, '-I', '-c', sys.argv[2], sys.argv[1]], capture_output=True,"
+                  " text=True, check=True).stdout.strip())\n")
+        done = subprocess.run([sys.executable, "-I", "-c", parent, str(HELPER), child], env=self.env, cwd=self.root,
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        folder, info, child_folder = done.stdout.splitlines()
+        self.assertEqual(info, "True True 0o700", folder)
+        self.assertEqual(child_folder, folder, "a child did not reuse its parent's private folder")
+        self.assertFalse(Path(folder).exists(), "the helper's private folder outlived the process")
 
     def test_python_keeps_an_explicitly_empty_global_config(self):
         loaded, fixture = self.python_victim(dict(self.env, GIT_CONFIG_GLOBAL=""), repo=False)
