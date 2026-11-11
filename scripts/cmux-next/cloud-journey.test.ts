@@ -1591,6 +1591,64 @@ except probe.OutOfTime as cut:
     }
   });
 
+  test("a key that spells a stand-in word by chance is a key; only real stand-ins and AWS's own examples are not", () => {
+    // Random keys: a stand-in word inside a run of letters and digits, and EXAMPLE inside a Google key's shape.
+    const mistral = "Qd7Kx2TestMn4Lw9Vb3Rz8Hj1Fc6Gs5Yp";
+    const google = `AIza${"Sy9Kq3EXAMPLEw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0".slice(0, 35)}`;
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.env": `MISTRAL_API_KEY=${mistral}\n`,
+      "workspace/project/b.json": `{"k": "${google}"}\n`,
+      // Stand-ins: a word at the value's start or after a separator, and the exact values AWS documents.
+      "workspace/project/c.env": [
+        "MISTRAL_API_KEY=your-mistral-api-key-here",
+        "GROQ_API_KEY=sk-test-0123456789abcdef0123",
+        "XAI_API_KEY=placeholder_9f8e7d6c5b4a3210",
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "id AKIAIOSFODNN7EXAMPLE",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [mistral, google]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].json:1: a Google AI key",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a huge login file is read only in part, and still names its kind", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/.codex/auth.json": "{}",
+    });
+    // 1 GiB, sparse: reading it whole would take a gigabyte of memory.
+    spawnSync("truncate", ["-s", "1G", join(root, "home/cmux/.codex/auth.json")]);
+    try {
+      const r = spawnSync(
+        "bash",
+        ["-c", `ulimit -v 524288; ${keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20", "--as-root"])}`],
+        { encoding: "utf8" },
+      );
+      expect(r.status).toBe(0);
+      const probe = parseKeyProbe(r.stdout);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`)).toEqual([
+        "file /home/cmux/.codex/auth.json: a Codex login file",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("the budget holds across many hits in one file, each with a value left open", () => {
     const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
     const dir = mkdtempSync(join(tmpdir(), "key-probe-hits-"));

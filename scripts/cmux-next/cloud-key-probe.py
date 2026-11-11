@@ -122,7 +122,12 @@ ASSIGNS = (ASSIGN, CALL_ASSIGN, WORD_ASSIGN)
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
 SECRET_LITERAL = re.compile(r"^(?=[^/]*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-.+/=:]{16,}$")
 SECRET_TOKEN = re.compile(r"^[A-Za-z0-9_\-.+/=:]{16,}$")
-STAND_IN = re.compile(r"placeholder|example|dummy|fake|test|stub|changeme|your|xxxx|\.\.\.|environ|process\.env|getenv", re.I)
+# A stand-in word counts only where a word starts (the value's start, or after a separator: `your-key`, `sk-test-1`),
+# never inside a run of letters and digits: a random key can hold `Test` by chance, and that key is still a key.
+STAND_IN = re.compile(
+    r"(?<![A-Za-z0-9])(?:placeholder|example|dummy|fake|test|stub|changeme|your|xxxx)|\.\.\.|environ|process\.env|getenv",
+    re.I,
+)
 
 # Files that are a provider login by where they are, whatever is in them.
 LOGIN_FILES = {
@@ -153,8 +158,9 @@ def is_shipped(where, path):
             return f.read(4) == b"\x7fELF"
     except OSError:
         return False
-# The stand-in AWS documents its examples with (AKIAIOSFODNN7EXAMPLE); a real id is random and never spells it.
-PUBLIC_VALUE = re.compile(r"EXAMPLE")
+# The stand-ins AWS documents its examples with: only these exact values, so a real key that spells EXAMPLE by chance
+# is still a key.
+PUBLIC_VALUES = frozenset({"AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
 
 FILE_ROOTS = ["home", "root", "etc", "opt", "srv", "tmp", "var/tmp", "run/user", "workspace"]
 # The walk skips only pseudo file systems, by their mount points (a folder named `dev` in a project is walked), and
@@ -359,7 +365,7 @@ def shape_kinds(text):
             if not any(a in reading for a in ANCHORS[kind]):
                 continue
             for m in pattern.finditer(reading):
-                if PUBLIC_VALUE.search(m.group(0)):
+                if m.group(0) in PUBLIC_VALUES:
                     continue
                 kinds.add(kind)
                 found(m.group(1) if pattern.groups else m.group(0))
@@ -447,7 +453,7 @@ def literal_secret(value):
     """Whether a value written after a key's name in a file looks like the key itself: a token with a letter and a
     digit, or one without digits whose characters are as varied as a random key's (an identifier such as
     `requiredStringValueHere` is not, at under 4 bits a character)."""
-    if STAND_IN.search(value):
+    if value in PUBLIC_VALUES or STAND_IN.search(value):
         return False
     if SECRET_LITERAL.match(value):
         return True
@@ -509,7 +515,7 @@ def context_kinds(text, line_end):
         end = ends[min(i, len(ends) - 1)]
         if '"refresh_token"' in reading:
             for m in REFRESH.finditer(reading):
-                if m.start() < end and not PUBLIC_VALUE.search(m.group(0)):
+                if m.start() < end and m.group(0) not in PUBLIC_VALUES:
                     found(m.group(1))
                     seen.add("an OAuth refresh token")
         if not NAME_ENDING.search(reading):
@@ -529,6 +535,9 @@ LOGIN_FIELD = re.compile(r"token|key|secret|password|credential", re.I)
 LOGIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[=:]\s*(\S+)\s*$", re.M)
 
 
+# How much of a login file is read for its fields (a real one is a few KiB), so a huge or sparse one cannot take the
+# probe's memory or its budget.
+LOGIN_READ = 16 << 20
 LOGIN_QUOTED = re.compile(r'"([^"\\]{1,128})"\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 
@@ -538,14 +547,19 @@ def login_values(path):
     reports them. Places print only safe names (safe_place), so this is the second guard, not the only one."""
     try:
         with open(path, "rb") as f:
-            raw = f.read()
+            raw = f.read(LOGIN_READ + 1)
     except OSError:
         return
+    # A login file past LOGIN_READ is not a real one: its first LOGIN_READ bytes are read for fields, never parsed whole.
+    whole = len(raw) <= LOGIN_READ
+    raw = raw[:LOGIN_READ]
     text = raw.decode("utf-8", "replace")
     for pattern in (LOGIN_LINE, LOGIN_QUOTED):
         for m in pattern.finditer(text):
             if LOGIN_FIELD.search(m.group(1)):
                 found(m.group(2))
+    if not whole:
+        return
     try:
         data = json.loads(raw)
     except ValueError:
