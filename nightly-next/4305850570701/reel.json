@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4305850570701",
+  "notes": "notes/4305850570701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41291,
+      "title": "Pane resize: the Home shown inside a key resize stays out of the tab row until the landing",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41380,
+      "title": "cmux-tui: the output store's writer thread gets its own module (follow-up of #40819)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41369,
+      "title": "ci(cmux-next): the Swift shard planner reads no test from a comment line",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41186,
+      "title": "A split the daemon has not confirmed says that it starts, and offers Close",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41179,
+      "title": "Nightly launch gate: also launch from a seeded home (imported-cookie sync on)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40869,
+      "title": "cmux-tui tests: the docs of the two load-proof daemon tests say their limits (follow-up of #40830)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40226,
+      "title": "Cloud start-session: the workspace anchor and the folder copy run beside the login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41368,
+      "title": "test(next): the Cmd-W take-back tests check what the person has, not the pane object",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41299,
+      "title": "acpmux tests: slow_notice starts acpmux through the hermetic helper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41287,
+      "title": "BASE RED: SDK IR has create-workspace first_tab (after b9783320dc5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41354,
+      "title": "acpmux: make the transfer sweep pause hook per test thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41349,
+      "title": "gallery health: fix two base-red states, time the entry-choosing step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41286,
+      "title": "ci: no build fetches a Zig package from a third-party host (codeberg outage base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41340,
+      "title": "acpmux: the lost-home forced test reaches its race, and a save checked before a home replace never writes into it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41250,
+      "title": "acpmux: journal a metadata change as the fields it changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41329,
+      "title": "base_red_excuse: a test failing twice is two failures; a passing step's bun markers are never the red's (#41222, #41244 reviews)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41350,
+      "title": "acpmux: make the folder-instructions swap hook per test thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41203,
+      "title": "fix(model menu): names wrap when the menu is narrower than them (#40259 + 3 gallery baseline keys)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41344,
+      "title": "ci(cmux-next): a push's job replaced while waiting by a newer push is no red in its summary gates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41316,
+      "title": "cmux-next crash-class: probe the Chief launcher's super calls (base red since cf99a387e99)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41342,
+      "title": "test_base_red_excuse: the declared-reads test serves the whole tracked tree, sparse checkouts included",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
