@@ -6,7 +6,7 @@
 // withoutQuietThoughts each read every row of a 35,000-row chat per tool call). Counts, not ms.
 import { expect, test } from "bun:test";
 import { mergeInboxNotices } from "../src/agent-session/acpmux/conversation/inboxNotice";
-import { prefixWalks } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
+import { PrefixFlatCache, prefixWalks } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
 import { startedNames, type StartedNames } from "../src/agent-session/acpmux/conversation/startedNames";
 import { withoutQuietThoughts } from "../src/agent-session/acpmux/conversation/thoughts";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
@@ -62,4 +62,20 @@ test("a tool call's start and end walk no more rows in a long chat than in a sho
   // rows a call at 20,000 rows).
   expect(long).toBeLessThanOrEqual(short + 4);
   expect(long).toBeLessThan(100);
+});
+
+test("a view's next snapshot walks its own last pass, not every view's pass the cache holds", () => {
+  const cache = new PrefixFlatCache<AcpmuxRow, AcpmuxRow>((row) => [row]);
+  const rows = Array.from({ length: 10_000 }, (_, index) => reply(index));
+  // Another view of the same chat, shorter (a child chat's or a scope's rows), read after it: the
+  // newest pass the cache holds.
+  cache.read(rows);
+  const other = [...rows.slice(0, 9_000), reply(-1)];
+  cache.read(other);
+  // This view's next snapshot, which no maker named: one walk finds all but its last row kept, and
+  // no other pass could save more than reading that row costs.
+  const next = [...rows, reply(10_000)];
+  const before = prefixWalks.rows;
+  expect(cache.read(next).items).toEqual(next);
+  expect(prefixWalks.rows - before).toBeLessThanOrEqual(rows.length);
 });

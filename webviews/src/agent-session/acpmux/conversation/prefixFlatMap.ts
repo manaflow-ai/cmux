@@ -90,6 +90,9 @@ export function prefixFlatMap<R, T>(
   return { rows, items, from };
 }
 
+/// About how many steps of a walk (one identity compare each) one row's read costs.
+const WALK_PER_READ = 64;
+
 /// The last few passes of one `each`, for a function several views call with their own rows (the
 /// pane's and Session Info's): each call starts from the pass that kept the most of its rows.
 export class PrefixFlatCache<R, T> {
@@ -112,23 +115,28 @@ export class PrefixFlatCache<R, T> {
     // last snapshot. It starts from that pass with no walk against the other views' passes, each of
     // which was a walk over the chat.
     const said = told.get(rows);
-    for (const ref of this.refs) {
-      const read = ref.deref();
-      const pass = read && this.passes.get(read);
-      if (pass && said && serials.get(read) === said.from) best = { ref, pass };
-    }
+    const held: { ref: WeakRef<readonly R[]>; pass: PrefixFlat<R, T>; bound: number }[] = [];
     for (const ref of this.refs) {
       const read = ref.deref();
       const pass = read && this.passes.get(read);
       if (!pass) continue;
       live.push(ref);
-      if (best && said) continue;
-      const count = keptPrefix(pass.rows, rows);
-      if (count > bestKept) {
-        best = { ref, pass };
-        bestKept = count;
-      }
+      held.push({ ref, pass, bound: Math.min(rows.length, pass.rows.length) });
+      if (said && serials.get(read) === said.from) best = { ref, pass };
     }
+    // No pass can keep more than both arrays hold, so the longest go first: this view's last pass,
+    // which kept all but the rows the update changed. Once the best leaves few rows to gain against
+    // a walk (a row's read costs about WALK_PER_READ steps of one), reading them again costs less
+    // than walking the chat against another view's pass.
+    if (!best)
+      for (const { ref, pass, bound } of held.sort((a, b) => b.bound - a.bound)) {
+        if (best && (bound - bestKept) * WALK_PER_READ <= bound) break;
+        const count = keptPrefix(pass.rows, rows);
+        if (count > bestKept) {
+          best = { ref, pass };
+          bestKept = count;
+        }
+      }
     const next = prefixFlatMap(rows, this.each, best?.pass);
     this.passes.set(rows, next);
     // A pass at least as long as the one it started from takes its place (the same view's next
