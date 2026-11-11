@@ -1803,6 +1803,24 @@ class CarriedPlacement(unittest.TestCase):
                         if runner_env is not None:
                             self.assertEqual(evaluate(runner_env, context), label)
 
+    def test_a_carried_fast_tier_hand_back_is_not_read_on_a_rerun(self):
+        # The hand-back placement may name the owned side label (side_lane_placement.handback()); a re-run of
+        # failed jobs carries it like macos-placement's reading, so the fast tier takes Blacksmith instead.
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("4", "cmux-bot[bot]")):
+            for placed in ("1", str(int(attempt) - 1), ""):
+                with self.subTest(attempt=attempt, actor=actor, placed=placed):
+                    context = self.context("pull_request", attempt, actor, placed)
+                    context["needs"]["fast-tier-fleet"] = {"result": "success", "outputs": {"verdict": "queued"}}
+                    context["needs"]["fast-tier-handback-placement"] = {"outputs": {
+                        "runner": SIDE, "placed_attempt": placed}}
+                    self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"))
+        # Read in this attempt (attempt 1, where the hand-back ran), it keeps its owned pick.
+        context = self.context("pull_request", "1", "teamleaderleo", "1")
+        context["needs"]["fast-tier-fleet"] = {"result": "success", "outputs": {"verdict": "queued"}}
+        context["needs"]["fast-tier-handback-placement"] = {"outputs": {"runner": SIDE, "placed_attempt": "1"}}
+        self.assertEqual(evaluate(runs_on, context), SIDE)
+
     def test_attempt_1_and_a_placed_rerun_keep_the_owned_label_the_placement_read(self):
         for name in ("cmux-scheme-compile", "release-compile", "swift-canary"):
             runs_on = self.jobs[name]["runs-on"]
