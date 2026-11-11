@@ -17,7 +17,7 @@
 //!   [--output FILE] [--replace]`: a scheme from the image's colors, accent
 //!   and ANSI held to the theme contrast floors. With `--name` it is
 //!   installed; else the file is printed. PNG and binary PPM decode here;
-//!   other formats (JPEG, HEIC) go through `sips` on macOS.
+//!   convert other formats (JPEG, HEIC) first.
 //! - `formats`: the formats and their names.
 //!
 //! A file that does not parse exits 1 with `FILE:LINE: what is wrong`.
@@ -39,15 +39,13 @@ cmux theme: 16-color schemes in and out of cmux.
       theme as the Ghostty theme N (default: the scheme's name, else the file's)
   cmux theme export NAME [--format F] [--output FILE]   an installed theme as F (default base16)
   cmux theme convert FILE --to F [--from F] [--output FILE]
-  cmux theme from-image PATH [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
+  cmux theme from-image PATH (PNG or PPM) [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
       a scheme from an image's colors; accent and ANSI keep text readable. --name installs it
   cmux theme formats
 Formats: ghostty, base16, iterm2, windows-terminal.";
 
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
-/// The longest side the image is downsampled to before the median cut.
-const SAMPLE_SIDE: u32 = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Request {
@@ -346,8 +344,7 @@ fn run(global: &GlobalArgs, request: Request) -> i32 {
     }
 }
 
-/// The image's pixels: PNG and binary PPM here; anything else through
-/// `sips` (macOS) into a small PNG first.
+/// The image's pixels: PNG and binary PPM (other formats: convert first).
 fn decode_image(path: &Path) -> Result<(u32, u32, u8, Vec<u8>), String> {
     let shown = path.display();
     let size = std::fs::metadata(path).map_err(|e| format!("{shown}: {e}"))?.len();
@@ -362,8 +359,9 @@ fn decode_image(path: &Path) -> Result<(u32, u32, u8, Vec<u8>), String> {
     if bytes.starts_with(b"\x89PNG") {
         return decode_png(&bytes).map_err(|e| format!("{shown}: {e}"));
     }
-    let png = convert_with_sips(path).map_err(|e| format!("{shown}: {e}"))?;
-    decode_png(&png).map_err(|e| format!("{shown}: {e}"))
+    Err(format!(
+        "{shown}: only PNG and binary PPM are read; convert it first (e.g. `sips -s format png IMAGE --out out.png` or `magick IMAGE out.png`)"
+    ))
 }
 
 fn decode_png(bytes: &[u8]) -> Result<(u32, u32, u8, Vec<u8>), String> {
@@ -395,29 +393,6 @@ fn decode_png(bytes: &[u8]) -> Result<(u32, u32, u8, Vec<u8>), String> {
     };
     let out_channels = if channels == 2 || channels == 4 { 4 } else { 3 };
     Ok((frame.width, frame.height, out_channels, data))
-}
-
-/// `sips -s format png -Z 256 PATH --out TMP` (macOS's own image tool).
-fn convert_with_sips(path: &Path) -> Result<Vec<u8>, String> {
-    if !cfg!(target_os = "macos") {
-        return Err("only PNG and binary PPM are read here; convert it first (e.g. `magick IMAGE -resize 256x256 out.png`)".into());
-    }
-    let out = std::env::temp_dir().join(format!("cmux-theme-image-{}.png", std::process::id()));
-    let status = std::process::Command::new("/usr/bin/sips")
-        .args(["-s", "format", "png", "-Z", &SAMPLE_SIDE.to_string()])
-        .arg(path)
-        .arg("--out")
-        .arg(&out)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("sips: {e}"))?;
-    let bytes = std::fs::read(&out);
-    let _ = std::fs::remove_file(&out);
-    if !status.success() {
-        return Err("not an image sips can read".into());
-    }
-    bytes.map_err(|e| format!("sips output: {e}"))
 }
 
 #[cfg(test)]
