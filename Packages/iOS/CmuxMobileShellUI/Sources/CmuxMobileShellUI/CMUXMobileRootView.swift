@@ -1116,8 +1116,8 @@ struct CMUXMobileRootView: View {
     }
 
     #if os(iOS) && DEBUG
-    private var previewDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
-        OnboardingDemonstrationAccountPolicy(
+    private var previewDemonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
             isDemonstrationAccount: UITestConfig.onboardingDemonstrationAccountEnabled
         )
     }
@@ -1158,8 +1158,8 @@ struct CMUXMobileRootView: View {
 
     /// The App Review demonstration account's Demo Mac stands in for a live
     /// Mac during onboarding, and its connect page offers no Tailscale choice.
-    private var onboardingDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
-        OnboardingDemonstrationAccountPolicy(
+    private var onboardingDemonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
             isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
         )
     }

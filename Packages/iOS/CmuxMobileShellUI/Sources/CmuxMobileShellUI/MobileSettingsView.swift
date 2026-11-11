@@ -723,7 +723,7 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry never writes first-run progress. The final scene reads
                 // live connection state and can reopen pairing from offline Settings.
-                let demonstrationPolicy = OnboardingDemonstrationAccountPolicy(
+                let demonstrationPolicy = MobileDemonstrationAccountPolicy(
                     isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
                 )
                 OnboardingFlowView(

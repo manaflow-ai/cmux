@@ -1,9 +1,11 @@
 #if os(iOS)
 import CmuxMobileShellModel
 
-/// Onboarding adjustments for the server-flagged demonstration account (the
-/// App Review account, `CMUXAuthUser.demonstrationContentEnabled`).
-struct OnboardingDemonstrationAccountPolicy: Equatable {
+/// App-wide adjustments for the server-flagged demonstration account (the App
+/// Review account, `CMUXAuthUser.demonstrationContentEnabled`). App Review has
+/// no Mac and no Tailscale network: its Demo Mac is the only Computer, so no
+/// pairing or connection-method path may be reachable for that account.
+struct MobileDemonstrationAccountPolicy: Equatable {
     let isDemonstrationAccount: Bool
 
     /// The Demo Mac is the demonstration account's Mac but never a live
@@ -20,6 +22,17 @@ struct OnboardingDemonstrationAccountPolicy: Equatable {
 
     func connectionMethod(_ storedMethod: MobileConnectionMethod) -> MobileConnectionMethod {
         isDemonstrationAccount ? .automatic : storedMethod
+    }
+
+    /// Whether Add Computer, the pairing scanner, and Tailscale setup appear.
+    var allowsPairing: Bool {
+        true
+    }
+
+    /// Whether a pairing presentation may open. Attach-ticket version approval
+    /// is not a pairing entry point and is never refused.
+    func allows(_ presentation: PairingPresentation) -> Bool {
+        true
     }
 }
 #endif
