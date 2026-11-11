@@ -78,6 +78,10 @@ const SCHEMA: &str = "acpmux.kind-index.v4";
 /// A scan that read this many bytes of a segment past its copy saves the copy again.
 pub(super) const COPY_AFTER: u64 = 1 << 20;
 
+/// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
+/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+const TAIL_SEEK_BYTES: u64 = 256 * 1024;
+
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -249,10 +253,17 @@ impl LocalStore {
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
-                // in the one being written) is read from the segment, then the copy. No seek for
-                // `before`: its probes read more of the segment than its copy holds.
+                // in the one being written) is read from the segment, then the copy. A long tail
+                // is first cut at `before`, as `scan_back` cuts the segment; a short one is read
+                // whole, which costs less than the seek's probes.
                 Some((lines, from, _)) => {
-                    for_each_line_rev_between(&mut file, from, u64::MAX, &mut line)?;
+                    let len = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+                    let end = if before != u64::MAX && len.saturating_sub(from) > TAIL_SEEK_BYTES {
+                        offset_of_seq(&mut file, before)?.max(from)
+                    } else {
+                        u64::MAX
+                    };
+                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
                     if !done.get() {
                         for copied in lines.split(|b| *b == b'\n').rev() {
                             if !copied.is_empty() && !line(copied) {
