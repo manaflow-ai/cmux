@@ -249,8 +249,7 @@ public final class PaneContentAreaView: NSView {
         superview?.needsLayout = true
     }
 
-    /// The pane's own ground as it shows now (FRAME OWNER S3c: read when the pane closes, and in each frame of a spring that
-    /// holds its content, SPLIT OPEN CHAT): the background of the
+    /// The pane's own ground as it shows now (FRAME OWNER S3c: read when the pane closes): the background of the
     /// topmost shown view that fills the area (a terminal's host paints the terminal's ground), else the area's own; nil
     /// when the pane shows the window's sheet (a see-through window).
     /// A view that reports its own ground (``PaneGroundReporting``: a browser's chrome, whose page paints over the chrome's
@@ -266,8 +265,7 @@ public final class PaneContentAreaView: NSView {
 
 /// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a
 /// browser's chrome paints the window's color under the page, and a closing page pane must show the page's own
-/// background, not the window's. Read when its pane closes and in each frame of a spring that holds its pane's content
-/// (SPLIT OPEN CHAT), on the main thread: O(1), no page script.
+/// background, not the window's. Read when its pane closes, on the main thread: O(1), no page script.
 @MainActor
 public protocol PaneGroundReporting: NSView {
     /// The ground its pane shows when it closes; nil: its layer's background, as any other view.
@@ -275,26 +273,10 @@ public protocol PaneGroundReporting: NSView {
 }
 
 public extension NSView {
-    /// The pane ground this pane content shows (FRAME OWNER S3c: read when its pane closes, and in each frame of a spring
-    /// that holds it): its content area's (``PaneContentAreaView/groundColor``), else its own background; nil for none
-    /// (a see-through window's sheet).
+    /// The pane ground this pane content shows (FRAME OWNER S3c: read when its pane closes): its content area's
+    /// (``PaneContentAreaView/groundColor``), else its own background; nil for none (a see-through window's sheet).
     var paneGroundColor: CGColor? {
         if let area = self as? PaneContentAreaView ?? subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first { return area.groundColor }
         return layer?.backgroundColor
-    }
-
-    /// How far from this pane content's top and leading edges its ground (``paneGroundColor``) starts: where its content
-    /// area is laid out now (below a tab strip at its top edge, after a vertical tab list), and below the rows of a tab
-    /// row that a view in the area shares with the pane's tabs (``tabRowCoverHeight``: the area then starts at the top,
-    /// under the row, and no ground goes behind or beside the tabs). Zeros for a chat with no strip: it paints from its
-    /// top edge, whatever header its pane reports for its ring. Nil: it has no content area of its own (it is one, or it
-    /// shows none). A row's tools that enter or leave the row move the area and the cover in one layout, by the same
-    /// height, so the top is the same before and after that layout.
-    /// Read in each frame of a spring that holds the content: O(the area's views), no layout.
-    var paneGroundInsets: (top: CGFloat, leading: CGFloat)? {
-        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return nil }
-        let top = isFlipped ? area.frame.minY - bounds.minY : bounds.maxY - area.frame.maxY
-        let row = area.subviews.reduce(0) { $1.isHidden ? $0 : max($0, $1.tabRowCoverHeight) }
-        return (top: max(0, top) + row, leading: max(0, area.frame.minX - bounds.minX))
     }
 }
