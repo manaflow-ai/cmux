@@ -3175,9 +3175,23 @@
             "null"
           ]
         },
+        "harness": {
+          "description": "With `live`: the harness the fork runs on, carrying the conversation over (a model switch).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "type": [
+            "string",
             "null"
           ]
         },
