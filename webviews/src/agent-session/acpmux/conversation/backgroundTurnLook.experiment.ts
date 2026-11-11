@@ -12,7 +12,7 @@ export const backgroundTurnLook = defineExperiment({
     inline: {
       label: "As tool calls",
       description:
-        "No \"Background update\", \"Scheduled check\" or \"N background updates\" line: the turn's tool calls draw where they ran, as any other call does. A quiet reply still draws nothing; a failure or a result keeps the line that names its task.",
+        'No "Background update", "Scheduled check" or "N background updates" line: the turn\'s tool calls draw where they ran, as any other call does. A quiet reply still draws nothing; a failure or a result keeps the line that names its task.',
     },
     line: {
       label: "One line (before)",

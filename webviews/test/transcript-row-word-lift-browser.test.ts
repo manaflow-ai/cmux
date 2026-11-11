@@ -21,10 +21,6 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/// The background turn's lines here are the line look's, which the default no longer draws
-/// (backgroundTurnLook.experiment.ts): the gallery entries that have it render that arm.
-const LINE_LOOK = { exp: "background-turn-look", arm: "line" };
-
 type Kind = {
   /** What the row is, in the report. */
   name: string;
@@ -175,7 +171,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     const page = await browser.newPage({ viewport: { width: 760, height: 2400 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { width: 760, ...LINE_LOOK })}`);
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(entry, { width: 760, exp: "background-turn-look", arm: "line" })}`,
+    );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });

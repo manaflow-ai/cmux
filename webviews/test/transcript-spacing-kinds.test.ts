@@ -31,10 +31,6 @@ import {
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/// The "Scheduled check" line is the line look's, which the default no longer draws
-/// (backgroundTurnLook.experiment.ts): the gallery entries that have it render that arm.
-const LINE_LOOK = { exp: "background-turn-look", arm: "line" };
-
 await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.transcript-spacing-table";
@@ -165,7 +161,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", ...LINE_LOOK })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,

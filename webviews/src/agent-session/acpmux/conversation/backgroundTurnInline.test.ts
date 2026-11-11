@@ -63,7 +63,7 @@ test("a background turn with something to say draws as before", () => {
   expect(view).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
 });
 
-test("quiet background turns in a row draw no \"N background updates\" line", () => {
+test('quiet background turns in a row draw no "N background updates" line', () => {
   at = 0;
   const rows = [
     row("prompt", "user", { text: "Run the suite" }),

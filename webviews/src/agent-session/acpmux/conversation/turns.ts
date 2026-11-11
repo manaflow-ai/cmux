@@ -893,9 +893,7 @@ function shapedTurn(
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
-  const source = rows
-    .slice(start + 1, end)
-    .filter((row) => !hiddenInBackground(row, foldedBackground));
+  const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
   // The person's own prompt opened the turn after this one: a turn with no summary ended there
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
