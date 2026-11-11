@@ -1,7 +1,8 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
-/// `Menu`: a borderless pull-down, its `title` and a chevron, that opens its `menu` items (the same
+/// `Menu`: a borderless pull-down, its `title` and a chevron in the title's ink (as AppKit's pull-down draws it), that opens its `menu` items (the same
 /// entries as a context menu) under itself on a click; a pick sends `menu {path}`. Hover and press
 /// paint the shared chrome fill, as a `Button` does.
 final class AppSceneMenuNSView: AppSceneNodeNSView {
@@ -21,7 +22,8 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
         title.font = Typography.body
         title.maximumNumberOfLines = 1
         title.lineBreakMode = .byTruncatingTail
-        chevron.image = NSImage.icon(symbol: "chevron.down", size: Self.chevronSide)
+        // The solid (heavier) stroke: AppKit's pull-down chevron is bolder than the line glyph at this side.
+        chevron.image = NSImage.icon(symbol: "chevron.down", size: Self.chevronSide, style: .solid)
         addSubview(title)
         addSubview(chevron)
         setAccessibilityElement(true)
@@ -79,7 +81,7 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
 
     override func paint() {
         title.textColor = Palette.textPrimary
-        chevron.contentTintColor = Palette.textSecondary
+        chevron.contentTintColor = Palette.textPrimary
         ChromeHover.paint(fill, ChromeHover.fillColor(ChromeHover.State(hovering: isHovered && !node.flag("disabled"), pressed: false)),
                           animated: window != nil, pressed: false)
     }

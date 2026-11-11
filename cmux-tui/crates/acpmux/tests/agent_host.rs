@@ -408,6 +408,91 @@ async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A harness line that is not UTF-8 (a tool's binary output, a log line in another encoding),
+/// on stdout or stderr, never ends the host's reading of that pipe: the lines after it still
+/// arrive, the bad one with U+FFFD in place of its bytes, and the harness ends as it chose to,
+/// not on a closed pipe.
+#[tokio::test]
+async fn a_line_that_is_not_utf8_never_ends_the_harness_output() {
+    let dir = scratch("bytes");
+    let mut spec = spec(&dir, "s-bytes");
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        "import json,sys,time\n\
+         sys.stderr.buffer.write(b'warn \\xff\\xfe\\n'); sys.stderr.flush()\n\
+         sys.stdout.buffer.write(b'\\xffbinary\\n'); sys.stdout.flush()\n\
+         time.sleep(0.5)\n\
+         for i in range(3):\n    print(json.dumps({'jsonrpc':'2.0','method':'x/line','params':{'i':i}}), flush=True)\n\
+         sys.stderr.write('stderr still read\\n'); sys.stderr.flush()\n\
+         time.sleep(0.5)\n"
+            .into(),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (link, _) = connected(&record, 0).await;
+    let mut after = 0;
+    let seen = read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })).await;
+    let lines = seen
+        .iter()
+        .filter(
+            |(_, e)| matches!(e, Entry::In { msg } if msg.get("method") == Some(&json!("x/line"))),
+        )
+        .count();
+    let errs: Vec<&str> = seen
+        .iter()
+        .filter_map(|(_, e)| match e {
+            Entry::Err { line } => Some(line.as_str()),
+            _ => None,
+        })
+        .collect();
+    let exit = seen.iter().find_map(|(_, e)| match e {
+        Entry::Exit { code } => Some(*code),
+        _ => None,
+    });
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(lines, 3, "stdout after a line that is not UTF-8 was not read: {seen:?}");
+    assert!(errs.contains(&"warn \u{fffd}\u{fffd}"), "{errs:?}");
+    assert!(errs.contains(&"stderr still read"), "stderr after a bad line was not read: {errs:?}");
+    assert_eq!(exit, Some(Some(0)), "the harness did not end as it chose to: {seen:?}");
+}
+
+/// The cleanup of a dead host incarnation (`remove_artifacts`, at adoption for a record whose
+/// host is gone) never takes the files of a newer host of the same chat. Adoption reads the
+/// records at its start and comes to a stale one later; a prompt to that chat may have started a
+/// fresh host meanwhile, which wrote its own record and socket at the same paths. Removing them
+/// made the fresh host's record watch end it, harness and turn with it.
+#[tokio::test]
+async fn cleaning_up_a_dead_incarnation_spares_the_newer_host_of_its_chat() {
+    let dir = scratch("stale");
+    let launch = spec(&dir, "s-stale");
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let harness = record.harness_pid.expect("harness pid") as i32;
+    // The record of an older incarnation of the same chat, as adoption read it at its start.
+    let mut stale = record.clone();
+    stale.start_nonce = "an-older-incarnation".into();
+    stale.incarnation = "an-older-incarnation".into();
+    agent_host::remove_artifacts(&dir.join("hosts"), &stale);
+    let record_left = agent_host::record_path(&dir.join("hosts"), "s-stale").exists();
+    let socket_left = record.socket.exists();
+    // Longer than the record watch takes to end a host whose record went away.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    // SAFETY: signal 0 only asks whether the harness runs.
+    let harness_alive = unsafe { libc::kill(harness, 0) } == 0;
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    // SAFETY: the harness group this test's host started.
+    unsafe { libc::killpg(harness, libc::SIGKILL) };
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(record_left, "the newer host's record was removed");
+    assert!(socket_left, "the newer host's socket was removed");
+    assert!(harness_alive, "the newer host's harness was ended");
+}
+
 /// A host whose start fails (here the harness cannot be spawned) leaves no
 /// liveness lock file behind: a stale `.live` file would outlive the session.
 #[tokio::test]
