@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2059,6 +2060,53 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
         self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))
         self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
         with self.assertRaises(excuse.Refused):
+            self.judge()
+
+
+class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
+    """#40963 review F1 at 1f697b4c: a cancelled run whose jobs all passed, skipped or were neutral never asked
+    superseding_run, so it still read "no failed job found" though a later green run of its workflow file passed. Every
+    cancelled run with no failed or timed-out job is asked; a failure or a time-out is still a verdict."""
+
+    def setUp(self):
+        self.gh = SupersededRunGitHub()
+        self.gh.listed = [head_run(30, "cancelled", 1), head_run(31, "success", 5)]
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [30], self.gh)
+
+    def jobs(self, *conclusions):
+        self.gh.jobs = {job_id: dict(failed_job(job_id, 30, HEAD, name=f"job {job_id}"), conclusion=conclusion)
+                        for job_id, conclusion in enumerate(conclusions, start=3)}
+
+    def test_an_all_success_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("success", "success")
+        lines = self.judge()
+        self.assertEqual(lines[0].split(":", 1)[0], "ignored 'backend-migrations'", lines)
+        self.assertIn("its cancelled run 30 is superseded by run 31", lines[0])
+
+    def test_an_all_skipped_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("skipped", "neutral")
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
+                        lines)
+
+    def test_a_passed_job_run_with_no_later_green_still_refuses(self):
+        self.jobs("success", "skipped")
+        del self.gh.listed[1:]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_failed_or_timed_out_job_in_a_superseded_run_is_still_judged(self):
+        self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))  # judged against the base, as before
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+        self.gh.jobs = {1: dict(failed_job(1, 30, HEAD), conclusion="timed_out"),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        with self.assertRaisesRegex(excuse.Refused, "timed_out"):
             self.judge()
 
 
@@ -6714,6 +6762,54 @@ class FailingStepLogOnly(unittest.TestCase):
                 github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+
+class IsolatedUnpackedRun(unittest.TestCase):
+    """merge_hold and the lane-gh broker's update_branch guard run this script as `python3 -I` from a `git archive` of
+    scripts/ci unpacked into a cache directory (leo-workspace tools/merge_hold.py classifier_script and
+    classifier_argv). -I leaves the script's own directory off sys.path, so every sibling module it reads must load by
+    file path or after its own SCRIPT_DIR insert (receipt_grammar). Pins that both halves load from such a copy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="base-red-isolated-")
+        cls.ci = Path(cls.tmp.name) / "scripts" / "ci"
+        shutil.copytree(ROOT / "scripts" / "ci", cls.ci, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        cls.env = {k: v for k, v in os.environ.items()
+                   if k not in ("BASE_RED_EXCUSE_FIXTURE_SHA", "PYTHONPATH", "PYTHONHOME")}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def run_isolated(self, *args):
+        return subprocess.run([sys.executable, "-I", *args], capture_output=True, text=True, timeout=120,
+                              cwd=self.tmp.name, env=self.env, stdin=subprocess.DEVNULL)
+
+    def test_the_ws_check_verdict_cli_runs_from_an_unpacked_copy_under_dash_i(self):
+        proc = self.run_isolated(str(self.ci / "base_red_excuse.py"), "--repo", "x/y", "--base", "main",
+                                 "--sha", "0" * 40, "--ws-check-verdict")
+        said = proc.stdout + proc.stderr
+        self.assertNotIn("ImportError", said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertNotIn("Traceback", said)
+        self.assertEqual(proc.returncode, 1, said)
+        self.assertIn(f"not excused: --sha {'0' * 40} is a placeholder, not a commit; nothing was read", proc.stderr)
+
+    def test_receipt_grammar_imports_risk_tier_from_the_copy_under_dash_i(self):
+        probe = ("import importlib.util, sys\n"
+                 "spec = importlib.util.spec_from_file_location('base_red_excuse', sys.argv[1])\n"
+                 "excuse = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(excuse)\n"
+                 "risk_tier = excuse.receipt_grammar()\n"
+                 "print(risk_tier.__file__)\n"
+                 "print(callable(risk_tier.signed_off))\n")
+        proc = self.run_isolated("-c", probe, str(self.ci / "base_red_excuse.py"))
+        said = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertEqual(proc.stdout.splitlines(), [str((self.ci / "risk_tier.py").resolve()), "True"])
 
 
 class LoadedModuleList(unittest.TestCase):
