@@ -709,9 +709,11 @@ _JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
 _JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
     {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
 )
-_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
-# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion).
-_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "yield"})
+# `break` and `continue` take only a label name, never a `{`: one after them starts the next statement, a block.
+_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"break", "continue", "do", "else", "finally", "try"})
+# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion). TypeScript's
+# parser reads `throw` the same way (it reports the line break, and parses no operand).
+_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "throw", "yield"})
 _JAVASCRIPT_LINE_TERMINATOR = re.compile("[\n\r\u2028\u2029]")
 # Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
 _JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
@@ -761,6 +763,23 @@ def _javascript_skip_blanks(source: str, index: int) -> int:
     return index
 
 
+def _javascript_skip_trivia(source: str, index: int) -> int:
+    """INDEX moved past blanks and comments (`/* */`, and `//` up to its line terminator), as a parser's lookahead
+    skips them: `<T /*doc*/ extends U>` and `(x: T) /*m*/ => x` read as if the comments were not there."""
+    while True:
+        index = _javascript_skip_blanks(source, index)
+        if source.startswith("/*", index):
+            close = source.find("*/", index + 2)
+            if close < 0:
+                return len(source)
+            index = close + 2
+        elif source.startswith("//", index):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(source, index + 2)
+            index = line_end.start() if line_end else len(source)
+        else:
+            return index
+
+
 _JAVASCRIPT_TYPE_LOOKAHEAD = 2000
 _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
@@ -775,6 +794,9 @@ def _javascript_balanced_end(source: str, index: int) -> int:
         character = source[position]
         if source.startswith("=>", position):
             position += 2  # a function type's arrow closes no `<`
+            continue
+        if source.startswith(("/*", "//"), position):
+            position = _javascript_skip_trivia(source, position)
             continue
         if character in "'\"`":
             close = source.find(character, position + 1, limit)
@@ -798,13 +820,13 @@ def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
     close = _javascript_balanced_end(source, index)
     if close < 0:
         return False
-    params = _javascript_skip_blanks(source, close)
+    params = _javascript_skip_trivia(source, close)
     if not source.startswith("(", params):
         return False
     params_end = _javascript_balanced_end(source, params)
     if params_end < 0:
         return False
-    after = _javascript_skip_blanks(source, params_end)
+    after = _javascript_skip_trivia(source, params_end)
     return source.startswith(("=>", ":"), after)
 
 
@@ -812,7 +834,8 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
     unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
     generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
-    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included)."""
+    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included), and
+    a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`)."""
     after = index + 1
     if after >= len(source):
         return False
@@ -823,13 +846,13 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     end = after + 1
     while end < len(source) and _javascript_identifier_character(source[end]):
         end += 1
-    end = _javascript_skip_blanks(source, end)
+    end = _javascript_skip_trivia(source, end)
     if source.startswith(("=", ","), end):
         return False
     if source.startswith("extends", end) and not (
         end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
     ):
-        rest = _javascript_skip_blanks(source, end + 7)
+        rest = _javascript_skip_trivia(source, end + 7)
         if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
             return True  # `extends="x"`: an attribute
         return not _javascript_angle_is_type_parameters(source, index)
@@ -840,7 +863,7 @@ def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple
     """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
     ("", END) when there is none."""
     previous = end - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     start = previous + 1
     while start > 0 and _javascript_identifier_character(source[start - 1]):
@@ -854,7 +877,7 @@ def _javascript_is_keyword_at(source: str, start: int, comments: bytearray) -> b
     if start > 0 and source[start - 1] == "#":
         return False
     before = start - 1
-    while before >= 0 and (source[before].isspace() or comments[before]):
+    while before >= 0 and (_javascript_is_blank(source[before]) or comments[before]):
         before -= 1
     return not (before >= 0 and source[before] == ".")
 
@@ -929,7 +952,7 @@ def _javascript_brace_closes_block(
     if open_brace < 0:
         return None
     previous = open_brace - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     if previous < 0:
         return True
@@ -955,8 +978,8 @@ def _javascript_brace_closes_block(
         if not _javascript_is_keyword_at(source, start, comments):
             return None
         if word in _JAVASCRIPT_ASI_KEYWORDS and _JAVASCRIPT_LINE_TERMINATOR.search(source, start + len(word), open_brace):
-            # `return` and `yield` take no line terminator before their operand: a semicolon is inserted, and the
-            # `{` on the next line opens a block (a terminator inside a comment between counts too).
+            # `return`, `yield` and `throw` take no line terminator before their operand: a semicolon is inserted,
+            # and the `{` on the next line opens a block (a terminator inside a comment between counts too).
             return True
         if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
             return False
@@ -984,7 +1007,7 @@ def _javascript_regex_literal_starts_at(
     """
     previous = index - 1
     while previous >= 0 and (
-        source[previous].isspace() or comments[previous]
+        _javascript_is_blank(source[previous]) or comments[previous]
     ):
         previous -= 1
     if previous < 0:
@@ -1022,15 +1045,20 @@ def _javascript_regex_literal_starts_at(
         and executable[previous - 1]
     ):
         return False
-    if character == "!" and previous > 0 and executable[previous - 1]:
-        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`): the expression
-        # is complete. After a keyword (`return!x`) it is the prefix not.
-        before = source[previous - 1]
-        if before in ")]":
-            return False
-        if _javascript_identifier_character(before):
-            word, start = _javascript_word_before(source, previous, comments)
-            return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
+    if character == "!":
+        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`), and so is each
+        # `!` of a run of them (`value!!`): the expression is complete. After a keyword (`return!x`) it is the prefix
+        # not.
+        bangs = previous
+        while bangs > 0 and source[bangs - 1] == "!" and executable[bangs - 1]:
+            bangs -= 1
+        if bangs > 0 and executable[bangs - 1]:
+            before = source[bangs - 1]
+            if before in ")]":
+                return False
+            if _javascript_identifier_character(before):
+                word, start = _javascript_word_before(source, bangs, comments)
+                return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
     return True
 
 
@@ -1164,8 +1192,22 @@ def _lexical_positions_and_unresolved(
             continue
 
         if kind == "jsx-tag":
-            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete).
-            if line.startswith("/>", index):
+            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete). A comment may sit
+            # between the name and attributes (`<a /*doc*/ b="1">`, `<a // c` and a new line), and any ECMAScript
+            # blank (U+FEFF too) separates them.
+            if line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts.append(("block-comment", 1, ""))
+                index += 2
+            elif line.startswith("//", index):
+                line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, index + 2)
+                comment_end = line_end.start() if line_end else length
+                comments[index:comment_end] = b"\x01" * (comment_end - index)
+                index = comment_end
+            elif _javascript_is_blank(character):
+                executable[index] = True
+                index += 1
+            elif line.startswith("/>", index):
                 contexts.pop()
                 index += 2
             elif character == ">":
