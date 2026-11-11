@@ -584,9 +584,11 @@ def main_arm(args, state, before, report):
     say("RMP-COUNTS", {"at": "built", **staged})
     # The generated History fold is behind the head (as on his Mac). The first start folds to
     # the head before it deletes a record, so the count to keep is the one at the head, read
-    # here: the registry still has every record and no pruned range.
-    if (staged["records"] == before["records"]
+    # here: the registry still has every record and no pruned range. (The count of records
+    # can be higher: each rename of the sampler adds journal records.)
+    if (staged["records"] >= before["records"]
             and staged["pruned_ranges"] == before["pruned_ranges"]
+            and staged["retention_floor"] == before["retention_floor"]
             and int(staged.get("history_cursor") or 0) > int(before.get("history_cursor") or 0)):
         say("RMP", {"arm": "history-base", "fold_behind_the_head": before["history_sessions"],
                     "fold_at_the_head_before_a_delete": staged["history_sessions"],
