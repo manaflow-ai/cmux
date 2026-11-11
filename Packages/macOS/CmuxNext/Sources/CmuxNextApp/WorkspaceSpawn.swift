@@ -56,6 +56,7 @@ struct WorkspaceSpawner {
         if let span = use?.span { BenchSpans.mark(span) }
         let key = spawn.key ?? use?.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         let (row, rule) = spawn.placement(setting: NewWorkspacePlacements.rule(for: windowID, in: windows), opening: key.rawValue, in: windowID, tells: windows.registry.closeSelection) // one read of the rows; the rule hears of a person's create before the window can show it
+        if let session = daemon.store.registryID, let room = services.machines.local.store.profile(spawn.profile ?? profile)?.id { services.machines.local.store.personal.expectPin(session: session, key: key.rawValue, room: room) } // its room's pin, expected at the press (sent before its create): it is in its room from its first frame (a new space's first workspace bounced the window back, Leo 2026-11-11)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         // Only a create with a row names itself here; another keeps the daemon's own numbering.

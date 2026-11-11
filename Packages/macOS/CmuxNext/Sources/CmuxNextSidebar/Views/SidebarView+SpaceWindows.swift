@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension SidebarView {
     /// The switcher's window marks (design/spaces.md "The switcher (PR 3)"): the App fills them and runs their actions.
@@ -6,7 +6,7 @@ extension SidebarView {
 
     /// The screen frame of the space dot named `name` in the spaces strip, when the strip draws it (`debug.mouse`'s
     /// `row`: a tour hovers or clicks a space's dot on any runner's window size).
-    public func spaceDotFrameOnScreen(named name: String) -> NSRect? {
+    public func spaceDotFrameOnScreen(named name: String) -> CGRect? {
         let bar = profileBar, rects = bar.slotRects()
         guard !bar.isHiddenOrHasHiddenAncestor, let window = bar.window, let index = bar.model.profiles.firstIndex(where: { $0.name == name }),
               rects.indices.contains(index), bar.dotIsDrawn(at: index) else { return nil }

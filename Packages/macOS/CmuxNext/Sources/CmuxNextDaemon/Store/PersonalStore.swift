@@ -26,7 +26,45 @@ public final class PersonalStore {
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
     public internal(set) var pins: [WorkspacePin] = [] {
-        didSet { pinIndex = personalPinIndex(pins) }
+        didSet {
+            // The daemon's pins win: an expected pin it now lists (or that names a key it pinned elsewhere) is done.
+            let listed = personalPinIndex(pins)
+            if !expectedPins.isEmpty {
+                expectedPins = expectedPins.reduce(into: [:]) { kept, entry in
+                    let open = entry.value.filter { listed[entry.key]?[$0.key] == nil }
+                    if !open.isEmpty { kept[entry.key] = open }
+                }
+            }
+            pinIndex = Self.merged(listed, expectedPins)
+        }
+    }
+    /// Pins this app asked for (a new workspace born in its room, `expectPin`) that no snapshot lists yet, by session
+    /// then key. The room membership reads them as pins, so a workspace the app shows before the daemon has its pin is
+    /// in its room from its first frame: a new space's first workspace never shows in another space, and the window
+    /// never falls back to another space while it waits (Leo 2026-11-11: "it shouldn't just bounce you back").
+    public private(set) var expectedPins: [String: [String: ProfileID]] = [:] {
+        didSet { if expectedPins != oldValue { pinIndex = Self.merged(personalPinIndex(pins), expectedPins) } }
+    }
+
+    /// Records that workspace `key` of `session` is being pinned to `room` (before its create); the daemon's pins replace
+    /// it once a snapshot lists that key.
+    public func expectPin(session: String, key: String, room: ProfileID) {
+        guard pinIndex[session]?[key] != room else { return }
+        expectedPins[session, default: [:]][key] = room
+    }
+
+    /// Drops the expected pin of workspace `key` (any session) whose create failed or was abandoned.
+    public func dropExpectedPin(key: String) {
+        guard expectedPins.values.contains(where: { $0[key] != nil }) else { return }
+        expectedPins = expectedPins.compactMapValues { keys in
+            let left = keys.filter { $0.key != key }
+            return left.isEmpty ? nil : left
+        }
+    }
+
+    private static func merged(_ listed: [String: [String: ProfileID]], _ expected: [String: [String: ProfileID]]) -> [String: [String: ProfileID]] {
+        guard !expected.isEmpty else { return listed }
+        return listed.merging(expected) { daemon, ours in daemon.merging(ours) { listed, _ in listed } }
     }
     /// Personal workspace groups in order, each in one room.
     public internal(set) var groups: [WorkspaceGroupModel] = []
@@ -108,6 +146,7 @@ public final class PersonalStore {
     /// index kept with it: no work per call.
     public var pinnedRooms: [String: [String: ProfileID]] {
         _ = pins
+        _ = expectedPins
         return pinIndex
     }
 

@@ -79,6 +79,15 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
      else the most recent normal one). A tab whose workspace another window lists is brought into this
      window first. Only an explicit window action (New Window, Open Space in New Window, Move to New
      Window) makes a window.
+9. **A new space is born whole** (Leo 2026-11-11: "When you create a new one, it should just be at
+   that one. It shouldn't just bounce you back"; "it also has a stupid animation on the sidebar due to
+   that creating a new workspace within the existing thing"). New Space switches the window to the new
+   space in the press's turn, with the space's first workspace created in it: the app records that
+   workspace's pin to the space at the press (`PersonalStore.expectPin`, read by the room membership
+   as a pin until the daemon lists its own), so its row never shows in the space the person left, the
+   window never falls back while the pin mirrors, and the switch is the one a dot click makes. Every
+   new workspace expects its room's pin the same way. Switching back shows the workspace the space last
+   showed. Test: `SpaceNewStaysTests`; stills: tour `space-new-stays`.
 
 ## Keys
 

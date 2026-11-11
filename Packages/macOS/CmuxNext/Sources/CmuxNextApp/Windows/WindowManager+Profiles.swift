@@ -44,8 +44,7 @@ extension WindowManager {
             // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
-            Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
+            let create = startWorkspace(WorkspaceSpawn(profile: profile), into: state.id); Task { _ = try? await create() } // born in the space (its pin expected at once); a failure releases the claim (`createFailed`)
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }

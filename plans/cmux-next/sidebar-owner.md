@@ -2035,3 +2035,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   (each style's tooltip and click). Regression: `SpaceSwitcherWindowMarksTests`, `SpaceBarMouseDownSwitchTests`.
   Sidebar-Look: Leo 2026-11-11, "we wanted the different windows to be accessible through spaces, and it's
   essentially all the same window in a way if you want it to be ... Wait, why does it say default in another window?"
+- 2026-11-11 (fix/spaces-one-window, for a590): New Space shows the new space's list at once and keeps it. Its first
+  workspace expects its pin at the press (`PersonalStore.expectPin`), so its row is never inserted into the old space's
+  list (no insert animation there, no remove when it migrated), and the window never falls back to the old space while
+  the pin mirrors: the one switch is the dot click's. Look change: the old list's stray insert and the bounce are gone.
+  Stills: tour `space-new-stays`. Regression: `SpaceNewStaysTests` (every frame the list applies), `ExpectedPinTests`.
+  Sidebar-Look: Leo 2026-11-11, "When you create a new one, it should just be at that one. It shouldn't just bounce
+  you back to your previously created one ... it also has a stupid animation on the sidebar".
