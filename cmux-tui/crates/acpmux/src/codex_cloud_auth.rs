@@ -17,7 +17,9 @@
 //!   login     no choice; Codex has its own sign-in (`auth.json` tokens or key, `CODEX_API_KEY`) or
 //!             the Mac broker's access file is installed;
 //!   no-team-plane    no `https://` `CMUX_CODEROUTER_URL`: team mode has nowhere to send;
-//!   team-unreachable the CodeRouter host does not resolve, so team mode could not work either.
+//!   team-unreachable the CodeRouter host does not resolve, so team mode could not work either
+//!             (a lookup slower than two seconds is not this: the script counts curl's exit 28
+//!             as team).
 //! Otherwise team. A team machine (vm-kind not `owner`) is left alone: every member is the same
 //! Unix user there, and the image's shared-machine mode owns it.
 //!
@@ -171,15 +173,18 @@ where
     None
 }
 
-/// Whether `host` resolves within two seconds (`agent-auth.sh` treats curl's exit 6 as unreachable).
+/// Whether team mode could reach `host`, as `agent-auth.sh` decides it: a lookup that fails or finds
+/// no address (curl's exit 6) is unreachable; one still running after two seconds counts as
+/// reachable (curl's exit 28, which the script counts as team).
 pub async fn host_resolves(host: String) -> bool {
     let target = if host.contains(':') { host } else { format!("{host}:443") };
-    // timeout: a miss falls back to the person's own sign-in; it refuses no launch
+    // timeout: a hang breaker; a slower lookup counts as team, as agent-auth.sh's curl exit 28 does
     let resolve_bound = std::time::Duration::from_secs(2);
     lookup_reaches(tokio::net::lookup_host(target), resolve_bound).await
 }
 
-/// What one lookup of the CodeRouter host says about team mode, given `bound` to answer in.
+/// What one lookup of the CodeRouter host says about team mode, given `bound` to answer in: an
+/// address or no answer yet is reachable; an error or an empty answer is not.
 async fn lookup_reaches<I, F>(lookup: F, bound: std::time::Duration) -> bool
 where
     I: Iterator<Item = std::net::SocketAddr>,
@@ -187,7 +192,8 @@ where
 {
     match tokio::time::timeout(bound, lookup).await {
         Ok(Ok(mut addrs)) => addrs.next().is_some(),
-        _ => false,
+        Ok(Err(_)) => false,
+        Err(_slow) => true,
     }
 }
 
