@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42938946487",
+  "recorded_at": "2026-11-11T01:40:27Z",
+  "reason": "cmux-tui 2e5a10e41590 changes the image's cmux-tui (pinned a6741b511e17)",
+  "dry_run": false,
+  "cmux_tui": "2e5a10e415907654c6199efff8bb312797cd2891",
+  "fixes": [
+    {
+      "sha": "2e5a10e415907654c6199efff8bb312797cd2891",
+      "mergedAt": "2026-11-11T01:13:38Z",
+      "subject": "Daemon close: the later workspaces' state fields are read in bulk, one time (3b pair 2) (#40928)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:40:27Z",
+    "snapshot_id": "sh-82c1e42fe6394f7bb9d38bd0d7ea8e76",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42938946487): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c8a559b9abaa6af6287883dba07eba482a334781",
+    "image": "cloud-native-auto-2e5a10e4-42938946487-1",
+    "revision": "ci-42938946487-1",
+    "at": "2026-11-11T01:40:27Z"
+  },
+  "rolled_back": false
+}
