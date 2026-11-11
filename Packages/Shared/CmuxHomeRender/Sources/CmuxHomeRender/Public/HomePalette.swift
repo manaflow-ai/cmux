@@ -144,6 +144,11 @@ public struct HomePalette: Hashable, Sendable {
     /// The field's hairline edge (a soft ink of the theme's text on a light
     /// theme, where a black edge reads as a dark box).
     public var composeStroke: HomeColor
+    /// The field's resting hairline on a dark theme while its window is not key: the
+    /// system glass then draws flat, with no lit rim, so this keeps the field outlined
+    /// (cmux#39302). 18% of the text over the page, the chat composer's resting edge
+    /// (`--acpmux-composer-edge`). A light theme rests on `composeStroke`.
+    public var composeRestEdge: HomeColor
     public var placeholder: HomeColor
     /// The grey under the flying bubble while it is translucent (the field's glass).
     public var morphUnderlay: HomeColor
@@ -220,6 +225,7 @@ public struct HomePalette: Hashable, Sendable {
             caretAfterSend: n(0.443),
             composeGlass: light ? bg.mixed(with: .gray255(255), 0.7) : n(0.13),
             composeStroke: light ? fg.edge(on: active ? bg : n(0.022)) : .gray255(0, alpha: 0.6),
+            composeRestEdge: n(0.18),
             placeholder: n(0.37),
             morphUnderlay: n(0.113),
             typingDot: n(0.248),

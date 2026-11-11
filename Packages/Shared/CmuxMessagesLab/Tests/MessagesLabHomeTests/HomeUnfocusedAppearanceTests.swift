@@ -74,4 +74,22 @@ import Testing
         #expect(try #require(controller.demo).inactive == true)
         #expect(try #require(steady.demo).inactive == false)
     }
+
+    /// cmux#39302: the field's hairline follows the pane's own window key state whether or not the view follows it,
+    /// so a dark Home keeps its field outlined while the window is in the background.
+    @Test(arguments: [false, true])
+    func theDarkFieldHairlineFollowsItsWindowKeyState(followsKeyWindow: Bool) throws {
+        let (window, controller) = pane(followsKeyWindow: followsKeyWindow)
+        defer { window.close() }
+        let chrome = controller.host.fieldChrome
+        controller.applyFieldTheme(light: false, symbol: .white, edge: .black, restingEdge: .gray)
+        controller.followKeyState()
+        let layer = chrome.edge
+        #expect(layer.borderWidth == 1, "an unfocused dark Home field lost its outline")
+        #expect(layer.borderColor == NSColor.gray.cgColor)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        #expect(layer.borderWidth == (chrome.hasSystemGlass ? 0 : 1))
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(layer.borderWidth == 1)
+    }
 }
