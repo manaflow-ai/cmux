@@ -16,7 +16,8 @@ import Foundation
 ///   read (and its line's reply continuation) each time, up to the 600 s peer wait (the class:
 ///   unbounded waiters after a timeout). Keyed by session, not peer: a join must get the same
 ///   question's answer, and another session of that peer asks another; so the reads one value
-///   holds are at most the sessions it was asked for, however many passes ask again.
+///   holds are at most the sessions it was asked for, however many passes ask again. A peer's
+///   session is keyed by its qualified id (``sessionKey(_:)``): two peers can share a raw id.
 ///
 /// Reads are joined only within one value: the feed bridge keeps one for its life.
 public nonisolated struct AcpmuxPendingReads: Sendable {
@@ -25,7 +26,7 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
     /// How long one read may wait for its answer.
     public let deadline: Duration
     let clock: any Clock<Duration>
-    /// The reads still waiting for their answer, by session.
+    /// The reads still waiting for their answer, by session (``sessionKey(_:)``).
     let outstanding = Outstanding()
 
     /// The feed bridge's recovery of prompts that predate its connection. 10 s is well past a
@@ -50,12 +51,23 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
         (row["peer"] as? String)?.isEmpty != false
     }
 
+    /// What names a row's session to this daemon, for its `_acpmux/info` read and its prompts: a
+    /// peer's row by its qualified id (`peer/id`, acpmux `SessionReceipt::qualified_id`), since two
+    /// peers' sessions can share a raw `sessionId` and that raw id names neither (acpmux refuses it
+    /// as ambiguous); this daemon's own row by its `sessionId`, which is unique here.
+    public static func sessionKey(_ row: [String: Any]) -> String? {
+        guard let id = row["sessionId"] as? String, !id.isEmpty else { return nil }
+        guard !isLocal(row) else { return id }
+        if let qualified = row["qualifiedSessionId"] as? String, !qualified.isEmpty { return qualified }
+        return (row["peer"] as? String).map { "\($0)/\(id)" }
+    }
+
     /// `rows` with this daemon's own sessions first, each group in its listed order.
     public static func localFirst(_ rows: [[String: Any]]) -> [[String: Any]] {
         rows.filter(isLocal) + rows.filter { !isLocal($0) }
     }
 
-    /// Reads each row's `_acpmux/info` with `read` (its session id), local first, and calls
+    /// Reads each row's `_acpmux/info` with `read` (its ``sessionKey(_:)``), local first, and calls
     /// `each` with the row's place in ``localFirst(_:)``, the row and its pending entries as soon
     /// as that read answers. A read that fails or passes the deadline gives no entries; one that
     /// passed it and answers later calls `each` again then, with what it found.
@@ -72,7 +84,7 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
         for _ in 0..<slots {
             workers.append(Task {
                 while let next = queue.take() {
-                    guard let session = next.row["sessionId"] as? String, !session.isEmpty else { continue }
+                    guard let session = Self.sessionKey(next.row) else { continue }
                     let info = await self.bounded(session, read) { late in
                         await each(next.index, next.row, late["pending"] as? [[String: Any]] ?? [])
                     }
@@ -83,13 +95,13 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
         for worker in workers { await worker.value }
     }
 
-    /// ``forEach(_:read:each:)`` for each pending prompt: `each` gets its session, its
-    /// `permissionId` and its `request`.
+    /// ``forEach(_:read:each:)`` for each pending prompt: `each` gets its session
+    /// (``sessionKey(_:)``), its `permissionId` and its `request`.
     @MainActor
     public func forEachPrompt(_ rows: [[String: Any]], read: @escaping @MainActor (String) async -> [String: Any]?,
                               each: @escaping @MainActor (String, String, [String: Any]) async -> Void) async {
         await forEach(rows, read: read) { _, row, entries in
-            guard let session = row["sessionId"] as? String else { return }
+            guard let session = Self.sessionKey(row) else { return }
             for prompt in Self.prompts(entries) { await each(session, prompt.permission, prompt.request) }
         }
     }

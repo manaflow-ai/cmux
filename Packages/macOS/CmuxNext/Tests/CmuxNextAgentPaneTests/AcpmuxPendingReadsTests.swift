@@ -24,7 +24,7 @@ struct AcpmuxPendingReadsTests {
                     ["sessionId": "acp_peer_stalled", "peer": "peer-mac", "pendingPermissions": 1],
                     ["sessionId": "acp_own", "name": "own", "pendingPermissions": 1],
                 ]]
-            case "_acpmux/info" where params["sessionId"] as? String == "acp_peer_stalled":
+            case "_acpmux/info" where params["sessionId"] as? String == "peer-mac/acp_peer_stalled":
                 if released { return nil }
                 return await withCheckedContinuation { stalled.append($0) }
             case "_acpmux/info":
@@ -94,7 +94,7 @@ struct AcpmuxPendingReadsTests {
     /// The feed bridge's shape: a peer listed first whose read stalls and a ready peer after it.
     /// The second posts while the first is still stalled, not after its deadline.
     @Test func aReadyPeerPostsWhileAnEarlierPeerStalls() async {
-        let reads = Reads(stalls: ["acp_peer_stalled"])
+        let reads = Reads(stalls: ["peer-a/acp_peer_stalled"])
         let rows: [[String: Any]] = [
             ["sessionId": "acp_peer_stalled", "peer": "peer-a"],
             ["sessionId": "acp_peer_ready", "peer": "peer-b"],
@@ -120,7 +120,7 @@ struct AcpmuxPendingReadsTests {
             ["sessionId": "own-2", "peer": ""],
         ]
         let found = await AcpmuxPendingReads(width: 1, deadline: .seconds(600)).pending(of: rows) { await reads.read($0) }
-        #expect(reads.asked == ["own-1", "own-2", "peer-1", "peer-2"])
+        #expect(reads.asked == ["own-1", "own-2", "peer-a/peer-1", "peer-b/peer-2"])
         #expect(found.map { $0.row["sessionId"] as? String ?? "" } == ["own-1", "own-2", "peer-1", "peer-2"])
         #expect(found.allSatisfy { $0.pending.count == 1 })
     }
@@ -128,14 +128,14 @@ struct AcpmuxPendingReadsTests {
     /// One slot and a read that never answers: its own deadline frees the slot, it counts as no
     /// prompts, and the next session is still read.
     @Test func aStalledReadEndsAtItsOwnDeadline() async {
-        let reads = Reads(stalls: ["peer-stalled"])
+        let reads = Reads(stalls: ["peer-a/peer-stalled"])
         let rows: [[String: Any]] = [
             ["sessionId": "peer-stalled", "peer": "peer-a"],
             ["sessionId": "peer-ready", "peer": "peer-b"],
         ]
         let found = await AcpmuxPendingReads(width: 1, deadline: .milliseconds(100)).pending(of: rows) { await reads.read($0) }
         reads.release()
-        #expect(reads.asked == ["peer-stalled", "peer-ready"])
+        #expect(reads.asked == ["peer-a/peer-stalled", "peer-b/peer-ready"])
         #expect(found.map(\.pending.count) == [0, 1])
     }
 
