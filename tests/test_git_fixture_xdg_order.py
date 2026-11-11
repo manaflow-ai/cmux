@@ -76,7 +76,7 @@ class GlobalConfigOrder(unittest.TestCase):
         parent = dict(env, HOME=str(self.tmp / "parent-home"))
         parent.pop("XDG_CONFIG_HOME", None)
         return {
-            "plain git": f"{plain.returncode} {plain.stdout.strip()}",
+            "plain git": f"{plain.returncode} {plain.stdout.strip()}".strip(),
             "python helper": self.answer([sys.executable, "-I", "-c", LOADED, str(MODULE), key], env),
             "fixture_env": self.answer([sys.executable, "-I", "-c", FIXTURE_ENV, str(MODULE), key, json.dumps(env)],
                                        parent),
@@ -110,10 +110,10 @@ class GlobalConfigOrder(unittest.TestCase):
         self.assertAllMatchPlainGit("user.name", self.env, "0 from-default-xdg")
 
     def test_neither_file_present(self):
-        self.assertAllMatchPlainGit("user.name", self.env, "1 ")
+        self.assertAllMatchPlainGit("user.name", self.env, "1")
         # The opt-out is still there under every helper.
         views = self.views("maintenance.auto", self.env)
-        self.assertEqual(views.pop("plain git"), "1 ")
+        self.assertEqual(views.pop("plain git"), "1")
         self.assertEqual(set(views.values()), {"0 false"}, views)
 
     def test_a_files_own_include_still_works(self):
