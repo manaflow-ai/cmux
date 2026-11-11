@@ -125,8 +125,9 @@ def mow_check(task: dict, vm: "VM") -> tuple[float, dict]:
     time.sleep(min(int(t.get("before_grading_delay_seconds", 0) or 0), 10))
     for command, value in [c for c in t["grading_command"] if c[1] == 100]:
         r = vm.ssh(command, timeout=120)
-        if r.returncode != 0 and not r.stdout:
-            return 0.0, {"grading_error": command[:200], "stderr": r.stderr[-200:]}
+        if r.returncode == 255:
+            # The check never ran (ssh): an infrastructure failure, retried on resume.
+            raise RuntimeError(f"grading ssh failed: {r.stderr[-200:]}")
         if "true" in r.stdout.lower():
             return value / 100.0, {"matched": command[:200]}
     return 0.0, {}
@@ -161,7 +162,13 @@ class VM:
                 "-o", "ConnectTimeout=5", f"{GUEST_USER}@{self.ip}"]
 
     def ssh(self, command: str, timeout: float = 600, check: bool = False) -> subprocess.CompletedProcess:
-        p = subprocess.run(self.ssh_args() + [command], capture_output=True, text=True, timeout=timeout)
+        # The guest's sshd now and then refuses a password login right after
+        # another session (rc 255, "Permission denied"): retry those only.
+        for attempt in range(4):
+            p = subprocess.run(self.ssh_args() + [command], capture_output=True, text=True, timeout=timeout)
+            if p.returncode != 255 or "Permission denied" not in p.stderr and "authentication failures" not in p.stderr:
+                break
+            time.sleep(1 + attempt)  # bounded retry backoff for a refused login, not a synchronization
         if check and p.returncode != 0:
             raise RuntimeError(f"guest `{command[:80]}`: exit {p.returncode}: {p.stderr[-300:]}")
         return p
@@ -180,15 +187,22 @@ class VM:
         raise TimeoutError(f"{self.name}: no SSH/GUI session after {limit}s")
 
     def put(self, local: str, remote: str):
-        subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password", "-r", local,
-                        f"{GUEST_USER}@{self.ip}:{remote}"], check=True, timeout=300)
+        self._scp(local, f"{GUEST_USER}@{self.ip}:{remote}")
 
     def get(self, remote: str, local: str):
-        subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password", "-r",
-                        f"{GUEST_USER}@{self.ip}:{remote}", local], timeout=300)
+        self._scp(f"{GUEST_USER}@{self.ip}:{remote}", local, check=False)
 
+    def _scp(self, src: str, dst: str, check: bool = True):
+        for attempt in range(4):
+            p = subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
+                                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                                "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password",
+                                "-r", src, dst], capture_output=True, text=True, timeout=300)
+            if p.returncode == 0 or "No such file" in p.stderr:
+                break
+            time.sleep(1 + attempt)  # bounded retry backoff for a refused login, not a synchronization
+        if check and p.returncode != 0:
+            raise RuntimeError(f"scp {src} -> {dst}: {p.stderr[-300:]}")
 
 # ------------------------------------------------------------------ suites' setup and checks
 
@@ -265,6 +279,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                        f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
             row["agent_seconds"] = round(time.monotonic() - t0, 1)
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
+            if row["agent_rc"] == "setup":
+                raise RuntimeError("the arm's computer-use service did not start in the guest")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:

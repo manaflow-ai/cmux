@@ -32,6 +32,7 @@ until sshpass -p admin ssh "${ssh_opts[@]}" "admin@$ip" 'pgrep -x Finder >/dev/n
 sshpass -p admin ssh "${ssh_opts[@]}" "admin@$ip" 'csrutil status; rm -rf ~/cub-assets'
 sshpass -p admin scp -q -r "${ssh_opts[@]}" "$assets" "admin@$ip:cub-assets"
 sshpass -p admin scp -q "${ssh_opts[@]}" "$here/guest/provision.sh" "admin@$ip:provision.sh"
+sshpass -p admin scp -q "${ssh_opts[@]}" "$here/guest/quiet-capture-alerts.sh" "admin@$ip:quiet-capture-alerts.sh"
 sshpass -p admin ssh "${ssh_opts[@]}" "admin@$ip" 'bash ~/provision.sh'
 sshpass -p admin ssh "${ssh_opts[@]}" "admin@$ip" 'echo admin | sudo -S -p "" shutdown -h now' || true
 wait "$run_pid" || true

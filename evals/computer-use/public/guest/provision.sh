@@ -102,6 +102,14 @@ sudo_ pmset -a sleep 0 displaysleep 0 disksleep 0
 defaults -currentHost write com.apple.screensaver idleTime 0
 sudo_ defaults write /Library/Preferences/com.apple.screensaver loginWindowIdleTime 0
 defaults write com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false
+# No autocorrect or auto-capitalization: a task's exact text stays exact for
+# every arm (it capitalized "cmux" in the Codex smoke run).
+defaults write NSGlobalDomain NSAutomaticCapitalizationEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticSpellingCorrectionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
+defaults write com.apple.TextEdit RichText -bool false
 defaults write com.apple.dock autohide -bool false
 # First launch of each benchmark app once (bounded), so their first-run state
 # is the same for every arm; then quit every app, so each attempt starts on an
@@ -118,4 +126,5 @@ done
 # Dismiss pending notification banners and the "What's new" welcome.
 defaults write com.apple.ncprefs dnd_prefs -data 0 2>/dev/null || true
 killall NotificationCenter 2>/dev/null || true
+bash "$(dirname "$0")/quiet-capture-alerts.sh" 2>/dev/null || bash ~/quiet-capture-alerts.sh || true
 echo provisioned

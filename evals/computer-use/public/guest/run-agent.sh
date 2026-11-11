@@ -60,6 +60,13 @@ plistlib.dump({"Label": label, "ProgramArguments": ["/bin/bash", "-c", wrapped],
                                         "HOME": __import__("os").path.expanduser("~")}},
               open(plist, "wb"))
 PY
+if [[ $arm == cmux-cu ]]; then
+  # cmux Computer Use runs in cmux Remote, which the app's daemon starts: open
+  # the app hidden and wait for the worker (bounded) before the clock starts.
+  open -g -j -a "/Applications/$(cat "$HOME/cub-assets/cmux-app-name")"
+  for _ in $(seq 1 120); do pgrep -f "cmux-remote worker computer-use" >/dev/null && break; /bin/sleep 1; done
+  pgrep -f "cmux-remote worker computer-use" >/dev/null || { echo "cmux worker did not start" > "$out/stderr.txt"; echo setup > "$out/rc"; cat "$out/rc"; exit 0; }
+fi
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
 rm -f "$out/rc"
 start=$(date +%s)
