@@ -1,6 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
@@ -139,6 +140,17 @@ pub fn client_request(endpoint: &Url) -> Result<ClientRequest, LinkError> {
 /// The link type every direct dial produces, whatever carried the bytes.
 pub type DialedWebSocketLink = TungsteniteWebSocketLink<MaybeTlsStream<DialedStream>>;
 
+/// How long one direct WebSocket dial may take in all: name resolution, the
+/// carrier's connect (per address, see [`crate::provider::dial`]), TLS for
+/// `wss` and the upgrade. A healthy route opens in well under a second; a cold
+/// Cloud machine whose network is still settling, or an in-process WireGuard
+/// tunnel whose first handshake is still in flight, takes a few seconds. A
+/// socket that accepts and then never answers (a half-open path, an ingress
+/// that dropped the upgrade) held the dial, and every caller above it,
+/// forever. Past this the dial fails as a retryable transport error that
+/// names the stage and the peer, and the caller's redial policy takes over.
+pub const DIRECT_DIAL_TIMEOUT: Duration = Duration::from_secs(12);
+
 /// Dial a direct WebSocket route over the operating system's TCP stack.
 pub async fn connect_websocket(
     endpoint: &Url,
@@ -147,7 +159,8 @@ pub async fn connect_websocket(
     connect_websocket_via(endpoint, maximum, &OsTcpDialer).await
 }
 
-/// Dial a direct WebSocket route over whatever carrier `dialer` provides.
+/// Dial a direct WebSocket route over whatever carrier `dialer` provides,
+/// within [`DIRECT_DIAL_TIMEOUT`].
 ///
 /// The dialer owns only the byte stream. TLS for `wss` and the WebSocket
 /// upgrade run above it exactly as they do over a kernel socket, so an
@@ -157,6 +170,18 @@ pub async fn connect_websocket_via(
     endpoint: &Url,
     maximum: usize,
     dialer: &dyn Dialer,
+) -> Result<DialedWebSocketLink, LinkError> {
+    connect_websocket_within(endpoint, maximum, dialer, DIRECT_DIAL_TIMEOUT).await
+}
+
+/// [`connect_websocket_via`] with an explicit total deadline. Every stage
+/// (the carrier's connect, then TLS and the upgrade) shares it; the error a
+/// stage that runs out returns names that stage and the peer.
+pub async fn connect_websocket_within(
+    endpoint: &Url,
+    maximum: usize,
+    dialer: &dyn Dialer,
+    timeout: Duration,
 ) -> Result<DialedWebSocketLink, LinkError> {
     let description = sanitized_route(endpoint);
     let host = endpoint
@@ -168,11 +193,45 @@ pub async fn connect_websocket_via(
     let config =
         WebSocketConfig::default().max_message_size(Some(maximum)).max_frame_size(Some(maximum));
     let request = client_request(endpoint)?;
-    let stream = dialer.dial(host, port).await?;
-    let (socket, _) = client_async_tls_with_config(request, stream, Some(config), None)
+    let deadline = tokio::time::Instant::now() + timeout;
+    let stage_timed_out = |stage: &str| {
+        LinkError::Transport(format!(
+            "{stage} {host}:{port} did not finish within {}",
+            DisplaySeconds(timeout)
+        ))
+    };
+    let stream = tokio::time::timeout_at(deadline, dialer.dial(host, port))
         .await
-        .map_err(|error| LinkError::Transport(error.to_string()))?;
+        .map_err(|_| stage_timed_out(&format!("{} connect to", dialer.name())))??;
+    let upgrade_stage = if endpoint.scheme() == "wss" {
+        "TLS and websocket upgrade to"
+    } else {
+        "websocket upgrade to"
+    };
+    let (socket, _) = tokio::time::timeout_at(
+        deadline,
+        client_async_tls_with_config(request, stream, Some(config), None),
+    )
+    .await
+    .map_err(|_| stage_timed_out(upgrade_stage))?
+    .map_err(|error| LinkError::Transport(error.to_string()))?;
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
+}
+
+/// A duration as a person reads it in an error: `12 s`, or `1.5 s`, or `300 ms`.
+pub(crate) struct DisplaySeconds(pub(crate) Duration);
+
+impl fmt::Display for DisplaySeconds {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let millis = self.0.as_millis();
+        if millis < 1_000 {
+            write!(formatter, "{millis} ms")
+        } else if millis % 1_000 == 0 {
+            write!(formatter, "{} s", millis / 1_000)
+        } else {
+            write!(formatter, "{:.1} s", self.0.as_secs_f64())
+        }
+    }
 }
 
 /// The daemon side of a direct WebSocket link. While [`FrameLink::receive`]

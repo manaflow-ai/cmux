@@ -33,7 +33,8 @@ use crate::observability::TransportSnapshot;
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
 pub use dial::{
-    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, SocksDialer, resolve_dial_target,
+    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
+    SocksDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -54,9 +55,10 @@ pub use ssh::{
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
+pub(crate) use websocket::DisplaySeconds;
 pub use websocket::{
-    AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
-    connect_websocket_via,
+    AxumWebSocketLink, DIRECT_DIAL_TIMEOUT, DirectWebSocketProvider, TungsteniteWebSocketLink,
+    connect_websocket, connect_websocket_via, connect_websocket_within,
 };
 
 /// Non-authoritative facts learned from the carrier.
