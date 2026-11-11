@@ -12,7 +12,7 @@ _spec = importlib.util.spec_from_file_location(
 logs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(logs)
 
-TEAM = "team_d4390fb0a0f47a8e135a"
+TEAM = "team_0000aaaa1111bbbb2222"
 
 
 def event(message, url="https://api.cmux.dev/v1/teams/" + TEAM + "/members?invite=abc", status=403):
@@ -76,7 +76,7 @@ class DefaultDenyTests(unittest.TestCase):
         self.assertNotIn("step", log)
         self.assertNotIn("fails", log)
         self.assertNotIn("detail", log)
-        for leak in (TEAM, "d4390fb0a0f47a8e135a", "user_8f2a91c0d7e6", "hunter2", "s3cret", "token"):
+        for leak in (TEAM, "0000aaaa1111bbbb2222", "user_8f2a91c0d7e6", "hunter2", "s3cret", "token"):
             self.assertNotIn(leak, text)
         self.assertEqual(counts, {})
 
