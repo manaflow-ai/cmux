@@ -20,8 +20,9 @@ public struct CloudMoveSetup {
     public var accessPoll: Duration = .seconds(3)
     /// How often a machine's granted folders are copied again (`cmux link access sync`).
     public var accessSync: Duration = .seconds(60)
-    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default), which every `cli` run is given so it
-    /// reads the ledgers the daemon writes (pass it to every ``CloudMoveCLI``).
+    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default). Only the reads of what the daemon's spare
+    /// warm writes (`cloud-start-chat/spare-warm.json`: Send's wait-copy and login receipt) run on it; every other verb keeps
+    /// cmux-tui's default folder, where its link seed, sync, access and move records have always been.
     public var stateDirectory: URL?
 
     public init(cli: URL? = nil, workRoots: [String] = ["/home/cmux/work", "/root/work"], timeout: Duration = .seconds(30 * 60),

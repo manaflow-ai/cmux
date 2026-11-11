@@ -92,7 +92,7 @@ struct CloudMove {
         }
         // An unresolved move finishes on the machine it started on.
         if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         perform(tab: tab, invocation: invocation) { [invocation] in
             try await Self.updatingFirst(invocation) { invocation in
                 try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)

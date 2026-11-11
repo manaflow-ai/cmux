@@ -24,10 +24,13 @@ import Testing
     }
 
     /// Send's wait-copy and login-receipt reads run the CLI, while the daemon's warm writes them: a tagged build's daemon
-    /// has its own `CMUX_TUI_STATE_DIR`, so the CLI runs there too, or Send misses in-flight copies and receipts.
+    /// has its own `CMUX_TUI_STATE_DIR`, so those reads run there too, or Send misses in-flight copies and receipts.
+    /// Every other verb (Bring Back Local's link-seed and link-sync records included, made before or after an upgrade)
+    /// runs with no state root and so inherits the app's environment, the folder its records were always in.
     @Test func aRunReadsTheDaemonsStateRoot() {
         let binary = URL(fileURLWithPath: "/nonexistent/cmux")
         #expect(CloudMoveCLI(binary: binary).environment == nil)
+        #expect(CloudMoveCLI(binary: binary, timeout: .seconds(5)).environment == nil)
         let state = URL(fileURLWithPath: "/tmp/cmux-tagged-build/sessions")
         let environment = CloudMoveCLI(binary: binary, stateDirectory: state).environment
         #expect(environment?["CMUX_TUI_STATE_DIR"] == state.path)

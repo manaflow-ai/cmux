@@ -117,7 +117,7 @@ struct CloudStartChat {
         // or a credential folder (``AgentPaneHandOff``). A `.git` found above it since then is refused.
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
@@ -255,7 +255,7 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace,
-                                                     cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
+                                                     cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
         _ = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }
@@ -263,7 +263,7 @@ struct CloudStartChat {
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         return try await open(start, from: origin, on: machine, cwd: nil, tabKey: plan.tabKey, targetPane: plan.targetPane,
-                              cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory))
+                              cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout))
     }
 }
 
@@ -333,7 +333,7 @@ extension CloudStartSession {
         let copy: CloudStartChat.Copied
         do {
             copy = try await CloudStartChat(services: services).copyFolder(folder, key: key, account: account, to: session,
-                                                                          cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout, stateDirectory: services.cloud.move.stateDirectory)) { _ in }
+                                                                          cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)) { _ in }
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), await CloudMoveFolder.isFolder(folder.root) ? CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)) : CloudStartSessionStrings.fromFolderMissing(local))
         }

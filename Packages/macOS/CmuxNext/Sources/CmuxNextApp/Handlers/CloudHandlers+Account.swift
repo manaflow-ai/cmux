@@ -512,7 +512,7 @@ extension CloudHandlers {
             try checkScope(session)
             if let folder, let binary = cloud.move.cli {
                 guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
-                let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout, stateDirectory: cloud.move.stateDirectory)
+                let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)
                 do {
                     cwd = try await CloudNewWorkspacePlan.copy(folder, workRoots: cloud.move.workRoots) { remote in
                         try checkScope(session)

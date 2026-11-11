@@ -48,8 +48,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public let binary: URL
     /// How long one run may take; past it the run is killed and throws.
     public var timeout: Duration = .seconds(30 * 60)
-    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default): every run reads and writes the ledgers
-    /// the daemon does, so a tagged or per-build app's Send sees the daemon's warm copies and login receipts.
+    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default), given only for the reads of the daemon's
+    /// spare-warm ledger (``startChatWaitCopy(machine:provider:)``, ``startChatLoginReceipt(machine:account:provider:)``),
+    /// so a tagged or per-build app's Send sees its warm copies and receipts. Other verbs run without it: their records
+    /// (link seed, sync, access, moves) stay in the folder they were always in.
     public var stateDirectory: URL?
 
     public init(binary: URL, timeout: Duration = .seconds(30 * 60), stateDirectory: URL? = nil) {
