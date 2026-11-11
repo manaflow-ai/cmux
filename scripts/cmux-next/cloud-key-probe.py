@@ -124,10 +124,12 @@ ASSIGNS = (ASSIGN, CALL_ASSIGN, WORD_ASSIGN)
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
 SECRET_LITERAL = re.compile(r"^(?=[^/]*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-.+/=:]{16,}$")
 SECRET_TOKEN = re.compile(r"^[A-Za-z0-9_\-.+/=:]{16,}$")
-# A stand-in word counts only where a word starts (the value's start, or after a separator: `your-key`, `sk-test-1`),
-# never inside a run of letters and digits: a random key can hold `Test` by chance, and that key is still a key.
+# A stand-in is a value that starts as one: a stand-in word at its start, after at most a short prefix (`your-key`,
+# `sk-test-1`, `placeholder_x`), or a reference (`process.env.X`, `os.environ`). Nothing inside a value counts but an
+# ellipsis: a random key can hold any word by chance (`...myenvironment7...`, `Ab3-test-9...`), and is still a key.
 STAND_IN = re.compile(
-    r"(?<![A-Za-z0-9])(?:placeholder|example|dummy|fake|test|stub|changeme|your|xxxx)|\.\.\.|environ|process\.env|getenv",
+    r"^(?:[A-Za-z]{1,8}[-_])?(?:placeholder|example|dummy|fake|test|stub|changeme|your|xxxx)"
+    r"|^(?:process\.env|os\.environ|environ|getenv)\b|\.\.\.",
     re.I,
 )
 

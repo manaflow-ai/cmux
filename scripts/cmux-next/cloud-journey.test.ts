@@ -1658,18 +1658,22 @@ except probe.OutOfTime as cut:
   test("a key that spells a stand-in word by chance is a key; only real stand-ins and AWS's own examples are not", () => {
     // Random keys: a stand-in word inside a run of letters and digits, and EXAMPLE inside a Google key's shape.
     const mistral = "Qd7Kx2TestMn4Lw9Vb3Rz8Hj1Fc6Gs5Yp";
+    // A reference word or a stand-in word inside a key, after a separator too: still a key.
+    const inside = ["Ab3Qxmyenvironment7Kq2Zr9Lw4Np5", "Ab3Qx-test-7Kq2Zr9Lw4Np5Tg8", "Ab3Qxgetenv7Kq2Zr9Lw4Np5Vh2"];
     const google = `AIza${"Sy9Kq3EXAMPLEw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0".slice(0, 35)}`;
     const root = plant({
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
       "proc/5/cmdline": "bash\0",
       "workspace/project/a.env": `MISTRAL_API_KEY=${mistral}\n`,
+      "workspace/project/d.env": `GROQ_API_KEY=${inside[0]}\nXAI_API_KEY=${inside[1]}\nDEEPSEEK_API_KEY=${inside[2]}\n`,
       "workspace/project/b.json": `{"k": "${google}"}\n`,
       // Stand-ins: a word at the value's start or after a separator, and the exact values AWS documents.
       "workspace/project/c.env": [
         "MISTRAL_API_KEY=your-mistral-api-key-here",
         "GROQ_API_KEY=sk-test-0123456789abcdef0123",
         "XAI_API_KEY=placeholder_9f8e7d6c5b4a3210",
+        "COHERE_API_KEY=process.env.COHERE_API_KEY_VALUE_1",
         "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         "id AKIAIOSFODNN7EXAMPLE",
         "",
@@ -1677,9 +1681,12 @@ except probe.OutOfTime as cut:
     });
     try {
       const { probe, out } = run(root);
-      for (const v of [mistral, google]) expect(out).not.toContain(v);
+      for (const v of [mistral, google, ...inside]) expect(out).not.toContain(v);
       expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].env:1: GROQ_API_KEY",
         "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].env:2: XAI_API_KEY",
+        "file /workspace/project/[a name].env:3: DEEPSEEK_API_KEY",
         "file /workspace/project/[a name].json:1: a Google AI key",
       ]);
       expect(probe.complete).toBe(true);
