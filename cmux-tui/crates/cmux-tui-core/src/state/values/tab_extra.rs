@@ -169,9 +169,11 @@ pub(super) fn tab_extra(
     })
 }
 
-/// The state rows of every live tab of the session, each table read one
-/// time: what a list of the session's tabs decorates its values from. The
-/// number of statements does not depend on the number of tabs.
+/// The state rows of the session's tabs, each table read one time: what a
+/// list of the session's tabs decorates its values from. The number of
+/// statements does not depend on the number of tabs. `tab_state` keeps the
+/// rows of closed tabs, so its read joins the live tabs; `tab_presentation`
+/// and `kept_tabs` are pruned by their writers and are read as they are.
 pub(super) struct SessionTabExtras {
     pinned: HashSet<String>,
     groups: HashMap<String, String>,
@@ -198,8 +200,16 @@ impl SessionTabExtras {
             )?
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
             .collect::<Result<HashMap<_, _>, _>>()?;
+        // Only the rows of live tabs: a closed tab keeps its row (its history,
+        // zoom and icon; only a row with no field is deleted), so the table
+        // grows with each tab the person ever closed.
         let states = connection
-            .prepare(&format!("SELECT tab_id, {TAB_STATE_COLUMNS} FROM tab_state"))?
+            .prepare(&format!(
+                "SELECT s.tab_id, {TAB_STATE_COLUMNS}
+                 FROM tab_state AS s
+                 JOIN resource_tabs AS t ON t.public_id = s.tab_id
+                 WHERE t.deleted_revision IS NULL"
+            ))?
             .query_map([], |row| Ok((row.get::<_, String>(0)?, TabStateRow::read(row, 1)?)))?
             .collect::<Result<HashMap<_, _>, _>>()?;
         let frontends = connection
