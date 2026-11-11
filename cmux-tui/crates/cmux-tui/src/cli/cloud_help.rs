@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
+                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -519,8 +519,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
-usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
-                             [--cwd DIR | --from-folder PATH]
+usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
+                             [--cwd DIR | --from-folder PATH [--allow-large]]
                              [--login pass|machine|none] [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
@@ -535,7 +535,10 @@ older name; both run the same start.
                      and follow_up.send for the first message
   -- TEXT            The same as --prompt, read as text even when it starts
                      with `-`
-  --agent AGENT      claude (default), codex, ...
+  --agent AGENT      claude (default), codex, ...; claude/MODEL also names
+                     the model
+  --model MODEL      The model the agent starts on there (claude-haiku-5-5;
+                     default: the harness's own)
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --from-folder PATH A folder on this Mac (relative: of this shell's folder),
                      copied to the machine as the composer's Cloud start
@@ -543,6 +546,8 @@ older name; both run the same start.
                      the disk's root or a credential folder; not with
                      --cwd. The same command again on the same machine
                      reuses the finished copy.
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files
+                     (the files the copy sends), which are refused without it
   --login pass|machine|none
                      The agent's login there: yours from this Mac, the
                      machine's own, or none (default: the machine's login or

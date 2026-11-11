@@ -343,8 +343,9 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
             // [`clear_inherited`]). A key comes only with an add (`--key`, Settings).
             let mut options = serde_json::json!({"baseURL": e.base_url});
-            if e.keychain_item.is_some() {
-                options["apiKey"] = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+            if let (Some(_), Some(map)) = (e.keychain_item, options.as_object_mut()) {
+                let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+                map.insert("apiKey".to_owned(), key);
             }
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",

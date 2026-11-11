@@ -172,6 +172,9 @@ enum LinkEnd {
 }
 
 pub struct Peer {
+    /// The owner of this peer's own tasks (its lent GitHub actions, its attach retries):
+    /// `stop` cancels them, and the hub's shutdown joins them (`Peer::close_tasks`).
+    scope: cmux_scope::Scope,
     pub name: String,
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
@@ -473,6 +476,7 @@ impl Peer {
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
+            scope: cmux_scope::Scope::new("acpmux peer"),
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
@@ -744,6 +748,8 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        // Its own tasks stop with it; the hub's shutdown joins them (`close_tasks`).
+        self.scope.token().cancel();
         self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
@@ -754,6 +760,11 @@ impl Peer {
             }
             *t = None;
         }
+    }
+
+    /// Cancel this peer's own tasks and join them within `within` (the hub's shutdown).
+    pub(crate) async fn close_tasks(&self, within: std::time::Duration) -> cmux_scope::CloseReport {
+        self.scope.close(within).await
     }
 
     /// `ssh://user@host[:port]` -> (ssh destination, remote port); None for
@@ -1085,10 +1096,11 @@ impl Peer {
         // move to a faster path while it runs (`Peer::switch_due`), for at most the action's
         // own budget.
         let answering = self.answering.start(crate::github_broker::ACTION_BUDGET);
+        let scope = &self.scope;
         // The slot is held until the answer is queued, within the request budget: at most
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
-        tokio::spawn(async move {
+        scope.spawn_until_cancelled("peer-github-action", async move {
             // Lending that ends while it runs (`githubBroker` off, the peer removed, the link
             // ended) stops it: its `gh` is killed (`kill_on_drop`), and a link still up is told.
             let revoked = me.github_revoked.notified();
@@ -1269,7 +1281,7 @@ impl Peer {
             return;
         }
         let (me, id) = (self.clone(), id.to_owned());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("peer-attach-retry", async move {
             for (n, after) in ATTACH_RETRY_AFTER.iter().enumerate() {
                 tokio::time::sleep(*after).await;
                 if !me.attach_wanted(&id, link) {
@@ -1921,6 +1933,10 @@ impl Peer {
     ) -> Result<LinkEnd, String> {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
+        #[cfg(test)]
+        if test_dial::refused() {
+            return Err("refused (test)".into());
+        }
         let (via, opened) = self.open_first().await?;
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
@@ -2816,7 +2832,7 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|session| !is_mirrored_session(session))
+        .filter(|session| session.is_object() && !is_mirrored_session(session))
         .cloned()
         .collect()
 }
@@ -3676,5 +3692,40 @@ mod watch_order_tests {
         assert!(rows.is_empty(), "the purged row came back: {rows:?}");
         serving.abort();
         fake.abort();
+    }
+}
+
+/// Every dial on this thread fails at once, with no socket, and is recorded, so a test drives
+/// the whole run loop (`Peer::run`) under paused time and reads when each attempt went.
+#[cfg(test)]
+pub(crate) mod test_dial {
+    use std::cell::RefCell;
+
+    /// One dial: its monotonic instant and its wall-clock millisecond.
+    pub(crate) type Attempt = (tokio::time::Instant, u64);
+
+    thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+
+    pub(crate) fn refuse_all() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+    }
+
+    /// The dials so far; dials keep failing.
+    pub(crate) fn attempts() -> Vec<Attempt> {
+        ATTEMPTS.with(|a| a.borrow().clone().unwrap_or_default())
+    }
+
+    /// Dials go out for real again.
+    pub(crate) fn clear() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = None);
+    }
+
+    pub(super) fn refused() -> bool {
+        ATTEMPTS.with(|a| {
+            let mut a = a.borrow_mut();
+            let Some(list) = a.as_mut() else { return false };
+            list.push((tokio::time::Instant::now(), crate::store::now_ms()));
+            true
+        })
     }
 }

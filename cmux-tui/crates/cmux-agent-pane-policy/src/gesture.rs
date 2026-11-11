@@ -152,6 +152,15 @@ impl PermissionOptions {
         questions.get(permission).cloned().flatten()
     }
 
+    /// True only when the pane saw `permission` offer `option` and not every
+    /// kind seen for it denies (Swift `isKnownAllow`): the host reserves a
+    /// permission answer's ticket only for such an option. An option the pane
+    /// never saw is no known allow (and no known deny).
+    pub fn is_known_allow(&self, permission: &str, option: &str) -> bool {
+        let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        denies.get(permission).and_then(|o| o.get(option)).copied() == Some(false)
+    }
+
     /// True only when `option` is a known deny of `permission`.
     pub fn is_deny(&self, permission: &str, option: &str) -> bool {
         let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -581,7 +581,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             match connect(start).await {
                 Ok(client) => {
-                    let v = client.request(method::MUX_STATUS, json!({})).await?;
+                    let v = crate::cli::slow_notice::noted(
+                        "the status request",
+                        client.request(method::MUX_STATUS, json!({})),
+                    )
+                    .await?;
                     if json_out {
                         print_json(&v);
                         return Ok(());

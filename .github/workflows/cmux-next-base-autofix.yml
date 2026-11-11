@@ -13,8 +13,11 @@ name: cmux-next base autofix
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
-# webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
-# in cmux-tui and the OptChat crates. Each
+# webviews formatting (vp fmt in the read-only webviews-fmt job), cargo fmt
+# in cmux-tui and the OptChat crates, and every tracked Cargo.lock that no longer
+# matches its workspace's manifests (scripts/cmux-next/cargo-locks.py fix: a
+# manifest change in one workspace can leave another's lock stale, as
+# eb4f3eb1d94's direct push did to cmux-app-ffi). Each
 # runs only when its inputs changed since the last successful run that made its
 # own Mac exports (actions: read lists it; scripts/cmux-next/base-autofix-since.sh); a repair whose inputs a newer push moved is made again on that
 # tip (scripts/cmux-next/base-autofix-land.sh, a bounded number of times), and a
@@ -109,6 +112,7 @@ on:
       - scripts/cmux-next/base-autofix-mac-busy.sh
       - scripts/cmux-next/base-autofix-since.sh
       - scripts/cmux-next/base-autofix-changed.sh
+      - scripts/cmux-next/base-autofix-ffi-pin.sh
       - scripts/cmux-next/base-autofix-settings-landed.sh
       - scripts/cmux-next/publish-bot-head-tree.sh
       - scripts/cmux-next/autofix-areas.sh
@@ -125,6 +129,10 @@ on:
       - scripts/ghosttykit-checksums.txt
       - scripts/cmux-next/ghosttykit-checksum.sh
       - scripts/download-prebuilt-ghosttykit.sh
+      # Every Cargo workspace's lock (base-autofix.sh --locks).
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - scripts/cmux-next/cargo-locks.py
 
 permissions: {}
 
@@ -195,7 +203,7 @@ jobs:
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 62
+    timeout-minutes: 65
     permissions:
       contents: read
     # Every step is continue-on-error and the lookup's own limit is under the job's, so this job
@@ -207,6 +215,9 @@ jobs:
       hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.exports }}
       made_at: ${{ steps.lookup.outputs.made_at }}
+      # On a miss: the owned gui label while one of its runners is idle now, else empty
+      # (the Mac job then takes Blacksmith macOS).
+      mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         id: checkout
@@ -274,6 +285,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # On a miss the Mac job regenerates, and it takes the owned gui label only while one of
+      # its runners is idle now (read live, as the nightly visual gate's route does), else
+      # Blacksmith macOS. Read last, right before the Mac job is placed: the lookup can take 45
+      # minutes. Any failure leaves mac_runner empty, so the Mac job never queues on the minis
+      # unseen. The runners read through the route App's own budget.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: steps.checkout.outcome == 'success' && steps.lookup.outputs.hit != 'true' && steps.carrier.outputs.mac_busy != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Pick an idle owned gui runner for the Mac exports
+        id: mac-runner
+        if: steps.checkout.outcome == 'success' && steps.lookup.outputs.hit != 'true' && steps.carrier.outputs.mac_busy != 'true' && vars.CI_PR_POOL_OWNED == '1'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo true --idle-now --gui-only
+
   # This run left its exports to another run's queued or running pushed-exports or Mac job, and looked
   # for no pack itself (pushed-exports is skipped or deferred after its App-token recheck). It ends
   # green, and base-autofix-since.sh passes over it, so the next run still covers its changes.
@@ -308,11 +347,15 @@ jobs:
     # push replaced it before it started (2026-10-21, 11:15-11:36Z, no export after 02:14Z). Instead a
     # run skips this job while another run's is queued or running (base-autofix-mac-busy.sh) and ends
     # green with mac-exports-deferred; the next run's "since" passes over it (base-autofix-since.sh).
-    # The exports need a logged-in session, which the gui label's runners have. They never
-    # name the session label: it held jobs for hours with its runners online and busy
-    # (cmux#24295, 2026-10-29), and this job has no placement to judge its queue
-    # (tests/test_ci_runs_on_fallback.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.CI_PR_POOL_OWNED == '1' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
+    # cmux-next.yml's generated files make the same exports). They take the owned gui label only
+    # when pushed-exports saw a gui runner idle as it handed over (mac_runner,
+    # cmux_next_media_runner.py --idle-now --gui-only), never the session label (cmux#24295).
+    # With none idle, or the runners unread, they take Blacksmith macOS at once: a job queued on the
+    # gui label waits for the owned-pool rescue, which cancels a superseded push run without a
+    # re-run, so with the office minis dark on 2026-11-10 every export was cancelled in its queue
+    # and feat-cmux-next's settings export stayed stale from 14:21Z.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.pushed-exports.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     # One action regeneration and up to three settings regenerations on a moving tip
     # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
     timeout-minutes: 90
@@ -685,7 +728,7 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true'
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true' || steps.areas.outputs.locks == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Download the webviews formatting patch
@@ -721,6 +764,7 @@ jobs:
           SETTINGS_VERIFIED: ${{ needs.pushed-exports.outputs.hit == 'true' || needs.action-exports.outputs.settings_verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
+          LOCKS: ${{ steps.areas.outputs.locks }}
           FMT: ${{ steps.areas.outputs.fmt }}
           EXPORTS_DIR: ${{ runner.temp }}/action-exports
           WEBVIEWS_PATCH: ${{ runner.temp }}/webviews-fmt/webviews-fmt.patch
@@ -794,6 +838,7 @@ jobs:
           SETTINGS: ${{ steps.areas.outputs.settings }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
+          LOCKS: ${{ steps.areas.outputs.locks }}
           FMT: ${{ steps.areas.outputs.fmt }}
           # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
           # never to the repair it runs again on a moved tip.

@@ -1001,6 +1001,14 @@ fn undecodable_requests_reply_with_their_request_id() {
     }
 }
 
+/// The refusal a message gets once the daemon's shutdown or handoff began: not executed, with the
+/// stable code a client waits on for the shutdown notice.
+fn assert_refused_unexecuted(reply: &Value, id: u64) {
+    assert_eq!(reply["id"], id, "{reply}");
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], DAEMON_SHUTDOWN_PENDING_CODE, "{reply}");
+}
+
 #[test]
 fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     let mux = test_mux();
@@ -1040,6 +1048,8 @@ fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 
@@ -1065,6 +1075,8 @@ fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 

@@ -37,6 +37,19 @@ then starts every marker's tree jobs. Only when no waiter can take it over
 are the markers reported in red. One run that died (or whose jobs GitHub
 never created) no longer turns every commit waiting on its tree red.
 
+A same-tree run that reported a tree red leaves a marker of its own, marked
+`reported` (cmux_next_same_tree_failed.py; cmux-next.yml same-tree-cmux-tui):
+the record of that red, keyed by the tree. A publication dispatches it like
+any marker, so every tier the run reported red runs again, even when the
+marker that started the red run is gone (2026-11-11, cmux#40449 at ec4a30d2:
+the publish re-dispatched the daemon tests only, and `cmux app scheme compile
+(Debug) (same-tree)` stayed red from run 43009515785). A failed state never
+dispatches a reported marker: its red is already posted. Markers of one run
+(the same run name, commits and refs) start one same-tree run, with every
+tier any of them carries. The failed reason always names the tree (`tree
+<key>`): the same-tree run reads the tree's publish record by it, so a re-run
+of a red run whose tree has been published since starts the ready jobs.
+
 A pull request's same-tree run has a concurrency group of its own and no
 cancel, and is_current() is read only at the dispatch, so when the head moves
 on its older same-tree runs stay in the Mac queue (2026-11-09: 14 runs waiting
@@ -66,12 +79,15 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 from typing import Callable, Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - every call's transport: nothing is sent past its bound
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ISO_TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -110,48 +126,14 @@ class Api(Protocol):
 REQUEST_TIMEOUT_S = 30
 
 
-class RequestTimeout(TimeoutError):
-    """A call that did not finish within its whole-request bound. Its socket may still be open on the
-    abandoned worker thread, so a write (a dispatch, a cancel) may have reached GitHub, or may yet: the
-    caller treats it as unknown, never as done and never as refused."""
-
-
-def urlopen_within(request: urllib.request.Request, bound: float) -> tuple[int, bytes, dict[str, str]]:
-    """One HTTP call bounded as a whole: name lookup, connect, TLS, the status line, every header and the
-    body end within BOUND seconds on one monotonic clock, or RequestTimeout. urlopen's own timeout bounds
-    each socket wait, not the call: a server that sends a byte every few seconds holds it as long as it
-    likes (Codex review of #40530: a 204 after 0.293 s with a 0.1 s timeout). So the call runs on a
-    daemon thread joined with BOUND; its socket timeout is BOUND too, so an abandoned call ends soon after.
-    An HTTP error status is an answer, returned as (status, body, headers) like a success."""
-    outcome: list = []
-
-    def call() -> None:
-        try:
-            try:
-                # Read at call time: tests replace urllib.request.urlopen.
-                response = urllib.request.urlopen(request, timeout=bound)
-            except urllib.error.HTTPError as error:
-                response = error
-            with response:
-                outcome.append((response.status, response.read(),
-                                {k.lower(): v for k, v in (response.headers or {}).items()}))
-        except BaseException as error:  # handed to the caller's thread
-            outcome.append(error)
-
-    started = time.monotonic()
-    worker = threading.Thread(target=call, name="github-request", daemon=True)
-    worker.start()
-    worker.join(bound)
-    if worker.is_alive() or not outcome:
-        raise RequestTimeout(f"{request.get_method()} {request.full_url}: no full answer within {bound:g} s "
-                             f"({time.monotonic() - started:.1f} s)")
-    if isinstance(outcome[0], BaseException):
-        raise outcome[0]
-    return outcome[0]
+# A call that did not finish within its bound (deadline_http.RequestTimeout). It ran on the caller's
+# thread and stopped at its bound, so nothing was sent after it; a write sent before it (a dispatch, a
+# cancel) may have reached GitHub, so the caller treats it as unknown, never as done and never as refused.
+RequestTimeout = deadline_http.RequestTimeout
 
 
 class GitHub:
-    # Every call's whole-request bound (urlopen_within); a test sets a fraction of a second.
+    # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
     timeout: float = REQUEST_TIMEOUT_S
 
     def __init__(self, token: str, api_url: str = "https://api.github.com"):
@@ -168,7 +150,7 @@ class GitHub:
         # Unredirected: an artifact download redirects to blob storage, which
         # must not receive the token.
         request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        return urlopen_within(request, self.timeout)
+        return deadline_http.request(request, self.timeout)
 
     def _request(self, method: str, url: str, body: dict | None = None):
         status, payload, _ = self._send(method, url, body)
@@ -198,7 +180,7 @@ def fetch_completion(key: str) -> object | None:
     # The query string bypasses a cached 404 at the CDN edge.
     url = f"{TREE_BASE}/{key}/completion.json?notify={int(time.time())}"
     try:
-        status, payload, _ = urlopen_within(urllib.request.Request(url), REQUEST_TIMEOUT_S)
+        status, payload, _ = deadline_http.request(url, REQUEST_TIMEOUT_S)
         return json.loads(payload) if status == 200 else None
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
@@ -223,6 +205,8 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
         return None
     tiers = marker.get("tiers")
     if not isinstance(tiers, list) or not tiers or any(tier not in TIERS for tier in tiers):
+        return None
+    if not isinstance(marker.get("reported", False), bool):
         return None
     dev_daily = marker.get("dev_daily", False)
     if dev_daily:
@@ -306,6 +290,12 @@ def run_name(marker: dict) -> str:
     if marker.get("tip_suite") == "base":
         return f"cmux-next base tier · {marker['sha']}"
     return f"cmux-next · {marker['sha']}"
+
+
+def run_identity(marker: dict, repo: str) -> tuple:
+    """What makes two markers the same same-tree run: its name, commits, origin and dispatch refs."""
+    return (run_name(marker), marker["sha"], marker["status_sha"], marker["origin"],
+            tuple(dispatch_refs(marker, repo)))
 
 
 def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
@@ -455,6 +445,9 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             f"reporting run's conclusion; starting the tree jobs (ready)")
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
+    if f"tree {key}" not in reason:
+        # cmux_next_same_tree_failed.py reads the key from the reason (a dispatch input every cmux-next.yml has).
+        reason = f"tree {key}: {reason}" if reason else f"tree {key} is unavailable"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
     artifacts = [artifact for artifact in listing.get("artifacts", [])
                  if isinstance(artifact, dict) and not artifact.get("expired")]
@@ -500,6 +493,12 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                 f"failed markers are reported again")
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
+    # Markers of one same-tree run (run_identity) start it once, with every tier any of them carries.
+    tiers_of: dict[tuple, set[str]] = {}
+    for marker in markers.values():
+        if marker is not None:
+            tiers_of.setdefault(run_identity(marker, repo), set()).update(marker["tiers"])
+    started: set[tuple] = set()
     for artifact in artifacts[:MAX_MARKERS]:
         # from_same_repository (above) kept only artifacts whose workflow_run is an object.
         run_id = artifact["workflow_run"].get("id")
@@ -542,6 +541,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
                 f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
             continue
+        if state == "failed" and marker.get("reported"):
+            log(f"run {run_id}: its same-tree run {marker.get('reported_run') or '?'} already reported tree {key} "
+                f"red; not dispatched again (a publication of the key starts it)")
+            continue
+        identity = run_identity(marker, repo)
+        if identity in started:
+            log(f"run {run_id}: `{run_name(marker)}` was already started by another marker of it in this notify")
+            if state == "ready":
+                api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+            continue
         if state == "failed" and taken_over:
             log(f"run {run_id}: tree {key} was taken over by a waiting feat-cmux-next commit; not reported red "
                 f"(its marker stays, so the publication starts its tree jobs)")
@@ -555,7 +564,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         inputs = {
             "same_tree_sha": marker["sha"],
             "same_tree_status_sha": marker["status_sha"],
-            "same_tree_tiers": ",".join(marker["tiers"]),
+            "same_tree_tiers": ",".join(tier for tier in TIERS if tier in tiers_of[identity]),
             "same_tree_state": state,
             "same_tree_reason": reason[:900],
             "same_tree_origin": marker["origin"],
@@ -571,6 +580,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", {"ref": ref, "inputs": inputs})
             if status == 204:
                 dispatched += 1
+                started.add(identity)
                 log(f"run {run_id}: dispatched {WORKFLOW} same-tree mode ({state}) on {ref} "
                     f"for {marker['sha'][:12]}, tiers {inputs['same_tree_tiers']}")
                 if state == "ready":

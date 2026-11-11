@@ -56,13 +56,16 @@ const display = async (values: Record<string, unknown>) => {
 };
 
 /// Opens at the latest message, as a returning person does: the banner over the top, Jump up over
-/// the composer (the line is far above), Jump to latest hidden (at the latest message).
+/// the composer (the line is far above), Jump to latest hidden (at the latest message). With the
+/// banner off nothing draws it (SinceDivider.tsx `UnreadBanner`), so the view is ready once Jump up shows.
 const atLatest =
   (values: Record<string, unknown> = {}): Play =>
   async (ctx) => {
     await display(values);
     await settle(ctx);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump"));
+    const off = values["agentPane.display.unreadBanner"] === "off";
+    await ctx.waitFor(() => ctx.document.querySelector(off ? ".acpmux-jump-up[data-shown]" : ".acpmux-since-jump"));
+    if (off && ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
 /// Scrolled to the middle by hand: the stop is the reader's place, so Jump up waits for the line.
@@ -128,7 +131,15 @@ export default agentPaneEntry({
     "banner-off": {
       note: "Off (right-click > Hide unread banner): only the line and Jump up; the line's right-click brings it back.",
       snapshot,
-      play: atLatest({ "agentPane.display.unreadBanner": "off" }),
+      // Off draws no banner (SinceDivider.tsx returns none), so this waits for Jump up instead and
+      // holds the banner to being gone.
+      play: async (ctx) => {
+        await display({ "agentPane.display.unreadBanner": "off" });
+        await settle(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
+        if (ctx.document.querySelector(".acpmux-since-jump"))
+          throw new Error("with the banner off, the unread banner must not draw");
+      },
     },
     "jump-pair": {
       note: "Mid-chat: Jump up (to the New line) stacked on Jump to latest, one column on the composer's center line.",

@@ -36,7 +36,7 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-review-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-review-1".into(), row);
     hub
 }
 
@@ -100,7 +100,7 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-child-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-child-1".into(), row);
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "review/child"})).await;
     assert_eq!(reply["error"]["data"]["reason"], "session_ambiguous", "{reply}");
     let uses: Vec<&str> = reply["error"]["data"]["choices"]

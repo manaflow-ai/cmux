@@ -485,14 +485,16 @@ export function NewTabPage({
     if (composing.current || event.isComposing || event.keyCode === 229) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    // A prompt of several lines keeps ↑ and ↓ for its caret while there is a line to move to (the
-    // New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it they step the rows.
+    // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
+    // to move to (the New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it
+    // they step the rows.
     const plainArrow = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const onEdge = (direction: "up" | "down") => field.current?.caretOnEdgeLine(direction) ?? true;
     const movesCaret =
       plainArrow &&
       (event.key === "ArrowUp"
-        ? input.value.slice(0, input.selectionStart).includes("\n")
-        : event.key === "ArrowDown" && input.value.slice(input.selectionEnd).includes("\n"));
+        ? input.value.slice(0, input.selectionStart).includes("\n") || !onEdge("up")
+        : event.key === "ArrowDown" && (input.value.slice(input.selectionEnd).includes("\n") || !onEdge("down")));
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length && !movesCaret) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
