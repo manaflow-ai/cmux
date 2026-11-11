@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42994423084",
+  "recorded_at": "2026-11-11T09:28:27Z",
+  "reason": "cmux-tui 68853f7c9716 changes the image's cmux-tui (pinned ef384ddbc64d)",
+  "dry_run": false,
+  "cmux_tui": "68853f7c9716d9987e3d7090a257a1122580ee2f",
+  "fixes": [
+    {
+      "sha": "68853f7c9716d9987e3d7090a257a1122580ee2f",
+      "mergedAt": "2026-11-11T01:07:40-08:00",
+      "subject": "Every task and process has an owner: a dropped Child dies with its group, a Scope on Hub, Peer and Conn, and a spawn-owner ratchet (#41081)"
+    },
+    {
+      "sha": "a8227e4455ba3448ca95c9800e2cdaebb0fe3e3f",
+      "mergedAt": "2026-11-11T01:06:04-08:00",
+      "subject": "acpmux: our own senders prove themselves with a host token; Xcode's Python is no longer Xcode (#41064)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T09:28:27Z",
+    "snapshot_id": "sh-de711f17310d4da681a4cbf9d8b3d095",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42994423084): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "48fa861e46e0fd834a56745c10790c08fd76b5f2",
+    "image": "cloud-native-auto-68853f7c-42994423084-1",
+    "revision": "ci-42994423084-1",
+    "at": "2026-11-11T09:28:27Z"
+  },
+  "rolled_back": false
+}
