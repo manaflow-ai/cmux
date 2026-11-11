@@ -126,13 +126,6 @@ nonisolated enum AgentTabRemoteStart {
     /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
     static let timeout: Duration = .seconds(75)
 
-    /// The project list of a chat on another machine: its workspaces' folders, then the folders the
-    /// machine lists itself, each once, in that order.
-    static func folders(listed: [String], machine: [String]) -> [String] {
-        var seen = Set<String>()
-        return (listed + machine).filter { seen.insert($0).inserted }
-    }
-
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
