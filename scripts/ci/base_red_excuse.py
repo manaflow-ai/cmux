@@ -1661,6 +1661,14 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     return steps, tests, {error for _, error in step_errors(view)}
 
 
+def unnamed_tests(view: FailedView) -> list[str]:
+    """The runner lines of VIEW (failed_view) that report more failing tests than its lines name
+    (test_reds.unnamed_failures): with any, no comparison can tell its failures from a base's (#41166's review F2)."""
+    unnamed: list = []
+    test_reds.failed_tests(test_reds.lines_of(view_text(view)), unnamed)
+    return unnamed
+
+
 def step_errors(view: FailedView) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
     (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
@@ -1802,8 +1810,8 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                       "compare with the base")
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
-            raise Refused(f"'{name}': {why}; compared whole, {side} log says tests failed and names none of "
-                          f"them ({said[0][:200]}), so no failure can be told from another")
+            raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
+                          f"({said[0][:200]}), so no failure can be told from another")
     if head.steps != found.steps:
         raise Refused(f"'{name}': {why}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
@@ -4031,6 +4039,15 @@ def step_evidence(view: "FailedView | Unplaced", step_name: str) -> tuple[set[st
     return set(test_reds.failed_tests(texts)), errors
 
 
+def step_unnamed(view: FailedView, step_name: str) -> list[str]:
+    """test_reds.unnamed_failures of the section of VIEW's step STEP_NAME (step_evidence's lines): a failure no parser
+    names is never matched by the ones it does (#41166's review F2)."""
+    lines = [line for k, _, section in view.sections
+             if str(view.steps[k].get("name") or "") == step_name  # step-name: classify
+             for line in section]
+    return test_reds.unnamed_failures(test_reds.lines_of("\n".join(lines)))
+
+
 # The rollup's own list in its log (cmux-next.yml's "Fail on any red check"): one `::error title=cmux-next check::red
 # check: NAME` command per red check, which the runner prints as `##[error]red check: NAME` and GitHub turns into the
 # annotations rolled_up_reds reads, then `### N cmux-next check(s) failed` and one `- NAME (outcome)` line for each.
@@ -4278,6 +4295,9 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         if mine is None or not (mine[0] or mine[1]):
             new.append(f"'{step_name}': no failing test id or file:line error of its own to match")
             continue
+        if said := step_unnamed(view, step_name):
+            new.append(f"'{step_name}': it reports more failing tests than it names ({said[0][:200]})")
+            continue
         if not prior_view:
             prior_view.append(base_evidence(repo, base, name, prior_run, prior_job, github, run_reads)[1])
         theirs = step_evidence(prior_view[0], step_name) or (set(), set())
@@ -4391,6 +4411,10 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
     head_crash = crash_signals(head_view)
+    # A failure no parser names cannot be told from any base failure (#41166's review F2): refused whatever the base.
+    if said := unnamed_tests(head_view):
+        raise Refused(f"'{name}': its log reports more failing tests than it names ({said[0][:200]}), so no failure "
+                      "can be told from another")
     base_steps, base_tests, base_errors, on = set(), set(), set(), {}
     for run, _, (steps, tests, errors), *_ in window:
         base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
@@ -4430,13 +4454,17 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
-    # as the head has it, on one base verdict of the window (#41158's review F1: a cancelled step is not a failed one,
-    # and a step that failed twice is not the base's one failure).
-    best: Counter = Counter()
-    for _, view, *_ in window:
-        best |= failed_step_keys(view.job)
-    if missing := (mine := failed_step_keys(head_view.job)) - best:
-        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often: "
+    # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
+    # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
+    # the window's keys were merged (Counter |, the most of each key over the verdicts), so a head whose step failed
+    # and another of that name was cancelled matched a base verdict with the failure and an older one with the cancel,
+    # an identity no base run had.
+    mine = failed_step_keys(head_view.job)
+    gaps = [mine - failed_step_keys(view.job) for _, view, *_ in window]
+    if all(gaps):
+        missing = min(gaps, key=lambda gap: sum(gap.values()))
+        alone = ", each verdict alone" if len(window) > 1 else ""
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{alone}: "
                       f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
     if head_pairs is not None and compared[-1][0] == "errors":
         printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
@@ -4518,7 +4546,8 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
     found = test_reds.read(text)
     steps, _, errors = sig
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
-            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
+            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)
+            or unnamed_tests(view)):  # a failure no parser names is no quarantine's (#41166's review F2)
         return False
     # A generic failed test-named step must not borrow a quarantined test from another step: each failed section's own
     # lines name its quarantined tests.
