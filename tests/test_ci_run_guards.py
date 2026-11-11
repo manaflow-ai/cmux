@@ -400,7 +400,8 @@ class PortableSubstitutes(unittest.TestCase):
         )
         # Every line of the real ci-guard.sh is one the substitute recognizes.
         text = (ROOT / "scripts/ci/workloads/ci-guard.sh").read_text(encoding="utf-8")
-        stubbed = re.sub(r"(?m)^(\./|python3 )(?!\"\$root).*$", "bash -c true", text)
+        stubbed = re.sub(r"(?m)^(check )?(\./|python3 )(?!\"\$root).*$", r"\1bash -c true", text)
+        self.assertIn("check bash -c true", stubbed)
         result = self.run_payload(stubbed)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

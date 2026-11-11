@@ -372,6 +372,10 @@ jobs:
             status=$?
           fi
           [[ ! -f "$result_path" ]] || cat "$result_path"
+          # ci-guard.sh's per-command and per-test checks (run_ci_guards.py --results).
+          if [[ -n "${CMUX_GUARD_CHECK_RESULTS:-}" && -f "$state_root/guard-checks.tsv" ]]; then
+            cat "$state_root/guard-checks.tsv" >> "$CMUX_GUARD_CHECK_RESULTS"
+          fi
           exit "$status"
 
       - name: Validate tagged reload works without the shared dev backend
