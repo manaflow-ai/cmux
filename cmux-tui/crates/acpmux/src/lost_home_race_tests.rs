@@ -2,7 +2,7 @@
 //! (`config::refuse_lost_home`), then writes. A home replaced after the check passed and before
 //! the write must not get the write: the writer goes through the folder this daemon locked
 //! (`config::hold_home`, `home_fs`), so the write lands in the folder that was moved away, or
-//! nowhere. Each test holds its writer at the end of that check (`config::seams::CHECKED`),
+//! nowhere. Each test holds its writer at the end of that check (`config::seams::on_checked`),
 //! asserts the check passed there, replaces the home, lets the writer go on, and asserts the new
 //! home holds nothing the writer made (and, for a removal, lost nothing).
 //!
@@ -63,7 +63,7 @@ pub(crate) fn replace(home: &Path) {
 }
 
 /// Every name below `dir`, folders too, relative to it and sorted.
-fn tree(dir: &Path) -> Vec<String> {
+pub(crate) fn tree(dir: &Path) -> Vec<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -79,26 +79,41 @@ fn tree(dir: &Path) -> Vec<String> {
     out
 }
 
-/// The path whose check the test holds, and the held check: whether it passed, and whether the
-/// test let it go on.
-static TARGET: Mutex<Option<PathBuf>> = Mutex::new(None);
-static HELD: Mutex<(Option<bool>, bool)> = Mutex::new((None, false));
-static MOVED: Condvar = Condvar::new();
+/// A copy of the tree at `from` made at `to`: a seed for a new home restored from the old one,
+/// so a writer that reads the new home by path and writes the held one finds the same state in
+/// both, and a write by path would change the new home.
+pub(crate) fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let (path, target) = (entry.path(), to.join(entry.file_name()));
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
 
-/// `seams::CHECKED`: holds the first check of the target, when it passed, until the test lets
-/// it go on. Every other check goes on.
-fn at_check(path: &Path, passed: bool) {
-    if TARGET.lock().unwrap().as_deref() != Some(path) {
+/// The held check: whether it passed, and whether the test let it go on; and the writer's
+/// signal that it reached the hold, or the test's that it may go on.
+type Hold = std::sync::Arc<(Mutex<(Option<bool>, bool)>, Condvar)>;
+
+/// The writer thread's `seams::on_checked` hook: holds the first check of `target`, when it
+/// passed, until the test lets it go on. Every other check goes on.
+fn at_check(hold: &Hold, target: &Path, path: &Path, passed: bool) {
+    if path != target {
         return;
     }
-    let mut held = HELD.lock().unwrap();
+    let (held, moved) = &**hold;
+    let mut held = held.lock().unwrap();
     if held.0.is_some() {
         return;
     }
     held.0 = Some(passed);
-    MOVED.notify_all();
+    moved.notify_all();
     if passed {
-        let _released = MOVED.wait_while(held, |held| !held.1).unwrap();
+        let _released = moved.wait_while(held, |held| !held.1).unwrap();
     }
 }
 
@@ -106,21 +121,30 @@ fn at_check(path: &Path, passed: bool) {
 /// held at the end of its check of `target`, which must have passed; the home is replaced and
 /// `seed` fills the new one (another daemon's files); then the writer goes on. The new home
 /// must hold exactly what `seed` made, and `kept` (relative to the home) must be in the folder
-/// that was moved away: the write went through the folder this daemon locked.
-fn forced(
+/// that was moved away: the write went through the folder this daemon locked. The hook is the
+/// writer thread's own, so the check must run on that thread.
+pub(crate) fn forced(
     home: &Path,
     target: PathBuf,
     seed: impl FnOnce(&Path),
     kept: Option<&str>,
     write: impl FnOnce() + Send + 'static,
 ) {
-    *TARGET.lock().unwrap() = Some(target.clone());
-    crate::config::seams::CHECKED.set(at_check).unwrap();
     crate::config::hold_home();
-    let writer = std::thread::spawn(write);
+    let hold: Hold = Default::default();
+    let writer = {
+        let (hold, target) = (hold.clone(), target.clone());
+        std::thread::spawn(move || {
+            let _hook = crate::config::seams::on_checked(move |path, passed| {
+                at_check(&hold, &target, path, passed)
+            });
+            write();
+        })
+    };
+    let (held, moved) = &*hold;
     // timeout: only a writer that never checks `target` ends here; the order is the hook's.
-    let (held, waited) = MOVED
-        .wait_timeout_while(HELD.lock().unwrap(), Duration::from_secs(120), |held| held.0.is_none())
+    let (held, waited) = moved
+        .wait_timeout_while(held.lock().unwrap(), Duration::from_secs(120), |held| held.0.is_none())
         .unwrap();
     assert!(!waited.timed_out(), "the writer never checked {}", target.display());
     // The hold point is reached in the state this test names: the check passed, before the
@@ -131,9 +155,9 @@ fn forced(
     seed(home);
     let seeded = tree(home);
     {
-        let mut held = HELD.lock().unwrap();
-        held.1 = true;
-        MOVED.notify_all();
+        let (held, moved) = &*hold;
+        held.lock().unwrap().1 = true;
+        moved.notify_all();
     }
     writer.join().unwrap();
     assert_eq!(tree(home), seeded, "the held writer changed the new home");
@@ -143,7 +167,7 @@ fn forced(
     }
 }
 
-fn nothing(_: &Path) {}
+pub(crate) fn nothing(_: &Path) {}
 
 #[cfg(unix)]
 #[test]
@@ -417,6 +441,55 @@ fn an_acp_models_list_held_past_its_check() {
                 let cache = crate::live_models::AcpCache::new(dir);
                 let _ = cache.store("agent", "profile", &[("m".to_owned(), "M".to_owned())]);
             });
+        },
+        |_, _| {},
+    );
+}
+
+/// The host's sender token (`sender-token`), made at the daemon's start: written to a temporary
+/// file and hard-linked into place. A replaced home never gets this host's token (#41372 review
+/// F1): a sender holding the new home's file would be verified by it.
+#[cfg(unix)]
+#[test]
+fn the_sender_token_held_past_its_check() {
+    isolated(
+        module_path!(),
+        "the_sender_token_held_past_its_check",
+        |home| {
+            let owned = home.to_path_buf();
+            let target = crate::sender_token::path_in(home);
+            forced(home, target, nothing, Some(crate::sender_token::FILE), move || {
+                let _ = crate::sender_token::ensure(&owned);
+            });
+        },
+        |_, _| {},
+    );
+}
+
+/// `home_fs::remove_dir_all` under the held home removes a symlink itself (never what it names)
+/// and refuses a file that is not a folder, keeping it, as `std::fs::remove_dir_all` does
+/// (#41372 review F4).
+#[cfg(unix)]
+#[test]
+fn removing_a_tree_refuses_a_file_and_removes_only_a_link() {
+    isolated(
+        module_path!(),
+        "removing_a_tree_refuses_a_file_and_removes_only_a_link",
+        |home| {
+            crate::config::hold_home();
+            let file = home.join("a-file");
+            std::fs::write(&file, b"kept").unwrap();
+            let removed = crate::home_fs::remove_dir_all(&file);
+            assert!(removed.is_err(), "a file was removed as a tree: {removed:?}");
+            assert_eq!(std::fs::read(&file).unwrap(), b"kept", "the file was not kept");
+            let target = home.join("named");
+            std::fs::create_dir(&target).unwrap();
+            std::fs::write(target.join("inside"), b"kept").unwrap();
+            let link = home.join("link");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            crate::home_fs::remove_dir_all(&link).expect("a symlink is removed");
+            assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink stayed");
+            assert!(target.join("inside").exists(), "the symlink was followed");
         },
         |_, _| {},
     );

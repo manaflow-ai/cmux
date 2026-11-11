@@ -404,3 +404,24 @@ mod tests {
         assert!(downscale(std::io::Cursor::new(b"not a png".to_vec()), 1568).is_none());
     }
 }
+
+/// A model-sized copy saved beside its upload (#41372 review F5): held past its home check
+/// and the home replaced, the copy lands in the held home and the new one gets nothing.
+#[cfg(unix)]
+#[test]
+fn a_model_copy_save_held_past_its_check() {
+    use crate::lost_home_race_tests::{forced, isolated, nothing};
+    isolated(
+        module_path!(),
+        "a_model_copy_save_held_past_its_check",
+        |home| {
+            let dir = home.join("uploads").join("chat-a").join(uuid::Uuid::now_v7().to_string());
+            std::fs::create_dir_all(&dir).unwrap();
+            let saved = dir.join(".model-1568.png");
+            let kept = saved.strip_prefix(home).unwrap().to_string_lossy().into_owned();
+            let target = saved.clone();
+            forced(home, target, nothing, Some(&kept), move || save(&saved, b"png bytes"));
+        },
+        |_, _| {},
+    );
+}

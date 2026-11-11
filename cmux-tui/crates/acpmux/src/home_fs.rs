@@ -219,12 +219,10 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Called once a file's temporary copy is written and synced, before it is renamed over the
-/// file: a test may end the process there (`config::seams::BEFORE_RENAME`).
+/// file: a test may end the process there (`config::seams::on_before_rename`).
 pub(crate) fn before_rename(path: &Path) {
     #[cfg(test)]
-    if let Some(hook) = crate::config::seams::BEFORE_RENAME.get() {
-        hook(path);
-    }
+    crate::config::seams::before_rename(path);
     let _ = path;
 }
 
