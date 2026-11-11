@@ -1653,10 +1653,11 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement and no client holds an attach
-    /// stream on it (the unplaced-terminal reaper). The close checks both
-    /// once it holds its locks, so an attach that lands before then keeps
-    /// the terminal (feat `UnplacedNotKeptAndDetached`).
+    /// The terminal has no tab placement, no client holds an attach stream
+    /// on it, and the daemon is not in a shutdown handoff (the
+    /// unplaced-terminal reaper). The close checks these once it holds its
+    /// locks, so an attach or a handoff that lands before then keeps the
+    /// terminal (feat `UnplacedNotKeptAndDetached`).
     UnplacedAndDetached,
 }
 
@@ -1666,7 +1667,8 @@ impl TerminalCloseGuard {
         !matches!(self, Self::None)
     }
 
-    /// The close needs no attach stream on the terminal.
+    /// The close needs no attach stream on the terminal and no daemon
+    /// shutdown handoff in progress (the reaper's guard gates both checks).
     pub(crate) fn requires_detached(self) -> bool {
         matches!(self, Self::UnplacedAndDetached)
     }
@@ -1679,6 +1681,8 @@ pub(crate) enum TerminalCloseGuardFailed {
     Placed,
     /// A client holds an attach stream on the terminal.
     Attached,
+    /// The daemon is in a shutdown handoff: the next owner gets the terminal.
+    HandingOff,
 }
 
 impl fmt::Display for TerminalCloseGuardFailed {
@@ -10806,7 +10810,7 @@ impl Mux {
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             if guard.requires_unplaced() {
-                let (placed, attached) = {
+                let (placed, attached, handing_off) = {
                     let state = self.state.lock().unwrap();
                     let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
@@ -10817,13 +10821,18 @@ impl Mux {
                         && state.terminal_catalog.values().any(|runtime| {
                             hosts(runtime) && self.terminal_view_attached(runtime.id)
                         });
-                    (placed, attached)
+                    let handing_off =
+                        guard.requires_detached() && self.daemon_handoff_in_progress();
+                    (placed, attached, handing_off)
                 };
                 if placed {
                     return Err(TerminalCloseGuardFailed::Placed.into());
                 }
                 if attached {
                     return Err(TerminalCloseGuardFailed::Attached.into());
+                }
+                if handing_off {
+                    return Err(TerminalCloseGuardFailed::HandingOff.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;
