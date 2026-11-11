@@ -274,6 +274,21 @@ def guest_has(journey: Journey, machine: str, needle: str) -> bool:
     return bool(str(answer.get("stdout") or "").strip())
 
 
+def guest_peek(journey: Journey, machine: str) -> str:
+    """What the machine shows when the reply never came: its agents' transcript folders and the newest
+    transcript's last lines (no reply token: did the agent start, ask for a sign-in, or fail?)."""
+    command = ('for d in "$HOME/.claude/projects" /home/cmux/.claude/projects /root/.claude/projects '
+               '"$HOME/.codex/sessions" /home/cmux/.codex/sessions; do [ -d "$d" ] && echo "dir $d"; done; '
+               'f=$(ls -t $(find "$HOME" /home/cmux /root -path "*/.claude/projects/*.jsonl" -o '
+               '-path "*/.codex/sessions/*.jsonl" 2>/dev/null) 2>/dev/null | head -n 1); '
+               '[ -n "$f" ] && echo "newest $f" && tail -c 1500 "$f"; '
+               'pgrep -fl "claude|codex|acpmux" 2>/dev/null | head -n 5')
+    code, out, err = journey.cmux("cloud", "exec", "--target", f"machine:{machine}", "--command", command, "--json",
+                                  timeout=120)
+    answer = journey.parsed(out) if code == 0 else {}
+    return clean(str(answer.get("stdout") or err or out), 1800)
+
+
 def new_machines(journey: Journey, before: set[str], since: float) -> list[str]:
     """Machines this app made since the cell began: its own creations first, else new ids not named by
     another run (the account is shared with other CI runs, whose machines are never ours to delete)."""
@@ -421,6 +436,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             time.sleep(10)
         cell["replied"] = replied
         if not replied:
+            if machine:
+                cell["guest_peek"] = guest_peek(journey, machine)
             problems.append("started, but no reply from the agent" if machine else "started, but no machine to read")
     elif outcome in ("refused", "kept"):
         if made:
@@ -536,7 +553,8 @@ def grid(cells: list[dict]) -> str:
     return "\n".join(rows) + "\n"
 
 
-def finish(report: dict, out: Path, code: int) -> int:
+def finish(report: dict, out: Path, code: int, quiet: bool = False) -> int:
+    """Writes journey.json and journey.md; also after every cell (`quiet`), so a step timeout keeps them."""
     text = json.dumps(report, indent=2)
     if EVIDENCE_SCAN.search(text):
         text = json.dumps({"tag": report.get("tag"), "result": report.get("result"),
@@ -544,7 +562,8 @@ def finish(report: dict, out: Path, code: int) -> int:
     (out / "journey.json").write_text(text + "\n")
     head = f"## Cloud composer journey ({report.get('tag')}{', nightly ' + report['nightly'] if report.get('nightly') else ''})\n\n"
     (out / "journey.md").write_text(head + f"{report.get('result', '')}\n\n" + grid(report.get("cells") or []))
-    print((out / "journey.md").read_text(), flush=True)
+    if not quiet:
+        print((out / "journey.md").read_text(), flush=True)
     return code
 
 
@@ -622,7 +641,11 @@ def main(argv=None) -> int:
                 else:
                     cell = cell_cli(journey, folder_kind, fixtures[folder_kind], account, mode, args.timeout)
                 report["cells"].append(cell)
-                print(f"[{cell['result'][:160]}] {folder_kind}/{account}/{mode}", flush=True)
+                print(f"{folder_kind}/{account}/{mode} outcome={cell.get('outcome', '')} "
+                      f"made={len(cell.get('machines_made') or [])} message={clean(str(cell.get('message') or ''), 160)!r} "
+                      f"[{cell['result'][:400]}]", flush=True)
+                report["result"] = f"running: {len(report['cells'])} cells so far"
+                finish(report, out, 0, quiet=True)
         left: list[str] = []
         report["machines_left"] = sorted({m for c in report["cells"] for m in (c.get("machines_left") or [])}) + left
         failed = [c for c in report["cells"] if not c["result"].startswith(("pass", "skipped"))]

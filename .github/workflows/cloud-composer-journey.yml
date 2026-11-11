@@ -261,7 +261,9 @@ jobs:
 
       - name: The composer matrix
         id: journey
-        timeout-minutes: 150
+        # 20 cells of up to 20 min each (a start's 600 s, then its reply's); the harness writes journey.json
+        # after every cell, so a timeout still uploads the cells that ran (run 42992320404 lost them at 150).
+        timeout-minutes: 220
         env:
           ONLY: ${{ inputs.only }}
           CMUX_JOURNEY_PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
