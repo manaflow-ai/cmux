@@ -1301,10 +1301,25 @@ _WRAPPERS = {"builtin": (), "command": ("-p",)}
 
 
 def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
-    """A simple command's name (after its VAR=value words) and its arguments' text."""
+    """A simple command's name (after its VAR=value words and any _WRAPPERS in front of it) and its
+    arguments' text. A wrapper with nothing after it, or with an option this check does not read
+    (`command -v cd`, a lookup), is itself the name."""
     at = 0
     while at < len(command) and not command[at].quoted and _SHELL_ASSIGNMENT.match(command[at].raw):
         at += 1
+    while at < len(command) and command[at].text in _WRAPPERS:
+        after = at + 1
+        while after < len(command) and command[after].text.startswith("-") and command[after].text != "-":
+            if command[after].text == "--":
+                after += 1
+                break
+            if command[after].text not in _WRAPPERS[command[at].text]:
+                after = len(command) + 1  # an option it does not run a command with
+                break
+            after += 1
+        if after >= len(command):
+            break
+        at = after
     if at == len(command):
         return None, []
     return command[at], [tok.text for tok in command[at + 1 :]]
@@ -1328,7 +1343,7 @@ class _Shell:
         (exit-time signals only) matter; every other command may succeed or fail and changes nothing.
 
     Anything else gives up: case, functions, arrays, [[ ]], (( )), eval, source, ., pushd, popd,
-    exec with a command, builtin/command cd, a command name built from a variable or substitution,
+    exec with a command, a command name built from a variable or substitution,
     shopt, CDPATH, a trap that can run mid-step, a here-doc (after its line), or a line that does not
     lex. Structure comes only from unquoted operators (_shell_tokens).
 
@@ -1429,8 +1444,8 @@ class _Shell:
             return True
         if "$" in name.raw or "`" in name.raw or name.text in _GIVES_UP:
             return False  # a computed name may be cd
-        if name.text in ("builtin", "command") and set(words) & {"cd", "pushd", "popd", "eval", "source", "."}:
-            return False
+        # A wrapper left as the name ran nothing (`command -v cd` looks it up): _command_name unwraps
+        # every one that runs a command.
         if name.text == "exec" and words:
             return False
         if name.text == "shopt" and set(words) & {"cdable_vars", "autocd", "lastpipe"}:
@@ -1656,19 +1671,51 @@ class _Shell:
             if toks is None:
                 return True
             later.append(toks)
-        depth, opened = 0, False
+        # A for header's words are plain words, `do` and `done` included (`for v in do done; do`):
+        # header is "name" after `for`, "after" after its name, "list" in its `in` list.
+        depth = 0
+        header = "name" if self._toks[self._at].text == "for" else None
         for toks in later:
             previous = None
             for tok in toks:
                 if tok.kind in ("word", "bad") and tok.text in ("cd", "pushd", "popd"):
                     return True
-                command_word = previous is None or previous.kind == "op" or previous.text in _LEADING_RESERVED
-                if tok.kind == "word" and not tok.quoted and command_word and tok.text in ("do", "done"):
-                    depth += 1 if tok.text == "do" else -1
-                    opened = True
-                    if depth == 0:
-                        return False
+                plain = tok.kind == "word" and not tok.quoted
+                if header == "name":
+                    if tok.kind != "word":
+                        return True  # not a header this check reads: unknown
+                    header = "after"
+                elif header == "after":
+                    if plain and tok.text == "in":
+                        header = "list"
+                    elif plain and tok.text == "do":
+                        header, depth = None, depth + 1
+                    elif tok.kind == "op" and tok.text in (";", "\n"):
+                        header = None
+                    else:
+                        return True
+                elif header == "list":
+                    if tok.kind == "op":
+                        if tok.text not in (";", "\n"):
+                            return True
+                        header = None
+                    elif tok.kind != "word":
+                        return True
+                else:
+                    command_word = previous is None or previous.kind == "op" or previous.text in _LEADING_RESERVED
+                    if plain and command_word and tok.text == "for":
+                        header = "name"
+                    elif plain and command_word and tok.text in ("do", "done"):
+                        depth += 1 if tok.text == "do" else -1
+                        if depth == 0:
+                            return False
+                        if depth < 0:
+                            return True
                 previous = tok
+            if header == "name":
+                return True
+            if header in ("after", "list"):
+                header = None  # the line's end ends the header, as ; does
         return True
 
     def _word(self, tok: _Tok) -> bool:
@@ -2159,7 +2206,7 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     (". /dev/null\npython3 x", True, "x", None),
     ("pushd scripts/ci\npython3 x", True, "x", None),
     ("popd\npython3 x", True, "x", None),
-    ("builtin cd scripts/ci\npython3 x", True, "x", None),
+    ("builtin cd scripts/ci\npython3 x", True, "x", _CI),  # builtin cd is cd (review of #41199)
     ("D=cd; $D scripts/ci\npython3 x", True, "x", None),
     ("$(echo cd) scripts/ci\npython3 x", True, "x", None),
     ("CDPATH=scripts cd ci\npython3 x", True, "x", None),
@@ -2176,11 +2223,13 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("trap 'rm -f t' EXIT\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("trap - INT\ntrap '' TERM\ncd scripts/ci\npython3 x", True, "x", _CI),
     # Review of #41199: a for list's words are plain words, do and done included; a wrapped shopt is
-    # shopt.
+    # shopt. A wrapped cd is cd; `command -v` only looks the name up.
     ("for v in do done; do python3 x; cd scripts; done", True, "x", None),
     ("builtin shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
     ("command shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
     ("command -p -- shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
+    ("command -p cd scripts/ci\npython3 x", True, "x", _CI),
+    ("command -v cd\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("for v in a b; do true; done\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
