@@ -985,7 +985,8 @@ the request) refuses it as an unknown parameter, and only then the command
 sends the plain `terminal.close`, which also ends a kept or attached terminal. Any other
 failure leaves that terminal to the reaper.
 The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
-the exit code go there, and the reaper ends it after its grace. The result is
+the exit code go there, and the reaper ends it after its grace. The close
+step sends `--keep-terminals`, so these ends are the only ones. The result is
 the close result plus `worktree`, the removal, and `ended_terminals`, the
 terminals it ended (one it did not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
@@ -995,8 +996,18 @@ the steps before it `made`.
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
-pane, screen, and workspace closes detach PTY views; only `terminal close`
-ends the session-owned process and removes all of its placements.
+pane, screen, and workspace closes end what they close: each terminal the
+close leaves with no tab ends in the same commit (`terminals: "end"`), except
+one marked `keep` and the caller's own terminal, which keep running with no
+tab. `--keep-terminals` (`terminals: "keep"`) leaves them all running; the
+reaper ends an unkept one after its grace. The `--json` value names
+`ended_terminal_ids` and `running_terminal_ids`; the text output adds
+`terminals ended: <n>` and, for the running ones, their ids with `cmux
+terminal list` to see them and `cmux terminal <id> close` to end one. A daemon
+without `close-ends-terminals-v1` gets the close without `terminals` and only
+detaches. `terminal close` ends one terminal and removes all of its
+placements. `agent list` shows an agent of an ended terminal as `ended` (left
+out unless `--state ended`).
 `terminal <selector> close --if-unplaced` sends `if_unplaced: true`: it ends
 the terminal only when it has no tab, no `keep` mark and no attach stream, and
 otherwise fails and changes nothing.
@@ -1005,8 +1016,10 @@ otherwise fails and changes nothing.
 `layout.bulk` close: the selected object's siblings in its pane, screen,
 workspace or session close in one commit as one closed-history group, which
 `closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
-`--include-pinned`; the home workspace never closes; `--end-terminals` ends
-the terminals the close leaves without a view.
+`--include-pinned`; the home workspace never closes. The bulk close also
+ends the terminals it leaves without a view (except a kept one and the
+caller's own); `--keep-terminals` leaves them running (`--end-terminals`, now
+the default, stays accepted).
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.

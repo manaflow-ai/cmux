@@ -8032,6 +8032,56 @@
             }
           },
           "description": "With `report_closed_ids`: the `closed.list` groups this close stored, oldest first (empty for an ephemeral workspace); `closed.reopen` of each restores exactly what it closed. Absent without `report_closed_ids`, and on a replay of a close committed before the groups were recorded."
+        },
+        "ended_terminal_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "With `terminals`: the terminals this close ended, each one it left with no tab that was not marked `keep` and was not the caller's own terminal. Absent without `terminals`, and on a replay of a close committed before it was recorded."
+        },
+        "running_terminal_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "With `terminals`: the terminals this close left running with no tab (marked `keep`, the caller's own terminal, or every one with `terminals: keep`). `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
+        }
+      },
+      "extra": false
+    },
+    "TopologyCloseResult": {
+      "kind": "object",
+      "fields": {
+        "ended_terminal_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "With `terminals`: the terminals this close ended, each one it left with no tab that was not marked `keep` and was not the caller's own terminal. Absent without `terminals`, and on a replay of a close committed before it was recorded."
+        },
+        "running_terminal_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "description": "With `terminals`: the terminals this close left running with no tab (marked `keep`, the caller's own terminal, or every one with `terminals: keep`). `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
         }
       },
       "extra": false
@@ -29350,6 +29400,17 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "terminals": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "end",
+                "keep"
+              ]
+            },
+            "description": "What happens to each terminal the close leaves with no tab. `end` (the default): it ends, unless it is marked `keep` or is the caller's own terminal; those stay running. `keep`: every one stays running with no tab (the terminal reaper ends an unkept one after its grace). When present, the result names them (`ended_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -29360,7 +29421,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "TopologyCloseResult"
           }
         ]
       },
@@ -31866,6 +31927,17 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "terminals": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "end",
+                "keep"
+              ]
+            },
+            "description": "What happens to each terminal the close leaves with no tab. `end` (the default): it ends, unless it is marked `keep` or is the caller's own terminal; those stay running. `keep`: every one stays running with no tab (the terminal reaper ends an unkept one after its grace). When present, the result names them (`ended_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -31876,7 +31948,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "TopologyCloseResult"
           }
         ]
       },
@@ -36026,6 +36098,17 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "terminals": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "end",
+                "keep"
+              ]
+            },
+            "description": "What happens to each terminal the close leaves with no tab. `end` (the default): it ends, unless it is marked `keep` or is the caller's own terminal; those stay running. `keep`: every one stays running with no tab (the terminal reaper ends an unkept one after its grace). When present, the result names them (`ended_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -36036,7 +36119,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "TopologyCloseResult"
           }
         ]
       },
@@ -39228,6 +39311,17 @@
               "name": "boolean"
             },
             "description": "When true, the result value names the closed groups the close stored (`closed_ids`). Omitted or false: the value is empty, as before."
+          },
+          "terminals": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "end",
+                "keep"
+              ]
+            },
+            "description": "What happens to each terminal the close leaves with no tab. `end` (the default): it ends, unless it is marked `keep` or is the caller's own terminal; those stay running. `keep`: every one stays running with no tab (the terminal reaper ends an unkept one after its grace). When present, the result names them (`ended_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false

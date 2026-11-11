@@ -500,6 +500,7 @@ declare namespace Cmux {
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
   type Timestamp = string
+  type TopologyCloseResult = { ended_terminal_ids?: Array<string /* terminal_… */>; running_terminal_ids?: Array<string /* terminal_… */> }
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
   type TriggerInput = unknown
@@ -526,7 +527,7 @@ declare namespace Cmux {
   type WorkspaceChecklistItem = { id: string; text: string; state: Cmux.WorkspaceChecklistItemState; origin: Cmux.WorkspaceChecklistItemOrigin; attachments: Array<Cmux.WorkspaceChecklistAttachment>; created_at_ms: string; updated_at_ms: string }
   type WorkspaceChecklistItemOrigin = "user" | "agent"
   type WorkspaceChecklistItemState = "todo" | "in_progress" | "done"
-  type WorkspaceCloseResult = { closed_ids?: Array<Cmux.StateId> }
+  type WorkspaceCloseResult = { closed_ids?: Array<Cmux.StateId>; ended_terminal_ids?: Array<string /* terminal_… */>; running_terminal_ids?: Array<string /* terminal_… */> }
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
   type WorkspaceLogLevel = "info" | "progress" | "success" | "warning" | "error"

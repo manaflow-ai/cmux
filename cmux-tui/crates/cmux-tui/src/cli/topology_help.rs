@@ -10,9 +10,9 @@ USAGE
   cmux workspace create --worktree <name> [--repo <path>] [--base <revision>] [--name <value>] [--focus]
     [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
-  cmux workspace <selector> close [--report-closed-ids]
+  cmux workspace <selector> close [--report-closed-ids] [--keep-terminals]
   cmux workspace <selector> close --remove-worktree [--discard]
-  cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
+  cmux workspace <selector> close --others|--to-right|--to-left|--all [--keep-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
@@ -62,6 +62,9 @@ close with --others, --to-right, --to-left or --all closes the selected
 workspace's siblings (the session's workspaces, the home one never) as one
 closed group: one `cmux closed reopen` restores them all. The same flags on
 screen, pane and tab close work in the screen, pane or tab bar.
+A close ends the terminals it leaves with no tab, except one marked keep and
+the caller's own; it names the ones still running (see them with
+`cmux terminal list`). --keep-terminals leaves them all running.
 open-url opens an http(s) link on the workspace's right side (without a
 selector, the home workspace): it navigates the browser tab shown there last,
 else opens a browser tab, never in the agent chat dock, and keeps the focus.
@@ -119,7 +122,8 @@ USAGE
   cmux pane create [--cwd <path>] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
-  cmux pane <selector> close --others|--all
+  cmux pane <selector> close [--keep-terminals]
+  cmux pane <selector> close --others|--all [--keep-terminals]
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
     [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
@@ -141,6 +145,9 @@ USAGE
 
 list --name <name> keeps the panes named exactly <name>; list --cwd <path>
 keeps those with a terminal in <path> or a folder inside it.
+close ends the terminals it leaves with no tab, except one marked keep and the
+caller's own, and names the ones still running; --keep-terminals leaves them
+all running.
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -179,7 +186,9 @@ pub(super) const TAB_HELP: &str = "\
 USAGE
   cmux tab list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
   cmux tab <selector> show|focus|close
+  cmux tab <selector> close [--keep-terminals]
   cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
+    [--keep-terminals]
   cmux tab <selector> rename <name>|--name <name>
   cmux tab <selector> move --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
@@ -212,6 +221,9 @@ USAGE
   cmux tab group saved <saved> reopen [--pane <pane_…>]
   cmux tab group saved <saved> delete
 
+close ends the tab's terminal when no other tab shows it, unless it is marked
+keep or is the caller's own; it names a terminal it leaves running (see it
+with `cmux terminal list`). --keep-terminals leaves it running.
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
 name. A group has no color until one is given: grey, blue, red, yellow, green,

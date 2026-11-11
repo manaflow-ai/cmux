@@ -744,25 +744,11 @@ fn session_snapshot_with_journal_head(
                 snapshot
             })
             .collect::<Vec<_>>();
-        let mut agents = public_projections
-            .agents
+        // The rows `agent.list` shows, from the same reader: an agent of an
+        // ended terminal is `done` there too (W7-C).
+        let mut agents = registry
+            .public_agent_projections(None, None)?
             .into_iter()
-            .filter(|agent| {
-                (agent.source != "hook" || agent.state != "done")
-                    && !agent
-                        .source_session
-                        .as_deref()
-                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
-            })
-            .map(|mut agent| {
-                if agent.source_session.as_deref().is_some_and(|value| {
-                    value.starts_with("cmux-hook-sequence:")
-                        || value.starts_with("cmux-hook-ended:")
-                }) {
-                    agent.source_session = None;
-                }
-                agent
-            })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
             .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))

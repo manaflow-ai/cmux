@@ -11,6 +11,7 @@ impl Mux {
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
+        actor: &Actor,
     ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
         #[cfg(test)]
@@ -23,12 +24,21 @@ impl Mux {
             .effect_slots(&path)?
             .workspace
             .context("topology close target has no workspace")?;
+        // The public router sets `terminals` (default `end`); the legacy raw
+        // closes and the in-process callers send no field and detach, as
+        // before. The field is in the fingerprint, so a retry decides alike.
+        let terminals = match fingerprint.pointer("/fields/terminals").and_then(Value::as_str) {
+            Some("end") => Some(CloseTerminals::end_for(actor)),
+            Some(_) => Some(CloseTerminals::Keep),
+            None => None,
+        };
         self.commit_resource_close_with(
             operation,
             Some(workspace),
             idempotency_key,
             operation_name,
             fingerprint,
+            terminals.as_ref(),
             move |state, _| self.effect_slots_in_state(state, &path),
         )
     }
@@ -50,6 +60,7 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
+            None,
             move |state, _| {
                 anyhow::ensure!(state.surfaces.contains_key(&surface), "content disappeared");
                 let pane = state.pane_of(surface).context("content has no pane")?;
@@ -91,6 +102,7 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
+            None,
             move |state, registry| {
                 if guard.requires_unplaced() {
                     // A terminal with no durable host has no keep mark to
@@ -362,7 +374,11 @@ impl Mux {
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
-        self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        self.finish_resource_close(CommittedResourceClose {
+            commit: resource,
+            effects,
+            ended: EndedTerminals::default(),
+        });
         self.after_terminal_close(&public_id, terminal_id, &terminal.result, pending);
         Ok(Some(TerminalCloseResult {
             surface: target,
@@ -527,6 +543,7 @@ impl Mux {
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
+        terminals: Option<&CloseTerminals>,
         resolve_slots: impl FnOnce(&State, &WorkspaceRegistry) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
@@ -557,6 +574,15 @@ impl Mux {
             &notifications,
             true,
         )?;
+        // W7-C: one rule with the batch closes. A public close ends the
+        // terminals it leaves with no view (or, with `terminals: keep`, only
+        // lists them) and names both sets in its stored result.
+        let ended = match terminals {
+            Some(terminals) => {
+                self.end_unplaced_terminals_locked(&mut plan, &registry, terminals)?
+            }
+            None => EndedTerminals::default(),
+        };
         // A tab, pane or screen close that keeps its workspace changes that
         // workspace only: project it alone, as a create does, so the close's
         // registry and state hold follows the workspace, not the session
@@ -571,6 +597,7 @@ impl Mux {
                 | ResourceOperation::PaneClose
                 | ResourceOperation::ScreenClose
         ) && plan.workspace_close.is_none()
+            && ended.public_ids.is_empty()
             && registry.public_fold_seeded();
         let mut projection = match target_workspace {
             Some(workspace) if scoped => self.resource_effect_projection_scoped_locked(
@@ -581,6 +608,10 @@ impl Mux {
             )?,
             _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
         };
+        if terminals.is_some() {
+            projection.result["ended_terminal_ids"] = json!(ended.public_ids);
+            projection.result["running_terminal_ids"] = json!(ended.running);
+        }
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still
         // retire that receipt.
@@ -617,7 +648,7 @@ impl Mux {
         self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(workspace_lifecycle);
-        Ok(CommittedResourceClose { commit: close.resource, effects })
+        Ok(CommittedResourceClose { commit: close.resource, effects, ended })
     }
 
     pub(super) fn finish_resource_close(
@@ -661,6 +692,15 @@ impl Mux {
             self.emit_layout_changed(screen, None);
         }
         self.emit_empty_if_current(effects.empty_revision);
+        let ended = committed.ended;
+        self.notify_terminal_exit_waiters(ended.public_ids);
+        // ARCHIVE-1: the close committed; keep each ended terminal's screen
+        // and running program before its host is asked to stop.
+        self.store_terminal_archives(self.capture_terminal_archives(&ended.runtimes));
+        for runtime in &ended.runtimes {
+            self.purge_terminal_runtime_side_tables(runtime);
+        }
+        self.terminate_terminal_runtimes_deferred(ended.runtimes);
         committed.commit
     }
 

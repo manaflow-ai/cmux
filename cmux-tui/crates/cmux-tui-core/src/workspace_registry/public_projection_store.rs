@@ -247,14 +247,35 @@ impl WorkspaceRegistry {
 
     /// Current agent projections, optionally filtered by terminal and state, decoded from
     /// their stored results (adapter and hook session id included).
+    ///
+    /// An agent whose terminal ended (its terminal row is tombstoned) is `done`, whatever
+    /// it reported last (W7-C: a killed agent sends no end report, and its row stayed
+    /// `idle`). The stored projection is unchanged, so `agent resume` still reads it.
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let mut agents = self.durable_agents(terminal, state)?;
+        let mut agents = self.durable_agents(terminal, None)?;
+        // One terminal's agents (a report's arbitration) read that terminal
+        // only, not every live one.
+        let live = match terminal {
+            Some(terminal) => self
+                .terminal_public_id_live(terminal)?
+                .then(|| terminal.clone())
+                .into_iter()
+                .collect(),
+            None if agents.is_empty() => HashSet::new(),
+            None => self.live_terminal_public_ids()?,
+        };
+        for agent in &mut agents {
+            if !live.contains(&agent.terminal_id) {
+                agent.state = "done".to_owned();
+            }
+        }
         agents.retain(|agent| {
-            (agent.source != "hook" || agent.state != "done")
+            state.is_none_or(|state| agent.state == state)
+                && (agent.source != "hook" || agent.state != "done")
                 && !agent
                     .source_session
                     .as_deref()
@@ -268,6 +289,21 @@ impl WorkspaceRegistry {
             }
         }
         Ok(agents)
+    }
+
+    /// Whether `terminal` has a terminal row that is not tombstoned.
+    fn terminal_public_id_live(&self, terminal: &TerminalPublicId) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        Ok(db
+            .query_row(
+                "SELECT 1 FROM resource_terminals
+                 WHERE public_id = ?1 AND deleted_revision IS NULL
+                 LIMIT 1",
+                [terminal.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {

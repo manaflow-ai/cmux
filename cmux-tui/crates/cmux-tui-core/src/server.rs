@@ -486,6 +486,13 @@ pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
 /// (`validation.invalid`, before the request is keyed), so a client sends
 /// it and falls back to the plain close on that refusal.
 pub const TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY: &str = "terminal-close-if-unplaced-v1";
+/// Advertises `terminals` (`end` or `keep`) on the resource `tab.close`,
+/// `pane.close`, `screen.close` and `workspace.close`, and that those closes
+/// end the terminals they leave with no tab by default (a kept terminal and
+/// the caller's own stay running), naming them in `ended_terminal_ids` and
+/// `running_terminal_ids`. An older daemon refuses the field as an unknown
+/// parameter and only detaches the terminals.
+pub const CLOSE_ENDS_TERMINALS_CAPABILITY: &str = "close-ends-terminals-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
 /// owner shows the same screens, splits and tabs, each dead until a

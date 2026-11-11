@@ -230,6 +230,38 @@ enum ResourceCloseTreePublication {
 struct CommittedResourceClose {
     commit: ResourcePatchCommit,
     effects: ResourceCloseEffects,
+    /// The terminals the close ended, for their after-commit work.
+    ended: EndedTerminals,
+}
+
+/// What a close does with each terminal it leaves with no view (W7-C:
+/// "close ends what it closed").
+pub(super) enum CloseTerminals {
+    /// Leave them running, with no tab (the reaper's grace still applies).
+    Keep,
+    /// End each one that is not marked `keep` and is not `spare` (the
+    /// caller's own terminal: ending it would cut off the reply).
+    End { spare: Option<TerminalPublicId> },
+}
+
+impl CloseTerminals {
+    /// ``CloseTerminals::End`` that spares the actor's own terminal.
+    pub(super) fn end_for(actor: &Actor) -> Self {
+        let spare = match actor {
+            Actor::Terminal { id } => TerminalPublicId::parse(id.clone()).ok(),
+            _ => None,
+        };
+        Self::End { spare }
+    }
+}
+
+/// The terminals one close ended, and the ones it left running with no view.
+#[derive(Default)]
+pub(super) struct EndedTerminals {
+    runtimes: Vec<Arc<Surface>>,
+    public_ids: Vec<TerminalPublicId>,
+    ended: Vec<batch_close::EndedTerminal>,
+    running: Vec<TerminalPublicId>,
 }
 
 impl ResourceClosePlan {

@@ -19,7 +19,7 @@ use super::*;
 /// How long an ended terminal may take to stop being listed as running.
 const SETTLE: Duration = Duration::from_secs(10);
 
-fn cli_output(server: &HeadlessServer, json: bool, args: &[&str]) -> std::process::Output {
+fn cli_output(server: &HeadlessServer, json: bool, args: &[&str]) -> Output {
     let mut command = Command::new(bin());
     if json {
         command.arg("--json");
@@ -148,7 +148,7 @@ fn w7c_tab_pane_screen_and_workspace_close_end_their_terminals() {
     let (tab, terminal) = (field(&split, "tab_id"), field(&split, "terminal_id"));
     let closed = run(&server, &["tab", &tab, "close"]);
     assert_ended(&server, &terminal, "tab close");
-    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.clone()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.as_str()], "{closed}");
     assert_eq!(listed(&closed, "running_terminal_ids"), Vec::<String>::new(), "{closed}");
     assert_no_tabless(&server, "tab close");
 
@@ -156,14 +156,14 @@ fn w7c_tab_pane_screen_and_workspace_close_end_their_terminals() {
     let (split_pane, terminal) = (field(&split, "pane_id"), field(&split, "terminal_id"));
     let closed = run(&server, &["pane", &split_pane, "close"]);
     assert_ended(&server, &terminal, "pane close");
-    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.clone()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.as_str()], "{closed}");
     assert_no_tabless(&server, "pane close");
 
     let screen = run(&server, &["screen", "create", "--workspace", &workspace]);
     let (screen, terminal) = (field(&screen, "screen_id"), field(&screen, "terminal_id"));
     let closed = run(&server, &["screen", &screen, "close"]);
     assert_ended(&server, &terminal, "screen close");
-    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.clone()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [terminal.as_str()], "{closed}");
     assert_no_tabless(&server, "screen close");
 
     let split = run(&server, &["pane", &pane, "split", "--right"]);
@@ -202,7 +202,7 @@ fn w7c_a_close_names_the_terminals_it_leaves_running() {
     let (tab, kept_too) = (field(&split, "tab_id"), field(&split, "terminal_id"));
     run(&server, &["terminal", &kept_too, "keep", "on"]);
     let closed = run(&server, &["tab", &tab, "close"]);
-    assert_eq!(listed(&closed, "running_terminal_ids"), [kept_too.clone()], "{closed}");
+    assert_eq!(listed(&closed, "running_terminal_ids"), [kept_too.as_str()], "{closed}");
     assert_eq!(listed(&closed, "ended_terminal_ids"), Vec::<String>::new(), "{closed}");
     assert_runs_tabless(&server, &kept_too, "tab close of a kept terminal");
 
@@ -210,7 +210,7 @@ fn w7c_a_close_names_the_terminals_it_leaves_running() {
     let split = run(&server, &["pane", &pane, "split", "--right"]);
     let (tab, left) = (field(&split, "tab_id"), field(&split, "terminal_id"));
     let closed = run(&server, &["tab", &tab, "close", "--keep-terminals"]);
-    assert_eq!(listed(&closed, "running_terminal_ids"), [left.clone()], "{closed}");
+    assert_eq!(listed(&closed, "running_terminal_ids"), [left.as_str()], "{closed}");
     assert_runs_tabless(&server, &left, "tab close --keep-terminals");
 }
 
@@ -244,12 +244,16 @@ fn w7c_a_close_from_inside_spares_the_callers_own_terminal() {
     }
     let printed = fs::read_to_string(&out).unwrap();
     assert_eq!(fs::read_to_string(&code).unwrap().trim(), "0", "the close failed: {printed}");
-    let closed: Value = serde_json::from_str(printed.trim())
-        .unwrap_or_else(|_| panic!("the close printed no JSON: {printed}"));
+    // The result is the last JSON line (stderr went to the same file).
+    let closed: Value = printed
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str(line).ok().filter(Value::is_object))
+        .unwrap_or_else(|| panic!("the close printed no JSON: {printed}"));
 
     assert_ended(&server, &other, "workspace close from inside");
-    assert_eq!(listed(&closed, "ended_terminal_ids"), [other.clone()], "{closed}");
-    assert_eq!(listed(&closed, "running_terminal_ids"), [caller.clone()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), [other.as_str()], "{closed}");
+    assert_eq!(listed(&closed, "running_terminal_ids"), [caller.as_str()], "{closed}");
     assert_runs_tabless(&server, &caller, "workspace close from inside");
 
     drop(server);

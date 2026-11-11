@@ -658,7 +658,9 @@ fn w5o_an_owner_a_client_starts_reaps_a_terminal_whose_tab_closed() {
             .to_owned()
     };
     let (tab, terminal) = (field("tab_id"), field("terminal_id"));
-    fixture.cli(&["tab", &tab, "close"]);
+    // Keep the terminal at the close (a plain close ends it at once), so only
+    // the reaper can end it.
+    fixture.cli(&["tab", &tab, "close", "--keep-terminals"]);
 
     // The default grace is 30 s; the reaper ends the terminal soon after.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);

@@ -352,8 +352,16 @@ fn dispatch_exact_topology_mutation(
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
-    let report = super::close_value::reports_closed_ids(&request.fields);
+    let report = super::close_value::Report::of(operation, &request.fields);
     let mut fields = request.fields;
+    if report.is_close {
+        // W7-C: a public close ends the terminals it leaves with no tab
+        // unless the caller asks `terminals: keep`. The legacy raw closes
+        // and the in-process ones never pass here and still detach.
+        fields
+            .entry(super::close_value::TERMINALS_FIELD)
+            .or_insert(Value::String(super::close_value::END_TERMINALS.into()));
+    }
     if operation == ResourceOperation::PaneSplit {
         // A programmatic split (CLI, MCP, SDK, socket) keeps the user's focus
         // unless it asks, like `tab.create_terminal`; the user's own splits

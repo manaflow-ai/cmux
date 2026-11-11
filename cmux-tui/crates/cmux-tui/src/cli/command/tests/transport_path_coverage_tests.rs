@@ -226,6 +226,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
         (vec!["pane", PANE, "close", "--all"], "layout.bulk"),
+        (vec!["pane", PANE, "close", "--all", "--keep-terminals"], "layout.bulk"),
+        // W7-C: a plain close that leaves its terminals running.
+        (vec!["tab", TAB, "close", "--keep-terminals"], "tab.close"),
         (
             vec![
                 "session",

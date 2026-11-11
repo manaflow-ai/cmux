@@ -168,6 +168,9 @@ pub(super) fn resource(
     // `agents workspace create` from a cmux terminal against an older
     // daemon: sent without `created_by`, as `cmux workspace create` is.
     wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
+    // A close from `cmux workspace close --remove-worktree` names `terminals`;
+    // an older daemon gets it without, as `cmux tab close` sends it.
+    wire::drop_unsupported_close_terminals(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;

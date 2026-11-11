@@ -357,11 +357,12 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         .request(None, snapshot()?)
         .map(|before| running_terminals_with_a_tab_in(&before, &id))
         .unwrap_or_default();
+    // `--keep-terminals`: this flow ends them below, sparing the caller's
+    // own terminal by CMUX_TUI_TERMINAL_ID even where the daemon cannot tell
+    // the caller (W7-C).
+    let close = words(&["workspace", &id, "close", "--keep-terminals"]);
     let mut result = backend
-        .request(
-            None,
-            plan(&words(&["workspace", &id, "close"]), Some(step_key(command_key, "close")))?,
-        )
+        .request(None, plan(&close, Some(step_key(command_key, "close")))?)
         .map_err(|failure| StepFailure::step(failure, "close", command_key, made))?;
     // Read after the close: of those, the ones left running with no tab
     // (a terminal with a tab in another workspace stays). They worked in
@@ -385,6 +386,104 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         if end_unplaced(backend, command_key, &terminal) {
             ended.push(terminal);
         }
+    }
+    // The close named every terminal it left running; of those, the ones
+    // ended here are not running any more.
+    if let Some(value) = result.get_mut("value").and_then(Value::as_object_mut) {
+        if let Some(running) = value.get_mut("running_terminal_ids").and_then(Value::as_array_mut) {
+            running.retain(|id| !id.as_str().is_some_and(|id| ended.iter().any(|end| end == id)));
+        }
+        if value.contains_key("ended_terminal_ids") {
+            value.insert("ended_terminal_ids".into(), json!(ended));
+        }
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.insert("worktree".into(), worktree);
+    }
+    Ok(result)
+}
+
+/// The new workspace's id in a `workspace.create` result.
+fn created_workspace(result: &Value) -> Option<String> {
+    result.get("value").unwrap_or(result).get("workspace_id")?.as_str().map(str::to_owned)
+}
+
+/// Runs `workspace <ws> close --remove-worktree`; the result is the close
+/// result with the removal as `worktree` and the terminals it ended as
+/// `ended_terminals`.
+pub(in crate::cli) fn close<B: Daemon + ?Sized>(
+    backend: &B,
+    request: &CloseRequest,
+    command_key: &str,
+) -> Result<Value, StepFailure> {
+    let shown = backend
+        .request(None, plan(&words(&["workspace", &request.target, "show"]), None)?)
+        .map_err(|failure| StepFailure::step(failure, "show", command_key, Value::Null))?;
+    let id = shown.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The worktree is the workspace's agent folder when one is recorded (an
+    // app connection can set it), else the one its current terminal works
+    // in. Either way `git.worktree.remove` refuses the main checkout.
+    let mut remove = match shown.pointer("/extra/agent_folder").and_then(Value::as_str) {
+        Some(folder) => words(&["git", "worktree", "remove", "--path", folder]),
+        None => words(&["git", "worktree", "remove", "--workspace", &id]),
+    };
+    if request.discard {
+        remove.push("--discard".into());
+    }
+    let removed = backend
+        .request(None, plan(&remove, Some(step_key(command_key, "remove")))?)
+        .map_err(|failure| StepFailure::step(failure, "remove", command_key, Value::Null))?;
+    let removed = removed.get("value").cloned().unwrap_or(removed);
+    let made = json!({"worktree": removed});
+    // Read before the close: the running terminals with a tab in this
+    // workspace. A snapshot that fails only leaves them to the reaper.
+    let snapshot = || plan(&words(&["session", "current", "snapshot"]), None);
+    let had_tab_here = backend
+        .request(None, snapshot()?)
+        .map(|before| running_terminals_with_a_tab_in(&before, &id))
+        .unwrap_or_default();
+    // `--keep-terminals`: this flow ends them below, sparing the caller's
+    // own terminal by CMUX_TUI_TERMINAL_ID even where the daemon cannot tell
+    // the caller (W7-C).
+    let close = words(&["workspace", &id, "close", "--keep-terminals"]);
+    let mut result = backend
+        .request(None, plan(&close, Some(step_key(command_key, "close")))?)
+        .map_err(|failure| StepFailure::step(failure, "close", command_key, made))?;
+    // Read after the close: of those, the ones left running with no tab
+    // (a terminal with a tab in another workspace stays). They worked in
+    // the removed folder.
+    let tabless = if had_tab_here.is_empty() {
+        Vec::new()
+    } else {
+        backend
+            .request(None, snapshot()?)
+            .map(|after| running_without_a_tab(&after, &had_tab_here))
+            .unwrap_or_default()
+    };
+    // The caller's own terminal is not ended here; the reaper ends it
+    // after its grace. A terminal that is not ended is left to the reaper;
+    // the close stands.
+    let mut ended = Vec::new();
+    for terminal in tabless {
+        if request.caller_terminal.as_deref() == Some(terminal.as_str()) {
+            continue;
+        }
+        if end_unplaced(backend, command_key, &terminal) {
+            ended.push(terminal);
+        }
+    }
+    // The close named every terminal it left running; of those, the ones
+    // ended here are not running any more.
+    let value = result.get_mut("value").filter(|value| value.is_object());
+    if let Some(running) =
+        value.and_then(|value| value.get_mut("running_terminal_ids")).and_then(Value::as_array_mut)
+    {
+        running.retain(|id| !id.as_str().is_some_and(|id| ended.iter().any(|end| end == id)));
+    }
+    if let Some(value) = result.get_mut("value").and_then(Value::as_object_mut)
+        && value.contains_key("ended_terminal_ids")
+    {
+        value.insert("ended_terminal_ids".into(), json!(ended));
     }
     if let Some(object) = result.as_object_mut() {
         object.insert("worktree".into(), removed);

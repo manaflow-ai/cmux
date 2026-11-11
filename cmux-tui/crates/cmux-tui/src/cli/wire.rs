@@ -193,6 +193,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
+        | close_terminals::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -907,6 +908,13 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     if let Some(last) = last_command {
         println!("{}", last_command_line(&last));
     }
+    // A person's close says which terminals it ended or left running.
+    if code == 0
+        && global.output == OutputMode::Human
+        && let Some(note) = close_terminals::human_note(plan, &result)
+    {
+        println!("{note}");
+    }
     if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
@@ -1264,6 +1272,7 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
 }
 
 mod agent_roster;
+mod close_terminals;
 mod closed_view;
 mod hints;
 mod human;
@@ -1282,6 +1291,7 @@ pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
 // terminal_talk (unix-only) reads unread notifications the same way.
 #[cfg(unix)]
 pub(super) use agent_roster::unseen_terminals;
+pub(super) use close_terminals::drop_unsupported as drop_unsupported_close_terminals;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;

@@ -4,6 +4,12 @@
 //! screens, the session's workspaces) in one `layout.bulk` call: one closed
 //! group, which `cmux closed reopen` restores whole. Pinned tabs and screens
 //! stay unless `--include-pinned`. Without a bulk flag, the plain close.
+//!
+//! Either close ends the terminals it leaves with no tab (W7-C: close ends
+//! what it closed), except a kept one and the caller's own; the plain close
+//! names the ended and the still-running ones. `--keep-terminals` leaves
+//! them all running with no tab (`--end-terminals`, the default now, stays
+//! accepted).
 
 use super::*;
 
@@ -31,6 +37,10 @@ pub(super) fn close(
         .map(|(_, selector)| *selector)
         .collect::<Vec<_>>();
     let include_pinned = flags.boolean("include-pinned");
+    let keep_terminals = flags.boolean("keep-terminals");
+    if flags.boolean("end-terminals") && keep_terminals {
+        return Err(UsageError::new("use one of --end-terminals and --keep-terminals"));
+    }
     let Some(&bulk) = chosen.first() else {
         if include_pinned {
             return Err(UsageError::new(
@@ -42,6 +52,8 @@ pub(super) fn close(
         if level == "workspace" && flags.boolean("report-closed-ids") {
             params.insert("report_closed_ids".into(), Value::Bool(true));
         }
+        let terminals = if keep_terminals { "keep" } else { "end" };
+        params.insert("terminals".into(), Value::String(terminals.into()));
         return request(plain, selectors, flags, params);
     };
     if chosen.len() > 1 {
@@ -57,8 +69,6 @@ pub(super) fn close(
     if include_pinned {
         params.insert("include_pinned".into(), Value::Bool(true));
     }
-    if flags.boolean("end-terminals") {
-        params.insert("end_terminals".into(), Value::Bool(true));
-    }
+    params.insert("end_terminals".into(), Value::Bool(!keep_terminals));
     request(ResourceOperation::LayoutBulk, selectors, flags, params)
 }

@@ -26,16 +26,17 @@ fn surface_of_tab(mux: &Arc<Mux>, tab: &str) -> Arc<crate::Surface> {
     mux.surface(id).expect("reopened surface")
 }
 
-/// Close `surface`'s tab, end its terminal (the test runtime's placeholder
-/// never exits, so reopen would otherwise reattach the same terminal), then
-/// reopen the newest closed group, which starts a new terminal.
+/// Close `surface`'s tab keeping its terminal, end that terminal with a known
+/// exit (the test runtime's placeholder never exits, so reopen would otherwise
+/// reattach the same terminal), then reopen the newest closed group, which
+/// starts a new terminal.
 fn close_and_reopen(mux: &Arc<Mux>, surface: SurfaceId, key: &str) -> Arc<crate::Surface> {
     let tab = tab_id(mux, surface);
     let terminal = mux
         .surface(surface)
         .and_then(|surface| surface.terminal_public_id().cloned())
         .expect("a hosted terminal tab");
-    mutate(mux, "tab.close", json!({"tab": tab}), &format!("{key}-close"));
+    mutate(mux, "tab.close", json!({"tab": tab, "terminals": "keep"}), &format!("{key}-close"));
     let exit = crate::terminal_host_protocol::TerminalExit {
         outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
         exited_at_ms: 1,

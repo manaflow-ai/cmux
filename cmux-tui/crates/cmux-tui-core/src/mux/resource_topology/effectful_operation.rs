@@ -85,6 +85,7 @@ impl Mux {
                         &mutation.id,
                         &operation_name,
                         fingerprint,
+                        &mutation.actor,
                     ) {
                         Ok(committed) => committed,
                         Err(error) => {

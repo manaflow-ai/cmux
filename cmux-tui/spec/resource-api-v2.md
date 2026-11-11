@@ -24,10 +24,21 @@ Machine
 
 A terminal is session-owned content with zero or more tab views. Every view
 has its own tab ID and placement-local name; all views share one process,
-ordered input stream, output history, and canonical grid. Closing a tab, pane,
-screen, workspace, frontend projection, or client connection detaches views
-without closing the terminal. `terminal.project` adds another view, and only
-`terminal.close` terminates and tombstones the terminal. With `if_unplaced:
+ordered input stream, output history, and canonical grid. Closing a frontend
+projection or client connection detaches views without closing the terminal.
+`tab.close`, `pane.close`, `screen.close` and `workspace.close` end, in the
+same commit, every terminal they leave with no view, except one marked `keep`
+and the caller's own terminal (the actor's `term_` id; ending it would cut off
+the reply): "close ends what it closed". `terminals: "keep"` leaves every such
+terminal running with no view (the reaper ends an unkept one after its grace);
+`terminals: "end"` is the default. A close that names `terminals` answers
+`ended_terminal_ids` and `running_terminal_ids`; without it the value keeps its
+old shape, which older SDKs decode strictly. `identify` advertises
+`close-ends-terminals-v1`; an older daemon refuses the field as an unknown
+parameter and only detaches. An agent whose terminal ended lists as `done`
+(`agent.list`, `session.snapshot`); a hook-reported one is left out.
+`terminal.project` adds another view, and `terminal.close`
+terminates and tombstones one terminal. With `if_unplaced:
 true` it does so only for a terminal with no view, no `keep` mark and no
 attach stream; any other fails with `operation.failed`
 (`extra.terminal_retained: true`) and changes nothing. `identify` advertises

@@ -2,7 +2,8 @@
 //! of `cmux identify` in a cmux-tui pane (cli/pane_identify.rs), the root
 //! help's heading for scopes that need the cmux app (cli/root_help.rs), the
 //! `cmux skill` usage (cli/skill.rs) and the agent list's note on the rows it
-//! left out (cli/wire/agent_roster.rs).
+//! left out (cli/wire/agent_roster.rs), and the lines a close prints about
+//! the terminals it ended or left running (cli/wire/close_terminals.rs).
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PaneCliMessages {
@@ -47,6 +48,11 @@ pub(crate) struct PaneCliMessages {
     /// The `agent list` text line for the ended agents of closed terminals
     /// it left out: `{count}` of them.
     pub agent_list_hidden_ended: &'static str,
+    /// A `tab`/`pane`/`screen`/`workspace` close: `{count}` terminals it ended.
+    pub close_ended_terminals: &'static str,
+    /// The same close: `{count}` terminals left running with no tab, `{ids}`
+    /// their ids, and how to see and end them.
+    pub close_running_terminals: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -73,6 +79,8 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     warning: "warning",
     build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
     agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
+    close_ended_terminals: "terminals ended: {count}",
+    close_running_terminals: "terminals still running with no tab: {count} ({ids}); see them with cmux terminal list, end one with cmux terminal <id> close",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -99,4 +107,6 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     warning: "警告",
     build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
     agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
+    close_ended_terminals: "終了したターミナル: {count} 件",
+    close_running_terminals: "タブがないまま実行中のターミナル: {count} 件 ({ids})。cmux terminal list で確認し、cmux terminal <id> close で終了できます",
 };

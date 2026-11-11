@@ -260,14 +260,15 @@ impl Mux {
             )?,
         };
         let closed = plan.removed.iter().map(|surface| surface.id).collect::<Vec<_>>();
-        let (ended_runtimes, ended_ids, ended) = if request.end_terminals {
-            self.end_unplaced_terminals_locked(&mut plan, &registry)?
+        let ended = if request.end_terminals {
+            let terminals = CloseTerminals::end_for(&request.mutation.actor);
+            self.end_unplaced_terminals_locked(&mut plan, &registry, &terminals)?
         } else {
-            (Vec::new(), Vec::new(), Vec::new())
+            EndedTerminals::default()
         };
         let mut result = json!({
             "closed": closed,
-            "terminals": ended.iter().map(|terminal| json!({
+            "terminals": ended.ended.iter().map(|terminal| json!({
                 "terminal_id": terminal.terminal_id,
                 "terminal_incarnation": terminal.terminal_incarnation,
             })).collect::<Vec<_>>(),
@@ -333,15 +334,11 @@ impl Mux {
             workspace_revision: committed.workspace_revision,
             replayed: false,
         };
-        self.finish_resource_close(CommittedResourceClose { commit: committed.resource, effects });
-        self.notify_terminal_exit_waiters(ended_ids);
-        // ARCHIVE-1: the close committed; keep each ended terminal's screen
-        // and running program before its host is asked to stop.
-        self.store_terminal_archives(self.capture_terminal_archives(&ended_runtimes));
-        for runtime in &ended_runtimes {
-            self.purge_terminal_runtime_side_tables(runtime);
-        }
-        self.terminate_terminal_runtimes_deferred(ended_runtimes);
+        self.finish_resource_close(CommittedResourceClose {
+            commit: committed.resource,
+            effects,
+            ended,
+        });
         Ok(outcome)
     }
 
@@ -423,15 +420,17 @@ impl Mux {
         })
     }
 
-    /// End every terminal whose views all left in `plan` and that is not
-    /// kept: drop its catalog runtime from the planned state and add its
-    /// host to the plan's terminal batch.
-    #[allow(clippy::type_complexity)]
-    fn end_unplaced_terminals_locked(
+    /// The one close rule for the terminals a close leaves with no view
+    /// (W7-C): with ``CloseTerminals::End`` each one that is not kept and is
+    /// not the caller's own ends (its catalog runtime leaves the planned
+    /// state and its host joins the plan's terminal batch); the rest, and
+    /// every one with ``CloseTerminals::Keep``, are listed as still running.
+    pub(super) fn end_unplaced_terminals_locked(
         &self,
         plan: &mut ResourceClosePlan,
         registry: &WorkspaceRegistry,
-    ) -> anyhow::Result<(Vec<Arc<Surface>>, Vec<TerminalPublicId>, Vec<EndedTerminal>)> {
+        terminals: &CloseTerminals,
+    ) -> anyhow::Result<EndedTerminals> {
         let mut seen = HashSet::new();
         let candidates = plan
             .removed
@@ -439,9 +438,7 @@ impl Mux {
             .filter_map(|view| view.terminal_public_id().cloned())
             .filter(|terminal| seen.insert(terminal.clone()))
             .collect::<Vec<_>>();
-        let mut runtimes = Vec::new();
-        let mut public_ids = Vec::new();
-        let mut ended = Vec::new();
+        let mut outcome = EndedTerminals::default();
         for public_id in candidates {
             let Some(runtime) = plan.state.terminal_catalog.get(&public_id).cloned() else {
                 continue;
@@ -452,8 +449,13 @@ impl Mux {
             if still_placed {
                 continue;
             }
+            let CloseTerminals::End { spare } = terminals else {
+                outcome.running.push(public_id);
+                continue;
+            };
             let Some(host) = self.resource_terminal_host_identity(&runtime) else { continue };
-            if registry.terminal_keep(&host.terminal_id)? {
+            if spare.as_ref() == Some(&public_id) || registry.terminal_keep(&host.terminal_id)? {
+                outcome.running.push(public_id);
                 continue;
             }
             let incarnation = registry
@@ -464,16 +466,16 @@ impl Mux {
                 remove_terminal_content_from_state(self, &mut plan.state, &public_id);
             anyhow::ensure!(views.is_empty(), "ended terminal {public_id} kept a view");
             if let Some(removed_runtime) = removed_runtime {
-                runtimes.push(removed_runtime);
+                outcome.runtimes.push(removed_runtime);
             }
             plan.terminal_batch.push((host.terminal_id.clone(), incarnation.clone()));
-            public_ids.push(public_id);
-            ended.push(EndedTerminal {
+            outcome.public_ids.push(public_id);
+            outcome.ended.push(EndedTerminal {
                 terminal_id: host.terminal_id,
                 terminal_incarnation: incarnation,
             });
         }
-        Ok((runtimes, public_ids, ended))
+        Ok(outcome)
     }
 }
 

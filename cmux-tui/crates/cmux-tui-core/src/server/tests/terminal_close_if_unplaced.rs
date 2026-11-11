@@ -59,11 +59,12 @@ fn w5o_guarded_terminal_close_ends_only_an_unplaced_unkept_unattached_terminal()
     assert!(retained(&close("w5o-placed")), "the replay changed its answer");
     assert!(running(&mux, &terminal));
 
-    // The workspace close takes the tab and leaves the terminal running.
+    // A workspace close that keeps its terminals takes the tab and leaves the
+    // terminal running with no tab.
     let closed = request(
         "w5o-workspace-close",
         "workspace.close",
-        json!({"machine":"current","session":"current","workspace":workspace}),
+        json!({"machine":"current","session":"current","workspace":workspace,"terminals":"keep"}),
     );
     assert_eq!(closed["ok"], true, "{closed}");
     assert!(running(&mux, &terminal));

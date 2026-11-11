@@ -138,7 +138,11 @@ impl Mux {
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
-        self.finish_resource_close(CommittedResourceClose { commit: committed.resource, effects });
+        self.finish_resource_close(CommittedResourceClose {
+            commit: committed.resource,
+            effects,
+            ended: EndedTerminals::default(),
+        });
         for public_id in &ended_public_ids {
             self.forget_terminal_end(public_id.as_str());
         }
