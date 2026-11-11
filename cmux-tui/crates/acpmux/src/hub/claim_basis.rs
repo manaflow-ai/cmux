@@ -547,8 +547,10 @@ impl Launch<'_> {
         if at.is_absolute() {
             return is_program(at);
         }
-        !(value && VALUE_LITERALS.contains(&lower.as_str()))
-            && !part.contains('/')
+        if value && VALUE_LITERALS.contains(&lower.as_str()) {
+            return false;
+        }
+        !part.contains('/')
             && !part.starts_with('-')
             && part.chars().any(|c| c.is_ascii_alphabetic())
             && self.path.iter().any(|dir| is_program(&dir.join(part)))
