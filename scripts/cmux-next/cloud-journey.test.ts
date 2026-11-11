@@ -1627,26 +1627,54 @@ except probe.OutOfTime as cut:
   test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
     const big = join(dir, "one-line.txt");
-    // 64 MiB with no line break: one key's name across the first 4 MiB read's edge, another deeper in.
+    // 64 MiB with no line break: a key's name across the first read's edge, and one deeper in. The first piece ends
+    // OVERLAP bytes before the second read's end (8 MiB - 256).
     const M = 1 << 20;
     const body = Buffer.alloc(64 * M, "abc de ");
     Buffer.from(" MISTRAL_API_KEY=Qd7Kx2Mn4Lw9Vb3Rz8Hj1Fc6Gs5Yp0Ta ").copy(body, 4 * M - 266);
     Buffer.from(" GROQ_API_KEY=Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk ").copy(body, 37 * M);
     writeFileSync(big, body);
+    // A file whose only key's `_KEY` is split by the first piece's cut, two bytes each side: no other hit in either
+    // piece reads across the cut for it.
+    const cut = join(dir, "cut.txt");
+    const spaces = Buffer.alloc(12 * M, " ");
+    Buffer.from("XAI_API_KEY=Tc5Xm0Ns4Yb9Qr7Vz1Ke6Ld8Fo3Hu2Ig ").copy(spaces, 8 * M - 256 - 2 - "XAI_API".length);
+    writeFileSync(cut, spaces);
     const script = `
 import importlib.util, json, sys, time
 spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 try:
-    print(json.dumps(sorted({w for _, w in probe.scan_file(sys.argv[2], time.monotonic() + 20)})))
+    print(json.dumps([sorted({w for _, w in probe.scan_file(f, time.monotonic() + 20)}) for f in sys.argv[2:]]))
 except MemoryError:
     print(json.dumps("MemoryError"))
 `;
     try {
       // Under 192 MiB: reading the line whole takes several copies of it.
-      const r = spawnSync("bash", ["-c", 'ulimit -v 196608; exec python3 -I -c "$0" "$1" "$2"', script, KEY_PROBE_PY, big], { encoding: "utf8" });
-      expect(JSON.parse(r.stdout || "null")).toEqual(["GROQ_API_KEY", "MISTRAL_API_KEY"]);
+      const r = spawnSync("bash", ["-c", 'ulimit -v 196608; exec python3 -I -c "$0" "$@"', script, KEY_PROBE_PY, big, cut], { encoding: "utf8" });
+      expect(JSON.parse(r.stdout || "null")).toEqual([["GROQ_API_KEY", "MISTRAL_API_KEY"], ["XAI_API_KEY"]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a login file of blank lines is read in linear time", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-login-"));
+    const file = join(dir, "auth.json");
+    writeFileSync(file, "\n".repeat(50_000) + "{}");
+    const script = `
+import importlib.util, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+probe.login_values(sys.argv[2])
+print(time.monotonic() - t0)
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      expect(Number(r.stdout)).toBeLessThan(0.5);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

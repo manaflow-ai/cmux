@@ -532,7 +532,8 @@ def context_kinds(text, line_end):
 LOGIN_FIELD = re.compile(r"token|key|secret|password|credential", re.I)
 
 
-LOGIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[=:]\s*(\S+)\s*$", re.M)
+# Spaces within the line only: `\s` crosses line breaks, and `^\s*` rescanned every blank line after each line start.
+LOGIN_LINE = re.compile(r"^[ \t]*([A-Za-z0-9_.-]+)[ \t]*[=:][ \t]*(\S+)[ \t]*\r?$", re.M)
 
 
 # How much of a login file is read for its fields (a real one is a few KiB), so a huge or sparse one cannot take the
@@ -641,8 +642,9 @@ def scan_file(path, deadline=math.inf):
             return [(None, what) for what in sorted(seen)]
         # Whole lines a chunk at a time (a partial last line waits for the next chunk); only the lines the prefilter
         # hits are decoded and checked, and their numbers are counted from the newlines before them.
-        # A line longer than one read is checked in pieces, each carrying the last OVERLAP bytes of the one before (a key's
-        # name across the cut) without checking their hits again, so one huge line holds no more than a read or two.
+        # A line longer than one read is checked in pieces, each carrying the last OVERLAP bytes of the one before, so a
+        # key's name across the cut is whole in the next piece. Hits in the carried bytes are checked again (a name the cut
+        # split matched in neither piece alone); a finding counts once per line. One huge line holds a read or two.
         line, rest, carried, got = 1, b"", 0, set()
         while True:
             if time.monotonic() > deadline:
@@ -650,7 +652,7 @@ def scan_file(path, deadline=math.inf):
             chunk = f.read(CHUNK)
             block = rest + chunk
             cut = len(block) if not chunk else block.rfind(b"\n") + 1
-            skip, carried = carried, 0
+            carried = 0
             if chunk and len(block) - cut > CHUNK:
                 cut, carried = len(block) - OVERLAP, OVERLAP
             whole, rest = block[:cut], block[cut - carried:]
@@ -658,8 +660,6 @@ def scan_file(path, deadline=math.inf):
             for hit in PREFILTER.finditer(whole):
                 if time.monotonic() > deadline:
                     raise OutOfTime(out)
-                if hit.start() < skip:
-                    continue
                 start = whole.rfind(b"\n", 0, hit.start()) + 1
                 if start == last:
                     continue
