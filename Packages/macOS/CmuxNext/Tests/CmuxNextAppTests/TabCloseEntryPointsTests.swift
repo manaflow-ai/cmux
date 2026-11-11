@@ -58,4 +58,36 @@ struct TabCloseEntryPointsTests {
                                                         "\(entry.rawValue), a new tab \(place.rawValue)")
         }
     }
+
+    /// R3 of the rule file: a person's jump to an unrelated tab ends the opener of a new tab put after the current
+    /// one, as a click on that tab does (Chrome's observed row: N from B, go to D, go to N, close N gives the next
+    /// tab). The jump here is the call that tab search, a notification and a link to a tab make
+    /// (`AppServices.revealTab`): it writes the window's selection itself, so the rule must hear of the gesture
+    /// before that write. Without that, the close goes back to the opener.
+    @Test func aPersonsJumpToAnUnrelatedTabEndsTheOpener() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let (pane, ids, _) = try await TabCloseSelectsBeforeTests.pane(services, connection, browsers: 3) // T b0 b1 b2
+            let store = services.daemon.store
+            try await TabCloseSelectsBeforeTests.select(ids[1], in: pane)
+            #expect(services.registry.perform("newTab.afterCurrent", invocation: ActionInvocation(origin: .user)))
+            @MainActor func made() -> TabModel? {
+                (store.pane(pane.pane.handle)?.tabs ?? []).first { !ids.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }
+            }
+            try await PinnedPageTests.until({
+                guard let new = made()?.id else { return false }
+                return pane.orderedIDs.map(\.rawValue) == [ids[0], ids[1], new, ids[2], ids[3]] && pane.stripModel.selectedID?.rawValue == new
+            }, report: { "the new tab \(made()?.id ?? "none"): the pane holds \(pane.orderedIDs.map(\.rawValue)), selects \(pane.stripModel.selectedID?.rawValue ?? "none")" })
+            let new = try #require(made())
+
+            // To b2 (no opener, not the new tab's opener) and back, each by the jump.
+            for jump in [ids[3], new.id] {
+                #expect(services.revealTab(jump), "the jump to \(jump)")
+                try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == jump },
+                                                report: { "the jump to \(jump): the pane selects \(pane.stripModel.selectedID?.rawValue ?? "none")" })
+            }
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await TabCloseSelectsBeforeTests.expect(pane, services, closed: [new.id], selects: ids[2],
+                                                        "a new tab after b0, a jump to b2 and back, then Cmd-W: the next tab")
+        }
+    }
 }
