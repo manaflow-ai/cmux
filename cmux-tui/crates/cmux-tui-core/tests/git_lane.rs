@@ -33,6 +33,10 @@ use std::time::{Duration, Instant};
 /// The daemon's bound (`git_lane::MAX_READ_RUNS`): git reads that run at one time.
 const GIT_RUNS: usize = 4;
 
+/// The read places a long read (a diff, a file list or search) may take:
+/// `git_lane::MAX_LONG_READ_RUNS`. The other one is kept for short reads.
+const LONG_GIT_RUNS: usize = 3;
+
 /// The longest a step of a test waits for something that must come.
 const LONG: Duration = Duration::from_secs(60);
 
@@ -307,6 +311,51 @@ fn git_lane_a_git_status_behind_a_running_git_diff_is_answered_while_the_diff_ru
     let status = status.expect("a git.status behind a running git.diff waited for the diff");
     assert_eq!(status["ok"], true, "git.status failed: {status}");
     assert_eq!(status["result"]["detached"], false, "{status}");
+}
+
+/// A burst of turn ends: the diffs of hidden chats take each place a long
+/// read may take and 21 more wait. The `git.status` of the view the person
+/// just opened comes last, and must not wait for them: a place is kept for
+/// short reads.
+#[test]
+fn git_lane_a_git_status_behind_held_and_queued_git_diffs_is_answered_while_they_are_held() {
+    const DIFFS: usize = 24;
+    let (repo, gate) = repository("short");
+    let mut app = Connection::open(&daemon());
+
+    gate.hold("hold-diff");
+    for number in 0..DIFFS {
+        // A different `context_lines` makes a different read, so no two share a run.
+        let params = json!({"path": repo, "scope": "uncommitted", "context_lines": number + 4});
+        app.send(&format!("d{number}"), "git.diff", params);
+    }
+    wait_for("each diff place held", || gate.active() >= LONG_GIT_RUNS);
+
+    let asked = Instant::now();
+    app.send("status", "git.status", json!({"path": repo}));
+    let status = app.reply_in(&json!("status"), Duration::from_secs(10));
+    let status_ms = asked.elapsed().as_millis();
+    let diffs_early = (0..DIFFS).filter(|number| app.answered(&format!("d{number}"))).count();
+    let held = gate.active();
+
+    gate.release("hold-diff");
+    for number in 0..DIFFS {
+        let diff = app.reply(&json!(format!("d{number}")));
+        assert_eq!(diff["ok"], true, "git.diff {number} failed: {diff}");
+    }
+    let late = status.is_none().then(|| app.reply(&json!("status")));
+    eprintln!(
+        "git-lane: git.status behind {DIFFS} git.diff ({held} held in git, the rest waiting): \
+         answered while they were held: {} (waited {status_ms} ms); answered only after they \
+         ended: {}",
+        status.is_some(),
+        late.is_some(),
+    );
+
+    assert_eq!(diffs_early, 0, "a git.diff answered while its git was held");
+    let status = status.expect("a git.status waited behind held and queued git.diff requests");
+    assert_eq!(status["ok"], true, "git.status failed: {status}");
+    assert_eq!(held, LONG_GIT_RUNS, "git.diff runs at one time, with a place kept for short reads");
 }
 
 /// A liveness ping and a request that is not git, behind a running `git.diff`.
