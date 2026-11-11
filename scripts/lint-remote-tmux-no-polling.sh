@@ -84,8 +84,6 @@ ALLOW=(
   "SIGKILL escalation after SIGTERM. The edge would be 'the process handled the signal', and a process that IGNORES SIGTERM emits nothing at all — the absence of an exit is only observable by giving it a moment and looking again."
   "Sources/RemoteTmuxViewConnection.swift:wait:private var timer: DispatchSourceTimer?"
   "The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
-  "Sources/RemoteTmuxReconnectingIndicator.swift:connectionStateChanged:try await clock.sleep(for: remaining)"
-  "How long a reconnect runs before the sidebar says so. Nothing happens at the five-second mark for it to wait on; every connection state change cancels the task."
 )
 if [ -n "${LINT_ALLOW_FILE:-}" ]; then
   ALLOW=()

@@ -6885,8 +6885,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
         resetProgramStatus()
-        // The failed-wake row mirrors banners that are still up.
-        refreshAgentWakeFailureStatusEntry()
+        // Rows that mirror state owned elsewhere come back while that state holds.
+        refreshDerivedStatusEntries()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()

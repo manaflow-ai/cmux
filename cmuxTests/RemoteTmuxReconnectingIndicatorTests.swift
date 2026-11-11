@@ -102,4 +102,32 @@ import Testing
 
         #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
     }
+
+    /// A sidebar reset clears every status row, including one showing "Reconnecting". The
+    /// connection is still reconnecting and reports no new state, so the row has to be derived
+    /// again from the connection rather than stay gone for the rest of the drop.
+    @Test func aSidebarResetDuringAReconnectDerivesTheRowAgain() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "reconnecting-reset.test"), sessionName: "work"
+        )
+        connection.beginReconnecting()
+        defer { connection.stop() }
+        let mirror = RemoteTmuxSessionMirror(
+            host: connection.host, sessionName: "work", connection: connection,
+            tabManager: manager, workspace: workspace
+        )
+        defer {
+            mirror.detachObserver()
+            workspace.teardownAllPanels()
+        }
+        // What a reset leaves behind once the row has shown: no entry and nothing scheduled.
+        mirror.reconnectingIndicator.clear(workspace: workspace)
+
+        workspace.resetSidebarContext(reason: "test")
+
+        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
+    }
 }

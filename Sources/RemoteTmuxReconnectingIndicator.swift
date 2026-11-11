@@ -3,6 +3,22 @@ import Foundation
 
 extension Workspace {
     static let remoteTmuxReconnectingStatusKey = "remoteTmux.reconnecting"
+
+    /// Puts back the status rows that mirror state owned elsewhere, after ``resetSidebarContext(reason:)``
+    /// cleared them: the failed-wake row while its banners are up, and the Reconnecting row while
+    /// the session's connection is still reconnecting.
+    func refreshDerivedStatusEntries() {
+        refreshAgentWakeFailureStatusEntry()
+        remoteTmuxSessionMirror?.refreshReconnectingStatus()
+    }
+}
+
+extension RemoteTmuxSessionMirror {
+    /// Derives the Reconnecting row again from the connection's current state.
+    func refreshReconnectingStatus() {
+        reconnectingIndicator.connectionStateChanged(
+            connection.connectionState, reconnectingSince: connection.reconnectingSince, workspace: workspace)
+    }
 }
 
 /// Shows "Reconnecting" on a mirrored session's sidebar row once a reconnect has
@@ -10,28 +26,24 @@ extension Workspace {
 /// connection is back or gone. A drop that recovers within the delay shows nothing.
 ///
 /// The connection owns the reconnect: its state and when the reconnect began. This only
-/// derives the row from them. Generic over its clock, and all of its timing comes from that
-/// clock, so the delay counts from the drop even for a mirror that attached partway through.
+/// derives the row from them, so the delay counts from the drop even for a mirror that
+/// attached partway through, and a row cleared by a sidebar reset comes back.
 @MainActor
-final class RemoteTmuxReconnectingIndicator<C: Clock> where C.Duration == Duration {
+final class RemoteTmuxReconnectingIndicator {
     private let delay: Duration
-    private let clock: C
     /// The presentation scheduled for the current reconnect, until it shows or is cancelled.
     private(set) var pendingPresentation: Task<Void, Never>?
 
-    /// - Parameters:
-    ///   - delay: How long a reconnect lasts before the row says so.
-    ///   - clock: The clock reconnect start times come from and the delay is waited on.
-    init(delay: Duration = .seconds(5), clock: C) {
+    /// - Parameter delay: How long a reconnect lasts before the row says so.
+    init(delay: Duration = .seconds(5)) {
         self.delay = delay
-        self.clock = clock
     }
 
     /// Follows a connection state change. Reconnecting schedules the row for when the reconnect
     /// reaches `delay`, counted from `reconnectingSince`; any other state clears it.
     func connectionStateChanged(
         _ state: RemoteTmuxControlConnection.ConnectionState,
-        reconnectingSince: C.Instant?,
+        reconnectingSince: ContinuousClock.Instant?,
         workspace: Workspace?
     ) {
         guard state == .reconnecting else {
@@ -40,16 +52,13 @@ final class RemoteTmuxReconnectingIndicator<C: Clock> where C.Duration == Durati
         }
         guard pendingPresentation == nil,
               workspace?.statusEntries[Workspace.remoteTmuxReconnectingStatusKey] == nil else { return }
-        let elapsed = reconnectingSince.map { $0.duration(to: clock.now) } ?? .zero
+        let elapsed = reconnectingSince.map { $0.duration(to: .now) } ?? .zero
         let remaining = max(.zero, delay - elapsed)
-        // Presentation timing, not synchronization: the delay decides only when the person is
-        // told. Injected-clock sleep, cancelled by ``clear(workspace:)`` on every state change.
-        pendingPresentation = Task { @MainActor [weak self, weak workspace, clock] in
-            do {
-                try await clock.sleep(for: remaining)
-            } catch {
-                return
-            }
+        // Presentation timing only: it decides when the person is told, never what runs next.
+        // ``RemoteTmuxRetryDelay`` is a one-shot timer that cancelling this task releases, and
+        // ``clear(workspace:)`` cancels it on every state change and on detach.
+        pendingPresentation = Task { @MainActor [weak self, weak workspace] in
+            await RemoteTmuxRetryDelay.wait(milliseconds: Int(remaining / .milliseconds(1)))
             guard !Task.isCancelled, let self, let workspace else { return }
             self.pendingPresentation = nil
             workspace.setStatusEntry(
@@ -71,12 +80,5 @@ final class RemoteTmuxReconnectingIndicator<C: Clock> where C.Duration == Durati
         pendingPresentation?.cancel()
         pendingPresentation = nil
         workspace?.removeStatusEntry(forKey: Workspace.remoteTmuxReconnectingStatusKey)
-    }
-}
-
-extension RemoteTmuxReconnectingIndicator where C == ContinuousClock {
-    /// An indicator on the clock ``RemoteTmuxControlConnection/reconnectingSince`` comes from.
-    convenience init(delay: Duration = .seconds(5)) {
-        self.init(delay: delay, clock: ContinuousClock())
     }
 }
