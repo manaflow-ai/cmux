@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42945346287",
+  "recorded_at": "2026-11-11T02:28:31Z",
+  "reason": "cmux-tui f7e19f9fabb2 changes the image's cmux-tui (pinned 8cb243bf32ba)",
+  "dry_run": false,
+  "cmux_tui": "f7e19f9fabb2cc59de9f6cec450a043d59485f93",
+  "fixes": [
+    {
+      "sha": "b2e55c4aadd05cb52c61985b9ceafe0e53cb2995",
+      "mergedAt": "2026-11-10T17:59:34-08:00",
+      "subject": "cmux NEXT Home: the native Swift Home is back (revert #37777, #37736) (#40756)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T02:28:31Z",
+    "snapshot_id": "sh-5cbf4814a0fa462c900385011962ffc4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42945346287): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "25b97c5c3c88b0eae0c9504428c37e1964a5b70d",
+    "image": "cloud-native-auto-f7e19f9f-42945346287-1",
+    "revision": "ci-42945346287-1",
+    "at": "2026-11-11T02:28:31Z"
+  },
+  "rolled_back": false
+}
