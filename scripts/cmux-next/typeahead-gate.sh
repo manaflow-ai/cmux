@@ -2,8 +2,9 @@
 # typeahead-gate.sh TAG ROUNDS [PROOF...] (cx-wb5.76, cx-wb5.78): the typeahead GUI gate. Run it on
 # the GUI host through nx-remote, once, detached:
 #   nx-remote --detach --needs gui --timeout 5400 -- bash scripts/cmux-next/typeahead-gate.sh TAG 20
-# It needs /tmp/TAG.zip on the host: the fleet build of TAG (`cmux-ci build cmux --tag TAG
-# --backend-mode local`, then `cmux-ci artifact JOB /tmp/TAG.zip` copied there). It unpacks the app
+# It needs ~/ffre-cmp/TAG.zip on the host: the fleet build of TAG (`cmux-ci build cmux --tag TAG
+# --backend-mode local`, then `cmux-ci artifact JOB TAG.zip` copied there; in the user's own folder, never a
+# guessable /tmp name another account could plant an app at). It unpacks the app
 # into ~/ffre-cmp/TAG, runs each PROOF on a fresh launch of it (input journal on, never activated),
 # prints one summary line per proof, and exits 1 when any run lost a key.
 #   split, newterm   typeahead-compare.py: Cmd+D or New Terminal Tab, then `echo tkN` + Return at
@@ -26,7 +27,7 @@ ROOT=$HOME/ffre-cmp
 mkdir -p "$ROOT"
 cp "$HERE/typeahead-compare.py" "$HERE/new-tab-typeahead-proof.py" "$HERE/new-tab-cold-proof.sh" "$ROOT/"
 cd "$ROOT" || exit 2
-rm -rf "$TAG" && mkdir -p "$TAG" && (cd "$TAG" && ditto -x -k "/tmp/$TAG.zip" .) || exit 2
+rm -rf "$TAG" && mkdir -p "$TAG" && (cd "$TAG" && ditto -x -k "$ROOT/$TAG.zip" .) || exit 2
 APP="$ROOT/$TAG/cmux DEV $TAG.app"
 
 # One fresh launch of the app around CMD; kills only the app and daemon it started.
@@ -72,5 +73,5 @@ for proof in $PROOFS; do
   all_ok <<<"$out" || status=1
 done
 uptime
-rm -rf "${ROOT:?}/$TAG" "/tmp/$TAG.zip"
+rm -rf "${ROOT:?}/$TAG" "${ROOT:?}/$TAG.zip"
 exit $status
