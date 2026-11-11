@@ -551,13 +551,25 @@ impl Mux {
                     let (later, cancelled_by) = {
                         let mut terminals =
                             inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-                        let creating = inputs.remove(&mut terminals, terminal_id);
+                        let cancelled =
+                            terminals.get(terminal_id).is_some_and(|creating| creating.cancelled);
+                        let ended = if cancelled {
+                            // Cancelled during the write that failed. The terminal can still be
+                            // live, so the entry stays and refuses input for the expiry time, as
+                            // after a flush that ended: a key sent late by the id is not written.
+                            let owner = terminals.get_mut(terminal_id).and_then(|creating| {
+                                creating.flushing = false;
+                                creating.forget_at = Some(Instant::now() + creating_input_expiry());
+                                creating.owner
+                            });
+                            inputs.recount(&terminals);
+                            (Vec::new(), owner)
+                        } else {
+                            let creating = inputs.remove(&mut terminals, terminal_id);
+                            (creating.map(|creating| creating.queued).unwrap_or_default(), None)
+                        };
                         inputs.ended.notify_all();
-                        match creating {
-                            Some(creating) if creating.cancelled => (Vec::new(), creating.owner),
-                            Some(creating) => (creating.queued, None),
-                            None => (Vec::new(), None),
-                        }
+                        ended
                     };
                     let first_given_back = if crate::surface::input_may_be_written(&error) {
                         index.saturating_add(1)
