@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43064086718",
+  "recorded_at": "2026-11-11T17:13:34Z",
+  "reason": "cmux-tui 833c367b6038 changes the image's cmux-tui (pinned c92f88509a94)",
+  "dry_run": false,
+  "cmux_tui": "833c367b6038327466aeec9af817ea3e8a76311c",
+  "fixes": [
+    {
+      "sha": "833c367b6038327466aeec9af817ea3e8a76311c",
+      "mergedAt": "2026-11-11T08:47:19-08:00",
+      "subject": "acpmux: the remote-table guard is deterministic; its cost ratio runs on its own (#41391)"
+    },
+    {
+      "sha": "3493dc0f97950c552112d8e6458bdf69a0e23fb1",
+      "mergedAt": "2026-11-11T08:42:32-08:00",
+      "subject": "Cloud refusals, client: retryable for every code, and the rate limit's window from Retry-After and details (#41289)"
+    },
+    {
+      "sha": "b45b9ed47b89fbfedbdf31eb23e89d7debe86f5b",
+      "mergedAt": "2026-11-11T08:41:45-08:00",
+      "subject": "Cloud start trust check, step A: link start-chat trust and the FFI StartChatTrust call (Rust only) (#41132)"
+    },
+    {
+      "sha": "520820251e83cb083141c3215b0b175e2571560f",
+      "mergedAt": "2026-11-11T16:41:41Z",
+      "subject": "agent-pane-policy: the check passes an answer on the person's click only (click_only in policy.json, C ABI 3) (#41145)"
+    },
+    {
+      "sha": "2f29afd2f3505329fbc6fd487885a55886346e12",
+      "mergedAt": "2026-11-11T08:41:33-08:00",
+      "subject": "Customize: clock and weather, my PRs in my order, design links templates, and an ideas page (#40247)"
+    },
+    {
+      "sha": "cb40f445b3d9508910c7fa46a5a9f532ac7f5d84",
+      "mergedAt": "2026-11-11T08:41:15-08:00",
+      "subject": "SDK bindings: explicit null on a non-nullable opaque JSON field is a typed decode error (#41378)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T17:13:34Z",
+    "snapshot_id": "sh-09a643db07134fe980d3c9bbf343aa2a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43064086718): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1221f897679554487571e04940b4fcd2aa68646c",
+    "image": "cloud-native-auto-833c367b-43064086718-1",
+    "revision": "ci-43064086718-1",
+    "at": "2026-11-11T17:13:34Z"
+  },
+  "rolled_back": false
+}
