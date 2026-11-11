@@ -142,6 +142,31 @@ class DefaultDenyTests(unittest.TestCase):
         self.assertNotIn(TEAM, json.dumps([head, rows]))
         self.assertEqual(head["logs_dropped_unlisted"], 1)
 
+    def test_the_stack_team_diagnostics_print(self):
+        for msg in ("stack teams unreadable", "stack team sync failed", "team list membership unreachable"):
+            row, counts, text = published(event({"msg": msg, "error": "Error: upstream said hunter2"}))
+            self.assertEqual(row["log"], {"msg": msg, "error": True})
+            self.assertNotIn("hunter2", text)
+        row, _, text = published(event({"msg": "stack team sync rejected; ended", "team": TEAM, "code": "validation.invalid"}))
+        self.assertEqual(row["log"], {"msg": "stack team sync rejected; ended", "team": logs.tag(TEAM), "code": "validation.invalid"})
+        row, _, _ = published(event({"msg": "stack team sync rejected; ended", "code": "not a token; hunter2"}))
+        self.assertNotIn("code", row["log"])
+        row, _, _ = published(event({"msg": "stack team still missing after re-checks; dropped", "type": "team.updated"}))
+        self.assertEqual(row["log"], {"msg": "stack team still missing after re-checks; dropped", "type": "team.updated"})
+
+    def test_a_stack_sync_outcome_prints_only_from_its_fixed_enum(self):
+        def outcome(v):
+            row, _, text = published(event({"msg": "synced a stack team", "team": TEAM, "outcome": v}))
+            return row["log"]["outcome"], text
+        self.assertEqual(outcome("member_present")[0], "member_present")
+        self.assertEqual(outcome("stack_server_not_configured")[0], "stack_server_not_configured")
+        self.assertEqual(outcome("reject:validation.invalid")[0], "reject")
+        got, text = outcome("the team was not found because hunter2")
+        self.assertEqual(got, "other")
+        self.assertNotIn("hunter2", text)
+        self.assertEqual(outcome("lowercase_token_not_in_enum")[0], "other")
+        self.assertEqual(outcome({"password": "hunter2"})[0], "other")
+
 
 if __name__ == "__main__":
     unittest.main()

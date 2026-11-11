@@ -202,6 +202,11 @@ PUBLIC_MSGS = frozenset({
     "stack webhook lookup failed",
     "stop claim finish failed",
     "synced a stack team",
+    "stack teams unreadable",
+    "stack team sync failed",
+    "stack team sync rejected; ended",
+    "stack team still missing after re-checks; dropped",
+    "team list membership unreachable",
     "system op refused",
     "team journal full",
     "team selection unreachable",
@@ -309,6 +314,26 @@ def console_line(e):
     return None
 
 
+# A field whose value is a reply's outcome or reason (free text in principle) prints only as one of these fixed
+# literals, or "reject" for a `reject:<code>`, else "other": "synced a stack team" logs reply.outcome or reply.reason
+# (stack-team-heal.ts, from team-stack-sync.ts).
+STACK_SYNC_OUTCOMES = frozenset({
+    "duplicate", "queued", "stack_server_not_configured", "team_deleted", "team_delete_pending",
+    "team_delete_unconfirmed",
+    "team_missing_recheck", "team_missing_dropped", "vm_personal_tenant_ignored", "anonymous_team_ignored",
+    "team_mirrored", "member_present", "member_absent", "member_anonymous", "member_anonymous_removed",
+})
+ENUM_FIELDS = {("synced a stack team", "outcome"): STACK_SYNC_OUTCOMES}
+
+
+def enum_value(allowed, v):
+    if isinstance(v, str) and v in allowed:
+        return v
+    if isinstance(v, str) and v.startswith("reject:"):
+        return "reject"
+    return "other"
+
+
 def public_log(j):
     """(fields, why) for a console line: fields only for an allowlisted Worker msg, else None and the drop reason."""
     if any(k in j for k in TENANT_KEYS):
@@ -319,7 +344,8 @@ def public_log(j):
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
-            v = typed(kind, j[k])
+            allowed = ENUM_FIELDS.get((msg, k))
+            v = enum_value(allowed, j[k]) if allowed is not None else typed(kind, j[k])
             if v is not None:
                 out[k] = v
     if "error" in j:
