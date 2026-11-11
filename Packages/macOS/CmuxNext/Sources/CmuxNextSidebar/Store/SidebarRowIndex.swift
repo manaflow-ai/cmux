@@ -130,6 +130,7 @@ extension SidebarListView {
 
     /// Patches each row in place; true when one row's height changed.
     func patchRowsNow(_ patched: [SidebarWorkspace]) -> Bool {
+        spacePages.cachesTookChange(at: model.structureRevision)
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID
@@ -152,7 +153,6 @@ extension SidebarListView {
                     sections[sectionID]?.setRow(listed, node: path.node, member: path.member)
                 } else {
                     sections[sectionID] = modelRows[path.section] // another arrangement than the shown one: as the model has it
-                    spacePages.shownMetrics = nil // the caches are ahead of the shown layout: no space page from them
                 }
                 // A group header draws its members' activity and unread total when
                 // collapsed, where the member has no row: configure it whatever shows.
@@ -162,7 +162,6 @@ extension SidebarListView {
                         groups[groupID]?.workspaces[member] = listed
                     } else {
                         groups[groupID] = modelGroup
-                        spacePages.shownMetrics = nil // as for the section above
                     }
                     reconfigure(.group(groupID))
                     // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.

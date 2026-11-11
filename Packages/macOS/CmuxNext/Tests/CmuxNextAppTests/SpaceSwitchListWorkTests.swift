@@ -142,11 +142,13 @@ struct SpaceSwitchListWorkTests {
         #expect(hidden.isEmpty, "the open group shows no row for \(hidden.map(\.rawValue)): the list shows the folded layout it kept")
     }
 
-    /// A row moved and then patched in one turn (one batch of a script or of the daemon), then a switch away in that
-    /// turn, before the reload that shows the move: the switch back shows the model's order. The patch writes the
-    /// model's section into the list's row caches, so a page kept from those caches and the layout of the old order
-    /// compared equal to the model, and the list took the old order for the new one.
-    @Test func aRowPatchedBeforeItsMoveShowsLeavesNoPageOfTheOldOrder() throws {
+    /// A row moved, then a change the list draws in place (a row patch, or a group's fold), in one turn (one batch of
+    /// a script or of the daemon), then a switch away in that turn, before the reload that shows the move: the switch
+    /// back shows the model's order. The patch and the fold write the model's section into the list's row caches, so
+    /// a page kept from those caches and the layout of the old order compared equal to the model, and the list took
+    /// the old order for the new one.
+    @Test(arguments: ["patch", "fold"])
+    func aChangeDrawnInPlaceBeforeAMoveShowsLeavesNoPageOfTheOldOrder(_ change: String) throws {
         typealias Fixture = SidebarIncrementalMatchesRebuildTests
         let (sidebar, window) = Fixture.fixture(Fixture.Doc())
         defer { window.close() }
@@ -183,14 +185,18 @@ struct SpaceSwitchListWorkTests {
         let from = try #require(node(loose, in: moved[at].nodes)), to = try #require(node(scratch, in: moved[at].nodes))
         moved[at].nodes.swapAt(from, to)
         model.sections = moved
-        var renamed = try #require(list.workspaces[loose], "the list holds no content for the loose row")
-        renamed.title = "Renamed"
-        try #require(model.patchWorkspaces([renamed]), "the model refused the row patch")
+        if change == "patch" {
+            var renamed = try #require(list.workspaces[loose], "the list holds no content for the loose row")
+            renamed.title = "Renamed"
+            try #require(model.patchWorkspaces([renamed]), "the model refused the row patch")
+        } else {
+            try #require(model.setGroupCollapsed(Fixture.work, true), "the model has no group to fold")
+        }
         let live = model.sections
         try #require(order() == ["scratch", "loose2"], "the list showed the move before the switch: \(order())")
         _ = show([], in: second)
         let laidOut = show(live, in: first)
-        print("SPACE-SWITCH-LIST-WORK moved plain_layout_rows=\(plain) layout_rows=\(laidOut) order=\(order())")
+        print("SPACE-SWITCH-LIST-WORK moved change=\(change) plain_layout_rows=\(plain) layout_rows=\(laidOut) order=\(order())")
         #expect(order() == ["loose2", "scratch"], "the list shows \(order()): the order of the page it kept, not the model's")
     }
 
