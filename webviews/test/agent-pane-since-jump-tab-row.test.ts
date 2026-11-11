@@ -158,6 +158,14 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
     await page.evaluate(() => {
       window.cmuxAcpmuxActions!["pane.tabRowTools"] = async () => null;
     });
+    // The banner is off by default (chatDisplay.ts UNREAD_BANNER_KEY); this file places it, so it
+    // turns it on as the setting does (dev.tsx `cmuxDevDisplay`, the host's `display` event).
+    await page.waitForFunction(() => Boolean((window as { cmuxDevDisplay?: unknown }).cmuxDevDisplay));
+    await page.evaluate(() =>
+      (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay!({
+        "agentPane.display.unreadBanner": "expanded",
+      }),
+    );
     if (row) {
       await page.evaluate((row) => (window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge!.applyTabRow!(row), row);
       await page.locator(".acpmux-header[data-tab-row]").waitFor();

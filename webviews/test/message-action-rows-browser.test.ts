@@ -176,7 +176,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
   });
 
   for (const variant of ["steered-claude", "next-prompt-no-summary"])
-    test(`${variant}: every reply time hovers with its detail, the steered stretch's too`, async () => {
+    test(`${variant}: every reply time hovers; the steered stretch's footer draws none`, async () => {
       const page = await open(STEERED, variant, { width: 760, height: 560 });
       try {
         const times = await page.evaluate(() =>
@@ -191,15 +191,19 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
             };
           }),
         );
-        expect(times.some((time) => time.row.startsWith("superseded"))).toBe(true);
+        // A turn's footer draws no time, the stretch the person came in on's too (Lawrence, 2026-11-11
+        // standup: the Codex app shows none); a reply's own row keeps its time, and it hovers.
+        const superseded = await page.evaluate(() =>
+          [...document.querySelectorAll('[data-row-id^="superseded"]')].map((row) =>
+            Boolean(row.querySelector(".cv-turn-time")),
+          ),
+        );
+        expect(superseded.length).toBeGreaterThan(0);
+        expect(superseded).not.toContain(true);
         for (const time of times) {
           expect([time.row, time.hit]).toEqual([time.row, true]);
           expect([time.row, time.tip]).toEqual([time.row, expect.stringMatching(/\S/)]);
         }
-        // The stretch the person came in on says how long it worked, as a turn's own footer does.
-        const steered = times.find((time) => time.row.startsWith("superseded"))!;
-        // (Its tooltip's second line, under the exact time every reply's age hovers with.)
-        expect(steered.detail).toMatch(/^Worked for /);
       } finally {
         await page.close();
       }

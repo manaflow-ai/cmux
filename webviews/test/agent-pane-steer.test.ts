@@ -290,8 +290,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   });
 
   /// The chat with its turn running; `clock` puts the page's timers on Playwright's clock, so a test
-  /// can move past the old Stop deadline without waiting it out.
-  async function openChat({ clock = false } = {}): Promise<Page> {
+  /// can move past the old Stop deadline without waiting it out. `stoppedWord` pins the
+  /// stopped-turn-look `word` arm: the default `none` draws no Stopped word (stoppedTurn.experiment.ts).
+  async function openChat({ clock = false, stoppedWord = false } = {}): Promise<Page> {
     prompts.length = 0;
     cancels.length = 0;
     lateQueued = false;
@@ -299,6 +300,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       viewport: { width: 900, height: 760 },
     });
     await installPaintedFrames(page);
+    if (stoppedWord)
+      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"stopped-turn-look":"word"}'));
     if (clock) await page.clock.install();
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -443,7 +446,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     // like that". A Stop acpmux had to force reads as any Stop: a muted Stopped, with the reason only
     // in its tooltip, never a line of transcript text.
     test("acpmux's end of a turn whose agent ignored Stop reads as a plain stop", async () => {
-      const page = await openChat();
+      const page = await openChat({ stoppedWord: true });
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "running" } },
@@ -595,7 +598,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     });
 
     test("a turn the daemon forcibly ended stays stopped after a transcript rebuild", async () => {
-      const page = await openChat();
+      const page = await openChat({ stoppedWord: true });
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });

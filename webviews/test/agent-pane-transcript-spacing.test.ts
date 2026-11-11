@@ -202,7 +202,8 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")].filter(
         (node) => !node.closest('[data-row-id^="superseded-"]'),
       );
-      const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
+      // The footer draws no time (Codex parity, 2026-11-11): its first button stands for its line.
+      const lastFooterButton = footers.at(-1)!.querySelector(".cv-iconbtn")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
       // The reply's last line's text box (its content area, the line less its half-leading), the
@@ -222,7 +223,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
         promptToWorked: worked ? Math.round(rect(worked).top - rect(lastActions).bottom) : -1,
-        replyToFooterText: Math.round(rect(lastFooterTime).top - rect(lastReply).bottom),
+        replyToFooterButtons: Math.round(rect(lastFooterButton).top - rect(lastReply).bottom),
         footerToNextPrompt: Math.round(rect(last).top - rect(footers[0]!).bottom),
         lastFooterToComposer: Math.round(rect(dock).top - rect(footers.at(-1)!).bottom),
       };
@@ -246,8 +247,8 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
     // A reply's footer is a row of its own, ChatGPT's 32 buttons 8 under the reply's box
     // (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always say we can do
-    // it like chatgpt"); its time shares the buttons' line.
-    expect(Math.abs(measured.replyToFooterText - gridLength("gap-footer"))).toBeLessThanOrEqual(1);
+    // it like chatgpt").
+    expect(Math.abs(measured.replyToFooterButtons - gridLength("gap-footer"))).toBeLessThanOrEqual(1);
     // A prompt follows the footer at the turn gap, the footer's 32 box never in it.
     expect(Math.abs(measured.footerToNextPrompt - gridLength("gap-turn"))).toBeLessThanOrEqual(1);
     expect(Math.abs(measured.footerRoomBelow - gridLength("gap-turn"))).toBeLessThanOrEqual(1);

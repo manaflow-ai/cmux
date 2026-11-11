@@ -31,11 +31,13 @@ import { rowFailed, toolFailure } from "./toolFailure";
 import { ToolLabel } from "./ToolVerb";
 import { leadingVerb } from "./toolVerbModel";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, useInStep } from "./toolFailureCauseModel";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
 export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
   // Kept under the call's own key, as a lone call's is: grouped with others it keeps the reader's choice.
@@ -63,8 +65,13 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
   // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
-  // draws no check, no "Failed" or "Exit N" tag and no time once it ends; the opened Shell block
-  // still says "Exit code N".
+  // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
+  // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
+  const tag = tool.background
+    ? tool.background.state === "failed"
+      ? t("tools.failed")
+      : undefined
+    : failure && failureWord(t, failure, step);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
   const look = commandLook();
@@ -138,6 +145,11 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {running && <RowShimmer>{words}</RowShimmer>}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
+        {tag && (
+          <span className="cv-command__failed" data-find-skip>
+            {tag}
+          </span>
+        )}
         <span className="cv-command__meta">
           {/* The page a background command serves, while it runs (PreviewChip.tsx). */}
           {tool.background?.state === "running" && <PreviewChip toolCallId={tool.id} />}
@@ -152,7 +164,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           />
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
-          {!foreground && tool.background && <BackgroundMark background={tool.background} />}
+          {!foreground && !tag && tool.background && <BackgroundMark background={tool.background} />}
           {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />

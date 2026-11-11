@@ -45,6 +45,7 @@ import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, useInStep } from "./toolFailureCauseModel";
 import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
@@ -64,6 +65,7 @@ export const ToolRow = memo(function ToolRow({
   asRun?: boolean;
 }) {
   const t = useT();
+  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -181,6 +183,13 @@ export const ToolRow = memo(function ToolRow({
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
+      {/* The failure word, for screen readers only (conversation.css clips it away; Codex draws none). */}
+      {failure && (
+        <span className="cv-tool__failed" data-find-skip>
+          {" "}
+          {failureWord(t, failure, step)}
+        </span>
+      )}
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
           {background.state === "running" && <PreviewChip toolCallId={tool.id} />}

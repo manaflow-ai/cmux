@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 // A shell call that went on in the background shows how it stands on its own "Ran" row, in a "Ran
 // N commands" group (CommandRow) or alone (ToolRow): the running mark while it runs there, then
-// nothing once it ends, no check, time, "Failed" or "Stopped" (Lawrence and Lucas, 2026-11-11
-// standup: Codex marks no command as passed or failed, no time on hover). A background task's end whose call is not in the
+// nothing in sight once it ends, no check, time, "Failed" or "Stopped" (Lawrence and Lucas, 2026-11-11
+// standup: Codex marks no command as passed or failed, no time on hover); "Failed" stays for screen
+// readers only. A background task's end whose call is not in the
 // transcript is one line naming the command in a few words, never the raw `export PATH=…` text
 // (Leo 2026-10-20). A click opens that line in place, never a terminal (Leo 2026-10-21: it
 // replaced the whole window with an empty terminal); only its Open in terminal opens one.
@@ -122,11 +123,10 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: failed and stopped draw no Failed or Stopped mark`, async () => {
+  test(`${name}: failed says so to screen readers only; stopped draws no mark`, async () => {
     const failed = await render(<Row item={call({ state: "failed", endedAt: STARTED + 1_000 })} />);
-    expect(failed.querySelector(".cv-command__failed")).toBeNull();
-    expect(failed.querySelector("[data-state]")).toBeNull();
-    expect(failed.textContent).not.toContain(translate("tools.failed"));
+    // Clipped away on screen (conversation.css `.cv-tool .cv-command__failed`), read aloud.
+    expect(failed.querySelector(".cv-command__failed")!.textContent).toBe(translate("tools.failed"));
     await act(async () => root!.unmount());
     root = undefined;
     const stopped = await render(
