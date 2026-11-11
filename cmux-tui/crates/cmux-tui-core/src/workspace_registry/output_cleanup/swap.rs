@@ -296,8 +296,10 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     // version, a rebuild owed, a cursor below the floor of the build) is
     // not this start's fold of those records: the file is not installed.
     let retention = super::super::journal_retention::journal_pruned_through(&source)?;
+    // MUTATION (never merge): the base check of the swap is off.
     if built_floor > retention
         && !super::super::journal_retention::reducer_bases_possible(&source, built_floor)?
+        && built_floor == u64::MAX
     {
         eprintln!(
             "cmux-tui: output cleanup: the new registry was built without the journal through \
@@ -774,8 +776,11 @@ fn build_in(
         // new file. `build_and_swap` asked before the build; a state that
         // cannot be a base here is an error, and the registry stays.
         let based = super::super::journal_retention::save_reducer_bases(tx, "main", cut)?;
+        // MUTATION (never merge): a swap with no base goes on.
         anyhow::ensure!(
-            based || cut <= super::super::journal_retention::journal_pruned_through(source)?,
+            based
+                || !based
+                || cut <= super::super::journal_retention::journal_pruned_through(source)?,
             "a saved reducer state cannot stand for the journal through {cut}"
         );
     }
