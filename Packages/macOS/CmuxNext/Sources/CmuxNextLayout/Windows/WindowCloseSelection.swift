@@ -49,7 +49,7 @@ public final class WindowCloseSelection {
     /// The app's ids as the state's two numberings. Dropped when the state holds no id.
     private var workspaces = CloseSelectionNumbers(), windows = CloseSelectionNumbers()
     /// The repairs of ``repair(shown:pick:gesture:pressed:members:preferred:_:)`` that run: inside one, the
-    /// numberings stay (`cmux_window_close_selection_holds_ids` is not read inside a repair).
+    /// numberings stay (Rust holds the repair, so `cmux_window_close_selection_holds_ids` is nonzero there).
     private var repairs = 0
 
     public init() {}
@@ -108,7 +108,7 @@ public final class WindowCloseSelection {
     /// Window `old` took the identity `new` (the launch window adopts the frontmost saved window): its creates
     /// and relations follow it.
     public func renamed(window old: String, to new: String) {
-        guard let from = windows.known(old) else { return }
+        guard old != new, let from = windows.known(old) else { return }
         cmux_window_close_selection_renamed(state.pointer, from, windows.keep(new))
         windows.forget(old)
     }
@@ -152,7 +152,8 @@ public final class WindowCloseSelection {
         // The two ids the state may keep first, then the arrays: an id only an array names takes a number for this call.
         let shown = shown.map { workspaces.keep($0) } ?? CloseSelectionNumbers.none, pick = pick.map { workspaces.keep($0) } ?? CloseSelectionNumbers.none
         var ids = workspaces.call()
-        let members = members.map { ids.number($0) }, preferred = preferred.map { ids.number($0) }
+        // Rust reads the members only at a press (did the press hide `shown`'s row?): any other repair numbers none.
+        let members = pressed ? members.map { ids.number($0) } : [], preferred = preferred.map { ids.number($0) }
         members.withUnsafeBufferPointer { members in
             preferred.withUnsafeBufferPointer { preferred in
                 var repair = CmuxWindowCloseRepair(shown: shown, pick: pick, gesture: gesture ? 1 : 0, pressed: pressed ? 1 : 0,

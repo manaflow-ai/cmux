@@ -261,6 +261,25 @@ struct WorkspaceCloseSelectionTests {
         #expect(!rule.isEmpty)
     }
 
+    /// Rust asks about each workspace it holds; with more than the first call's 8 places the settle asks again
+    /// with arrays that hold them all. 5 relations = 10 held workspaces: each is asked for its owner and its
+    /// waiting create, and each relation is still there after the settle.
+    @Test func aSettleAsksAboutEveryHeldWorkspace() {
+        final class Counter { var asked = 0 }
+        let rule = WindowCloseSelection(), counter = Counter()
+        let rows = (0..<5).flatMap { ["o\($0)", "n\($0)"] }
+        for index in 0..<5 {
+            if index > 0 { rule.shown("o\(index)", after: "n\(index - 1)", in: window, gesture: false) }
+            make("n\(index)", from: "o\(index)", quick: false, in: rule)
+        }
+        rule.settle(window, owner: { _ in counter.asked += 1; return window }, exists: { _ in true }, claimed: { _ in counter.asked += 1; return false })
+        #expect(counter.asked == 20)
+        // With no opener the pick is the next row (the opener of the next pair); only for the last row is it the row above.
+        for index in 0..<5 {
+            #expect(WindowRegistry.repairedSelection(current: "n\(index)", previous: rows, members: rows.filter { $0 != "n\(index)" }, orders: [rows], rule: rule) == "o\(index)")
+        }
+    }
+
     // MARK: The feed (WindowState through `WindowCloseSelection.watch`) and the sidebar model's own close
 
     @Test func aPersonsNewWorkspaceGetsItsOpenerFromTheWindowsSelection() {
