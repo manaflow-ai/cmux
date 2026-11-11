@@ -26,16 +26,20 @@ so the list only shrinks.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
+import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 DIRS = ("scripts", ".github")
@@ -251,20 +255,46 @@ def scratch_hits(files) -> set[str]:
         return {h[0] for h in hits(Path(tmp))}
 
 
-def mktemp_names() -> set[str]:
-    """The names in /tmp (and $TMPDIR) owned by this user that mktemp's default template (tmp.XXXXXXXXXX) makes."""
-    out = set()
-    for folder in {"/tmp", os.environ.get("TMPDIR") or "/tmp"}:
-        try:
-            with os.scandir(folder) as entries:
-                out |= {e.path for e in entries if re.fullmatch(r"tmp\.[A-Za-z0-9]{10}", e.name)
-                        and e.stat(follow_symlinks=False).st_uid == os.getuid()}
-        except OSError:
-            continue
-    return out
+@contextlib.contextmanager
+def own_tmpdir():
+    """A temp folder of this run's own (mkdtemp's, removed after): TMPDIR and tempfile's default point into it while
+    the block runs, so every scratch folder a check makes, shell_tree.bash_writes()' among them, is made in it. No check
+    reads the shared /tmp, where any other process's mktemp makes names at any time."""
+    folder = tempfile.mkdtemp(prefix="noclobber-sweep-")
+    try:
+        with mock.patch.dict(os.environ, {"TMPDIR": folder}), mock.patch.object(tempfile, "tempdir", folder):
+            yield folder
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+# teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i and command -p find mktemp on the default PATH, which
+# holds the real one. Each of these runs mktemp once, and bash_writes() must make that the fake.
+REAL_MKTEMP_ROUTES = ("env -i mktemp", "d=$(env -i mktemp -d)", "command -p mktemp -d",
+                      "env -i PATH=/usr/bin:/bin mktemp", "/usr/bin/env -i mktemp -d")
+
+
+def fake_mktemp_runs(text: str, folder: str) -> int:
+    """How many times shell_tree's fake mktemp ran while bash_writes() ran TEXT. The fake, patched to add a line to a
+    file in FOLDER (this run's own) each time it runs, counts itself; a mktemp that is not the fake adds nothing."""
+    count = os.path.join(folder, "fake-mktemp-runs")
+    open(count, "w").close()
+    fake = shell_tree.MKTEMP.replace("#!/bin/sh\n", "#!/bin/sh\necho >> " + shlex.quote(count).replace("%", "%%")
+                                     + "\n", 1)
+    if fake == shell_tree.MKTEMP:
+        raise AssertionError("shell_tree.MKTEMP no longer starts with #!/bin/sh: count its runs another way")
+    with mock.patch.object(shell_tree, "MKTEMP", fake):
+        shell_tree.bash_writes(text)
+    with open(count) as f:
+        return len(f.read().splitlines())
 
 
 class NoclobberSweep(unittest.TestCase):
+    def setUp(self):
+        own = own_tmpdir()
+        self.tmp = own.__enter__()
+        self.addCleanup(own.__exit__, None, None, None)
+
     @classmethod
     def setUpClass(cls):
         cls.found = hits()
@@ -399,7 +429,6 @@ class NoclobberSweep(unittest.TestCase):
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = [c for c in shell_tree.corpus() if c[0] not in shell_tree.TREE_ONLY]
-        before = mktemp_names()
         verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
         file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
@@ -415,9 +444,48 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
-        # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
-        # PATH and made its name in the real temp folder. No fixture may reach it.
-        self.assertEqual(sorted(mktemp_names() - before), [], "a fixture's mktemp made a name in the real temp folder")
+
+    def test_no_fixture_reaches_the_real_mktemp(self):
+        """teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
+        PATH and made its name in the real temp folder. Each route there (REAL_MKTEMP_ROUTES) runs the fake, which
+        counts its runs in this test's own folder. The shared /tmp is never read: another process's names there change
+        nothing. A mktemp the fake does not stand for (a quoted name, past the rewrite) runs the real one, in the run's
+        HOME, and counts 0: the count sees a miss."""
+        missed = [text for text in REAL_MKTEMP_ROUTES if fake_mktemp_runs(text, self.tmp) != 1]
+        self.assertEqual(missed, [], "fixtures whose mktemp was not the fake: bash_writes() reached the real one")
+        self.assertEqual(fake_mktemp_runs("command -p mk''temp -p \"$HOME\"", self.tmp), 0)
+
+    def test_another_process_making_temp_names_changes_nothing(self):
+        """The detector for a check that judges the shared /tmp: one other process makes mktemp names in /tmp all the
+        time the bash checks run, and they still pass. The loop is bounded (an iteration cap, and a stop file it reads
+        each time round); cleanup stops it, kills its group if it has not ended, reaps it and removes the names it
+        made."""
+        stop = os.path.join(self.tmp, "stop")
+        loop = subprocess.Popen(["sh", "-c", 'i=0; while [ "$i" -lt 1800 ] && [ ! -e "$1" ]; do mktemp || exit 1; '
+                                 'i=$((i + 1)); sleep 0.2; done', "sh", stop], env={**os.environ, "TMPDIR": "/tmp"},
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True, start_new_session=True)
+        made = []
+
+        def end_loop():
+            open(stop, "w").close()
+            try:
+                out = loop.communicate(timeout=10)[0]
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(loop.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                out = loop.communicate(timeout=5)[0]  # its whole group is gone: nothing else holds the pipe
+            for name in made + out.split():
+                if name.startswith("/tmp/tmp."):
+                    Path(name).unlink(missing_ok=True)
+
+        self.addCleanup(end_loop)
+        made.append(loop.stdout.readline().strip())
+        self.assertTrue(made[0].startswith("/tmp/tmp."), "the loop made no name in /tmp")
+        self.test_bash_agrees_with_the_tree()
+        self.test_no_fixture_reaches_the_real_mktemp()
+        self.assertIsNone(loop.poll(), "the loop ended before the checks did, so they never ran beside it")
 
     def test_an_allowance_approves_only_its_own_hit(self):
         """Review of manaflow-ai/cmuxterm-hq#9370, F2: an allowance approved its whole line, so an unsafe name on the
