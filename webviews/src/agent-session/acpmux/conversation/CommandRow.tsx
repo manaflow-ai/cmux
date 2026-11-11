@@ -18,6 +18,7 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
@@ -161,6 +162,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             command={tool.command}
             startedAt={tool.startedAt}
             running={running}
+            background={inBackground(tool)}
           />
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}

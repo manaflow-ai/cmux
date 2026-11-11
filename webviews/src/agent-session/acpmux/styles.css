@@ -592,6 +592,10 @@
 .acpmux-home-inbox-answers button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 14%,transparent)}.acpmux-home-inbox-answers button[data-tone=allow]:hover:not(:disabled){background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
 .acpmux-home-inbox-answers button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-home-inbox-answers button:disabled{cursor:default}
+/* A question's choices answered in place (Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is bad ui"): the agent's recommended one in the stronger fill with a quiet word, and a question's line wraps to three so it reads whole. */
+.acpmux-home-inbox-answers button[data-recommended]{gap:var(--ds-space-2);background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
+.acpmux-home-inbox-recommended{color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-home-inbox-row[data-question] .acpmux-home-inbox-ask{display:-webkit-box;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow-wrap:anywhere}
 .acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 var(--ds-space-1);padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-home-inbox-error{margin:0;padding:0 var(--ds-space-2) 0 var(--ds-space-6);color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
