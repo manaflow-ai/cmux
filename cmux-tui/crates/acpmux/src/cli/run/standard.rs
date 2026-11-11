@@ -189,7 +189,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // take as long as it needs to page a large transcript, while EOF
             // still fails the request promptly.
             let id = resolve_id(&client, &session).await?;
-            let replies = last_replies(&client, &id, count).await?;
+            let replies = crate::cli::slow_notice::noted(
+                "the last replies",
+                last_replies(&client, &id, count),
+            )
+            .await?;
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {
@@ -1118,7 +1122,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let v = crate::cli::slow_notice::noted(
+                "the session's details",
+                client.request(method::MUX_INFO, json!({"sessionId": id})),
+            )
+            .await?;
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }
