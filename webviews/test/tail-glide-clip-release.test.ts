@@ -9,6 +9,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { createTailGlide } from "../src/agent-session/acpmux/conversation/tailGlide";
 
+/// Events a browser dispatches later: the Web Animations API queues `cancel` and `finish` to the next
+/// frame's update, never inside `cancel()`. Off, they dispatch at once (the tests below that need no
+/// frame); `frame()` dispatches what waits.
+let deferEvents = false;
+const queued: (() => void)[] = [];
+function frame() {
+  for (const send of queued.splice(0)) send();
+}
+
 class FakeAnimation extends EventTarget {
   playState: "running" | "paused" | "finished" | "idle" = "running";
   constructor(
@@ -26,7 +35,8 @@ class FakeAnimation extends EventTarget {
   cancel() {
     if (this.playState === "idle") return;
     this.playState = "idle";
-    this.dispatchEvent(new Event("cancel"));
+    if (deferEvents) queued.push(() => this.dispatchEvent(new Event("cancel")));
+    else this.dispatchEvent(new Event("cancel"));
   }
 }
 
@@ -134,5 +144,51 @@ describe("tail glide clip release", () => {
     glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
     expect(slide.playState).toBe("paused");
     expect(clip.playState).toBe("paused");
+  });
+
+  test("a pass that moves the rows again keeps the new clip when the old glide's cancel event comes a frame later", () => {
+    // The reply grows a line and the live line glides under it; before it lands the reply grows
+    // again. The pass cancels the old glide and clip and starts both again from where they are
+    // drawn; the old glide's `cancel` event comes in the next frame, as a browser sends it. It used
+    // to cancel the new clip with it (both kept by the live line's row), and the reply drew over the
+    // live line for the whole new glide (agent-pane-stream-row-overlap: 149 px under lag).
+    deferEvents = true;
+    try {
+      const anchor = row("a", 0, 20);
+      const reply = row("r", 20, 40);
+      const live = row("l", 60, 30);
+      const rows = [anchor, reply, live];
+      const glide = createTailGlide();
+      glide.place(thread(rows), true, "a");
+      (reply as { offsetHeight: number }).offsetHeight = 80;
+      (live as { offsetTop: number }).offsetTop = 100;
+      glide.place(thread(rows), true, "a");
+      const first = reply.animations.find((animation) => "clipPath" in animation.keyframes[0]!)!;
+      (reply as { offsetHeight: number }).offsetHeight = 120;
+      (live as { offsetTop: number }).offsetTop = 140;
+      glide.place(thread(rows), true, "a");
+      frame();
+      const clips = reply.animations.filter((animation) => "clipPath" in animation.keyframes[0]!);
+      const slides = live.animations.filter((animation) => "translate" in animation.keyframes[0]!);
+      expect(first.playState).toBe("idle");
+      expect(clips).toHaveLength(2);
+      expect(slides).toHaveLength(2);
+      expect(slides[1]!.playState).toBe("running");
+      // The new clip covers the line the live line starts drawn over (these fake rows draw no
+      // translate, so the old glide's remaining part reads as none).
+      expect(clips[1]!.keyframes[0]).toEqual({ clipPath: "inset(-4096px -4096px 40px -4096px)" });
+      expect(clips[1]!.playState).toBe("running");
+      // It still ends with the glide it guards.
+      glide.hold();
+      reply.box = { top: 20, bottom: 140 };
+      live.box = { top: 140, bottom: 170 };
+      glide.dropUnseen({ top: 0, bottom: 130 } as DOMRect);
+      expect(clips[1]!.playState).toBe("idle");
+      frame();
+      expect(glide.moving()).toBe(false);
+    } finally {
+      deferEvents = false;
+      frame();
+    }
   });
 });

@@ -149,10 +149,16 @@ export function createTailGlide(): TailGlide {
   const onRow = new Map<HTMLElement, Animation[]>();
   /// Each glide's row (a clip is no glide: it ends with the glides it guards, never on its own).
   const glides = new WeakMap<Animation, HTMLElement>();
-  /// The clips each row's glide guards against, by the row under them: a glide that ends early (the
-  /// reader scrolled it out of view, a new pass) takes them with it, or the row above stays clipped
-  /// over text nothing covers any more (a reply's last lines hidden after the reader scrolls back).
-  const guards = new Map<HTMLElement, Set<Animation>>();
+  /// The clips each glide guards against, by the glide itself (never by its row): a glide that ends
+  /// early (the reader scrolled it out of view, a new pass) takes them with it, or the row above stays
+  /// clipped over text nothing covers any more (a reply's last lines hidden after the reader scrolls
+  /// back). By glide, not by row: a pass that moves rows while glides play cancels each row's glide
+  /// and starts a new one with a new clip, and the old glide's `cancel` event comes later (the Web
+  /// Animations API queues it to the next frame's update). Keyed by row, that late event found the
+  /// row's new clip in the set and cancelled it, so the row above showed unclipped over the row
+  /// gliding under it for the whole new glide (agent-pane-stream-row-overlap: the reply over the
+  /// live line, 149 px, a thought over "Running ls -la", 24 px; every frame the clip was gone).
+  const guards = new Map<Animation, Set<Animation>>();
   const keep = (row: HTMLElement, animation: Animation) => {
     playing.add(animation);
     const list = onRow.get(row);
@@ -167,28 +173,36 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("finish", done, { once: true });
     animation.addEventListener("cancel", done, { once: true });
   };
+  /// Ends a glide's clips with it, now (its `cancel` event comes a frame later, and a clip left on
+  /// for that frame hides the row above over nothing).
+  const release = (glide: Animation) => {
+    const clips = guards.get(glide);
+    guards.delete(glide);
+    for (const clip of clips ?? []) clip.cancel();
+  };
+  /// Cancels what plays on `row`, the clips its glide guards with it.
+  const cancelOn = (row: HTMLElement) => {
+    for (const animation of onRow.get(row) ?? []) {
+      animation.cancel();
+      release(animation);
+    }
+  };
   const glideOn = (row: HTMLElement, animation: Animation) => {
     keep(row, animation);
     glides.set(animation, row);
-    animation.addEventListener(
-      "cancel",
-      () => {
-        const clips = guards.get(row);
-        guards.delete(row);
-        for (const clip of clips ?? []) clip.cancel();
-      },
-      { once: true },
-    );
+    // A glide ended by anything else (the page, the engine) still takes its own clips, and only them.
+    animation.addEventListener("cancel", () => release(animation), { once: true });
+    animation.addEventListener("finish", () => guards.delete(animation), { once: true });
   };
-  const clipOn = (row: HTMLElement, animation: Animation, under: HTMLElement[]) => {
+  const clipOn = (row: HTMLElement, animation: Animation, under: Animation[]) => {
     keep(row, animation);
-    for (const lower of under) {
-      const set = guards.get(lower);
+    for (const glide of under) {
+      const set = guards.get(glide);
       if (set) set.add(animation);
-      else guards.set(lower, new Set([animation]));
+      else guards.set(glide, new Set([animation]));
     }
     const done = () => {
-      for (const lower of under) guards.get(lower)?.delete(animation);
+      for (const glide of under) guards.get(glide)?.delete(animation);
     };
     animation.addEventListener("finish", done, { once: true });
     animation.addEventListener("cancel", done, { once: true });
@@ -216,7 +230,7 @@ export function createTailGlide(): TailGlide {
         const row = glides.get(animation);
         if (!row || animation.playState !== "paused") continue;
         const box = row.getBoundingClientRect();
-        if (box.bottom <= view.top || box.top >= view.bottom) for (const other of onRow.get(row) ?? []) other.cancel();
+        if (box.bottom <= view.top || box.top >= view.bottom) cancelOn(row);
       }
     },
     place(thread, glide, anchor, track = true) {
@@ -255,7 +269,7 @@ export function createTailGlide(): TailGlide {
       const gliding = parts.filter((part) => onRow.has(part.row));
       if (gliding.length) {
         const drawn = gliding.map((part) => drawnY(part.row));
-        for (const part of gliding) for (const animation of onRow.get(part.row) ?? []) animation.cancel();
+        for (const part of gliding) cancelOn(part.row);
         gliding.forEach((part, index) => (part.start += drawn[index]! - drawnY(part.row)));
       }
       const { ms, easing } = timing(
@@ -265,9 +279,14 @@ export function createTailGlide(): TailGlide {
       );
       if (!(ms > 0)) return;
       const timed = { duration: ms, easing };
+      /// This pass's glide on each row: the clips over a row guard the glide it plays now.
+      const slides = new Map<HTMLElement, Animation>();
       for (const part of parts)
-        if (Math.abs(part.start) >= MIN_MOVE_PX)
-          glideOn(part.row, part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed));
+        if (Math.abs(part.start) >= MIN_MOVE_PX) {
+          const slide = part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed);
+          glideOn(part.row, slide);
+          slides.set(part.row, slide);
+        }
       // Each row that a row under it starts drawn over is clipped there, on the same clock: its drawn
       // bottom never passes the drawn top of any row under it. Rows by where they lie, not DOM order
       // (an empty row, the turn's footer before it lands, can sit between the reply and the live
@@ -277,10 +296,11 @@ export function createTailGlide(): TailGlide {
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
         let over = 0;
-        const under: HTMLElement[] = [];
+        const under: Animation[] = [];
         for (const lower of laid.slice(index + 1)) {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
-          if (by >= MIN_MOVE_PX) under.push(lower.row);
+          const slide = slides.get(lower.row);
+          if (by >= MIN_MOVE_PX && slide) under.push(slide);
           over = Math.max(over, by);
         }
         if (over < MIN_MOVE_PX) continue;
