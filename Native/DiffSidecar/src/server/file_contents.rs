@@ -23,6 +23,7 @@ use super::{
     AppState, SESSION_GIT_TIMEOUT, SessionGit, SessionOpenError, SessionOwner, git_merge_base,
     has_session_token, session_owner_path, valid_token,
 };
+use super::submodules::{DiffedSubmodule, containing, open_diffed};
 use crate::protocol::{
     DiffSource, FileContentsEncoding, FileContentsRequest, FileContentsResult, FileSide,
 };
@@ -48,6 +49,10 @@ pub(super) struct SessionSides {
     /// A branch session's base: the commit its patch diffed from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) base_commit: Option<String>,
+    /// The submodules the patch diffed (CMUX-5): a path inside one reads
+    /// from that submodule's own commits.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) submodules: Vec<DiffedSubmodule>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -95,11 +100,13 @@ pub(super) async fn session_sides(
             repo,
             kind: SidesKind::Unstaged,
             base_commit: None,
+            submodules: Vec::new(),
         }),
         DiffSource::Staged { .. } => Ok(SessionSides {
             repo,
             kind: SidesKind::Staged,
             base_commit: None,
+            submodules: Vec::new(),
         }),
         DiffSource::Branch {
             base_ref: Some(base_ref),
@@ -108,6 +115,7 @@ pub(super) async fn session_sides(
             repo,
             kind: SidesKind::Branch,
             base_commit: Some(git_merge_base(git, base_ref).await?),
+            submodules: Vec::new(),
         }),
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             Err(SessionOpenError::Failed)
@@ -144,10 +152,27 @@ pub(super) async fn read(
 ) -> Result<FileContentsResult, FileContentsError> {
     let sides = authorized_sides(state, params).await?;
     let repo = PathBuf::from(&sides.repo);
+    let old_path = params.previous_path.as_deref().unwrap_or(&params.path);
+    if let Some((submodule, new_inner)) = containing(&sides.submodules, &params.path) {
+        // A file inside a diffed submodule: its sides are the submodule's
+        // commits, read by the submodule's own git; a renamed file stays in
+        // the same submodule.
+        let old_inner = old_path
+            .strip_prefix(submodule.prefix.as_str())
+            .ok_or(FileContentsError::Unauthorized)?;
+        let git = open_diffed(&repo, &submodule.prefix)
+            .await
+            .ok_or(FileContentsError::Failed)?;
+        let old = read_blob(&git, &format!("{}:{old_inner}", submodule.old)).await?;
+        let new = match &submodule.new {
+            Some(commit) => read_blob(&git, &format!("{commit}:{new_inner}")).await?,
+            None => read_work_tree(&repo, &params.path).await?,
+        };
+        return Ok(answer(old, new, params.encoding.unwrap_or_default()));
+    }
     let git = SessionGit::open(&repo, SESSION_GIT_TIMEOUT)
         .await
         .ok_or(FileContentsError::Failed)?;
-    let old_path = params.previous_path.as_deref().unwrap_or(&params.path);
     let old = read_side(&git, &repo, &sides.old_side(), old_path).await?;
     let new = read_side(&git, &repo, &sides.new_side(), &params.path).await?;
     let encoding = params.encoding.unwrap_or_default();

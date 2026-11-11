@@ -717,9 +717,10 @@ async fn open_session(
     let git = SessionGit::open(&canonical_repo, SESSION_GIT_TIMEOUT)
         .await
         .ok_or(SessionOpenError::Failed)?;
-    run_git_patch(&source, whitespace, &git, &temporary_path).await?;
+    let diffed_submodules = run_git_patch(&source, whitespace, &git, &temporary_path).await?;
     let generated_paths = git_generated_paths(&source, whitespace, &git).await;
-    let sides = file_contents::session_sides(&source, &canonical_repo, &git).await?;
+    let mut sides = file_contents::session_sides(&source, &canonical_repo, &git).await?;
+    sides.submodules = diffed_submodules;
     file_contents::record_session_sides(
         &state.config.root,
         &session_id,
@@ -842,7 +843,7 @@ async fn run_git_patch(
     whitespace: Whitespace,
     git: &SessionGit,
     output_path: &Path,
-) -> Result<(), SessionOpenError> {
+) -> Result<Vec<submodules::DiffedSubmodule>, SessionOpenError> {
     run_git_patch_with_limit(
         source,
         whitespace,
@@ -859,7 +860,7 @@ async fn run_git_patch_with_limit(
     git: &SessionGit,
     output_path: &Path,
     max_patch_bytes: u64,
-) -> Result<(), SessionOpenError> {
+) -> Result<Vec<submodules::DiffedSubmodule>, SessionOpenError> {
     let mut command = git.command();
     command.args([
         "diff",
@@ -869,24 +870,18 @@ async fn run_git_patch_with_limit(
         "--binary",
     ]);
     command.args(whitespace.diff_args());
-    match source {
-        DiffSource::Unstaged { .. } => {
-            command.arg("--");
-        }
-        DiffSource::Staged { .. } => {
-            command.args(["--cached", "--"]);
-        }
+    let revisions = match source {
+        DiffSource::Unstaged { .. } => Vec::new(),
+        DiffSource::Staged { .. } => vec!["--cached".to_owned()],
         DiffSource::Branch {
             base_ref: Some(base_ref),
             ..
-        } => {
-            let merge_base = git_merge_base(git, base_ref).await?;
-            command.args([merge_base.as_str(), "--"]);
-        }
+        } => vec![git_merge_base(git, base_ref).await?],
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
             return Err(SessionOpenError::Failed);
         }
-    }
+    };
+    command.args(&revisions).arg("--");
 
     let mut output = tokio::fs::File::create(output_path)
         .await
@@ -915,7 +910,7 @@ async fn run_git_patch_with_limit(
                 let budget = max_patch_bytes
                     .saturating_sub(bytes_written)
                     .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
-                let Some(patch) = git_untracked_file_patch(git, path, budget).await else {
+                let Some(patch) = git_untracked_file_patch(git, path, budget, "").await else {
                     continue;
                 };
                 output
@@ -925,14 +920,41 @@ async fn run_git_patch_with_limit(
                 bytes_written += patch.len() as u64;
             }
         }
-        output.flush().await.map_err(|_| SessionOpenError::Failed)
+        // Superrepo sessions (CMUX-5): the files changed inside each
+        // checked-out submodule, under its folder, after its
+        // `Subproject commit` lines. Best effort, like untracked files.
+        let diffed = submodules::append_submodule_patches(
+                git.clone(),
+                git.repo(),
+                revisions,
+                submodules::Session {
+                    whitespace,
+                    new_side: if matches!(source, DiffSource::Staged { .. }) {
+                        submodules::NewSide::Commits
+                    } else {
+                        submodules::NewSide::WorkTree
+                    },
+                    untracked: matches!(source, DiffSource::Unstaged { .. }),
+                    output: &mut output,
+                    bytes_written: &mut bytes_written,
+                    max_patch_bytes,
+                },
+            )
+            .await?;
+        output
+            .flush()
+            .await
+            .map_err(|_| SessionOpenError::Failed)
+            .map(|()| diffed)
     }
     .await;
-    if result.is_err() {
-        let _ = tokio::fs::remove_file(output_path).await;
-        return Err(SessionOpenError::Failed);
+    match result {
+        Ok(diffed) => Ok(diffed),
+        Err(_) => {
+            let _ = tokio::fs::remove_file(output_path).await;
+            Err(SessionOpenError::Failed)
+        }
     }
-    Ok(())
 }
 
 /// Streams one git command's stdout into `output`, enforcing the shared byte
@@ -998,53 +1020,30 @@ async fn stream_git_stdout(
 
 /// The added-file patch for one untracked `path`, or `None` when git fails on
 /// it, times out, or its output exceeds `budget` bytes. Output is buffered so a
-/// rejected file leaves nothing in the session patch.
-async fn git_untracked_file_patch(git: &SessionGit, path: String, budget: u64) -> Option<Vec<u8>> {
+/// rejected file leaves nothing in the session patch. `prefix` names the
+/// submodule folder the file is in (`sub/`), or is empty for the repository.
+async fn git_untracked_file_patch(
+    git: &SessionGit,
+    path: String,
+    budget: u64,
+    prefix: &str,
+) -> Option<Vec<u8>> {
     let mut command = git.command();
-    command
-        .args([
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-color",
-            "--binary",
-            "--no-index",
-            "--",
-            "/dev/null",
-        ])
-        .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let mut child = command.spawn().ok()?;
-    let mut stdout = child.stdout.take()?;
-    let collected = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
-        let mut collected_bytes = Vec::new();
-        let mut buffer = vec![0_u8; 64 * 1024];
-        loop {
-            let read = stdout.read(&mut buffer).await.ok()?;
-            if read == 0 {
-                break;
-            }
-            if (collected_bytes.len() + read) as u64 > budget {
-                return None;
-            }
-            collected_bytes.extend_from_slice(&buffer[..read]);
-        }
-        // `--no-index` exits 1 when the files differ, which an added file
-        // always does.
-        let status = child.wait().await.ok()?;
-        matches!(status.code(), Some(0 | 1)).then_some(collected_bytes)
-    })
-    .await
-    .ok()
-    .flatten();
-    if collected.is_none() {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+    command.args([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--binary",
+        "--no-index",
+    ]);
+    if !prefix.is_empty() {
+        command.args(submodules::prefix_args(prefix));
     }
-    collected
+    command.args(["--", "/dev/null"]).arg(path);
+    // `--no-index` exits 1 when the files differ, which an added file always
+    // does.
+    submodules::collect_stdout(command, budget, &[0, 1]).await
 }
 
 /// Untracked, non-ignored paths relative to `repo`, bounded so a huge
@@ -2095,6 +2094,7 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 mod file_contents;
 mod generated_paths;
+mod submodules;
 
 #[cfg(all(test, unix))]
 mod file_contents_tests;
