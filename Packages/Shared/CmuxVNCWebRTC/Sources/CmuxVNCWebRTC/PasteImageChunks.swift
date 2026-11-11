@@ -23,7 +23,7 @@ public struct PasteImageChunks: Sequence, Sendable {
             defer { index += 1 }
             let data = chunks.data
             let start = data.startIndex + index * ScreenInput.pasteImageChunkBytes
-            let chunk = data[start ..< min(start + ScreenInput.pasteImageChunkBytes, data.endIndex)]
+            let chunk = data[start ..< Swift.min(start + ScreenInput.pasteImageChunkBytes, data.endIndex)]
             return ScreenInput(t: ScreenHostMessage.pasteImageType, s: chunk.base64EncodedString(), i: index, n: chunks.count,
                                id: chunks.id, f: chunks.type)
         }

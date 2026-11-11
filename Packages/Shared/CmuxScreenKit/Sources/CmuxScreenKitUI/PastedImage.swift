@@ -44,7 +44,7 @@ struct PastedImage: Sendable, Equatable {
         let transparent = properties?[kCGImagePropertyHasAlpha] as? Bool ?? false
         let type = transparent ? UTType.png : UTType.jpeg
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil) else { return nil }
+        guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type.identifier as CFString, 1, nil) else { return nil }
         let options: [CFString: Any] = transparent ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
         CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }

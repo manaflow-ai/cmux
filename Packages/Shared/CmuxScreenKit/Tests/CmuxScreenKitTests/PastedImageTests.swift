@@ -19,7 +19,7 @@ struct PastedImageTests {
         if alpha { context.clear(CGRect(x: 0, y: 0, width: 8, height: 8)) }
         let image = try #require(context.makeImage())
         let output = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil))
+        let destination = try #require(CGImageDestinationCreateWithData(output as CFMutableData, type.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: orientation] as CFDictionary)
         #expect(CGImageDestinationFinalize(destination))
         return output as Data
@@ -65,7 +65,7 @@ struct PastedImageTests {
     static let writesHeic = (CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []).contains(UTType.heic.identifier)
 
     /// The iPhone's camera format (skipped, and shown as skipped, where ImageIO cannot write it).
-    @Test(.enabled(if: writesHeic, "ImageIO here cannot write HEIC")) func aHeicPhotoBecomesAJpeg() throws {
+    @Test(.enabled(if: PastedImageTests.writesHeic, "ImageIO here cannot write HEIC")) func aHeicPhotoBecomesAJpeg() throws {
         let pasted = try #require(PastedImage(photo: try Self.photo(.heic, width: 320, height: 240, alpha: false, orientation: 3)))
         #expect(pasted.type == UTType.jpeg.identifier)
         let read = try Self.read(pasted.data)
