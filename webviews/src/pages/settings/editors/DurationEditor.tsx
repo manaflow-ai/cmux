@@ -126,17 +126,17 @@ export function DurationEditor({ row, value, disabled, labelId }: EditorProps) {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCustomPicked(false);
           }}
         >
-        <NumberField
-          value={stored}
-          range={range}
-          placeholder={String(current)}
-          disabled={disabled}
-          labelId={labelId}
-          onCommit={(next) => {
-            setCustomPicked(false);
-            void store.set(row.key, next);
-          }}
-        />
+          <NumberField
+            value={stored}
+            range={range}
+            placeholder={String(current)}
+            disabled={disabled}
+            labelId={labelId}
+            onCommit={(next) => {
+              setCustomPicked(false);
+              void store.set(row.key, next);
+            }}
+          />
         </span>
       )}
       <Select
