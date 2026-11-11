@@ -11176,6 +11176,132 @@ class PrLogReadersScale(unittest.TestCase):
                 assert_scales(self, build, self.N, name)
 
 
+# How far an input grows in AdversarialInputsScale, and the most each step may cost over the smaller input: linear is
+# FACTOR, quadratic FACTOR squared (100 and 10,000), so the bound is three times linear, never seconds.
+ADVERSARIAL_FACTORS = (10, 100)
+ADVERSARIAL_SLACK = 3
+
+
+def growth_failure(build, n, factor, label, attempts=3, ceiling=SCALING_CEILING):
+    """None when BUILD's call at FACTOR*N costs under ADVERSARIAL_SLACK*FACTOR times its cost at N in one of ATTEMPTS
+    measurements, else why not: scaling_ratio's protocol (CPU seconds, MIN_SECONDS samples, the two sizes in turn,
+    best of three) at FACTOR rather than 4, and its hang guard."""
+    import gc
+    import math
+    import signal
+    import time
+
+    def expire(signum, frame):
+        raise ScalingHang()
+
+    def sample(run, loops):
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            began = time.process_time()
+            for _ in range(loops):
+                run()
+            return (time.process_time() - began) / loops
+        finally:
+            if enabled:
+                gc.enable()
+    tries = []
+    old = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, ceiling)
+    try:
+        small, large = build(n), build(factor * n)
+        loops = max(1, math.ceil(0.005 / max(sample(small, 1), 1e-9)))
+        for _ in range(attempts):
+            best_small = best_large = math.inf
+            for _ in range(3):
+                best_small = min(best_small, sample(small, loops))
+                best_large = min(best_large, sample(large, loops))
+            ratio = best_large / max(best_small, 1e-9)
+            if ratio < ADVERSARIAL_SLACK * factor:
+                return None
+            tries.append(f"{ratio:,.0f}x ({best_small:.4f} CPU s at {n:,}, {best_large:.4f} at {factor * n:,})")
+    except ScalingHang:
+        tries.append(f"still running after {ceiling} s (a hang guard, not a timing bound)")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    return (f"{label}: {factor}x the input took {', then '.join(tries)}; linear is about {factor}x and quadratic "
+            f"{factor * factor:,}x, the bound is {ADVERSARIAL_SLACK * factor}x")
+
+
+def _forged_error_log(letters):
+    """A job whose failing step prints one error line holding a forged keep-list marker of LETTERS letters."""
+    job = {"name": "job", "steps": framed_steps([("Tests", "failure", 20, 40)])}
+    log = framed_log([("Tests", 20, "##[group]Run tests"),
+                      ("Tests", 21, f"##[error]\0{'z' * letters}\0 Sources/A1.swift:3 failed"), ("Tests", 39, EXIT)])
+    return job, log
+
+
+def _same_second_headers(n):
+    """A job whose failing step prints N `##[group]Run` headers in one second (step_owners' hardest placement)."""
+    job = {"name": "job", "steps": framed_steps([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)])}
+    rows = [("Build", 3, "##[group]Run make"), ("Tests", 20, "##[group]Run tests")]
+    rows += [("Tests", 21, f"##[group]Run case {i}") for i in range(n)]
+    return job, framed_log([*rows, ("Tests", 39, EXIT)])
+
+
+# The excuse's public parser entry points, each on the input shape an attacker controls that makes it work hardest,
+# as BUILD(N) for growth_failure: (N, BUILD). A PR's log is attacker-shaped text read all the way through, so each
+# must cost linear in it. test_reds.plain joins once cmux#41382 (where it comes in) is on this base.
+ADVERSARIAL = {
+    "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": (
+        1_600, lambda n: (lambda text=f"\0{'z' * n}\0 Sources/A1.swift:3 failed": excuse.normalise_error(text))),
+    "base_red_excuse.normalise_error, many forged markers": (
+        200, lambda n: (lambda text="\0zzzz\0 " * n + "Sources/A1.swift": excuse.normalise_error(text))),
+    "base_red_excuse.normalise_error, a forged marker among many paths": (
+        200, lambda n: (lambda text=" ".join(f"S/A{i}.swift" for i in range(n)) + f" \0{'z' * n}\0":
+                        excuse.normalise_error(text))),
+    "base_red_excuse.unplaced_signature, a forged marker in an error line": (
+        1_600, lambda n: (lambda case=_forged_error_log(n): excuse.unplaced_signature(*case))),
+    "base_red_excuse.step_owners, same-second step headers": (
+        40, lambda n: (lambda case=_same_second_headers(n): excuse.step_owners(*case, **UNKNOWN))),
+    "base_red_excuse.failed_steps_log, same-second step headers": (
+        40, lambda n: (lambda case=_same_second_headers(n): excuse.failed_steps_log(*case, **UNKNOWN))),
+    "test_reds.log_lines, CSI introducers": (
+        2_000, lambda n: (lambda text="\x1b[" * n + "\x1b[1;" * n: excuse.test_reds.log_lines(text))),
+}
+
+
+class AdversarialInputsScale(unittest.TestCase):
+    """#41220's follow-up (dep-fleet-6): "F1 follow-up (base_red_excuse.py:1082): a forged marker (a NUL, many 'z',
+    then a NUL) makes _marker_index decode an ever-growing integer, which is quadratic: 160k letters take 5 s of CPU.
+    ... Reject any marker longer than the largest real keep-list index before decoding it, and add that input to the
+    scaling tests. The meta-problem and its detector: the excuse classifier reads attacker-shaped log text all the way
+    through. Add one scaling test that feeds every public parser entry point (plain, unplaced_signature, the step
+    mapper, the marker decoders) 10x and 100x adversarial inputs, and fails when the time grows faster than
+    linearly." PrLogReadersScale times every reader at 4x on one hostile log; this times each entry point on the
+    shape that makes it work hardest, at 10x and 100x (ADVERSARIAL)."""
+
+    def test_every_entry_point_costs_linear_in_adversarial_input(self):
+        for label, (n, build) in ADVERSARIAL.items():
+            for factor in ADVERSARIAL_FACTORS:
+                failure = growth_failure(build, n, factor, label)
+                with self.subTest(entry=label, factor=factor):
+                    if failure:
+                        self.fail(failure)
+                if failure:
+                    break  # 100x of what 10x already showed super-linear only costs time
+
+
+class ForgedMarkersAreNeverDecoded(unittest.TestCase):
+    """The marker half of the follow-up above: a marker longer than the keep list's largest index is the log's own
+    text, left as it is and never decoded."""
+
+    def test_a_forged_marker_longer_than_any_kept_index_is_left_as_text(self):
+        forged = f"\0{'z' * 40}\0"
+        said = excuse.normalise_error(f"Sources/A1.swift:3 {forged} failed")
+        self.assertEqual(said, f"Sources/A1.swift:# {forged} failed")
+
+    def test_a_real_marker_still_restores_its_id(self):
+        paths = " ".join(f"S/A{i}.swift" for i in range(30))  # 30 kept: two-letter markers
+        self.assertEqual(excuse.normalise_error(paths + " at 12"), paths + " at #")
+
+
 # The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
 OPENER_CANDIDATES = "xa0 _-./:<>\"'=#@!,;()[]{}|*+?$^%&~`\\Z9A"
 
