@@ -55,9 +55,10 @@ struct MadeAheadPanelStoreTests {
     }
 
     /// One app's user defaults, private to the test: every launch of one test's app reads the same record.
-    private final class AppDefaults {
+    /// Not main-actor isolated, so its deinit can drop the test's defaults domain.
+    private nonisolated final class AppDefaults {
         let name = "MadeAheadPanelStoreTests.\(UUID().uuidString)"
-        let defaults: UserDefaults
+        nonisolated(unsafe) let defaults: UserDefaults
         init() { defaults = UserDefaults(suiteName: name)! }
         deinit { defaults.removePersistentDomain(forName: name) }
     }
