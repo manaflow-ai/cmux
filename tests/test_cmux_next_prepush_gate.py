@@ -36,6 +36,29 @@ git_fixture_env = _load_git_fixture_env()
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+
+
+def live_group_members(pgid: int, seconds: float = 15.0) -> list[str]:
+    """The members of process group PGID still running, after waiting up to SECONDS for the group to go.
+
+    A member SIGKILLed with its parent gone stays a zombie until init (or the runner's subreaper) reaps it, and
+    kill(2) still finds a zombie: right after the gate's SIGKILL, `os.killpg(pgid, 0)` can succeed for a group
+    with nothing left running (#41316, run 43029244388: "process group 932435 outlived the gate"). So this waits,
+    bounded, for the group to vanish and counts only members that are not zombies.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return []
+        listing = subprocess.run(["ps", "-A", "-o", "pid=,pgid=,stat=,command="], capture_output=True, text=True,
+                                 timeout=30).stdout
+        live = [line.strip() for line in listing.splitlines()
+                if len(line.split()) >= 3 and line.split()[1] == str(pgid) and not line.split()[2].startswith("Z")]
+        if not live or time.monotonic() >= deadline:
+            return live
+        time.sleep(0.1)
 # The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
 # (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
@@ -458,8 +481,8 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
         pgid = int(mark.read_text())
         self.assertNotEqual(pgid, os.getpgrp(), "the advisory runs in its own process group")
-        with self.assertRaises(ProcessLookupError, msg=f"process group {pgid} outlived the gate"):
-            os.killpg(pgid, 0)
+        live = live_group_members(pgid)
+        self.assertEqual(live, [], f"process group {pgid} outlived the gate")
 
     def test_ci_advisory_marks_a_layer_whose_rule_failed_incomplete_and_names_the_failure(self):
         # Codex review of #40811 (F2): the checkers' own failure notes were dropped, so a broken rule read "clean".

@@ -1,0 +1,62 @@
+name: cmux-api production logs
+
+# Why did production refuse that? cmux-api (production) persists its Workers Logs; this reads one UTC window of
+# them (Workers observability telemetry query) and prints each event through an allowlist: time, outcome, method,
+# path without its query, status, and the msg/team/outcome/code fields of the Worker's JSON log lines (never free-text error)
+# (scripts/cmux-next/cmux-api-prod-logs.py). Never a header, body, query string, token, email or IP.
+# Prod 2026-11-11: `cmux auth token` refused the app's own team as "not a member", and no agent could read the
+# Worker's log lines without a person's dashboard login.
+# Dispatch from feat-cmux-next. The push trigger (this file and the script only) registers the workflow and runs it
+# once on the last 30 minutes. Reads only the Cloudflare token, in cmux-next-production as
+# pair-machine-join-check.yml does.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-api-prod-logs.yml, scripts/cmux-next/cmux-api-prod-logs.py]
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "UTC window start, e.g. 2026-11-11T13:20:00Z (empty: 30 minutes ago)"
+        required: false
+        default: ""
+      minutes:
+        description: "window length in minutes (1-60)"
+        required: false
+        default: "30"
+      needles:
+        description: "comma-separated substrings; keep only events holding one (a team id, a log msg, /auth/)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-api-prod-logs-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  logs:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/cmux-next/cmux-api-prod-logs.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Query the window
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FROM: ${{ inputs.from }}
+          MINUTES: ${{ inputs.minutes }}
+          NEEDLES: ${{ inputs.needles }}
+        run: |
+          set -euo pipefail
+          from="${FROM:-}"
+          [ -n "$from" ] || from="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:00Z)"
+          printf '%s\n' "$CLOUDFLARE_API_TOKEN" | python3 -I scripts/cmux-next/cmux-api-prod-logs.py \
+            --from "$from" --minutes "${MINUTES:-30}" --needles "${NEEDLES:-}" | tee "$RUNNER_TEMP/logs.txt"
+          { echo '```'; head -c 60000 "$RUNNER_TEMP/logs.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
