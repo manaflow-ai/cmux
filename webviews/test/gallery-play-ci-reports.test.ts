@@ -5,7 +5,7 @@
 //
 // The reports are the ones CI printed for those failures, trimmed to the graded fields.
 import { describe, expect, test } from "bun:test";
-import { playFailures } from "./support/galleryPlay";
+import { playFailures, playNotice } from "./support/galleryPlay";
 
 /** Plays that did what they drive while the runner's timing failed or warned their grade. */
 const runnerTimed = {
@@ -149,5 +149,45 @@ describe("a gallery play's CI report", () => {
 
   test("a play that ran no steps fails", () => {
     expect(playFailures(JSON.stringify({ status: "none", steps: [] }))).toHaveLength(1);
+  });
+
+  test("a test that asks for all steps fails on a warned popup problem, and still not on the runner's timing", () => {
+    const report = {
+      status: "fail",
+      steps: [
+        { step: 'click button "Open"', status: "fail", problems: ["1 frame(s) over 33 ms (longest 63.2 ms)"] },
+        {
+          step: "wait dialog",
+          status: "warn",
+          problems: [
+            "popup div.ui-dialog runs past the viewport (0,40 760x900)",
+            "settle latency 300.0 ms (limit 250 ms)",
+          ],
+        },
+      ],
+    };
+    expect(playFailures(JSON.stringify(report))).toEqual([]);
+    expect(playFailures(JSON.stringify(report), "all")).toEqual([
+      "wait dialog: popup div.ui-dialog runs past the viewport (0,40 760x900)",
+    ]);
+  });
+});
+
+describe("a gallery play's notice", () => {
+  test("names the step and its place in the play for a problem the test does not fail on", () => {
+    expect(playNotice("instructions-notice", JSON.stringify(runnerTimed["instructions-notice"]))).toBe(
+      '::notice title=instructions-notice play::status fail; step 1 of 4, click button "Chat actions": 1 frame(s) over 33 ms (longest 91.6 ms)',
+    );
+  });
+
+  test("names the play's error, and a report with no problem named", () => {
+    expect(playNotice("gone", JSON.stringify({ status: "fail", steps: [], error: "no element for button" }))).toBe(
+      "::notice title=gone play::status fail; no element for button",
+    );
+    expect(playNotice("none", undefined)).toBe("::notice title=none play::status none; no problem named: undefined");
+  });
+
+  test("is silent for a play that passed", () => {
+    expect(playNotice("fine", JSON.stringify({ status: "pass", steps: [] }))).toBeUndefined();
   });
 });

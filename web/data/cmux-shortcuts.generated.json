@@ -7466,41 +7466,6 @@
           "aliases": []
         },
         {
-          "id": "toggleRightSidebar",
-          "title": {
-            "en": "Toggle Right Sidebar",
-            "ar": "تبديل الشريط الجانبي الأيمن",
-            "bs": "Prebaci desnu bočnu traku",
-            "da": "Slå højre sidebjælke til/fra",
-            "de": "Rechte Seitenleiste ein-/ausblenden",
-            "es": "Alternar barra lateral derecha",
-            "fr": "Afficher/masquer la barre latérale droite",
-            "it": "Attiva/Disattiva barra laterale destra",
-            "ja": "右サイドバーを切り替え",
-            "km": "បិទ/បើករបារចំហៀងស្ដាំ",
-            "ko": "오른쪽 사이드바 전환",
-            "no": "Slå høyre sidepanel av/på",
-            "pl": "Przełącz prawy pasek boczny",
-            "pt-BR": "Alternar barra lateral direita",
-            "ru": "Переключить правую боковую панель",
-            "th": "สลับแถบด้านข้างขวา",
-            "tr": "Sağ Kenar Çubuğunu Aç/Kapat",
-            "uk": "Перемкнути праву бічну панель",
-            "vi": "Bật/tắt thanh bên phải",
-            "zh-CN": "切换右侧边栏",
-            "zh-TW": "切換右側邊欄"
-          },
-          "shortcut": {
-            "key": "b",
-            "modifiers": [
-              "opt",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "focusSidebar",
           "title": {
             "en": "Focus Sidebar",
@@ -7529,41 +7494,6 @@
             "key": "e",
             "modifiers": [
               "ctrl",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "focusRightSidebar",
-          "title": {
-            "en": "Focus Right Sidebar",
-            "ar": "التركيز على الشريط الجانبي الأيمن",
-            "bs": "Fokusiraj desnu bočnu traku",
-            "da": "Fokuser højre sidebjælke",
-            "de": "Rechte Seitenleiste fokussieren",
-            "es": "Enfocar barra lateral derecha",
-            "fr": "Activer la barre latérale droite",
-            "it": "Vai alla barra laterale destra",
-            "ja": "右サイドバーにフォーカス",
-            "km": "ផ្ដោតរបារចំហៀងស្ដាំ",
-            "ko": "오른쪽 사이드바에 포커스",
-            "no": "Fokuser høyre sidepanel",
-            "pl": "Aktywuj prawy pasek boczny",
-            "pt-BR": "Focar Barra Lateral Direita",
-            "ru": "Фокус на правую боковую панель",
-            "th": "โฟกัสแถบด้านข้างขวา",
-            "tr": "Sağ Kenar Çubuğuna Odaklan",
-            "uk": "Фокус на праву бічну панель",
-            "vi": "Tập trung thanh bên phải",
-            "zh-CN": "聚焦右侧边栏",
-            "zh-TW": "聚焦右側側邊欄"
-          },
-          "shortcut": {
-            "key": "e",
-            "modifiers": [
-              "shift",
               "cmd"
             ]
           },

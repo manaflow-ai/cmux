@@ -1077,6 +1077,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
+      - name: Validate the App Store signing ensure step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_appstore_ensure_signing.py
+
       - name: Validate the INTERNAL iOS archive never waits on the dedicated mini
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
@@ -2138,6 +2142,15 @@ jobs:
         run: |
           python3 scripts/lint-short-gates.py --self-test
           python3 scripts/lint-short-gates.py
+
+      # Warn-only for now (exit 0, ::warning annotations): a new connection opened without a deadline or a spawn
+      # nobody frees. --strict turns it red once the baseline is down (cmuxterm-hq docs/handbook/connections-and-lifetimes.md).
+      # In the `ci` group: every feat-cmux-next pull request and push runs it, whatever source the change touches.
+      - name: Warn on connections and lifetimes nobody bounds
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 -m unittest tests/test_lint_connection_lifetimes.py
+          python3 scripts/lint-connection-lifetimes.py
 
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
