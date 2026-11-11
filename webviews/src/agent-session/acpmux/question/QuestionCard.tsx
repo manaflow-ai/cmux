@@ -4,6 +4,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { ANSWER_HOLD_MS, useAnswerHold } from "../answerHold";
 import { Keycap } from "../Keycap";
 import { NativeError } from "../nativeError";
 import { errorMessage, isHostRefusal } from "../transportErrors";
@@ -188,10 +189,19 @@ function PendingQuestion({
   const listFormat = new Intl.ListFormat(language, { type: "conjunction" });
   const group = useRef<HTMLFieldSetElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
+  // The ask being answered, read at once: a second click before the card renders again (a
+  // consent's double click) must not answer twice.
+  const sending = useRef<string | undefined>(undefined);
   // The ask a person already answered: the owner clears it a moment later, and until then a
-  // second click or key must not answer it again. A refused reply clears it for a retry.
-  const [sentFor, setSentFor] = useState<string | undefined>();
-  const [keyPendingFor, setKeyPendingFor] = useState<string | undefined>();
+  // second click or key must not answer it again. A refused reply clears it for a retry. Held for
+  // ANSWER_HOLD_MS at most (answerHold.ts): an owner that never clears the ask (the agent
+  // exited, the link dropped) leaves the card taking an answer again, never dimmed for good.
+  const [sentFor, setSentFor] = useAnswerHold<string>(ANSWER_HOLD_MS, (askId) => {
+    if (sending.current === askId) sending.current = undefined;
+  });
+  const [keyPendingFor, setKeyPendingFor] = useAnswerHold<string>(ANSWER_HOLD_MS, (askId) => {
+    if (sending.current === askId) sending.current = undefined;
+  });
   // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
   // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
   // app's or the pane's own). acpmux's English is for its CLI.
@@ -210,9 +220,6 @@ function PendingQuestion({
   const item = activeItem(state);
   const highlighted = highlightedRow(state, item);
 
-  // The same, read at once: a second click before the card renders again (a consent's double click)
-  // must not answer twice either.
-  const sending = useRef<string | undefined>(undefined);
   const refuseReply = useCallback((askId: string, error: unknown) => {
     // The ask stays pending: say why on the card and take input again.
     if (sending.current === askId) sending.current = undefined;
