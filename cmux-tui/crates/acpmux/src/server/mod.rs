@@ -245,6 +245,9 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// The client's requests being served, by id, with their slots: what its
+    /// `$/cancel_request` finds (`in_flight.rs`).
+    in_flight: in_flight::InFlight,
     /// Its windows over the chat index (`chat_windows.rs`).
     chat_windows: chat_windows::ConnWindows,
     /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
@@ -651,15 +654,20 @@ impl Conn {
     /// too-large error, nor into a queue whose reader is gone).
     /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
     /// the reply once it goes, never a list left for a newer one.
+    /// `claim` takes the request's in-flight entry as the reply is queued, under the outbound
+    /// lock (`in_flight.rs`): a cancel that answered it first leaves the reply unsent
+    /// (Some(false)), and one read after it finds nothing to answer, so the client never gets
+    /// both the list and the cancelled error.
     fn send_serialized(
         &self,
         id: &Value,
         method: Option<&str>,
-        result: &str,
+        claim: Option<&in_flight::Claim>,
+        result: Arc<String>,
         seen: u64,
         anyway: bool,
     ) -> Option<bool> {
-        let mut line = list_reply::reply_line(id, result);
+        let mut line = list_reply::reply_line_in(id, result);
         let bytes = line.len();
         let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
         if !whole {
@@ -674,6 +682,9 @@ impl Conn {
         let stale = self.notices.load(Ordering::SeqCst) != seen;
         if stale && !anyway {
             return None;
+        }
+        if claim.is_some_and(|claim| !self.in_flight.claim(claim)) {
+            return Some(false);
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
@@ -1662,6 +1673,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
         cancel_refusals: Default::default(),
         wire,
@@ -1764,11 +1776,15 @@ async fn serve_connection_from(
                 // the copy read first runs it and the other answers with its answer.
                 let dual = dual_requests::key_for(conn.dual_principal, &m, params.as_ref())
                     .and_then(dual_requests::admit);
+                // Registered in order, before the request is spawned: a `$/cancel_request` read
+                // after it finds it, and taking it frees its slot (`in_flight.rs`).
+                let mut ticket = conn.in_flight.begin(&id, &m, slot);
+                #[cfg(test)]
+                cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
-                    let _slot = slot;
                     let first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
@@ -1776,14 +1792,41 @@ async fn serve_connection_from(
                             if m == method::SESSION_CANCEL {
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
                             }
-                            conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                            if conn.in_flight.finish(&ticket) {
+                                conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                            }
                             return;
                         }
                     };
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
-                    let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
+                    let cancel =
+                        std::mem::replace(&mut ticket.cancel, tokio::sync::oneshot::channel().1);
+                    let claim = ticket.claim();
+                    let serve = async {
+                        let stage = crate::hub::RequestStage::Dispatch;
+                        hub.request_hold(stage, &m, &id).await;
+                        list_reply::scope(id.clone(), &m, claim, route).await
+                    };
+                    let served = crate::request_cancel::until_cancelled(cancel, serve).await;
+                    // Cancelled: the cancel answered it, and a copy sent on another path gets
+                    // that answer too (`dual_requests.rs`).
+                    let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))
+                    else {
+                        tracing::debug!(
+                            target: crate::request_cancel::LOG_TARGET,
+                            conn = %conn.id,
+                            id = %id,
+                            method = %m,
+                            "dropped the answer to a request its client cancelled"
+                        );
+                        dual_requests::finish(
+                            first,
+                            Some(&Err(crate::request_cancel::cancelled_error())),
+                        );
+                        return;
+                    };
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
@@ -1809,7 +1852,20 @@ async fn serve_connection_from(
                     }
                 });
             }
-            // A read-only machine's notifications (a cancel) change nothing.
+            // The client gives up on one of its requests: answered as cancelled at once, its
+            // slot freed, and its work dropped, which tells the agent or peer it waited on
+            // (`request_cancel.rs`). In order: it finds every request read before it. Before
+            // every class's own filter (review F3 of #41285): it touches only this connection's
+            // own requests, so a read-only machine, a teammate and a trigger may send it.
+            Message::Notification { method: m, params } if m == method::CANCEL_REQUEST => {
+                if let Some(id) = params.as_ref().and_then(crate::request_cancel::named_id)
+                    && let Some(cancelled) = conn.in_flight.cancel(id)
+                {
+                    let error = crate::request_cancel::cancelled_error();
+                    conn.send_replying(&Message::err(id.clone(), error), Some(&cancelled));
+                }
+            }
+            // A read-only machine's other notifications (a session cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
             Message::Notification { method: m, params }
@@ -2169,8 +2225,12 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+#[cfg(test)]
+#[path = "cancel_classes_tests.rs"]
+mod cancel_classes_tests;
 mod client_request;
 mod clock_text;
+mod in_flight;
 pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;

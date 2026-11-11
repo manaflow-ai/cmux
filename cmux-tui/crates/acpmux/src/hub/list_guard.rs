@@ -336,19 +336,7 @@ impl Snapshot {
             )?;
             (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
         };
-        let mut out = String::from("{");
-        if let Some(next) = next {
-            out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
-        }
-        out.push_str("\"sessions\":[");
-        for (n, text) in page.iter().enumerate() {
-            if n > 0 {
-                out.push(',');
-            }
-            out.push_str(text);
-        }
-        out.push_str("]}");
-        Ok(out)
+        Ok(page_text(next.map(|next| Value::String(next).to_string()), &page))
     }
 
     #[cfg(test)]
@@ -393,19 +381,7 @@ impl Snapshot {
             used = total;
             page.push(row);
         }
-        let mut text = String::from("{");
-        if let Some(next) = next {
-            text.push_str(&format!("\"nextCursor\":{next},"));
-        }
-        text.push_str("\"sessions\":[");
-        for (n, row) in page.iter().enumerate() {
-            if n > 0 {
-                text.push(',');
-            }
-            text.push_str(row);
-        }
-        text.push_str("]}");
-        Ok(text)
+        Ok(page_text(next.map(|next| next.to_string()), &page))
     }
 
     /// Every summary, parsed back.
@@ -430,6 +406,45 @@ impl Snapshot {
         made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
     }
 }
+
+/// A page's result text, `{"nextCursor":<next>,"sessions":[<rows>]}` (no `nextCursor` when
+/// `next` is `None`; `next` is already JSON), in one allocation of its exact size plus
+/// [`LINE_ROOM`], so the reply line is made in it (`server/list_reply.rs` `reply_line_in`).
+/// A page is megabytes: growing it by doubling, then copying it into its line, left three or
+/// four freed blocks of megabytes per page, which macOS's allocator keeps (270 MB of
+/// "Malloc Large (empty)" after 40 `ls` of 3000 rows, aws-m4pro-2, 2026-11-11).
+pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> String {
+    const CURSOR: &str = "\"nextCursor\":";
+    const SESSIONS: &str = "\"sessions\":[";
+    let rows_len: usize = rows.iter().map(|row| row.as_ref().len()).sum();
+    let size = 1
+        + next.as_ref().map_or(0, |next| CURSOR.len() + next.len() + 1)
+        + SESSIONS.len()
+        + rows_len
+        + rows.len().saturating_sub(1)
+        + 2;
+    let mut text = String::with_capacity(size + LINE_ROOM);
+    text.push('{');
+    if let Some(next) = next {
+        text.push_str(CURSOR);
+        text.push_str(&next);
+        text.push(',');
+    }
+    text.push_str(SESSIONS);
+    for (n, row) in rows.iter().enumerate() {
+        if n > 0 {
+            text.push(',');
+        }
+        text.push_str(row.as_ref());
+    }
+    text.push_str("]}");
+    debug_assert_eq!(text.len(), size);
+    text
+}
+
+/// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
+/// "result":` and `}\n`), so the line is made in place for any id up to about 200 bytes.
+pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
 /// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
@@ -619,8 +634,50 @@ impl Rows {
     }
 }
 
+/// Where a client's request is, for a test's hold (`Hub::hold_requests_for_tests`): about to be
+/// served (`server/mod.rs`), or its list reply sent from inside it (`server/list_reply.rs`)
+/// built and not queued yet, or queued to the client with the request not finished yet.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestStage {
+    Dispatch,
+    ListBuilt,
+    ListQueued,
+}
+
+/// A test's hold on requests at each [`RequestStage`], by method and id: the request waits for
+/// the future it returns, and a cancel may drop it there.
+#[doc(hidden)]
+pub type RequestHold = Arc<
+    dyn Fn(
+            RequestStage,
+            &str,
+            &Value,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+impl Hub {
+    /// Integration-test hold on requests (`tests/cancel_list_reply.rs`): a cancel races a request
+    /// at a stage the test picks, never by timing. Set once per hub; a daemon never sets it.
+    #[doc(hidden)]
+    pub fn hold_requests_for_tests(&self, hold: RequestHold) {
+        let _ = self.list_guard.hold.set(hold);
+    }
+
+    /// Waits out a test's hold at `stage` of request `id` of method `m`, if one is set.
+    pub(crate) async fn request_hold(&self, stage: RequestStage, m: &str, id: &Value) {
+        if let Some(hold) = self.list_guard.hold.get() {
+            hold(stage, m, id).await;
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ListGuard {
+    /// A test's hold on requests (`Hub::hold_requests_for_tests`); unset in a daemon.
+    pub(crate) hold: std::sync::OnceLock<RequestHold>,
     state: Arc<tokio::sync::Mutex<State>>,
     /// The last build's window (ns), row count and whole list's bytes, read without waiting for
     /// a build.
