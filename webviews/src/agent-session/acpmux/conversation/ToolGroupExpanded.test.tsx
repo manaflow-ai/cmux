@@ -380,7 +380,7 @@ test("one mixed run exposes individual steps and drills into an MCP call's field
   expect(steps.textContent).not.toContain("Waiting…");
 });
 
-// A running turn draws by liveTurnWork.experiment.ts: the shipped `line` arm draws no finished run
+// A running turn draws by liveTurnWork.experiment.ts: the `line` arm draws no finished run
 // of the stretch still running (one live line, as chatgpt.com draws a running turn); the `runs` arm
 // keeps each finished run's calls in sight until the turn ends. Each arm is pinned for its case.
 async function underLiveTurnArm<T>(arm: "line" | "runs", body: () => Promise<T>): Promise<T> {

@@ -368,7 +368,7 @@ const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine
 
 /// A command still running, its output streaming in, in its own row: its stretch ended with its
 /// summary while it ran on, and the turn went on past it (a lone running call reads only on the
-/// turn's live line, and under the shipped live-turn-work `line` the stretch still running draws no
+/// turn's live line, and under the live-turn-work `line` the stretch still running draws no
 /// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
@@ -612,7 +612,7 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
 
 /// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
 /// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
-/// with its summary: under the shipped live-turn-work `line` a running stretch draws none of its
+/// with its summary: under the live-turn-work `line` a running stretch draws none of its
 /// finished work, only the live line, so a finished thought's row shows once its stretch ended
 /// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
@@ -1127,7 +1127,7 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
-      // The stretch above ended with its summary: under the shipped live-turn-work `line` only an
+      // The stretch above ended with its summary: under the live-turn-work `line` only an
       // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
       // is the live line's.
       summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
@@ -2827,7 +2827,7 @@ export default agentPaneEntry({
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
         // would hold the last finished call instead. The stretch ended with its summary while the
-        // chat works on: under the shipped live-turn-work `line` only an ended stretch draws its
+        // chat works on: under the live-turn-work `line` only an ended stretch draws its
         // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),

@@ -8,7 +8,7 @@ import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/mod
 import { ACTIVITY_LINE, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
-// run in sight as its folded summary line. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
 // turn) is covered by live-turn-one-line.test.ts.
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {

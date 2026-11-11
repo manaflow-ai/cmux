@@ -210,8 +210,8 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
     test(`mixed ${theme} ${harness} ${working ? "live" : "finished"} run has one step per call, shared columns and useful drill-in`, async () => {
       const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
       try {
-        // A running turn draws its finished runs under liveTurnWork.experiment.ts `runs` only (the
-        // shipped `line` draws none, live-turn-one-line.test.ts).
+        // A running turn draws its finished runs under liveTurnWork.experiment.ts `runs` (shipped)
+        // only; `line` draws none (live-turn-one-line.test.ts). Pinned, so the default can move.
         if (working) await pinArms(page, { "live-turn-work": "runs" });
         const port = (vite.httpServer!.address() as { port: number }).port;
         await page.goto(
