@@ -371,7 +371,19 @@ fn a_chat_with_no_copies_yet_reads_its_newest_prompts_back_from_the_end() {
         .unwrap()
         .map(|e| e.unwrap().metadata().unwrap().len())
         .sum();
-    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
+    // A deferred start, as a daemon's: the chat's log is read later (`hub/log_load.rs`).
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new_deferred(
+        cfg,
+        Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()),
+        crate::mailbox::Mailbox::memory(),
+    );
     assert!(!hub.store.copies_kinds("c"), "no load has made the copies");
     let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
     let r0 = read_bytes();
