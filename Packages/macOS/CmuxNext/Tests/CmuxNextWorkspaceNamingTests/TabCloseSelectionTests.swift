@@ -33,10 +33,11 @@ struct TabCloseSelectionTests {
         @discardableResult
         func sync() -> String? { memory.resolve(pane: id, tabs: tabs, defaultIndex: 0, hidden: hidden, closing: { self.closing }) }
 
-        /// A person's new tab (Cmd-T, the +), right after the selected tab, or at the end.
-        func newTab(_ new: String, atEnd: Bool = false) {
+        /// A person's new tab (Cmd-T, the +), right after the selected tab, or at the end. `link`: a link's page that
+        /// shows before its store tab exists (the GitHub page), right after the selected tab.
+        func newTab(_ new: String, atEnd: Bool = false, link: Bool = false) {
             guard let current = selected, let index = tabs.firstIndex(of: current) else { return }
-            memory.closeRule.expect(in: id, opener: current, listed: tabs, quick: atEnd)
+            memory.closeRule.expect(in: id, opener: current, listed: tabs, quick: atEnd, link: link)
             tabs.insert(new, at: atEnd ? tabs.count : index + 1)
             memory.selectMade(new, in: id, inPlaceOf: nil, tabs: tabs)
             sync()
@@ -243,6 +244,21 @@ struct TabCloseSelectionTests {
         pane.click("b")
         pane.click("l2")
         #expect(pane.remove("l2") == "b")
+    }
+
+    /// The GitHub page a link opens shows before its store tab exists, so the pane's next selection gives it its
+    /// opener. It is a link's foreground tab: the pane's older relations end at its open (Chromium: a foreground
+    /// tab that takes an opener forgets the others first), so its close returns to the opener, not to the
+    /// opener's older link tab.
+    @Test func aLinksPageShownAtOnceReturnsToItsOpenerAndEndsThePanesOlderRelations() {
+        let pane = Pane(["a", "b", "c"], selected: "a")
+        pane.linkTab("l", from: "a", after: "a")
+        pane.newTab("g", link: true)
+        #expect(pane.tabs == ["a", "g", "l", "b", "c"])
+        #expect(pane.selected == "g")
+        // With the older relation alive the pick would be "l", the tab its opener opened before.
+        #expect(pane.remove("g") == "a")
+        #expect(pane.memory.closeRule.isEmpty)
     }
 
     // MARK: The press of a close keeps the relation; the committed close ends it

@@ -25,8 +25,8 @@ public final class TabCloseSelection {
     private let openers = CloseSelection<String>()
     /// The pane of each tab `openers` holds a number for (a relation's child or its opener), by the id the state knows.
     private var home: [String: String] = [:]
-    /// A person's new tab a pane is about to select: the tab it showed at the press, the tabs it listed then, the lifetime.
-    private var expected: [String: (opener: String, listed: Set<String>, quick: Bool)] = [:]
+    /// A new foreground tab a pane is about to select: the tab it showed at the press, the tabs it listed then, the lifetime.
+    private var expected: [String: (opener: String, listed: Set<String>, quick: Bool, link: Bool)] = [:]
     /// A person's selection that is about to land (a click, a shortcut, the palette, the switcher).
     private var gesture: (pane: String, tab: String)?
     /// The selection a close is about to cause: never a gesture (``closeSelects(_:in:)``).
@@ -45,9 +45,11 @@ public final class TabCloseSelection {
     /// A person asked for a new tab in the foreground of `pane`, which shows `opener` and lists `listed`.
     /// The pane's next selection takes it: a tab not in `listed`, selected while the pane still shows
     /// `opener`, gets `opener` as its opener. `quick`: the tab is put away from the current one (at the
-    /// end or the start), so the relation ends on any selection change.
-    public func expect(in pane: String, opener: String, listed: [String], quick: Bool) {
-        expected[pane] = (opener, Set(listed), quick)
+    /// end or the start), so the relation ends on any selection change. `link`: a link in `opener` asked, not a
+    /// new-tab key (a page that shows before its store tab exists, so ``made(_:from:in:quick:foreground:)`` has no
+    /// tab to name yet): a foreground task tab, which first ends the pane's older relations, as a link's web tab does.
+    public func expect(in pane: String, opener: String, listed: [String], quick: Bool, link: Bool = false) {
+        expected[pane] = (opener, Set(listed), quick, link)
     }
 
     /// A person chose `tab` in `pane` (a click, a shortcut, the palette, the switcher); the selection
@@ -109,7 +111,7 @@ public final class TabCloseSelection {
             // pane's older relations stay); else the quick look-up. The move itself first: it ends a quick relation
             // of the tab the pane leaves.
             openers.selected(old: from, new: to, gesture: false) { home[$0] == pane }
-            return self.made(to, from: from, in: pane, quick: made.quick, foreground: made.quick)
+            return self.made(to, from: from, in: pane, quick: made.quick, foreground: made.quick || made.link)
         }
         guard !home.isEmpty else { return }
         openers.selected(old: from, new: to, gesture: person) { home[$0] == pane }
