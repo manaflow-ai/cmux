@@ -177,24 +177,123 @@ struct ProjectPanelFindFocusTests {
     /// The app-level Find route reads the window's focus owner, so focusing
     /// the filter has to make the main panel that owner instead of leaving the
     /// sidebar's focus intent behind.
-    @Test(arguments: [ProjectPanelTab.files, ProjectPanelTab.buildSettings])
+    @Test(.exclusiveAppContext, arguments: [ProjectPanelTab.files, ProjectPanelTab.buildSettings])
     func findFromFilterFieldReachesProjectPanelAfterSidebarHadFocus(tab: ProjectPanelTab) async throws {
+        let scene = try await SidebarFocusedFilterScene.make(tab: tab)
+        defer { scene.tearDown() }
+        let window = scene.window
+        let filterField = scene.filterField
+
+        // Clicking the filter field makes it the first responder.
+        try #require(window.makeFirstResponder(filterField), "The filter field must accept focus")
+        let filterFocused = await Harness.settle(window) {
+            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        try #require(filterFocused, "The click must leave the filter field editing")
+
+        #expect(
+            scene.focusController.findShortcutTarget(currentResponder: window.firstResponder) == .mainPanelFind,
+            "With the project filter focused, Cmd+F must target the main panel, not the sidebar file search"
+        )
+        #expect(
+            scene.appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window),
+            "Cmd+F from the project filter must be handled"
+        )
+        let keptFocus = await Harness.settle(window) {
+            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        #expect(keptFocus, "Cmd+F from the project filter must leave focus in that filter, not move it to the sidebar")
+    }
+
+    /// The project panel claims only its own filter field. A text field
+    /// outside it taking focus leaves the sidebar's focus intent, and so where
+    /// Cmd+F goes, as it was.
+    @Test(.exclusiveAppContext)
+    func otherTextFieldFocusLeavesSidebarFindTarget() async throws {
+        let scene = try await SidebarFocusedFilterScene.make(tab: .files)
+        defer { scene.tearDown() }
+        let window = scene.window
+        let root = try #require(window.contentView?.superview ?? window.contentView)
+
+        let otherField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
+        otherField.isEditable = true
+        root.addSubview(otherField)
+        defer { otherField.removeFromSuperview() }
+        let otherFrame = otherField.convert(otherField.bounds, to: nil)
+        let filterFrame = scene.filterField.convert(scene.filterField.bounds, to: nil)
+        try #require(
+            !filterFrame.intersects(otherFrame),
+            "The other text field must sit outside the project filter (\(otherFrame) vs \(filterFrame))"
+        )
+
+        try #require(window.makeFirstResponder(otherField), "The other text field must accept focus")
+        let otherFocused = await Harness.settle(window) {
+            otherField.currentEditor().map { window.firstResponder === $0 } ?? false
+        }
+        try #require(otherFocused, "The other text field must be editing")
+
+        #expect(
+            scene.focusController.intent == .rightSidebar(mode: .files),
+            "A text field outside the project panel must not move the focus owner to the main panel"
+        )
+        #expect(
+            scene.focusController.findShortcutTarget(currentResponder: window.firstResponder) == .rightSidebarFileSearch,
+            "Cmd+F from a text field the project panel does not own must keep its previous target"
+        )
+    }
+}
+
+/// A loaded project panel in an app main window, with its filter field
+/// mounted and the right sidebar's Files view holding keyboard focus.
+@MainActor
+private final class SidebarFocusedFilterScene {
+    let appDelegate: AppDelegate
+    let window: NSWindow
+    let focusController: MainWindowFocusController
+    let filterField: NSTextField
+    private let sidebarResponder: RightSidebarKeyboardFocusView
+    private let fixtureRoot: URL
+
+    private init(
+        appDelegate: AppDelegate,
+        window: NSWindow,
+        focusController: MainWindowFocusController,
+        filterField: NSTextField,
+        sidebarResponder: RightSidebarKeyboardFocusView,
+        fixtureRoot: URL
+    ) {
+        self.appDelegate = appDelegate
+        self.window = window
+        self.focusController = focusController
+        self.filterField = filterField
+        self.sidebarResponder = sidebarResponder
+        self.fixtureRoot = fixtureRoot
+    }
+
+    static func make(tab: ProjectPanelTab) async throws -> SidebarFocusedFilterScene {
         let appDelegate = try #require(AppDelegate.shared)
         let fixture = try Harness.writeFixtureProject()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
         let windowId = appDelegate.createMainWindow()
-        defer { appDelegate.windowForMainWindowId(windowId)?.close() }
+        let sidebarResponder = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        var succeeded = false
+        defer {
+            // A requirement that throws below must not leak the window, the responder or the fixture.
+            if !succeeded {
+                sidebarResponder.removeFromSuperview()
+                appDelegate.windowForMainWindowId(windowId)?.close()
+                try? FileManager.default.removeItem(at: fixture.root)
+            }
+        }
         let window = try #require(appDelegate.windowForMainWindowId(windowId))
         window.makeKeyAndOrderFront(nil)
         await AppKitTestEventPump().drain()
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try #require(manager.selectedWorkspace)
         let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
-        #expect(appDelegate.applyRightSidebarRemoteCommand(
+        try #require(appDelegate.applyRightSidebarRemoteCommand(
             .setMode(.files, focus: false),
             target: RightSidebarRemoteTarget(windowId: windowId)
-        ) == .ok)
+        ) == .ok, "The right sidebar must switch to Files")
 
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let panel = try #require(workspace.newProjectSurface(
@@ -208,51 +307,48 @@ struct ProjectPanelFindFocusTests {
         let marker = "cmux-project-filter-\(UUID().uuidString)"
         setFilterText(marker, on: panel, tab: tab)
         var found: NSTextField?
-        let mounted = await Harness.settle(window) {
+        _ = await Harness.settle(window) {
             found = Harness.editableTextFields(in: window.contentView?.superview ?? window.contentView)
                 .first { $0.stringValue == marker }
             return found != nil
         }
-        let filterField = try #require(found, "The \(tab) filter field must mount in the main window (\(mounted))")
+        let filterField = try #require(found, "The \(tab) filter field must mount in the main window")
         setFilterText("", on: panel, tab: tab)
         let cleared = await Harness.settle(window) { filterField.stringValue.isEmpty }
         try #require(cleared, "Clearing the marker must reach the filter field")
         try #require(workspace.focusedPanelId == panel.id, "The project panel must be the focused panel")
 
         // The right sidebar's Files view owns keyboard focus, as after a click in it.
-        let sidebarResponder = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         (window.contentView?.superview ?? window.contentView)?.addSubview(sidebarResponder)
-        defer { sidebarResponder.removeFromSuperview() }
         sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
         try #require(window.makeFirstResponder(sidebarResponder), "The sidebar responder must take focus")
+        try #require(
+            focusController.intent == .rightSidebar(mode: .files),
+            "Precondition: the Files sidebar owns the window's focus intent"
+        )
         try #require(
             focusController.findShortcutTarget(currentResponder: window.firstResponder) == .rightSidebarFileSearch,
             "Precondition: with the Files sidebar owning focus, Cmd+F targets the sidebar file search"
         )
 
-        // Clicking the filter field makes it the first responder.
-        try #require(window.makeFirstResponder(filterField), "The filter field must accept focus")
-        let filterFocused = await Harness.settle(window) {
-            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
-        }
-        try #require(filterFocused, "The click must leave the filter field editing")
-        await Harness.settlePasses(window)
-
-        #expect(
-            focusController.findShortcutTarget(currentResponder: window.firstResponder) == .mainPanelFind,
-            "With the project filter focused, Cmd+F must target the main panel, not the sidebar file search"
+        succeeded = true
+        return SidebarFocusedFilterScene(
+            appDelegate: appDelegate,
+            window: window,
+            focusController: focusController,
+            filterField: filterField,
+            sidebarResponder: sidebarResponder,
+            fixtureRoot: fixture.root
         )
-        #expect(
-            appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window),
-            "Cmd+F from the project filter must be handled"
-        )
-        let keptFocus = await Harness.settle(window) {
-            filterField.currentEditor().map { window.firstResponder === $0 } ?? false
-        }
-        #expect(keptFocus, "Cmd+F from the project filter must leave focus in that filter, not move it to the sidebar")
     }
 
-    private func setFilterText(_ text: String, on panel: ProjectPanel, tab: ProjectPanelTab) {
+    func tearDown() {
+        sidebarResponder.removeFromSuperview()
+        window.close()
+        try? FileManager.default.removeItem(at: fixtureRoot)
+    }
+
+    private static func setFilterText(_ text: String, on panel: ProjectPanel, tab: ProjectPanelTab) {
         switch tab {
         case .files:
             panel.filesSearchText = text
@@ -324,13 +420,14 @@ private final class Harness {
         paneCount: Int = 1,
         focusedIndex: Int = 0
     ) async throws -> Harness {
-        let fixtureRoot = URL(fileURLWithPath: NSTemporaryDirectory())
-            .resolvingSymlinksInPath()
-            .appendingPathComponent("cmux-project-panel-find-\(UUID().uuidString)", isDirectory: true)
-        let projectURL = fixtureRoot.appendingPathComponent("Fixture.xcodeproj", isDirectory: true)
-        if fixture == .valid {
-            try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
-            try Data(pbxproj.utf8).write(to: projectURL.appendingPathComponent("project.pbxproj"))
+        let fixtureRoot: URL
+        let projectURL: URL
+        switch fixture {
+        case .valid:
+            (fixtureRoot, projectURL) = try writeFixtureProject()
+        case .missing:
+            fixtureRoot = fixtureRootURL()
+            projectURL = fixtureRoot.appendingPathComponent("Fixture.xcodeproj", isDirectory: true)
         }
 
         let manager = TabManager()
@@ -513,13 +610,18 @@ private final class Harness {
 
     /// Writes the synthetic project that loads under a fresh temporary root.
     static func writeFixtureProject() throws -> (root: URL, projectURL: URL) {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .resolvingSymlinksInPath()
-            .appendingPathComponent("cmux-project-panel-find-\(UUID().uuidString)", isDirectory: true)
+        let root = fixtureRootURL()
         let projectURL = root.appendingPathComponent("Fixture.xcodeproj", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
         try Data(pbxproj.utf8).write(to: projectURL.appendingPathComponent("project.pbxproj"))
         return (root, projectURL)
+    }
+
+    /// A fresh temporary directory path for one fixture; nothing is created.
+    private static func fixtureRootURL() -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory())
+            .resolvingSymlinksInPath()
+            .appendingPathComponent("cmux-project-panel-find-\(UUID().uuidString)", isDirectory: true)
     }
 
     private static let pbxproj = """

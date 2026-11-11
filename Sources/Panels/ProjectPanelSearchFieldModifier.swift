@@ -84,16 +84,23 @@ final class ProjectPanelSearchFieldAnchorView: NSView {
 
     /// Whether `responder` is the search field this view sits behind, or that
     /// field's editor, in `window`.
+    ///
+    /// AppKit places a field editor inside the text field it edits, so the
+    /// visible part of either lies within the field and so within this view.
+    /// The editor's delegate is not consulted: SwiftUI can give a field editor
+    /// a delegate that is not the text field.
     func ownsKeyboardFocus(_ responder: NSResponder, in window: NSWindow) -> Bool {
         guard self.window === window else { return false }
-        let fieldView: NSView?
-        if let editor = responder as? NSTextView, editor.isFieldEditor {
-            fieldView = editor.delegate as? NSTextField
+        let fieldView: NSView
+        if let field = responder as? NSTextField {
+            fieldView = field
+        } else if let editor = responder as? NSTextView, editor.isFieldEditor {
+            fieldView = editor
         } else {
-            fieldView = responder as? NSTextField
+            return false
         }
-        guard let fieldView, fieldView.window === window else { return false }
-        let fieldFrame = fieldView.convert(fieldView.bounds, to: nil)
-        return convert(bounds, to: nil).contains(NSPoint(x: fieldFrame.midX, y: fieldFrame.midY))
+        guard fieldView.window === window else { return false }
+        let visibleFrame = fieldView.convert(fieldView.visibleRect, to: nil)
+        return convert(bounds, to: nil).contains(NSPoint(x: visibleFrame.midX, y: visibleFrame.midY))
     }
 }
