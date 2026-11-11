@@ -67,6 +67,27 @@ test("a loop whose delay was its phase is aligned with the delay taken out; anot
   expect(active(offset)).toBeCloseTo((((origin + now) % period) + 300) % period, 6);
 });
 
+test("a phased loop whose delay is past its phase starts before now, on the same phase", () => {
+  // The clock's phase here is 50 ms; a delay of -700 ms would put the start 650 ms after now, where the
+  // loop draws at progress 0 until then.
+  const origin = 1_760_000_000_000 - ((1_760_000_000_000 % period) - 50);
+  const now = 0;
+  const loop: SpinnerAnimation = {
+    animationName: SPINNER_KEYFRAMES,
+    startTime: null,
+    effect: {
+      getTiming: () => ({ duration: period, delay: -700 }),
+      target: { closest: () => ({}) } as unknown as Element,
+    },
+  };
+  alignSpinner(loop, now, origin);
+  expect(loop.startTime as number).toBeLessThanOrEqual(now);
+  expect((((now - (loop.startTime as number) + 700) % period) + period) % period).toBeCloseTo(
+    (origin + now) % period,
+    6,
+  );
+});
+
 test("a CSS time reads in ms", () => {
   expect(cssTimeMs("2.8s")).toBe(2800);
   expect(cssTimeMs(" 900ms ")).toBe(900);

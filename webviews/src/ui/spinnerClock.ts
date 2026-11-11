@@ -56,7 +56,11 @@ export function alignSpinner(animation: SpinnerAnimation, timelineNow: number, t
   if (typeof duration !== "number" || !(duration > 0)) return false;
   const phased = animation.effect?.target?.closest?.(`[${LOOP_PHASE_ATTRIBUTE}]`);
   const delay = phased && typeof timing?.delay === "number" ? timing.delay : 0;
-  animation.startTime = spinnerStartTime(timelineNow, timeOrigin, duration) - delay;
+  let start = spinnerStartTime(timelineNow, timeOrigin, duration) - delay;
+  // A start after now draws the loop at progress 0 until then (its local time is before its active
+  // phase), so a phased loop starts whole periods earlier instead: the same phase, running now.
+  if (start > timelineNow) start -= Math.ceil((start - timelineNow) / duration) * duration;
+  animation.startTime = start;
   return true;
 }
 
