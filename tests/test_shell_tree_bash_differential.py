@@ -82,10 +82,12 @@ NESTABLE = (
     "function f { c1; }; f",
     "function f() { c1; }; f",
     "function f { c1; c2; }; f",
-    "coproc c1",
-    "coproc { c1; }",
-    "coproc N { c1; }",
-    "coproc N (c1)",
+    # A coprocess runs beside the shell; wait, so bash's run is the same every time (in a substitution, a shell that
+    # exits at once may take its coprocess down before it starts).
+    "coproc c1; wait",
+    "coproc { c1; }; wait",
+    "coproc N { c1; }; wait",
+    "coproc N (c1); wait",
     "eval c1",
     "eval c1 a",
     "eval 'c1; c2'",
