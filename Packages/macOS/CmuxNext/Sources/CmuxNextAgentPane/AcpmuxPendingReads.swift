@@ -56,10 +56,11 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
     /// peers' sessions can share a raw `sessionId` and that raw id names neither (acpmux refuses it
     /// as ambiguous); this daemon's own row by its `sessionId`, which is unique here.
     public static func sessionKey(_ row: [String: Any]) -> String? {
-        guard let id = row["sessionId"] as? String, !id.isEmpty else { return nil }
+        guard let id = row["sessionId"] as? String, !id.isEmpty else { return nil } // feed-key-allow: the one key's own read
         guard !isLocal(row) else { return id }
         if let qualified = row["qualifiedSessionId"] as? String, !qualified.isEmpty { return qualified }
-        return (row["peer"] as? String).map { "\($0)/\(id)" }
+        // An acpmux before qualifiedSessionId on peer notices (#41294): its row's id, made the same way.
+        return (row["peer"] as? String).map { "\($0)/\(id)" } // feed-key-allow: the one key's fallback
     }
 
     /// `rows` with this daemon's own sessions first, each group in its listed order.
