@@ -92,10 +92,7 @@ pub(super) fn dispatch(
         // Resolved while the folder is still there: the ports are kept by it.
         let resolved_root = worktree_setup::resolved(&attempt.root);
         let home = crate::platform::home_dir();
-        let printed_root = match &home {
-            Some(home) => shared::shown(home, &attempt.root),
-            None => attempt.root.clone(),
-        };
+        let printed_root = super::printed(target.given(), &attempt.root);
         let result = remove(&target.repository, &attempt);
         if result.is_ok() {
             worktree_setup::removed(target.git_dir(), &resolved_root);
@@ -108,8 +105,8 @@ pub(super) fn dispatch(
         }
         let branch_deleted = result?;
         let mut value = json!({
-            "root": printed_root.to_string_lossy(),
-            "main_root": attempt.main_root.to_string_lossy(),
+            "root": printed_root,
+            "main_root": super::printed(target.given(), &attempt.main_root),
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {

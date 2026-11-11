@@ -160,6 +160,7 @@ mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
+mod help_ja;
 #[cfg(unix)]
 mod mcp;
 mod older_daemon;
@@ -1512,7 +1513,11 @@ fn scope_help_with_keys(
         "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
-        "workspace" => worktree_help::localized(WORKSPACE_HELP, catalog.is_japanese()),
+        "workspace" => Cow::Borrowed(if catalog.is_japanese() {
+            help_ja::WORKSPACE_HELP_JA
+        } else {
+            WORKSPACE_HELP
+        }),
         "screen" => Cow::Borrowed(SCREEN_HELP),
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
@@ -1532,7 +1537,11 @@ fn scope_help_with_keys(
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
-        "git" => worktree_help::localized(scope_help::GIT_HELP, catalog.is_japanese()),
+        "git" => Cow::Borrowed(if catalog.is_japanese() {
+            help_ja::GIT_HELP_JA
+        } else {
+            scope_help::GIT_HELP
+        }),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),

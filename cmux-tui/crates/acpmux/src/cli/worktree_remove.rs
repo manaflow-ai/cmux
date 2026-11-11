@@ -34,6 +34,17 @@ use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::rpc::method;
 
+/// Whether this command speaks Japanese (LC_ALL, LC_MESSAGES, LANG; the
+/// first set starts with `ja`); else English.
+fn japanese() -> bool {
+    crate::cli::sender::japanese(|key| std::env::var(key).ok())
+}
+
+/// `en` or `ja`, in this command's language.
+fn say(en: String, ja: String) -> String {
+    if japanese() { ja } else { en }
+}
+
 /// How long the removal's git runs may take in all.
 const DEADLINE: Duration = Duration::from_secs(120);
 
@@ -55,15 +66,18 @@ struct Removed {
 }
 
 pub async fn run(target: &str, discard: bool, json_out: bool) -> Result<()> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
+    let home = dirs::home_dir().ok_or_else(|| {
+        anyhow!(say("no home folder".into(), "ホームフォルダーがありません".into()))
+    })?;
     let sessions = sessions(&home).await?;
     let folder = locate(&home, target, &sessions)?;
     let removed = remove(&home, &folder, &sessions, discard)?;
-    let shown = shared::shown(&home, &removed.root);
+    // Printed as the person gave the folder; git gives them links resolved.
+    let shown = shared::as_given(&home, &folder, &removed.root);
     if json_out {
         print_json(&json!({
             "root": shown,
-            "mainRoot": removed.main_root,
+            "mainRoot": shared::as_given(&home, &folder, &removed.main_root),
             "branch": removed.branch,
             "branchDeleted": removed.branch_deleted,
             "branchKept": removed.branch_kept,
@@ -71,18 +85,32 @@ pub async fn run(target: &str, discard: bool, json_out: bool) -> Result<()> {
         }));
         return Ok(());
     }
-    println!("removed {}", shown.display());
+    let ja = japanese();
+    let line = |en: String, japanese: String| println!("{}", if ja { japanese } else { en });
+    line(format!("removed {}", shown.display()), format!("{} を削除しました", shown.display()));
     match (&removed.branch, removed.branch_deleted) {
-        (Some(branch), true) => println!("  branch {branch} deleted"),
+        (Some(branch), true) => {
+            line(
+                format!("  branch {branch} deleted"),
+                format!("  ブランチ {branch} を削除しました"),
+            );
+        }
         (Some(branch), false) => {
-            println!("  branch {branch} kept: {}", removed.branch_kept.unwrap_or("it stays"));
+            let why = removed.branch_kept.unwrap_or(KEPT_STAYS);
+            line(
+                format!("  branch {branch} kept: {why}"),
+                format!("  ブランチ {branch} は残しました: {}", kept_ja(why)),
+            );
         }
         (None, _) => {}
     }
     if removed.project_folder_removed
         && let Some(project) = shown.parent()
     {
-        println!("  empty project folder {} removed", project.display());
+        line(
+            format!("  empty project folder {} removed", project.display()),
+            format!("  空のプロジェクトフォルダー {} を削除しました", project.display()),
+        );
     }
     Ok(())
 }
@@ -102,8 +130,14 @@ async fn sessions(home: &Path) -> Result<Vec<Session>> {
 /// error: without the list, a live session's worktree could be removed.
 async fn live_sessions() -> Result<Option<Vec<Session>>> {
     let Ok(client) = crate::daemon::connect_running().await else { return Ok(None) };
-    let unread =
-        |why: String| anyhow!("could not read the running acpmux sessions ({why}): try again");
+    let unread = |why: String| {
+        anyhow!(say(
+            format!("could not read the running acpmux sessions ({why}): try again"),
+            format!(
+                "実行中の acpmux のセッションを読めませんでした ({why})。もう一度実行してください"
+            ),
+        ))
+    };
     let mut params = json!({"localOnly": true, "excludeStatus": ["closed"]});
     let mut cursors = HashSet::new();
     let mut found = Vec::new();
@@ -135,7 +169,10 @@ async fn live_sessions() -> Result<Option<Vec<Session>>> {
 /// The folder TARGET names: a folder, a session's folder, or a worktree's name.
 fn locate(home: &Path, target: &str, sessions: &[Session]) -> Result<PathBuf> {
     if target.is_empty() {
-        return Err(usage("give the worktree's folder, a session's name or a worktree's name"));
+        return Err(usage(&say(
+            "give the worktree's folder, a session's name or a worktree's name".into(),
+            "ワークツリーのフォルダー、セッション名、またはワークツリー名を指定してください".into(),
+        )));
     }
     let expanded = match target.strip_prefix("~/") {
         Some(rest) => home.join(rest),
@@ -147,7 +184,10 @@ fn locate(home: &Path, target: &str, sessions: &[Session]) -> Result<PathBuf> {
         if path.is_dir() {
             return Ok(path);
         }
-        return Err(usage(&format!("{} is no folder", path.display())));
+        return Err(usage(&say(
+            format!("{} is no folder", path.display()),
+            format!("{} はフォルダーではありません", path.display()),
+        )));
     }
     if let Some(session) = sessions.iter().filter(|s| s.name == target).max_by_key(|s| s.updated_ms)
         && session.cwd.is_dir()
@@ -165,16 +205,29 @@ fn locate(home: &Path, target: &str, sessions: &[Session]) -> Result<PathBuf> {
     found.sort();
     match found.as_slice() {
         [one] => Ok(one.clone()),
-        [] => Err(usage(&format!(
-            "no session or worktree is named {target}: give the worktree's folder \
-             (`acpmux worktree list --all` lists them)"
+        [] => Err(usage(&say(
+            format!(
+                "no session or worktree is named {target}: give the worktree's folder \
+                 (`acpmux worktree list --all` lists them)"
+            ),
+            format!(
+                "{target} という名前のセッションもワークツリーもありません。ワークツリーのフォルダーを\
+                 指定してください (`acpmux worktree list --all` で一覧を表示します)"
+            ),
         ))),
         many => {
             let listed: Vec<String> = many.iter().map(|p| p.display().to_string()).collect();
-            Err(usage(&format!(
-                "{target} names {} worktrees; give one folder: {}",
-                many.len(),
-                listed.join(", ")
+            Err(usage(&say(
+                format!(
+                    "{target} names {} worktrees; give one folder: {}",
+                    many.len(),
+                    listed.join(", ")
+                ),
+                format!(
+                    "{target} に当たるワークツリーが {} 個あります。フォルダーを 1 つ指定してください: {}",
+                    many.len(),
+                    listed.join(", ")
+                ),
             )))
         }
     }
@@ -193,16 +246,22 @@ fn refused(reason: &str, message: String, data: Value) -> anyhow::Error {
 
 fn remove(home: &Path, folder: &Path, sessions: &[Session], discard: bool) -> Result<Removed> {
     let by = Instant::now() + DEADLINE;
-    let repository = Repository::open_within(folder, by)
-        .map_err(|e| anyhow!("{}: {e}", shared::shown(home, folder).display()))?;
+    let repository =
+        Repository::open_within(folder, by).map_err(|e| anyhow!("{}: {e}", folder.display()))?;
     let root = repository.root.clone();
-    let shown = shared::shown(home, &root);
+    let shown = shared::as_given(home, folder, &root);
     let Some(main_root) = repository.main_checkout() else {
         return Err(refused(
             "not_a_worktree",
-            format!(
-                "{} is the main checkout, not a linked worktree: it is never removed",
-                shown.display()
+            say(
+                format!(
+                    "{} is the main checkout, not a linked worktree: it is never removed",
+                    shown.display()
+                ),
+                format!(
+                    "{} はメインのチェックアウトで、リンクされたワークツリーではありません。削除しません",
+                    shown.display()
+                ),
             ),
             json!({"root": shown}),
         ));
@@ -213,11 +272,19 @@ fn remove(home: &Path, folder: &Path, sessions: &[Session], discard: bool) -> Re
     {
         return Err(refused(
             "in_use",
-            format!(
-                "the session {name} still works in {}: stop it first with `acpmux session stop \
-                 {name}`, then remove the worktree",
-                shown.display(),
-                name = session.name
+            say(
+                format!(
+                    "the session {name} still works in {}: stop it first with `acpmux session stop \
+                     {name}`, then remove the worktree",
+                    shown.display(),
+                    name = session.name
+                ),
+                format!(
+                    "セッション {name} がまだ {} で作業しています。先に `acpmux session stop {name}` で\
+                     止めてから、ワークツリーを削除してください",
+                    shown.display(),
+                    name = session.name
+                ),
             ),
             json!({"root": shown, "session": session.name}),
         ));
@@ -231,8 +298,12 @@ fn remove(home: &Path, folder: &Path, sessions: &[Session], discard: bool) -> Re
     {
         return Err(kept_refusal(&kept, &shown));
     }
-    let listed = registered(&main_root, &root, by)?
-        .ok_or_else(|| anyhow!("{} is not a worktree git lists", shown.display()))?;
+    let listed = registered(&main_root, &root, by)?.ok_or_else(|| {
+        anyhow!(say(
+            format!("{} is not a worktree git lists", shown.display()),
+            format!("{} は git が一覧に出すワークツリーではありません", shown.display()),
+        ))
+    })?;
     let mut remove = vec!["worktree", "remove"];
     if discard {
         remove.push("--force");
@@ -242,7 +313,7 @@ fn remove(home: &Path, folder: &Path, sessions: &[Session], discard: bool) -> Re
         .map_err(|e| anyhow!("{}: {e}", shown.display()))?;
     let (branch_deleted, branch_kept) = match branch.as_deref() {
         None => (false, None),
-        Some(_) if !branch_goes => (false, Some("it was there before the worktree")),
+        Some(_) if !branch_goes => (false, Some(KEPT_BEFORE)),
         Some(branch) => delete_branch(&main_root, branch, discard, by)?,
     };
     let project_folder_removed = shared::remove_empty_project_folder(home, &root);
@@ -257,7 +328,8 @@ fn kept_refusal(kept: &KeptWork, shown: &Path) -> anyhow::Error {
     };
     let mut data = data;
     data.set("root", json!(shown));
-    refused(kept.reason(), format!("{}: {}", shown.display(), kept.message()), data)
+    let message = say(kept.message(), kept.japanese());
+    refused(kept.reason(), format!("{}: {message}", shown.display()), data)
 }
 
 /// The branch HEAD is on; None when detached.
@@ -298,10 +370,26 @@ fn delete_branch(
         return Ok((true, None));
     }
     if !discard && shared::commits_only_on(&main, &reference, Some(branch))? > 0 {
-        return Ok((false, Some("it got commits found nowhere else")));
+        return Ok((false, Some(KEPT_COMMITS)));
     }
     match crate::subsession_worktree::git_repo_write_by(main_root, &["branch", "-D", branch], by) {
         Ok(_) => Ok((true, None)),
-        Err(_) => Ok((false, Some("git kept it (it is checked out elsewhere)"))),
+        Err(_) => Ok((false, Some(KEPT_ELSEWHERE))),
+    }
+}
+
+/// Why a branch stayed (`branchKept` in `--json`, English for scripts).
+const KEPT_BEFORE: &str = "it was there before the worktree";
+const KEPT_COMMITS: &str = "it got commits found nowhere else";
+const KEPT_ELSEWHERE: &str = "git kept it (it is checked out elsewhere)";
+const KEPT_STAYS: &str = "it stays";
+
+/// A reason a branch stayed, in Japanese.
+fn kept_ja(why: &str) -> &'static str {
+    match why {
+        KEPT_BEFORE => "ワークツリーより前からあったブランチです",
+        KEPT_COMMITS => "ほかにないコミットがあります",
+        KEPT_ELSEWHERE => "git が残しました (ほかでチェックアウトされています)",
+        _ => "残ります",
     }
 }

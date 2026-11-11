@@ -44,7 +44,9 @@ branch that was there before, and the project folder once its last worktree is g
 
 Paths: a worktree prints as `~/.cmux/worktrees/<project>/<name>` (on macOS a link to
 `~/.cmux/worktrees.noindex`); `--only`, `worktree remove` and `chats list --folder` take either
-spelling, and `/tmp/x` or `/private/tmp/x`, as the same folder.
+spelling, and `/tmp/x` or `/private/tmp/x`, as the same folder. Other folders print as you gave
+them: `worktree remove /tmp/x/wt --json` prints `root` and `mainRoot` under `/tmp/x`, not
+`/private/tmp/x`.
 
 ## Chats, messages and rules
 

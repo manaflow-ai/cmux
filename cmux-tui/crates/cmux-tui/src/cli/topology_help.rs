@@ -3,9 +3,11 @@
 
 use super::worktree_help::workspace_worktree_help_en;
 
-pub(super) const WORKSPACE_HELP: &str = concat!(
-    "\
-USAGE
+/// The command lines of `cmux workspace --help`, shared by the English and
+/// the Japanese help (`help_ja.rs`): commands are typed as they are.
+macro_rules! workspace_usage_lines {
+    () => {
+        "\
   cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
@@ -53,7 +55,16 @@ USAGE
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
+"
+    };
+}
 
+pub(super) use workspace_usage_lines;
+
+pub(super) const WORKSPACE_HELP: &str = concat!(
+    "USAGE\n",
+    workspace_usage_lines!(),
+    "
 ",
     workspace_worktree_help_en!(),
     "\

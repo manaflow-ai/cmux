@@ -45,7 +45,7 @@ const MAX_STATUS_BYTES: usize = 256 * 1024;
 /// The branch a new worktree named `name` (already a slug) is on:
 /// `requested` when the caller names one (checked with
 /// [`check_branch_name`]), else `cmux/<name>`.
-pub fn branch_for(name: &str, requested: Option<&str>) -> Result<String, String> {
+pub fn branch_for(name: &str, requested: Option<&str>) -> Result<String, BadBranchName> {
     match requested {
         None => Ok(format!("{BRANCH_PREFIX}{name}")),
         Some(branch) => {
@@ -55,32 +55,94 @@ pub fn branch_for(name: &str, requested: Option<&str>) -> Result<String, String>
     }
 }
 
+/// Why a branch name is refused ([`check_branch_name`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchProblem {
+    /// The name is empty.
+    Empty,
+    /// It starts with `-`, so git would read it as an option.
+    LeadingDash,
+    /// `@` or `HEAD`, which git keeps for itself.
+    Reserved,
+    /// It starts or ends with `/`, or has an empty part (`//`).
+    EmptyPart,
+    /// It ends with `.`, or has `..` or `@{` in it.
+    Dots,
+    /// It has this character, which git refuses in a ref.
+    Character(char),
+    /// A part of it starts with `.` or ends with `.lock`.
+    DotPart,
+}
+
+/// A branch name git would refuse, and why; `Display` is the English
+/// message, [`BadBranchName::japanese`] the Japanese one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BadBranchName {
+    /// The name as given.
+    pub branch: String,
+    /// Why it is refused.
+    pub problem: BranchProblem,
+}
+
+impl std::fmt::Display for BadBranchName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let why = match self.problem {
+            BranchProblem::Empty => "it is empty".to_owned(),
+            BranchProblem::LeadingDash => "it starts with -".to_owned(),
+            BranchProblem::Reserved => "git keeps that name for itself".to_owned(),
+            BranchProblem::EmptyPart => "it starts or ends with /, or has an empty part".to_owned(),
+            BranchProblem::Dots => "it ends with ., or has .. or @{ in it".to_owned(),
+            BranchProblem::Character(bad) => format!("it has {bad:?} in it"),
+            BranchProblem::DotPart => "a part of it starts with . or ends with .lock".to_owned(),
+        };
+        write!(f, "{:?} is no branch name: {why}", self.branch)
+    }
+}
+
+impl std::error::Error for BadBranchName {}
+
+impl BadBranchName {
+    /// The message in Japanese.
+    pub fn japanese(&self) -> String {
+        let why = match self.problem {
+            BranchProblem::Empty => "空です".to_owned(),
+            BranchProblem::LeadingDash => "- で始まっています".to_owned(),
+            BranchProblem::Reserved => "git が自分用に使う名前です".to_owned(),
+            BranchProblem::EmptyPart => "/ で始まるか終わっているか、空の部分があります".to_owned(),
+            BranchProblem::Dots => ". で終わっているか、.. または @{ が入っています".to_owned(),
+            BranchProblem::Character(bad) => format!("{bad:?} が入っています"),
+            BranchProblem::DotPart => ". で始まるか .lock で終わる部分があります".to_owned(),
+        };
+        format!("{:?} はブランチ名に使えません: {why}", self.branch)
+    }
+}
+
 /// Refuses a branch name git refuses (`git check-ref-format --branch`), or
 /// one that reads as an option, without running git.
-pub fn check_branch_name(branch: &str) -> Result<(), String> {
-    let refuse = |why: &str| Err(format!("{branch:?} is no branch name: {why}"));
+pub fn check_branch_name(branch: &str) -> Result<(), BadBranchName> {
+    let refuse = |problem| Err(BadBranchName { branch: branch.to_owned(), problem });
     if branch.is_empty() {
-        return refuse("it is empty");
+        return refuse(BranchProblem::Empty);
     }
     if branch.starts_with('-') {
-        return refuse("it starts with -");
+        return refuse(BranchProblem::LeadingDash);
     }
     if branch == "@" || branch == "HEAD" {
-        return refuse("git keeps that name for itself");
+        return refuse(BranchProblem::Reserved);
     }
     if branch.starts_with('/') || branch.ends_with('/') || branch.contains("//") {
-        return refuse("it starts or ends with /, or has an empty part");
+        return refuse(BranchProblem::EmptyPart);
     }
     if branch.ends_with('.') || branch.contains("..") || branch.contains("@{") {
-        return refuse("it ends with ., or has .. or @{ in it");
+        return refuse(BranchProblem::Dots);
     }
     if let Some(bad) = branch.chars().find(|c| {
         c.is_ascii_control() || matches!(*c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
     }) {
-        return refuse(&format!("it has {bad:?} in it"));
+        return refuse(BranchProblem::Character(bad));
     }
     if branch.split('/').any(|part| part.starts_with('.') || part.ends_with(".lock")) {
-        return refuse("a part of it starts with . or ends with .lock");
+        return refuse(BranchProblem::DotPart);
     }
     Ok(())
 }
@@ -132,6 +194,26 @@ impl KeptWork {
         match self {
             Self::Uncommitted { .. } => "uncommitted_changes",
             Self::Unpushed { .. } => "unpushed_commits",
+        }
+    }
+
+    /// [`KeptWork::message`] in Japanese.
+    pub fn japanese(&self) -> String {
+        match self {
+            Self::Uncommitted { count, truncated, .. } => {
+                let more = if *truncated { " 以上" } else { "" };
+                format!(
+                    "ワークツリーにコミットされていない変更があります ({count}{more} ファイル)。\
+                     コミットまたはスタッシュするか、--discard で削除してください (変更は失われます)"
+                )
+            }
+            Self::Unpushed { branch, count } => {
+                let at = branch.as_deref().unwrap_or("切り離された HEAD");
+                format!(
+                    "{at} には、ほかのどのブランチにもリモートにもないコミットが {count} 個あります。\
+                     プッシュまたはマージするか、--discard で削除してください (コミットは失われます)"
+                )
+            }
         }
     }
 
@@ -253,6 +335,44 @@ pub fn shown(home: &Path, path: &Path) -> PathBuf {
         Ok(rest) => link.join(rest),
         Err(_) => path.to_path_buf(),
     }
+}
+
+/// `path` (as git gives it, links resolved) spelled the way the person gave
+/// the folder `given`: a folder in cmux's worktree root under its link (as
+/// [`shown`]), else under the deepest folder of `given` whose resolved form
+/// holds it, else on macOS without the `/private` that `/tmp`, `/var` and
+/// `/etc` resolve to. Compare paths with [`same_folder`]; print them with this.
+///
+/// ```
+/// # use std::path::Path;
+/// // Nothing is a link here, so the path stays as it is.
+/// let path = cmux_git::worktree::as_given(Path::new("/nonexistent-home"), Path::new("/no/such/a"), Path::new("/no/such/b"));
+/// assert_eq!(path, Path::new("/no/such/b"));
+/// ```
+pub fn as_given(home: &Path, given: &Path, path: &Path) -> PathBuf {
+    let in_root = shown(home, path);
+    if in_root != path {
+        return in_root;
+    }
+    for folder in given.ancestors().filter(|folder| folder.parent().is_some()) {
+        if let Ok(rest) = path.strip_prefix(resolved(folder)) {
+            return if rest.as_os_str().is_empty() {
+                folder.to_path_buf()
+            } else {
+                folder.join(rest)
+            };
+        }
+    }
+    for alias in ["tmp", "var", "etc"] {
+        let short = Path::new("/").join(alias);
+        let private = Path::new("/private").join(alias);
+        if let Ok(rest) = path.strip_prefix(&private)
+            && resolved(&short) == private
+        {
+            return short.join(rest);
+        }
+    }
+    path.to_path_buf()
 }
 
 /// Every spelling of the folder `path` cmux records: as given, with links

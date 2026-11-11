@@ -29,6 +29,8 @@ pub(super) struct Target {
     pub repository: Repository,
     common_dir: PathBuf,
     git_dir: PathBuf,
+    /// The folder as the request gave it (links not resolved): paths are printed in its spelling.
+    given: PathBuf,
 }
 
 impl Target {
@@ -54,7 +56,12 @@ impl Target {
                 refused(operation, "git_failed", format!("{path}: {error}"), Value::Null)
             })
         };
-        Ok(Self { common_dir: canonical(common_dir)?, git_dir: canonical(git_dir)?, repository })
+        Ok(Self {
+            common_dir: canonical(common_dir)?,
+            git_dir: canonical(git_dir)?,
+            repository,
+            given: directory,
+        })
     }
 
     /// The repository and worktree this target resolved to, as one string.
@@ -65,6 +72,11 @@ impl Target {
     /// The repository's common git directory, which its worktrees share.
     pub(super) fn common_dir(&self) -> &Path {
         &self.common_dir
+    }
+
+    /// The folder as the request gave it, links not resolved.
+    pub(super) fn given(&self) -> &Path {
+        &self.given
     }
 
     /// The worktree's own git directory, where in-progress state lives.

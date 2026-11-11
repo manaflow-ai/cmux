@@ -267,14 +267,10 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
     request: &CreateRequest,
     command_key: &str,
 ) -> Result<Value, StepFailure> {
-    let current = std::env::current_dir()
+    // `--repo .` or `../x`: the daemon takes an absolute path without steps,
+    // in the spelling the person typed (cmux prints that spelling).
+    let repo = command::git::typed_folder(request.repo.as_deref())
         .map_err(|error| StepFailure::usage(format!("current directory: {error}")))?;
-    let repo = match &request.repo {
-        Some(repo) => current.join(repo),
-        None => current,
-    };
-    // `--repo .` or `../x`: the daemon takes an absolute path without steps.
-    let repo = std::fs::canonicalize(&repo).unwrap_or(repo);
     let mut create = words(&["git", "worktree", "create", "--name", &request.name, "--path"]);
     create.push(repo.to_string_lossy().into_owned());
     if let Some(branch) = &request.branch {

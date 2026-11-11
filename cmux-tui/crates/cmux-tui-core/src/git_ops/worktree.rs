@@ -85,7 +85,7 @@ pub(super) fn dispatch(
         };
         match create(repository, &git, &attempt) {
             Ok(()) => {
-                let mut value = described(&attempt, target.common_dir());
+                let mut value = described(&attempt, target.common_dir(), target.given());
                 value.set("setup", setup(mux, &attempt, target.common_dir()));
                 let reply = ledger::commit(
                     mux,
@@ -120,7 +120,7 @@ fn plan(
     let requested = fields.get("branch").and_then(Value::as_str);
     if let Some(branch) = requested {
         cmux_git::worktree::check_branch_name(branch)
-            .map_err(|message| ResourceError::validation_invalid(Some("branch"), message))?;
+            .map_err(|bad| ResourceError::validation_invalid(Some("branch"), bad.to_string()))?;
     }
     let existing =
         requested.filter(|branch| repository.commit(&format!("refs/heads/{branch}")).is_some());
@@ -184,7 +184,7 @@ fn plan(
         return Err(refused(OPERATION, "name_taken", message, json!({"name": name})));
     };
     let branch = cmux_git::worktree::branch_for(&chosen, requested)
-        .map_err(|message| ResourceError::validation_invalid(Some("branch"), message))?;
+        .map_err(|bad| ResourceError::validation_invalid(Some("branch"), bad.to_string()))?;
     Ok(Attempt {
         root: folder.join(&chosen),
         branch,
@@ -295,7 +295,7 @@ fn made(attempt: &Attempt) -> bool {
         .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch)
 }
 
-fn described(attempt: &Attempt, common_dir: &Path) -> Value {
+fn described(attempt: &Attempt, common_dir: &Path, given: &Path) -> Value {
     let mut value = json!({
         "root": attempt.root.to_string_lossy(),
         "branch": attempt.branch,
@@ -304,7 +304,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
         "base_commit": attempt.base_commit,
     });
     if let Some(main) = main_root(common_dir) {
-        value.set("main_root", json!(main.to_string_lossy()));
+        value.set("main_root", json!(super::printed(given, main)));
     }
     value
 }

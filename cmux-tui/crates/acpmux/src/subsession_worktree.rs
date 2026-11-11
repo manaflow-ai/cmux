@@ -1112,6 +1112,11 @@ fn current_base(folder: Dir<'_>, commit: &str) -> String {
         .unwrap_or_else(|| commit.to_owned())
 }
 
+/// Whether the repository at `folder` has the local branch `branch`.
+pub(crate) fn branch_exists(folder: &Path, branch: &str) -> bool {
+    has_branch_ref(folder.into(), branch)
+}
+
 fn has_branch_ref(folder: Dir<'_>, branch: &str) -> bool {
     git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok()
 }
@@ -1155,7 +1160,7 @@ pub fn ensure_worktree_with_branch(
     base: Option<&str>,
     branch: &str,
 ) -> Result<Ensured, String> {
-    cmux_git::worktree::check_branch_name(branch)?;
+    cmux_git::worktree::check_branch_name(branch).map_err(|bad| bad.to_string())?;
     ensure_worktree_under(folder, name, base, &home()?, Some(branch))
 }
 

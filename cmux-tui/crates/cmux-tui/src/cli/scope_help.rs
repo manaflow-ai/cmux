@@ -190,9 +190,11 @@ USAGE
   cmux space close <name> [--json]
 ";
 
-pub(super) const GIT_HELP: &str = concat!(
-    "\
-USAGE
+/// The command lines of `cmux git --help`, shared by the English and the
+/// Japanese help (`help_ja.rs`): commands are typed as they are.
+macro_rules! git_usage_lines {
+    () => {
+        "\
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
     [--patch] [--max-patch-bytes <n>]
@@ -223,7 +225,16 @@ USAGE
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 
-TARGET
+"
+    };
+}
+
+pub(super) use git_usage_lines;
+
+pub(super) const GIT_HELP: &str = concat!(
+    "USAGE\n",
+    git_usage_lines!(),
+    "TARGET
   --path <path>          A file or folder in the repository
   --workspace <selector> The working directory of the workspace's current terminal
   --screen <selector>    ... of the screen's current terminal

@@ -1,8 +1,7 @@
 //! The worktree parts of `cmux git --help` and `cmux workspace --help`, in
-//! English and Japanese. The English text is a macro so the scope help
-//! constants (`scope_help::GIT_HELP`, `topology_help::WORKSPACE_HELP`) hold
-//! it as one literal; [`localized`] swaps in the Japanese text for a
-//! Japanese locale.
+//! English and Japanese. Each is a macro, so the scope help constants
+//! (`scope_help::GIT_HELP`, `topology_help::WORKSPACE_HELP` and their
+//! Japanese forms in `help_ja.rs`) hold it as one literal.
 
 /// The worktree paragraphs of `cmux git --help`, in English.
 macro_rules! git_worktree_help_en {
@@ -34,7 +33,8 @@ its setup: state, port and output (from byte --since).
 
 Paths: cmux prints a worktree as ~/.cmux/worktrees/<project>/<name> (on macOS a
 link to ~/.cmux/worktrees.noindex) and takes either spelling, like /tmp and
-/private/tmp, as the same folder.
+/private/tmp, as the same folder. A folder it reports, such as main_root, keeps
+the spelling you gave: a checkout given as /tmp/... prints as /tmp/... .
 "
     };
 }
@@ -58,7 +58,10 @@ and the message names --discard, which removes it anyway and loses that work.
 
 pub(super) use {git_worktree_help_en, workspace_worktree_help_en};
 
-const GIT_WORKTREE_HELP_JA: &str = "\
+/// The worktree paragraphs of `cmux git --help`, in Japanese.
+macro_rules! git_worktree_help_ja {
+    () => {
+        "\
 worktree create はチャット用のワークツリーを ~/.cmux/worktrees/<project>/<name> に作ります。
 ブランチは --base (既定は現在のブランチ) から作る新しいブランチ cmux/<name> で、そのベースを
 branch.<branch>.cmuxBase に記録します。--branch <branch> でブランチを指定できます: 新しいブランチは
@@ -83,10 +86,16 @@ worktree create が作ったワークツリーではそのセットアップ (�
 
 パス: cmux はワークツリーを ~/.cmux/worktrees/<project>/<name> と表示します (macOS では
 ~/.cmux/worktrees.noindex へのリンクです)。どちらの書き方も、/tmp と /private/tmp と同じように、
-同じフォルダーとして受け付けます。
-";
+同じフォルダーとして受け付けます。main_root など表示するフォルダーは、指定した書き方のままです:
+/tmp/... と指定したチェックアウトは /tmp/... と表示します。
+"
+    };
+}
 
-const WORKSPACE_WORKTREE_HELP_JA: &str = "\
+/// The worktree paragraph of `cmux workspace --help`, in Japanese.
+macro_rules! workspace_worktree_help_ja {
+    () => {
+        "\
 create --worktree <name> は --repo のあるリポジトリ (既定は現在のフォルダー) の git ワークツリーを
 ~/.cmux/worktrees/<project>/<name> に新しいブランチ cmux/<name> で作り (--branch <branch> なら
 そのブランチ: 新しければ --base から作り、既にあればそのままチェックアウトします)、ターミナルが
@@ -95,21 +104,8 @@ worktree としてワークツリー (root がそのフォルダー) が入り�
 そのワークツリー、create がそのために作ったブランチ、空になったプロジェクトフォルダーを削除してから
 ワークスペースを閉じます。コミットされていない作業やプッシュされていない作業があるときは何も閉じずに
 拒否し、そのメッセージは --discard を示します。--discard はその作業を失って削除します。
-";
-
-/// `help` (a scope's help, which holds the English worktree text) with
-/// that text in the catalog's language.
-pub(super) fn localized(help: &'static str, japanese: bool) -> std::borrow::Cow<'static, str> {
-    if !japanese {
-        return std::borrow::Cow::Borrowed(help);
-    }
-    let swaps = [
-        (git_worktree_help_en!(), GIT_WORKTREE_HELP_JA),
-        (workspace_worktree_help_en!(), WORKSPACE_WORKTREE_HELP_JA),
-    ];
-    let mut text = help.to_owned();
-    for (english, japanese) in swaps {
-        text = text.replacen(english, japanese, 1);
-    }
-    std::borrow::Cow::Owned(text)
+"
+    };
 }
+
+pub(super) use {git_worktree_help_ja, workspace_worktree_help_ja};

@@ -76,12 +76,31 @@ impl Launch {
                     );
                 };
                 let (repo, base) = split_worktree(spec);
+                let japanese = crate::cli::sender::japanese(|key| std::env::var(key).ok());
                 if let Some(branch) = &args.branch {
-                    cmux_git::worktree::check_branch_name(branch)
-                        .map_err(|e| anyhow::anyhow!("--branch: {e}"))?;
+                    cmux_git::worktree::check_branch_name(branch).map_err(|bad| {
+                        let message = if japanese { bad.japanese() } else { bad.to_string() };
+                        anyhow::anyhow!("--branch: {message}")
+                    })?;
+                }
+                let repo = absolute(repo)?;
+                // The daemon refuses it too; here the refusal is in the person's language.
+                if let (Some(branch), Some(base)) = (&args.branch, base)
+                    && crate::subsession_worktree::branch_exists(&repo, branch)
+                {
+                    if japanese {
+                        bail!(
+                            "ブランチ {branch} は既にあるので、そのままの位置から始まります: \
+                             ベース ({base}) は新しいブランチにだけ指定してください"
+                        );
+                    }
+                    bail!(
+                        "the branch {branch} exists, so it starts where it is: give a base \
+                         ({base}) only with a new branch"
+                    );
                 }
                 let meta = json!({"name": name, "base": base, "branch": args.branch});
-                Some((meta, absolute(repo)?))
+                Some((meta, repo))
             }
         };
         if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {

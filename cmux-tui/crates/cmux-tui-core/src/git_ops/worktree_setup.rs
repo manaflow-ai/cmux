@@ -483,7 +483,7 @@ pub(super) fn dispatch(
         "recipe": recipe.value(),
     });
     if let Some(main) = &main {
-        put(&mut value, "main_root", json!(main.to_string_lossy()));
+        put(&mut value, "main_root", json!(super::printed(target.given(), main)));
     }
     // The main checkout is set up by its user, not by cmux.
     let linked = main.as_deref().is_none_or(|main| !same_folder(main, root));

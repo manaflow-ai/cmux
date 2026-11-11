@@ -142,8 +142,15 @@ pub(crate) fn dispatch(
         "git.branches" => branches(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
         "git.files.list" => list::list(&repository, &directory, &request.fields),
-        _ => status(&repository),
+        _ => status(&repository, &directory),
     }
+}
+
+/// `path` (git's, links resolved) as text in the spelling of the folder the
+/// request gave (`cmux_git::worktree::as_given`): what cmux prints.
+pub(super) fn printed(given: &Path, path: &Path) -> String {
+    let home = crate::platform::home_dir().unwrap_or_default();
+    cmux_git::worktree::as_given(&home, given, path).to_string_lossy().into_owned()
 }
 
 /// The repository `directory` is in, as `operation`'s errors.
@@ -154,7 +161,7 @@ fn open_repository(directory: &Path, operation: &'static str) -> Result<Reposito
     })
 }
 
-fn status(repository: &Repository) -> Result<Value, ResourceError> {
+fn status(repository: &Repository, given: &Path) -> Result<Value, ResourceError> {
     let arguments = [
         "status",
         "--porcelain=v2",
@@ -187,7 +194,7 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
         value.set("base", json!(base));
     }
     if let Some(main) = repository.main_checkout() {
-        value.set("worktree", json!({"main_root": main.to_string_lossy()}));
+        value.set("worktree", json!({"main_root": printed(given, &main)}));
     }
     Ok(value)
 }

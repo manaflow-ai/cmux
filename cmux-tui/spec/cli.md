@@ -1248,7 +1248,14 @@ Path rule (cmux-tui and acpmux): a worktree is printed as
 `~/.cmux/worktrees.noindex`, which Spotlight skips), never as the folder it
 resolves to; any other folder is printed as it was given. Folders are compared
 with links resolved, so a command takes either spelling (`/tmp/x` or
-`/private/tmp/x`, `worktrees` or `worktrees.noindex`) as the same folder.
+`/private/tmp/x`, `worktrees` or `worktrees.noindex`) as the same folder. Git
+names folders with their links resolved; cmux prints them in the spelling of
+the folder the request gave (`main_root` and `root` of `git status`, `git
+worktree create`, `apply`, `remove` and `setup`; `mainRoot` and `root` of
+`acpmux worktree remove`): a request from `/tmp/x` prints `/tmp/x`, not
+`/private/tmp/x`. The CLI gives the current folder as the shell typed it
+(`PWD`, when it names the same folder). The work itself (where `worktree
+apply` applies, what `remove` checks) uses the resolved folders.
 
 Before the folder goes, a setup still running there is stopped and the project's
 teardown runs in it, once, for at most a minute; the result carries its `state`,
