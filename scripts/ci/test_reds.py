@@ -358,6 +358,33 @@ def is_crash_rule_failure(name: str) -> bool:
     return name.split(" ", 1)[0] in CRASH_RULES
 
 
+# A check script's failure line that names what failed, read as a named failure the way a crash-class rule's is
+# (2026-11-11, cmux#41205 at ba8ff399): scripts/cmux-next/check-spawn-owner.py prints one line per file over its
+# baseline, `check-spawn-owner: PATH has N spawn line(s) with no owner (a new file|baseline M).`, and no test name,
+# so a base red there had no identity to compare. The key is the whole line's content: the file, its count, its row.
+CHECK_RULES = ("check-spawn-owner",)
+CHECK_RULE_LINE = (r"(check-spawn-owner): (cmux-tui/crates/[\w.+-]+/\S+\.rs) has (\d+) spawn line\(s\) with no owner "
+                   r"\((a new file|baseline \d+)\)\.")
+CHECK_RULE = re.compile(rf"^(?:##\[error\])?{CHECK_RULE_LINE}$")
+# The same line quoted after a test's assertion (`AssertionError: 1 != 0 : check-spawn-owner: ...`).
+CHECK_RULE_QUOTED = re.compile(rf"(?:^|: ){CHECK_RULE_LINE}$")
+
+
+def check_rule_key(match: re.Match) -> str:
+    rule, path, count, row = match.groups()
+    return f"{rule} {path}: {count} spawn line(s) with no owner ({row})"
+
+
+def check_rule_failure(text: str) -> str | None:
+    """The failure key of a check rule's own line (CHECK_RULE), at the start of the line; None for any other line."""
+    return check_rule_key(match) if (match := CHECK_RULE.match(text)) else None
+
+
+def is_rule_failure(name: str) -> bool:
+    """Whether a failure name is a rule's line (a crash-class rule or a check rule), not a test's."""
+    return name.split(" ", 1)[0] in CRASH_RULES + CHECK_RULES
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
@@ -377,7 +404,7 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
-        if rule := crash_rule_failure(text):
+        if rule := crash_rule_failure(text) or check_rule_failure(text):
             found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
@@ -918,7 +945,7 @@ def _observations(log: str | None) -> list[dict]:
             if (match := pattern.search(line)) and ("recorded an issue" in line or line.startswith("FAILED ")):
                 signatures.setdefault(match.group(1), []).append(line)
     suites = {m.group(1).strip('"') for line in lines for m in [SUITE_FAILED.search(line)] if m}
-    failures = {name for name in found.failed if name not in suites and not is_crash_rule_failure(name)}
+    failures = {name for name in found.failed if name not in suites and not is_rule_failure(name)}
     return [{"test": name, "outcome": "fail" if name in failures else "pass",
              "signature": (found.messages.get(name) or "\n".join(sorted(set(signatures.get(name, [])))))
              if name in failures else ""} for name in sorted(passed | failures)]
