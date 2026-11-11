@@ -10,6 +10,7 @@
 // over one of them stays open, as if the reader had opened it, and closes only when they close it.
 import { isLineRow, MESSAGE_RUN, type AcpmuxRow } from "../model";
 import { messageRunRowId } from "./messageRuns";
+import { isRunning } from "./toolGroups";
 import { hiddenRowFolds } from "./turns";
 import type { Folds } from "./viewFolds";
 
@@ -137,6 +138,92 @@ export function withoutHeldCalls(rows: readonly AcpmuxRow[], held: ReadonlySet<s
     if (next === row && !out) continue;
     out ??= rows.slice(0, index);
     if (next) out.push(next);
+  }
+  return out ?? rows;
+}
+
+// A running turn draws its replies and one live line, and no finished run of the stretch still
+// running (turns.ts `codexRuns`, liveTurnWork.experiment.ts `line`). The runs come back when the
+// stretch stops being the running one. With no fold over them that is when another prompt opens a
+// new turn over it: another agent's message that arrives while the turn runs (turns.ts
+// `settledWithoutSummary` draws the stretch as it came, its edits as one card at its end). Those runs
+// came back between the replies a reader scrolled up had in view, in one update, and every reply
+// under the first one moved down by the rows over it (30 px a run:
+// agent-pane-turn-end-keeps-place.test.ts, "a turn that streams calls, a message and its end").
+// While the reader is scrolled up they therefore stay out, as the reader saw the stretch, and go
+// back in once the view follows the latest row again. The same holds for a run that comes back any
+// other way (a call that ends after the reply under it).
+
+/// The rows to keep out of the view after an update: the runs of `rows` that `drawn` draws though
+/// the view before it (`before`) did not, when one of them comes back between rows the reader has in
+/// view (`inView`). Every run the update brought is held then, the stretch's last one too, so the
+/// stretch reads as one. The first `reused` rows of `drawn` and `before` are the same (turns.ts
+/// `reusedRows`); only rows after that prefix are looked at, so the work is bounded by what the
+/// update reshaped.
+///
+/// A run that is new is not one that comes back: no row of the chat drawn before follows it. A run
+/// with a call that still runs, or that waits for the reader's permission, is never held: it is
+/// news, not a row the look kept out. An edits card comes back for every edit row it merged.
+export function rowsToHold(
+  rows: readonly AcpmuxRow[],
+  drawn: readonly AcpmuxRow[],
+  before: readonly AcpmuxRow[] | undefined,
+  reused: number | undefined,
+  inView: readonly string[],
+): string[] {
+  if (inView.length === 0 || !before) return [];
+  const from = reused ?? 0;
+  const was = new Set<string>();
+  for (let index = from; index < before.length; index += 1) was.add(before[index]!.id);
+  const seen = new Set(inView);
+  // The finished runs the update draws that the view before it did not, each with the source rows
+  // it stands for and whether a row in view stands over it. A row in view that is not in the
+  // reshaped tail is in the unchanged prefix, over them all.
+  const came = new Map<string, { over: boolean; ids: readonly string[] }>();
+  let over = inView.some((id) => !was.has(id));
+  for (let index = from; index < drawn.length; index += 1) {
+    const row = drawn[index]!;
+    if (row.kind !== "activity" || was.has(row.id)) {
+      if (seen.has(row.id)) over = true;
+    } else if (!row.items?.some((item) => item.tool && isRunning(item.tool))) {
+      came.set(row.id, { over, ids: row.merged ?? [row.id] });
+    }
+  }
+  if (came.size === 0) return [];
+  // The source rows of the reshaped tail: the live line, a date and a footer are the view's own rows
+  // and follow every run, so they do not say that a run comes back.
+  const end = from > 0 ? drawn[from - 1]!.id : undefined;
+  const source = new Set<string>();
+  for (let index = rows.length - 1; index >= 0 && rows[index]!.id !== end; index -= 1) source.add(rows[index]!.id);
+  // Back from the latest row drawn. A run that came is one that comes back when a row of the chat
+  // drawn before follows it; it moves a row in view when one in view is under it and one over it.
+  let followed = false;
+  let under = false;
+  for (let index = drawn.length - 1; index >= from; index -= 1) {
+    const { id } = drawn[index]!;
+    const run = came.get(id);
+    if (!run) {
+      if (seen.has(id)) under = true;
+      if (was.has(id) && source.has(id)) followed = true;
+    } else if (followed && under && run.over) {
+      return [...came.values()].flatMap((each) => each.ids);
+    }
+  }
+  return [];
+}
+
+/// `rows` without the rows in `held` (``rowsToHold``): every other row is the same object, so
+/// turns.ts reuses what it drew.
+export function withoutHeldRows(rows: readonly AcpmuxRow[], held: ReadonlySet<string>): readonly AcpmuxRow[] {
+  if (held.size === 0) return rows;
+  let out: AcpmuxRow[] | undefined;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (!held.has(row.id)) {
+      out?.push(row);
+      continue;
+    }
+    out ??= rows.slice(0, index);
   }
   return out ?? rows;
 }

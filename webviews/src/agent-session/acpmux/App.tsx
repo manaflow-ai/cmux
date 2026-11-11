@@ -601,8 +601,10 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
+  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
+  withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -2029,7 +2031,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// until the view follows again (conversation/turnEndHold.ts `withoutHeldCalls`, cmux#33200), and
   /// the call the line named out of its run when the rows were last shaped.
   const heldCalls = useRef<{ session?: string; keys: ReadonlySet<string>; lined?: string }>({ keys: new Set() });
-  /// Moves when the view follows again with commands held out, so they go back into their runs.
+  /// The finished runs that came back between rows a reader scrolled up had in view, kept out of the
+  /// rows until the view follows again (conversation/turnEndHold.ts `rowsToHold`).
+  const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
   /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
@@ -2915,6 +2920,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       void callRelease;
       const viewNow = transcriptInView.current?.();
       if (!viewNow && heldCalls.current.keys.size > 0) heldCalls.current = { ...heldCalls.current, keys: new Set() };
+      if (heldRuns.current.session !== shownSessionId || (!viewNow && heldRuns.current.keys.size > 0))
+        heldRuns.current = { session: shownSessionId, keys: new Set() };
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -2933,7 +2940,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           last?.turns,
         );
-      const shape = (open: Folds) => shapeFrom(withoutHeldCalls(rows, heldCalls.current.keys), open);
+      const shape = (open: Folds) =>
+        shapeFrom(withoutHeldRows(withoutHeldCalls(rows, heldCalls.current.keys), heldRuns.current.keys), open);
       // While the reader is scrolled up, an update that would fold away a row they have in view (a
       // turn's end folding its work, a run of calls closing) leaves that fold open
       // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
@@ -2955,6 +2963,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
           if (one.length !== held.length)
             heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...one]) };
+        }
+        // The finished runs a running turn kept out of sight, which this update draws again between
+        // rows in view (another agent's prompt ends the stretch they are in), stay out while the
+        // reader is scrolled up, as they saw the stretch (turnEndHold.ts `rowsToHold`).
+        const back = rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
+        if (back.length > 0) {
+          heldRuns.current = { session: shownSessionId, keys: new Set([...heldRuns.current.keys, ...back]) };
+          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -6380,7 +6396,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
-    if (following && heldCalls.current.keys.size > 0) releaseCalls();
+    if (following && (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0)) releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
