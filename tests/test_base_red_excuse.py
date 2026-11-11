@@ -11485,5 +11485,59 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             self.assertTrue(any(name.startswith(prefix) for name in names), prefix)
 
 
+class ReplacedWaitingBaseRed(unittest.TestCase):
+    """A base summary red whose source job a newer push replaced while it waited judged nothing: base_verdicts passes
+    over it to an older run's verdict (feat-cmux-next runs 43032789758 and 43037486374, 'cmux-next crash ends the
+    app': "no verdict: crash gate: compile cancelled")."""
+
+    CRASH, COMPILE = "cmux-next crash ends the app", "cmux app scheme compile (Debug)"
+    REPLACED = ("Canceling since a higher priority waiting request for "
+                "cmux-next-push-refs/heads/feat-cmux-next-cmux-scheme-compile exists")
+
+    class Runs:
+        def __init__(self, jobs, notes):
+            self.jobs, self.notes, self.routes = jobs, notes, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            if route.endswith("/jobs?filter=latest&per_page=100"):
+                run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                return [{"jobs": [dict(job) for job in self.jobs if job["run_id"] == run]}]
+            if "/actions/workflows/7/runs?" in route:  # the tip suite's dispatches (tip_suite_verdicts): none here
+                return {"workflow_runs": []}
+            if route.endswith("/annotations"):
+                return self.notes.get(int(route.split("/check-runs/", 1)[1].split("/", 1)[0]), [])
+            raise AssertionError(route)
+
+    def verdicts(self, compile_conclusion, note, crash="failure"):
+        step = [{"name": "Read the crash gate result", "status": "completed", "conclusion": crash}]
+        jobs = [{"id": 1, "run_id": 20, "name": self.CRASH, "conclusion": crash, "steps": step},
+                {"id": 2, "run_id": 20, "name": self.COMPILE, "conclusion": compile_conclusion, "steps": []},
+                {"id": 3, "run_id": 19, "name": self.CRASH, "conclusion": "success",
+                 "steps": [dict(step[0], conclusion="success")]}]
+        github = self.Runs(jobs, {2: [{"annotation_level": "failure", "message": note}]})
+        runs = [{"id": 20, "event": "push", "status": "completed", "conclusion": "cancelled"},
+                {"id": 19, "event": "push", "status": "completed", "conclusion": "success"}]
+        with unittest.mock.patch.object(excuse, "REPLACED_READS", {}):
+            found = list(excuse.base_verdicts(REPO, "feat-cmux-next", 7, self.CRASH, github, {7: runs}, {}, {}))
+        return [(run["id"], job["conclusion"]) for run, job in found], github.routes
+
+    def test_a_red_from_a_replaced_compile_is_passed_over(self):
+        found, routes = self.verdicts("cancelled", self.REPLACED)
+        self.assertEqual(found, [(19, "success")])
+        self.assertEqual(sum(route.endswith("/annotations") for route in routes), 1)
+
+    def test_any_other_red_stays_a_verdict(self):
+        for conclusion, note, crash in (("cancelled", "The job running on runner x has exceeded the maximum execution "
+                                         "time of 60 minutes.", "failure"),
+                                        ("failure", self.REPLACED, "failure"), ("success", self.REPLACED, "failure"),
+                                        ("cancelled", self.REPLACED, "success")):
+            with self.subTest(compile=conclusion, note=note[:20], crash=crash):
+                found, routes = self.verdicts(conclusion, note, crash)
+                self.assertEqual(found, [(20, crash), (19, "success")])
+                if conclusion != "cancelled" or crash != "failure":
+                    self.assertFalse(any(route.endswith("/annotations") for route in routes))
+
+
 if __name__ == "__main__":
     unittest.main()

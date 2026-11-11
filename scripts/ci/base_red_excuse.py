@@ -3287,6 +3287,43 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
             yield run, found
 
 
+# A summary red from a replaced waiting job (2026-11-11): a push's Mac jobs wait in a per-branch concurrency group, and
+# a newer push replaces the waiting one ("Canceling since a higher priority waiting request for <group> exists"). Its
+# summary gate then wrote "no verdict" and ended red on feat-cmux-next runs 43032789758 and 43037486374 ('cmux-next
+# crash ends the app'), before scripts/ci/needs_verdict.py's SUPERSEDED_RULE turned that case into a notice. Such a
+# red judged nothing, so it is no base verdict: base_verdicts passes over it to an older run's. It is told by the
+# replacement annotation on a source job (SUPERSEDED_SOURCES) of the same run, read only for a red summary whose
+# source in that run was cancelled: one annotation read per such source, kept per job id.
+REPLACED_READS: dict[int, bool] = {}  # by source job id (an id never changes): whether it was replaced
+REPLACED_WAITING = "Canceling since a higher priority waiting request for "
+SUPERSEDED_SOURCES = {
+    "cmux-next crash ends the app": ("cmux app scheme compile (Debug)",),
+    GENERATED_VERDICT_JOB: ("cmux-next swift test", "cmux-next daemon tests"),
+    "cmux-next fast tier": ("cmux-next fast tier (build fleet)",),
+}
+
+
+def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cache: dict) -> str | None:
+    """The name of the source job whose replacement while waiting explains summary job FOUND's red in a base run
+    whose jobs are JOBS, or None. CACHE keeps each source job's answer by id."""
+    if found.get("conclusion") != "failure":
+        return None
+    for source in SUPERSEDED_SOURCES.get(str(found.get("name")), ()):
+        job = next((job for job in jobs if job.get("name") == source), None)
+        if job is None or job.get("conclusion") != "cancelled" or not isinstance(job.get("id"), int):
+            continue
+        if job["id"] not in cache:
+            try:
+                notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+            except Exception:  # an unread annotation keeps the red a verdict, as before
+                notes = []
+            cache[job["id"]] = any(isinstance(note, dict) and str(note.get("message") or "").startswith(REPLACED_WAITING)
+                                   for note in notes or [])
+        if cache[job["id"]]:
+            return source
+    return None
+
+
 def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: dict, base_jobs: dict,
                   job_reads: dict, suites: SuiteChecks | None = None):
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
@@ -3310,6 +3347,9 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
                 continue
             base_jobs[candidate_run["id"]] = base_run_jobs(repo, candidate_run, github)
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
+        if found is not None and replaced_while_waiting(repo, base_jobs[candidate_run["id"]], found, github,
+                                                        REPLACED_READS):
+            continue
         if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
             seen.add(candidate_run["id"])
             yield candidate_run, found
