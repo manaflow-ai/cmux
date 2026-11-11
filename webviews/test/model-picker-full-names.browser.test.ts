@@ -131,7 +131,8 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
     ]);
     // A name no other row shares needs no id line.
     expect(models.find((model) => model.name === "GPT-6.1 Sol Fast")?.id).toBe("");
-    expect(models.every((model) => model.provider.length > 0)).toBe(true);
+    // A row names the provider it lands to assistive tech, as its tooltip once did.
+    expect(twins.every((model) => model.provider.length > 0)).toBe(true);
     await page.close();
   });
 
