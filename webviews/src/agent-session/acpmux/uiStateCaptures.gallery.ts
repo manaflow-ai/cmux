@@ -5,7 +5,8 @@
 // is not drawn as a new chat while it attaches; once its attach answered with no rows (`chatRead`)
 // it is, and a chat the host knows is new (`newSession`) has its hero at once.
 // M7: the composer's `/` menu says "Loading commands…" before the chat's command list is read,
-// "No commands" for a list that was read empty, "No matching commands" when nothing matches.
+// "No commands" for a list that was read empty, "No matching commands" when nothing matches, and
+// "Couldn't load commands." with Try Again when the list could not be read.
 import { agentPaneEntry } from "../../gallery/format";
 import { chat, noChat } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
@@ -57,6 +58,11 @@ export default agentPaneEntry({
     "slash-no-commands": {
       note: "Play: type /zzz once the chat's command list was read empty: No commands.",
       snapshot: chat([], { commands: [] }),
+      play: slashNoMatch,
+    },
+    "slash-load-commands-failed": {
+      note: "Play: type /zzz when the chat's command list could not be read (commandsFailed): Couldn't load commands. with Try Again.",
+      snapshot: chat([], { commandsFailed: true }),
       play: slashNoMatch,
     },
     "slash-no-matching-commands": {

@@ -81,10 +81,11 @@ enum MacScreenHubCapture {
     /// `geometry`: Try Again and the note text above it, in window points (top-left origin) and
     /// pixels, and the card column they share; the text's first glyph starts 2 pt into its field
     /// (the label cell's padding), measured on the stills too.
-    static func geometry() -> JSONValue {
-        guard let button = findRetry(), let column = button.superview, let window = button.window,
+    /// `id` picks another button of a note (the signed-out Sign In: `macScreen.home.signIn`).
+    static func geometry(id: String = "macScreen.home.devicesRetry") -> JSONValue {
+        guard let button = find(id), let column = button.superview, let window = button.window,
               let text = column.subviews.first(where: { $0 is NSTextField && !($0 is NSButton) })
-        else { return ["error": "no Try Again with its note shown"] }
+        else { return ["error": .string("no \(id) with its note shown")] }
         let scale = Double(window.backingScaleFactor)
         func frame(_ view: NSView) -> JSONValue {
             let rect = view.convert(view.bounds, to: nil)
@@ -102,13 +103,15 @@ enum MacScreenHubCapture {
             insets = .null
         }
         return ["scale": .number(scale), "button": frame(button), "text": frame(text), "column": frame(column),
-                "column_insets": insets, "button_title": .string((button as? NSButton)?.title ?? ""),
+                "column_insets": insets, "button_id": .string(id), "button_title": .string((button as? NSButton)?.title ?? ""),
                 "text_value": .string((text as? NSTextField)?.stringValue ?? "")]
     }
 
-    private static func findRetry() -> NSView? {
+    private static func findRetry() -> NSView? { find("macScreen.home.devicesRetry") }
+
+    private static func find(_ id: String) -> NSView? {
         func search(_ view: NSView) -> NSView? {
-            if view.accessibilityIdentifier() == "macScreen.home.devicesRetry" { return view }
+            if view.accessibilityIdentifier() == id { return view }
             for child in view.subviews { if let found = search(child) { return found } }
             return nil
         }

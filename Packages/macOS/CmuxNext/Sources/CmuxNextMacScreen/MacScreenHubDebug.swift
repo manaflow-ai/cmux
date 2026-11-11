@@ -138,7 +138,8 @@ extension MacScreenPages {
 
     /// `capture_devices` {state} (captures of ui-state-fixes M5): the home page's Your Devices reads
     /// a capture hub of its own (``MacScreenHubCapture``): `loading`, `failed`, `failed_then_hang`,
-    /// `timeout` and `empty` make one; `deliver`, `retry` and `geometry` act on the shown one. Only
+    /// `timeout` and `empty` make one; `signed_out` takes the box's hub away (Your Devices signed out, with
+    /// Sign In); `deliver`, `retry`, `geometry` and `geometry_sign_in` act on the shown one. Only
     /// the page's box takes it, never ``hub``: no session, push or approval follows it, and its HTTP
     /// calls are answered in this process.
     private func captureDevices(_ state: String?) async -> JSONValue {
@@ -146,10 +147,16 @@ extension MacScreenPages {
         case "deliver": return MacScreenHubCapture.deliver(hubBox.hub)
         case "retry": return MacScreenHubCapture.clickRetry()
         case "geometry": return MacScreenHubCapture.geometry()
+        case "geometry_sign_in": return MacScreenHubCapture.geometry(id: "macScreen.home.signIn")
+        case "signed_out":
+            // No hub on the page's box, the hub address valid: Your Devices is signed out, with Sign In.
+            hubBox.hub = nil
+            hubBox.configured = true
+            return ["ok": true, "signed_out": true]
         default: break
         }
         guard let state, let captured = await MacScreenHubCapture.make(state) else {
-            return ["error": "state: loading, failed, failed_then_hang, timeout, empty, deliver, retry or geometry"]
+            return ["error": "state: loading, failed, failed_then_hang, timeout, empty, signed_out, deliver, retry, geometry or geometry_sign_in"]
         }
         hubBox.hub = captured
         return ["status": .string("\(captured.status)"), "listed": .bool(captured.devicesListed)]
