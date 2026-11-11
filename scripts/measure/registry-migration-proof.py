@@ -631,7 +631,12 @@ def old_arm(args, state, before, report, label, binary, migrated=True):
         deadline = time.monotonic() + args.old_dwell
         step["saved_its_roster_s"] = None
         while time.monotonic() < deadline and owner.child.poll() is None:
-            now = roster_of(counts(args, state))
+            try:
+                now = roster_of(counts(args, state))
+            except (subprocess.SubprocessError, ValueError, IndexError):
+                # The owner writes: one read that fails is read again.
+                time.sleep(2)
+                continue
             if now["roster_version"] != start.get("roster_version"):
                 step["saved_its_roster_s"] = round(owner.elapsed(), 1)
                 time.sleep(min(10, args.old_dwell))
