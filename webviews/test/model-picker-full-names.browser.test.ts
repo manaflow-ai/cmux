@@ -55,7 +55,7 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
   }
 
   /// Each model row and each provider row: its name, whether any of it is cut off, its visible id
-  /// line, and its tooltip.
+  /// line, the provider it names to assistive tech, and (a model row) its search group's heading.
   const read = (page: Page) =>
     page.evaluate(() => {
       const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
@@ -76,7 +76,13 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
       return {
         width: menu.getBoundingClientRect().width,
         fontSize: parseFloat(getComputedStyle(menu).fontSize),
-        models: [...menu.querySelectorAll<HTMLElement>("[role=listbox] [role=option]")].map(row),
+        models: (() => {
+          let heading = "";
+          return [...menu.querySelector<HTMLElement>("[role=listbox]")!.children].flatMap((child) => {
+            if (child.matches(".acpmux-cols-group")) heading = child.textContent ?? "";
+            return child.matches("[role=option]") ? [{ ...row(child as HTMLElement), heading }] : [];
+          });
+        })(),
         providers: [...menu.querySelectorAll<HTMLElement>(".acpmux-cols-tune .acpmux-cols-row")].map(row),
       };
     });
@@ -117,7 +123,7 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
   test("rows that share a name show their model id, and every row names its provider", async () => {
     const page = await searched("sol 6.1", "sol");
     const { models } = await read(page);
-    const twins = models.filter((model) => model.name === "GPT-6.1 Sol" && model.provider.includes("OpenCode"));
+    const twins = models.filter((model) => model.name === "GPT-6.1 Sol" && model.heading === "OpenCode");
     expect(twins).toHaveLength(2);
     expect(twins.map((model) => model.id).sort()).toEqual([
       "openrouter/openai/gpt-6.1-sol",
