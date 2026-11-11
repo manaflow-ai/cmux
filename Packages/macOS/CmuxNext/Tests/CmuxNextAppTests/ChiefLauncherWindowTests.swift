@@ -142,7 +142,9 @@ struct ChiefLauncherWindowTests {
         let left = launcher.frame
         #expect(Self.perform("home.openChiefDock", f) && !launcher.isVisible)
         #expect(Self.perform("home.openChiefDock", f))
-        #expect(launcher.frame == left, "it did not come back where it was left: \(left) -> \(launcher.frame)")
+        // Where it was left, kept on the screen (a small screen pushes a drag past its edge).
+        let back = ChiefLauncherPanel.placement(saved: left, in: visible)
+        #expect(launcher.frame == back, "it did not come back where it was left: \(left) -> \(launcher.frame), not \(back)")
     }
 
     /// A press the Chief's own views keep (a button, a bubble, the message box) stays theirs, and a click on empty
@@ -240,8 +242,10 @@ struct ChiefLauncherWindowTests {
         f.frame()
         #expect(!launcher.isVisible && !f.controller.frameChiefPanelShown && chief.window !== launcher, "Esc did not hide it")
         #expect(Self.perform("home.openChiefDock", f) && launcher.isVisible)
-        launcher.resignKey() // a click in another app or window
-        f.frame()
+        launcher.takeKeys()
+        await Self.settle { launcher.isKeyWindow }
+        f.controller.window?.makeKeyAndOrderFront(nil) // a click in another window takes the keys
+        await Self.settle { !launcher.isVisible }
         #expect(!launcher.isVisible && !f.controller.frameChiefPanelShown && chief.window !== launcher, "a click outside did not hide it")
     }
 

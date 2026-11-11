@@ -56,7 +56,8 @@ struct ChiefPanelStyleWindowTests {
                 "\(style): the window did not follow the hand: \(start) -> \(launcher.frame)")
         let screen = try #require(launcher.screen)
         #expect(launcher.frames.frame(onDisplay: FloatingChatFrames.display(screen)) == launcher.frame, "\(style): the new place was not kept")
-        let left = launcher.frame
+        // Where it was left, kept on the screen when it comes back (a small screen pushes a drag past its edge).
+        let left = ChiefLauncherPanel.placement(saved: launcher.frame, in: screen.visibleFrame)
 
         f.controller.hideChiefPanel()
         f.frame()

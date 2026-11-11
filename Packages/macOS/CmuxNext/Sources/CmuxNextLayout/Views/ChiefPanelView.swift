@@ -248,6 +248,12 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         removeFromSuperview()
     }
 
+    /// Takes the panel down and closes its own window for good: the window it served closes.
+    public func closeLauncher() {
+        unmount()
+        launcher?.close()
+    }
+
     /// Whether the panel shows for the window whose content is `host`: in it, or in its own window.
     public func isShown(in host: NSView) -> Bool { superview === host || inLauncher && launcher?.isVisible == true }
 

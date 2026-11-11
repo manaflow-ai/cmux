@@ -6,7 +6,7 @@ import ObjectiveC
 /// floating window"): borderless and rounded with a shadow, over every app and Space, never activating cmux. It opens
 /// at once (no motion: it opens many times a day), centered high on the screen under the pointer, or where it was
 /// left on that screen. A press on any empty space drags it, as on a title bar, and Cmd-drag moves it from anywhere;
-/// Esc, Cmd-W or a click outside (it gives up the keys) dismisses it.
+/// Esc, Cmd-W or a click outside (the keys leave it and its popups) dismisses it.
 ///
 /// ```swift
 /// let launcher = ChiefLauncherPanel(frames: FloatingChatFrames(defaults: .standard, storageKey: ChiefLauncherPanel.framesKey))
@@ -54,8 +54,8 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate, WindowMovesByB
         setAccessibilityIdentifier("cmux.chiefLauncher")
         contentView = NSView(frame: NSRect(origin: .zero, size: FloatingChatFrames.defaultSize))
         delegate = self
-        // A popup of its own with the keys never makes this window resign them: when the keyboard then leaves the
-        // window and its popups for another window or app, that was a click outside.
+        // A click outside: the keyboard left the window and its own popups and sheets (its key family) for another
+        // window or app. The watcher judges once the keys land, so a popup of its own taking them keeps it open.
         watchKeyFamily { [weak self] left in if left { self?.requestDismiss() } }
     }
 
@@ -116,28 +116,16 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate, WindowMovesByB
         if let onDismiss { onDismiss() } else { dismiss() }
     }
 
-    /// A click outside: the window gave up the keys to another app or window. A window of its own taking them is
-    /// not outside: a sheet, a modal panel, or a popup (a settings card, a picker: a child window that can take the
-    /// keys, which gives them back when it closes).
-    override public func resignKey() {
-        super.resignKey()
-        guard !ownsKeys else { return }
-        requestDismiss()
+    /// A sheet of its own ending gives the keys back here: AppKit would hand them to the main window (this one is
+    /// never main), which reads as a click outside.
+    override public func endSheet(_ sheetWindow: NSWindow, returnCode: NSApplication.ModalResponse) {
+        super.endSheet(sheetWindow, returnCode: returnCode)
+        if isVisible { makeKey() }
     }
 
-    /// Whether a window of its own has or is taking the keys.
-    private var ownsKeys: Bool {
-        if attachedSheet != nil || NSApp.modalWindow.map(owns) == true || NSApp.keyWindow.map(owns) == true { return true }
-        return (childWindows ?? []).contains { $0.isVisible && $0.canBecomeKey }
-    }
-
-    /// Whether `window` is a window of its own: this one's child, sheet or one of theirs.
-    private func owns(_ window: NSWindow) -> Bool {
-        var current: NSWindow? = window
-        while let next = current, next !== self {
-            current = next.sheetParent ?? next.parent
-        }
-        return current === self && window !== self
+    override public func endSheet(_ sheetWindow: NSWindow) {
+        super.endSheet(sheetWindow)
+        if isVisible { makeKey() }
     }
 
     override public func cancelOperation(_ sender: Any?) { requestDismiss() }

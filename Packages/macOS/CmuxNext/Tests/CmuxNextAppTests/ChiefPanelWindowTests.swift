@@ -281,7 +281,8 @@ struct ChiefPanelWindowTests {
         let view = try #require(f.controller.chiefPanelView)
         let launcher = try #require(view.launcher)
         try ChiefPanelStyleWindowTests.drag(view, by: CGVector(dx: -120, dy: -60), in: f)
-        let moved = launcher.frame
+        // Where it was left, kept on the screen when it comes back (a small screen pushes a drag past its edge).
+        let moved = ChiefLauncherPanel.placement(saved: launcher.frame, in: try #require(launcher.screen?.visibleFrame))
         f.controller.dockChiefPanel(at: .right)
         f.frame()
         #expect(f.controller.floatChiefPanel())
