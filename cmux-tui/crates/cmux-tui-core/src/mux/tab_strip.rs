@@ -174,6 +174,7 @@ impl Mux {
                     projection.changes,
                     projected,
                 )
+                .projected(projection.restates_all)
                 .with_state_write(write);
                 if let Some(ledger) = ledger {
                     plan = plan.with_workspace_ledger(ledger);
