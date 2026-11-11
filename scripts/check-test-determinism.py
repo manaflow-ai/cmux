@@ -4023,9 +4023,34 @@ _JS_LITERAL = re.compile(
 )
 
 
+def _js_template_code(template: str) -> str:
+    """A template literal's `${...}` interpolations, which are code: `${await sleep(200)}` is a real sleep."""
+    body, code, i = template[1:-1], [], 0
+    while i < len(body):
+        if body[i] == "\\":
+            i += 2
+            continue
+        if body.startswith("${", i):
+            depth, j = 1, i + 2
+            while j < len(body) and depth:
+                depth += {"{": 1, "}": -1}.get(body[j], 0)
+                j += 1
+            code.append(_strip_js_literals(body[i + 2:j - 1]))
+            i = j
+            continue
+        i += 1
+    return " ".join(['""', *code])
+
+
+def _strip_js_literals(line: str) -> str:
+    """The line with each string and regex literal blanked; a template literal keeps its interpolations."""
+    return _JS_LITERAL.sub(
+        lambda match: _js_template_code(match.group(0)) if match.group(0).startswith("`") else '""', line)
+
+
 def _sleep_call_on(line: str, path_suffix: str) -> bool:
     if path_suffix in _JS_SLEEP_SUFFIXES:
-        line = _JS_LITERAL.sub('""', line)
+        line = _strip_js_literals(line)
     return bool(_SLEEP_CALL.search(line))
 
 
@@ -4670,6 +4695,15 @@ def _self_test() -> int:
             (
                 "    await new Promise((r) => setTimeout(r, 200));\n"
                 "    expect(log).toContain(\"sleep (\");\n"
+            ),
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # A template literal's `${...}` is code: a sleep inside one still counts.
+        (
+            "web/tests/p34.test.ts",
+            (
+                "    const note = `waited ${await new Promise((r) => setTimeout(r, 200))} ms`;\n"
+                "    expect(seen).toBe(1);\n"
             ),
             {RULE_SLEEP_THEN_ASSERT},
         ),
@@ -6595,6 +6629,14 @@ def _self_test() -> int:
             (
                 "    expect(wait).not.toMatch(/sleep (?!1;)\\d/);\n"
                 "    expect(wait).toContain('sleep(3) is never run');\n"
+                "    expect(wait).toContain(\"done\");\n"
+            ),
+        ),
+        # `setTimeout(` in a template literal's text, outside its `${...}`, is text.
+        (
+            "web/tests/n33.test.ts",
+            (
+                "    expect(log).toBe(`setTimeout(r, ${ms}) ran`);\n"
                 "    expect(wait).toContain(\"done\");\n"
             ),
         ),

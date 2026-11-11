@@ -20,6 +20,7 @@ runner judges ($GITHUB_WORKSPACE) are reported, so a self-test's planted finding
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from typing import Iterable
@@ -32,9 +33,14 @@ MAX_CHECK_CHARS = 300
 
 
 def check_name(finding: str) -> str:
-    """The finding as a check name: one line, no line numbers, at most MAX_CHECK_CHARS characters."""
+    """The finding as a check name: one line, no line numbers, at most MAX_CHECK_CHARS characters. A longer one
+    is cut and ends with a hash of its whole text, so two findings that share their first characters stay two
+    checks (a cut alone made a new finding the same check as a base one, and the base's red masked it)."""
     text = _SPACE.sub(" ", _LINE_NUMBER.sub("", str(finding))).strip()
-    return text[:MAX_CHECK_CHARS]
+    if len(text) <= MAX_CHECK_CHARS:
+        return text
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    return f"{text[:MAX_CHECK_CHARS - len(digest) - 3].rstrip()} #{digest}"
 
 
 def report(findings: Iterable[str], env: dict[str, str] | None = None,
