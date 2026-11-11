@@ -275,9 +275,54 @@ impl Schedule {
     }
 }
 
-/// The class: whatever team was asked for last is the one held once every fetch has answered, over
-/// 5,000 random orders of calls in three teams, answers in any order, drops (a team or account
-/// switch), and waits past the in-flight window. Through the process's own ops, as the app calls them.
+/// A call through `cloud_capability_header` as the app makes it: whether it starts a fetch, and the
+/// fetch's id from the reply's JSON (`null` when it names none).
+fn ask_wire(team: &str, now: u64) -> (bool, Value) {
+    let reply = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now });
+    let wire = serde_json::to_value(reply).unwrap();
+    (wire["fetch"] == json!(true), wire.get("fetchId").cloned().unwrap_or(Value::Null))
+}
+
+/// A 200 answer through `cloud_capability_answer` as the app sends it, naming the fetch's id.
+fn answer_wire(team: &str, sent: u64, now: u64, id: &Value) -> &'static str {
+    let request: AnswerRequest = serde_json::from_value(json!({
+        "team": team, "sentMs": sent, "nowMs": now, "status": 200,
+        "body": answer(team, 1_000), "fetchId": id,
+    }))
+    .unwrap();
+    super::answer(request).outcome
+}
+
+/// Codex's P1 on 1abfea56: a fetch sent before a sign-out and one sent after it, for the same team in
+/// the same millisecond (an injected clock). The pre-drop answer is the old account's: refused, and
+/// the new account's own answer is kept. A fetch is told apart by its id, never by its time.
+#[test]
+fn an_answer_to_a_pre_drop_fetch_is_refused_even_in_the_same_millisecond() {
+    let _turn = process();
+    forget();
+    let (fetched, before) = ask_wire("team_a", T0);
+    assert!(fetched);
+    forget();
+    let (fetched, after) = ask_wire("team_a", T0);
+    assert!(fetched, "the new account fetches at once");
+    assert_eq!(answer_wire("team_a", T0, T0, &before), "dropped", "the old account's answer");
+    assert_eq!(answer_wire("team_a", T0, T0, &after), "held");
+    assert!(!ask_wire("team_a", T0).0, "the new account's answer is held");
+    // And the other way round: the new answer first, then the old one, which changes nothing.
+    forget();
+    let (_, before) = ask_wire("team_a", T0);
+    forget();
+    let (_, after) = ask_wire("team_a", T0);
+    assert_eq!(answer_wire("team_a", T0, T0, &after), "held");
+    assert_eq!(answer_wire("team_a", T0, T0, &before), "dropped");
+    forget();
+}
+
+/// The class: whatever team was asked for last is the one held once every fetch has answered, and
+/// after a drop no answer to a fetch from before it is ever held. Over 5,000 random orders of calls in
+/// three teams, answers in any order, drops (sign-out, an account or team switch) and a clock with few
+/// distinct values, so fetches on both sides of a drop often share a millisecond. Through the
+/// process's own ops, as the app calls them.
 #[test]
 fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
     let _turn = process();
@@ -285,48 +330,49 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
         let mut schedule = Schedule(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
         forget();
         let mut now = T0;
+        let mut drops = 0_u32;
         let mut last = None;
-        let mut out: Vec<(&str, u64)> = Vec::new();
+        // Each fetch still out: its team, when it was sent, its id, and the drops before it.
+        let mut out: Vec<(&str, u64, Value, u32)> = Vec::new();
         let mut steps = Vec::new();
-        let reply = |team: &str, sent: u64, now: u64| {
-            super::answer(AnswerRequest {
-                team: team.to_owned(),
-                sent_ms: sent,
-                now_ms: now,
-                status: 200,
-                body: answer(team, 1_000),
-            })
-            .outcome
-        };
         for _ in 0..2 + schedule.below(14) {
-            now += if schedule.below(8) == 0 && now < T0 + 150_000 {
-                IN_FLIGHT_MS
-            } else {
-                1 + schedule.below(1_000)
+            // Most steps keep the same millisecond.
+            now += match schedule.below(8) {
+                0 if now < T0 + 150_000 => IN_FLIGHT_MS,
+                1 | 2 => 1 + schedule.below(1_000),
+                _ => 0,
             };
             let team = match schedule.below(3) {
                 0 => "team_a",
                 1 => "team_b",
                 _ => "team_c",
             };
-            match schedule.below(5) {
+            match schedule.below(6) {
                 0 | 1 => {
-                    let call = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now });
-                    if call.fetch {
-                        out.push((team, now));
+                    let (fetched, id) = ask_wire(team, now);
+                    if fetched {
+                        out.push((team, now, id, drops));
                     }
                     last = Some(team);
-                    steps.push(format!("call {team}{}", if call.fetch { " (fetch)" } else { "" }));
+                    steps.push(format!(
+                        "call {team}@{now}{}",
+                        if fetched { " (fetch)" } else { "" }
+                    ));
                 }
                 2 | 3 if !out.is_empty() => {
                     let index = usize::try_from(schedule.below(out.len() as u64)).unwrap_or(0);
-                    let (team, sent) = out.swap_remove(index.min(out.len() - 1));
-                    let outcome = reply(team, sent, now);
+                    let (team, sent, id, epoch) = out.swap_remove(index.min(out.len() - 1));
+                    let outcome = answer_wire(team, sent, now, &id);
                     steps.push(format!("answer {team}@{sent}: {outcome}"));
+                    assert!(
+                        epoch == drops || outcome != "held",
+                        "seed {seed}: a pre-drop answer was held after {steps:?}"
+                    );
                 }
-                4 => {
-                    // A team or account switch: nothing is asked for in the new one yet.
+                4 | 5 => {
+                    // A sign-out, or an account or team switch: nothing is asked for in the new one yet.
                     forget();
+                    drops += 1;
                     last = None;
                     steps.push("drop".to_owned());
                 }
@@ -334,10 +380,14 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
             }
         }
         // Settle: every fetch still out answers.
-        for (team, sent) in std::mem::take(&mut out) {
+        for (team, sent, id, epoch) in std::mem::take(&mut out) {
             now += 1;
-            let outcome = reply(team, sent, now);
+            let outcome = answer_wire(team, sent, now, &id);
             steps.push(format!("answer {team}@{sent}: {outcome}"));
+            assert!(
+                epoch == drops || outcome != "held",
+                "seed {seed}: a pre-drop answer was held after {steps:?}"
+            );
         }
         if let Some(team) = last {
             let call = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now + 1 });
