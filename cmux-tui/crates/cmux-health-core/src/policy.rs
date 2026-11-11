@@ -48,6 +48,15 @@ pub const ROSTER_STUCK_MS: u64 = 300_000;
 
 /// Waits after attempt 1, 2, 3 (the last repeats).
 pub const BACKOFF_MS: &[u64] = &[2_000, 10_000, 60_000];
+
+/// The least wait after a page repair that loads its document again (`reloadPage`,
+/// `restartRenderer`) before the next step: the new document must boot, restore its chat and beat
+/// first. A busy agent chat on a loaded Mac took more than 2 s to load after its reload, so the
+/// ladder killed its renderer mid-load, twice, and the pane stayed blank (cosmic-gray, 2026-11-11
+/// 00:21:28Z reload, 00:21:30Z and 00:21:40Z renderer restarts; Leo: "i tried uploading this video
+/// to my nightly app and it just made the screen blank"). The document's `loaded` still ends the
+/// episode at once, and a failed result still makes the next step due at once.
+pub const PAGE_BOOT_MS: u64 = 30_000;
 pub const MAX_REPAIRS: u32 = 3;
 pub const REPAIR_WINDOW_MS: u64 = 600_000;
 
@@ -66,4 +75,14 @@ pub fn step(ladder: &[RepairAction], attempt: u32) -> RepairAction {
 pub fn backoff(attempt: u32) -> u64 {
     let index = (attempt.max(1) as usize - 1).min(BACKOFF_MS.len().saturating_sub(1));
     BACKOFF_MS.get(index).copied().unwrap_or(0)
+}
+
+/// The wait after attempt `attempt` ran `action`: a repair that loads a page's document again
+/// waits at least [`PAGE_BOOT_MS`] for that document; every other one waits its [`backoff`].
+pub fn wait_after(action: RepairAction, attempt: u32) -> u64 {
+    let wait = backoff(attempt);
+    match action {
+        RepairAction::ReloadPage | RepairAction::RestartRenderer => wait.max(PAGE_BOOT_MS),
+        _ => wait,
+    }
 }

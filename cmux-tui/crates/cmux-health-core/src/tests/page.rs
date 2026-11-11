@@ -23,7 +23,7 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
     );
     assert_eq!(h.next_tick_ms(), Some(10_000));
 
-    // Stuck at 10 s: reload at once, then the renderer after 2 s and 10 s.
+    // Stuck at 10 s: reload at once, then the renderer once each reload has had its 30 s to boot.
     assert_eq!(h.tick(10_000).len(), 1);
     let repairing = part(&h, ID).expect("listed");
     assert_eq!(repairing.state, State::Repairing);
@@ -32,18 +32,18 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
         "Not answering for 10 s. Reloading it (attempt 1 of 3); your draft is kept."
     );
     assert_eq!((repairing.attempt, repairing.max_attempts), (1, 3));
-    assert_eq!(repairing.next_at_ms, Some(12_000));
+    assert_eq!(repairing.next_at_ms, Some(40_000));
     assert!(repairing.can_repair);
     assert_eq!(repairing.label, "Agent chat");
     assert_eq!(repairing.since_ms, 10_000);
     assert_eq!(
-        run(&mut h, 81_999),
-        vec![(12_000, RestartRenderer, 2), (22_000, RestartRenderer, 3)]
+        run(&mut h, 129_999),
+        vec![(40_000, RestartRenderer, 2), (70_000, RestartRenderer, 3)]
     );
 
     // The 60 s after the third attempt pass: the cap is spent, `failed`.
-    assert_eq!(h.next_tick_ms(), Some(82_000));
-    assert!(h.tick(82_000).is_empty());
+    assert_eq!(h.next_tick_ms(), Some(130_000));
+    assert!(h.tick(130_000).is_empty());
     let failed = part(&h, ID).expect("listed");
     assert_eq!((failed.state, failed.can_repair), (State::Failed, true));
     assert_eq!(failed.action, RestartRenderer);
@@ -61,21 +61,21 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
     );
 
     // The click clears the cap and starts at step 1.
-    let actions = h.repair_now(ID, 90_000);
+    let actions = h.repair_now(ID, 140_000);
     assert_eq!(actions.len(), 1);
     assert_eq!((actions[0].action, actions[0].attempt), (ReloadPage, 1));
     assert_eq!(actions[0].id, ID);
-    assert_eq!(h.next_tick_ms(), Some(92_000));
+    assert_eq!(h.next_tick_ms(), Some(170_000));
 
     // The beat comes back: healthy, off the snapshot, a recovery receipt.
-    h.beat(ID, 91_000);
+    h.beat(ID, 141_000);
     assert_eq!(part(&h, ID), None);
     assert_eq!(h.snapshot().worst, State::Healthy);
     assert_eq!(receipts(&h, ID).last(), Some(&(ReloadPage, Outcome::Ok)));
-    assert_eq!(h.next_tick_ms(), Some(96_000));
+    assert_eq!(h.next_tick_ms(), Some(146_000));
 
     // Hidden: never timed.
-    h.visibility(ID, false, 91_500);
+    h.visibility(ID, false, 141_500);
     assert_eq!(h.next_tick_ms(), None);
     // Shown: armed from the show.
     h.visibility(ID, true, 200_000);
@@ -98,11 +98,11 @@ fn a_failed_result_advances_the_ladder_at_once_and_ok_alone_never_heals() {
     // ok: still repairing until the page beats.
     h.repair_result(ID, ReloadPage, Some(1), true, 10_400);
     assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Repairing));
-    assert_eq!(h.next_tick_ms(), Some(12_000));
+    assert_eq!(h.next_tick_ms(), Some(40_000));
 
     // A stale result (not the step that is out) is ignored.
     h.repair_result(ID, RestartRenderer, None, false, 10_450);
-    assert_eq!(h.next_tick_ms(), Some(12_000));
+    assert_eq!(h.next_tick_ms(), Some(40_000));
 
     // ok: false makes the next step due now.
     h.repair_result(ID, ReloadPage, None, false, 10_500);
@@ -191,7 +191,7 @@ fn a_late_result_for_an_earlier_episode_never_lands_on_a_newer_attempt() {
     assert_eq!(run(&mut h, 20_100), vec![(20_100, ReloadPage, 1)]);
     // The first episode's result arrives late: ignored.
     h.repair_result(ID, ReloadPage, Some(1), false, 20_200);
-    assert_eq!(h.next_tick_ms(), Some(22_100));
+    assert_eq!(h.next_tick_ms(), Some(50_100));
     // The current one's lands.
     h.repair_result(ID, ReloadPage, Some(2), false, 20_300);
     assert_eq!(h.next_tick_ms(), Some(20_300));
@@ -213,4 +213,42 @@ fn a_click_while_a_repair_is_out_gets_a_new_token() {
     // The click's own result lands.
     h.repair_result(ID, ReloadPage, Some(2), false, 10_700);
     assert_eq!(h.next_tick_ms(), Some(10_700));
+}
+
+/// Leo, 2026-11-11: "i tried uploading this video to my nightly app and it just made the screen
+/// blank". The busy agent chat went silent, was reloaded, and its renderer was killed 2 s later
+/// while the reload was still loading, then again 10 s after that: the pane stayed blank. A page a
+/// repair reloaded gets PAGE_BOOT_MS to load and beat before the next step, and its load ends the
+/// episode however long it took within that time.
+#[test]
+fn a_reloading_page_is_never_restarted_while_it_boots() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    h.beat(ID, 0);
+    assert_eq!(run(&mut h, 10_000), vec![(10_000, ReloadPage, 1)]);
+
+    // The reload is still loading 2 s and 10 s later: no renderer restart.
+    assert!(run(&mut h, 39_999).is_empty(), "nothing while the reload boots");
+    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Repairing));
+
+    // It loads 25 s in (a heavy chat on a loaded Mac) and beats: recovered, one repair spent.
+    h.event(ID, "loaded", 35_000, None);
+    h.beat(ID, 36_000);
+    assert_eq!(part(&h, ID), None);
+    assert_eq!(receipts(&h, ID), vec![(ReloadPage, Outcome::Started), (ReloadPage, Outcome::Ok)]);
+    assert!(run(&mut h, 39_999).is_empty());
+}
+
+#[test]
+fn a_reload_that_never_boots_restarts_the_renderer_after_the_boot_wait() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    h.beat(ID, 0);
+    assert_eq!(run(&mut h, 10_000), vec![(10_000, ReloadPage, 1)]);
+    assert_eq!(run(&mut h, 40_000), vec![(40_000, RestartRenderer, 2)]);
+    // The restarted renderer gets its boot wait too.
+    assert_eq!(h.next_tick_ms(), Some(70_000));
+    h.beat(ID, 50_000);
+    assert_eq!(part(&h, ID), None);
+    assert!(run(&mut h, 54_999).is_empty());
 }

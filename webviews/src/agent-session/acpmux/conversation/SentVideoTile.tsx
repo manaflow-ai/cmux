@@ -29,13 +29,34 @@ import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
 import { TurnActionsContext } from "./turnActions";
 import type { SentVideo } from "./sentVideos";
+import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
+import { FileAttachment } from "../FileAttachment";
 
 /// Where a granted video plays: in place in the bubble, or large over the pane.
 type Shown = { src: string; expanded: boolean };
 
 /// `width` and `height`: the tile's, at a sent image's height (UserBubble.tsx `sentImageWidth`). The
 /// poster fills it, cropped, loaded or still loading.
-export function SentVideoTile({ video: sent, width, height }: { video: SentVideo; width: number; height: number }) {
+type SentVideoTileProps = { video: SentVideo; width: number; height: number };
+
+/// A sent video's tile. One whose preview throws while it draws is the video's file chip instead
+/// (composer/AttachmentPreviewBoundary.tsx): the message and the pane stay.
+export function SentVideoTile(props: SentVideoTileProps) {
+  return (
+    <AttachmentPreviewBoundary
+      attachment={props.video}
+      fallback={
+        <span className="cv-sent-video-failed" data-preview-failed="true">
+          <FileAttachment file={{ name: props.video.name, path: props.video.path }} />
+        </span>
+      }
+    >
+      <SentVideoTilePreview {...props} />
+    </AttachmentPreviewBoundary>
+  );
+}
+
+function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps) {
   const t = useT();
   const video = useReadVideo(sent);
   const [shown, setShown] = useState<Shown>();

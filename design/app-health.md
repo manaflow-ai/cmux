@@ -54,6 +54,12 @@ count, and keeps its scroll position and focused draft in sessionStorage, so a r
 returns the person to where they were. The agent chat composer keeps its own draft
 (`composerDraft.ts`) and is left alone.
 
+A repair that loads the page again (reload, renderer restart) waits at least `PAGE_BOOT_MS` (30 s)
+for the new document before the next step; its load ends the episode. With the 2 s backoff alone, a
+busy agent chat on a loaded Mac was still loading when its renderer was killed, twice, and the pane
+stayed blank (Leo, 2026-11-11: "i tried uploading this video to my nightly app and it just made the
+screen blank").
+
 ## Treatment
 
 Native gallery: `AAAppHealthIndicatorGalleryTests` renders the footer line as `a-line` (shipped),

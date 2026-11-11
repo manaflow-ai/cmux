@@ -17,7 +17,8 @@
 //! the part's deadline at `nowMs`, so the host's timer fires at once.
 //!
 //! The repair episode of a stuck part: attempt 1 at once, then attempt `n+1`
-//! when the backoff after attempt `n` passes without the part's signal
+//! when the wait after attempt `n` (its backoff; at least `PAGE_BOOT_MS` after a
+//! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
 //! part is `failed` and waits for the user's click, which clears the cap and
@@ -661,7 +662,7 @@ impl Health {
                         r.attempt += 1;
                         r.history.push_back(now);
                         r.action = policy::step(ladder, r.attempt);
-                        r.next_at = Some(now + policy::backoff(r.attempt));
+                        r.next_at = Some(now + policy::wait_after(r.action, r.attempt));
                         r.sent += 1;
                         let (action, attempt, token) = (r.action, r.attempt, r.sent);
                         out.push(Action { id: part.id.clone(), kind, action, attempt, token });

@@ -31,6 +31,7 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
@@ -322,7 +323,60 @@ const keptThumbOf = (id: string) => keptThumb(id) ?? keptThumb(inlineCopyParent(
 
 /// A staged attachment's chip: the strip draws it, and so does the prompt for one placed in its text
 /// (composer/inlineAttachments.tsx), with the same preview, open, play and remove.
-export function AttachmentChip({
+type AttachmentChipProps = Parameters<typeof AttachmentChipPreview>[0];
+
+/// A staged attachment's chip. Its preview draws inside a boundary: one that throws is the file's
+/// plain chip instead (AttachmentPreviewBoundary.tsx), never a blank prompt or pane.
+export function AttachmentChip(props: AttachmentChipProps) {
+  return (
+    <AttachmentPreviewBoundary
+      attachment={props.attachment}
+      fallback={<AttachmentFileFallback attachment={props.attachment} onRemove={props.onRemove} />}
+    >
+      <AttachmentChipPreview {...props} />
+    </AttachmentPreviewBoundary>
+  );
+}
+
+/// The chip a failed preview falls back to: the file's name, type and size, and its ×.
+function AttachmentFileFallback({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove(id: string): void;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
+      data-preview-failed="true"
+      /* tooltip-allow: the full path is secondary detail for the file chip */
+      title={attachment.path ?? attachment.name}
+    >
+      <FileAttachment
+        file={{
+          name: attachment.name,
+          path: attachment.path,
+          mimeType: attachment.mimeType,
+          size: attachment.size > 0 ? attachment.size : undefined,
+        }}
+        remove={
+          <button
+            type="button"
+            className="acpmux-attachment-remove"
+            aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name })}
+            onClick={() => onRemove(attachment.id)}
+          >
+            <RemoveGlyph />
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+function AttachmentChipPreview({
   attachment,
   codex = false,
   onRemove,
