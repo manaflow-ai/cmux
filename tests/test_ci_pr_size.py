@@ -32,6 +32,13 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_ci_quota_hold_gate import DRAFT, DRAFT_SKIPPED, GATE, HOLD_GATED  # noqa: E402
 from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
 from test_ci_required_checks_have_no_path_filters import REQUIRED_CHECKS  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SCRIPT = ROOT / "scripts/ci/pr_size.py"
 WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"

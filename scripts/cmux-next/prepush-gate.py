@@ -1622,25 +1622,55 @@ def interpreter_sys_path(python: str) -> list[str]:
     return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
 
 
+# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
+# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
+# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
+# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
+#   pip       not externally managed, PURELIB writable: plain pip
+#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
+#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
+#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
+# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
+# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
+PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
+PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
+
+
+def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
+    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
+    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
+    interpreter, with PYTHON's paths taken as this interpreter's."""
+    paths = sysconfig.get_paths()
+    given = [] if stdlib is None and purelib is None else [
+        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
+    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
+        try:
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
+            return done.stdout.strip()
+    return "refuse"
+
+
 def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
                            apt: bool | None = None, syspath: list[str] | None = None) -> str:
     """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
     `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
     PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
     a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
-    not satisfy it, into PYTHON's own prefix (with sudo when this user cannot write it). An externally managed
-    (PEP 668) PYTHON with no apt route gets what to do instead: no pip install here passes --break-system-packages."""
-    paths = sysconfig.get_paths()
-    purelib = paths["purelib"] if purelib is None else purelib
-    stdlib = paths["stdlib"] if stdlib is None else stdlib
+    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
+    no pip at all and what to do instead."""
     apt = shutil.which("apt-get") is not None if apt is None else apt
     if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
         return "sudo apt-get install -y python3-yaml"
-    if os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED")):
-        return (f"{python} is externally managed (PEP 668): install PyYAML 6.0.3 with its own package manager, or "
-                "rerun scripts/install-git-hooks.sh with a venv's python3 first on PATH")
-    pip = f"{shlex.quote(python)} -I -m pip install {PYYAML_PIN}"
-    return pip if os.access(purelib, os.W_OK) else f"sudo {pip}"
+    route = pep668_route(python, stdlib, purelib)
+    if route == "refuse":
+        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
+                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
+                "first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
+    return f"sudo {pip}" if route == "sudo-pip" else pip
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
