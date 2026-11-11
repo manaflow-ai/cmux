@@ -296,6 +296,7 @@
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
     "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
