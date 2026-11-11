@@ -452,7 +452,7 @@ function Columns({
     let anyFast = !!fast;
     for (const family of list)
       for (const model of [...family.models, ...family.more]) {
-        anyFast ||= !!model.canFast;
+        if (model.canFast) anyFast = true;
         if (model.efforts?.length) {
           const levels = reasoningChoices(
             model.efforts.map((value) => ({ value })),
@@ -523,6 +523,7 @@ function Columns({
       setHeld(undefined);
       setPending(undefined);
       setChosenLevel(undefined);
+      setHandPickedUnder(undefined);
     }
   }
 
