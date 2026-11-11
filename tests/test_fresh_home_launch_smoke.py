@@ -550,6 +550,16 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertIn("this run's earlier launch", why(ips("earlier-child", pid=300, parentPid=100, procPath=binary)))
         self.assertIn("not this run's copy of the app", why(ips("other", pid=300, parentPid=1, procPath=elsewhere)))
         self.assertIn("names no path", why(ips("pathless", pid=300, parentPid=1)))
+        # A launch's own folder (its HOME is there): a detached process whose program is in it is of that launch.
+        home = self.dir / "root" / "seeded"
+        daemon = str(home / "h" / ".cmux" / "bin" / "cmux-tui")
+        first_home = str(self.dir / "root" / "h" / ".cmux" / "bin" / "cmux-tui")
+        self.assertIsNone(smoke.not_of_launch(ips("daemon", pid=300, parentPid=1, procPath=daemon), 200, app,
+                                              frozenset({100}), None, home))
+        self.assertIn("not this run's copy of the app and not this launch's files",
+                      smoke.not_of_launch(ips("first-daemon", pid=300, parentPid=1, procPath=first_home), 200, app,
+                                          frozenset({100}), None, home))
+        self.assertIn("not this run's copy of the app", why(ips("daemon", pid=300, parentPid=1, procPath=daemon)))
         # The older text format says the same in its head.
         text = self.dir / "old.crash"
         text.write_text(f"Process:               cmux NEXT [200]\nPath:                  {binary}\n"

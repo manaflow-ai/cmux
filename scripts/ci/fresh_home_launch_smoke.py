@@ -586,7 +586,8 @@ def crash_report_launch_time(path: Path) -> float | None:
     return None if stamp is None else stamp[0]
 
 
-def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None) -> str | None:
+def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None,
+                  own: Path | None = None) -> str | None:
     """Why the crash report at PATH is not of the launch with PID of the app copy APP, or None when it is or can
     be. crash_reports matches by the executable's name and the file's time alone, and ReportCrash writes a report
     some seconds after its process died: so a report of an EARLIER launch of this run (its app crashed while it
@@ -596,7 +597,9 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     launch's. That time is the only thing that tells an earlier launch's orphaned helper (its parent is pid 1,
     its path is in the same app copy) from this launch's. After it, a report counts when it names this launch or
     a child of it, or another process of this run's app copy that is not of an earlier launch; one that names
-    neither a time nor a pid counts, as every report did before."""
+    neither a time nor a pid counts, as every report did before. OWN is a folder that only this launch writes
+    (its part of the run's private root, with its HOME): a process whose program is there is of this launch too,
+    as a detached daemon that the app put in its home is."""
     died = crash_report_time(path) if started is not None else None
     if died is not None and died[0] + died[1] < started:
         return (f"its process died at {datetime.fromtimestamp(died[0], timezone.utc):%H:%M:%S}Z, "
@@ -615,9 +618,11 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
         return f"it is of pid {who['pid']}, this run's earlier launch"
     if who["path"] is None:
         return f"it is of pid {who['pid']}, not this launch (pid {pid}), and names no path"
-    if not os.path.realpath(who["path"]).startswith(os.path.realpath(app) + os.sep):
-        return f"it is of pid {who['pid']} at {who['path']}, not this run's copy of the app"
-    return None
+    real = os.path.realpath(who["path"])
+    if any(real.startswith(os.path.realpath(tree) + os.sep) for tree in (app, own) if tree is not None):
+        return None
+    return (f"it is of pid {who['pid']} at {who['path']}, not this run's copy of the app"
+            + ("" if own is None else " and not this launch's files"))
 
 
 def pids_under(root: Path) -> list[int]:
@@ -823,13 +828,14 @@ def awaited_crash_reports(diagnostics: Path, executable: str, since: float, exit
 
 
 def launch_crash_reports(diagnostics: Path, executable: str, since: float, exited: bool, pid: int, app: Path,
-                         earlier: frozenset[int], started: float) -> tuple[list[Path], dict[Path, str]]:
-    """The crash reports of the launch with PID of the app copy APP (awaited_crash_reports), and the reports that
-    the name and the file's time matched but that are not its, each with why (not_of_launch)."""
+                         earlier: frozenset[int], started: float, own: Path) -> tuple[list[Path], dict[Path, str]]:
+    """The crash reports of the launch with PID of the app copy APP, whose own files are under OWN
+    (awaited_crash_reports), and the reports that the name and the file's time matched but that are not its, each
+    with why (not_of_launch)."""
     not_counted: dict[Path, str] = {}
 
     def skip(found: Path) -> str | None:
-        why = not_of_launch(found, pid, app, earlier, started)
+        why = not_of_launch(found, pid, app, earlier, started, own)
         if why is None:
             not_counted.pop(found, None)
         else:
@@ -894,7 +900,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     # Only this launch's crash reports count here: the first arm's processes were stopped a moment ago, and a
     # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app.
     crashes, not_counted = launch_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None,
-                                                process.pid, app, launch["earlier"], launch["earlier_stopped"])
+                                                process.pid, app, launch["earlier"], launch["earlier_stopped"], sub)
     others = list(not_counted)
     for found in others:
         log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
@@ -1035,8 +1041,9 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch); one that names no
     # process counts, as every report did before.
+    # ROOT: while this arm runs, all that is under the run's private root is this launch's.
     crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
-                                                process.pid, app, frozenset(), launched_wall)
+                                                process.pid, app, frozenset(), launched_wall, root)
     for found, why in not_counted.items():
         log(f"note: crash report {found.name} is not counted for this launch: {why}")
     exceptions = sorted((root / "h").rglob("run.exception"))
