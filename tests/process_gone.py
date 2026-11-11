@@ -8,7 +8,9 @@ runs") while the code under test is right. tests/test_lint_process_gone_checks.p
 
 died(pid) is True once PID has exited (a zombie counts), within WITHIN seconds. running(pid) is True when PID is live
 now (not gone, not a zombie): the check for a process that must survive. group_died(pgid) is True once no process is
-left in the group; a group's zombies count as members until they are reaped, so it waits for the reap. On Linux
+left in the group; a group's zombies count as members until they are reaped, so it waits for the reap,
+except where signal 0 to the group is refused (macOS, for a group of zombies only): there a group
+whose members are all zombies is gone. On Linux
 died() waits on a pidfd; elsewhere (macOS: no pidfd, no /proc) it polls signal 0 and `ps -o stat=`, so a zombie
 counts there too. A test child that sleeps for 30 s or more is still alive at the deadline, so a kill that never
 happened still fails.
@@ -67,7 +69,9 @@ def died(pid, within=WITHIN):
         fd = None
     if fd is not None:
         try:
-            return bool(select.select([fd], [], [], within)[0])
+            poller = select.poll()  # no fd limit: select.select() refuses an fd at or above FD_SETSIZE (1024)
+            poller.register(fd, select.POLLIN)
+            return bool(poller.poll(max(within, 0) * 1000))
         finally:
             os.close(fd)
     deadline = time.monotonic() + within
@@ -84,8 +88,20 @@ def running(pid):
     return not died(pid, within=0)
 
 
+def _group_states(pgid):
+    """The one-letter states of process group PGID's members ([] when it has none), or None when ps cannot answer."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return [stat[:1] for g, stat in (line.split(None, 1) for line in out.stdout.splitlines() if len(line.split()) >= 2)
+            if g == str(pgid)]
+
+
 def group_died(pgid, within=WITHIN):
-    """True once process group PGID has no member left, within WITHIN seconds."""
+    """True once process group PGID has no live member left, within WITHIN seconds."""
     deadline = time.monotonic() + within
     while True:
         try:
@@ -93,7 +109,11 @@ def group_died(pgid, within=WITHIN):
         except ProcessLookupError:
             return True
         except PermissionError:
-            return False
+            # macOS answers EPERM for a group that holds only zombies (and for another user's group): its members'
+            # states say which. A ps that cannot answer keeps the group alive.
+            states = _group_states(pgid)
+            if states is not None and all(s in ("Z", "X") for s in states):
+                return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.05)
