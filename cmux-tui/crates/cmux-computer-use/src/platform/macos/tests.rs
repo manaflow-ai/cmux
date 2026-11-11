@@ -511,7 +511,8 @@ fn shifted_punctuation_matches_its_menu_item() {
     assert!(m("cmd+t", "T", 0));
     assert!(!m("cmd+t", "T", keymap::MENU_SHIFT));
     assert!(m("cmd+shift+t", "T", keymap::MENU_SHIFT));
-    // An upper-case chord letter is a Shift chord, as the menu's Shift bit says.
+    // An upper-case chord letter is a Shift chord, as the keys it posts are
+    // (key_codes) and as xdotool resolves "super+T": both paths agree.
     assert!(m("cmd+T", "T", keymap::MENU_SHIFT));
     assert!(!m("cmd+T", "T", 0));
     // "?" (Help) is shift+/.
@@ -531,11 +532,14 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
 
 #[test]
 fn the_services_check_knows_which_layouts_it_can_read() {
-    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.US")));
-    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.ABC")));
-    assert!(roles::is_ansi_layout(None));
-    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.German")));
-    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.Dvorak")));
+    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.US"), true));
+    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.ABC"), true));
+    assert!(roles::is_ansi_layout(Some("com.apple.keylayout.Australian"), true));
+    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.German"), true));
+    assert!(!roles::is_ansi_layout(Some("com.apple.keylayout.Dvorak"), true));
+    // Nothing recorded: U.S. only on a default install; otherwise fail closed.
+    assert!(roles::is_ansi_layout(None, false));
+    assert!(!roles::is_ansi_layout(None, true));
 }
 
 #[test]
@@ -546,4 +550,12 @@ fn the_services_dump_parser_reads_quoted_values_whole() {
     assert!(got.contains(&"@;".to_string()), "{got:?}");
     assert!(got.contains(&"$@}".to_string()), "{got:?}");
     assert!(got.contains(&"@K".to_string()), "{got:?}");
+    // Escaped quote and backslash decode to one character each.
+    assert!(got.contains(&"@\"".to_string()), "{got:?}");
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\\"; de = "$@X" };"#);
+    assert!(got.contains(&"@\\".to_string()), "{got:?}");
+    // The last entry has no ";" before "}".
+    assert!(got.contains(&"$@X".to_string()), "{got:?}");
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\101"; };"#);
+    assert_eq!(got, vec!["@A".to_string()]);
 }

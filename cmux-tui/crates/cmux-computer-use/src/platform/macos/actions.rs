@@ -423,14 +423,19 @@ pub(super) fn press_keys(
     // The key route first: a shortcut's menu item acts on the app's key
     // window, so it is pressed only when keys would reach the target window.
     let route = d.key_route(&t, delivery)?;
-    if delivery == Delivery::Background && combo.modifiers.contains(&crate::keys::Modifier::Meta) {
+    // The deny-list checks hold for both deliveries: a foreground chord goes
+    // through the same AppKit menus and Services. Only the background presses
+    // the menu item itself (foreground keys reach the raised app as typed).
+    if combo.modifiers.contains(&crate::keys::Modifier::Meta) {
         let (items, complete) = shortcut_matches(d, t.window.pid, combo);
         let found: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
         match roles::pick_shortcut(&found) {
-            roles::ShortcutPick::Press(i) => {
+            roles::ShortcutPick::Press(i) if delivery == Delivery::Background => {
                 items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
+            roles::ShortcutPick::Press(_) => {}
+            roles::ShortcutPick::Disabled(_) if delivery == Delivery::Foreground => {}
             roles::ShortcutPick::Disabled(title) => {
                 return Err(DesktopError::Unsupported(format!(
                     "the menu item for this shortcut ({title:?}) is disabled right now"

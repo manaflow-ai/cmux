@@ -526,9 +526,14 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
 /// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
 /// so on another layout it cannot tell which physical key a service uses.
 pub fn ansi_layout() -> bool {
+    // A long-lived process caches another app's preferences until it
+    // synchronizes them: re-read HIToolbox's on every check, so a switch
+    // from U.S. to German after launch is seen.
+    Cf::synchronize_preferences("com.apple.HIToolbox");
     let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
         .and_then(|v| v.as_string());
-    super::roles::is_ansi_layout(id.as_deref())
+    let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some();
+    super::roles::is_ansi_layout(id.as_deref(), enabled)
 }
 
 /// How often the Services shortcuts are re-read.

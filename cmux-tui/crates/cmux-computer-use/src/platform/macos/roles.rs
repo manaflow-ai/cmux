@@ -464,12 +464,31 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
             '"' => {
                 while let Some((_, q)) = chars.next() {
                     match q {
-                        '\\' => {
-                            if let Some((_, e)) = chars.next() {
-                                current.push('\\');
-                                current.push(e);
+                        '\\' => match chars.next().map(|(_, e)| e) {
+                            Some('"') => current.push('"'),
+                            Some('\\') => current.push('\\'),
+                            Some('n') => current.push('\n'),
+                            Some('t') => current.push('\t'),
+                            // \U1234 is decoded by unescape_dump.
+                            Some('U') => current.push_str("\\U"),
+                            Some(d @ '0'..='7') => {
+                                let mut n = d.to_digit(8).unwrap_or(0);
+                                for _ in 0..2 {
+                                    match chars.clone().next() {
+                                        Some((_, o @ '0'..='7')) => {
+                                            n = n * 8 + o.to_digit(8).unwrap_or(0);
+                                            chars.next();
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                                if let Some(ch) = char::from_u32(n) {
+                                    current.push(ch);
+                                }
                             }
-                        }
+                            Some(other) => current.push(other),
+                            None => {}
+                        },
                         '"' => break,
                         other => current.push(other),
                     }
@@ -486,7 +505,13 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
                 in_value = false;
                 current.clear();
             }
-            '}' => return (values, i + 1),
+            '}' => {
+                // A last entry may have no trailing ";".
+                if in_value && !current.trim().is_empty() {
+                    values.push(unescape_dump(current.trim()));
+                }
+                return (values, i + 1);
+            }
             other => current.push(other),
         }
     }
@@ -608,14 +633,21 @@ pub fn breadth_first<N>(
     (slots, truncated)
 }
 
-/// Keyboard layouts whose keys match the ANSI key codes in keymap.rs. An
-/// unknown layout (none recorded) counts as U.S., the macOS default.
-pub fn is_ansi_layout(input_source_id: Option<&str>) -> bool {
+/// Whether the keyboard layout's keys match the ANSI key codes in
+/// keymap.rs. With no current layout recorded, only a default install (no
+/// enabled input sources recorded either) counts as U.S.; anything else
+/// is unknown and fails closed.
+pub fn is_ansi_layout(input_source_id: Option<&str>, enabled_sources_recorded: bool) -> bool {
     match input_source_id {
-        None => true,
+        None => !enabled_sources_recorded,
         Some(id) => matches!(
             id,
-            "com.apple.keylayout.US" | "com.apple.keylayout.ABC" | "com.apple.keylayout.USExtended" | "com.apple.keylayout.USInternational-PC"
+            "com.apple.keylayout.US"
+                | "com.apple.keylayout.ABC"
+                | "com.apple.keylayout.USExtended"
+                | "com.apple.keylayout.USInternational-PC"
+                | "com.apple.keylayout.Australian"
+                | "com.apple.keylayout.Canadian"
         ),
     }
 }

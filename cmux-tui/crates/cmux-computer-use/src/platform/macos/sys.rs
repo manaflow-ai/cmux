@@ -88,6 +88,7 @@ unsafe extern "C" {
     pub fn CFDictionaryGetCount(d: CFTypeRef) -> CFIndex;
     pub fn CFDictionaryGetKeysAndValues(d: CFTypeRef, keys: *mut CFTypeRef, values: *mut CFTypeRef);
     pub fn CFPreferencesCopyAppValue(key: CFTypeRef, app: CFTypeRef) -> CFTypeRef;
+    pub fn CFPreferencesAppSynchronize(app: CFTypeRef) -> u8;
     pub static kCFBooleanTrue: CFTypeRef;
     pub static kCFBooleanFalse: CFTypeRef;
     pub static kCFTypeArrayCallBacks: Opaque;
@@ -308,6 +309,15 @@ impl Cf {
             let mut values = vec![std::ptr::null(); n];
             CFDictionaryGetKeysAndValues(self.0, keys.as_mut_ptr(), values.as_mut_ptr());
             values.into_iter().filter_map(Cf::retained).collect()
+        }
+    }
+
+    /// Drops this process's cached copy of another app's preferences, so the
+    /// next read sees what that app (or the system) wrote since.
+    pub fn synchronize_preferences(app: &str) {
+        if let Some(a) = Cf::string(app) {
+            // SAFETY: a is live for the call.
+            unsafe { CFPreferencesAppSynchronize(a.0) };
         }
     }
 
