@@ -110,14 +110,18 @@ edge on a ground the host painted where the chat did not cover its pane. That pa
 final width and slides in (`PaneArrival.slidingIn`, the provider's `slidesNewPaneInBeside`); the chat beside it
 follows its narrowing pane in every frame.
 
-A key resize has 2 holds that stay. (1) The host holds whole, at its start size until after the landing, content that
-has no hold area: a bare view in a test, and no pane content of the app. (2) The app's pane content (`PaneContentView`)
-has a hold area (`PaneContentAreaView`), and that area holds one kind: the 2 Home pages (`InternalPageID.homeDock` and
-`.homeTab`, the views that state `PaneKeyResizeHeld`). The area keeps the Home at its start size, under the tab strip,
-at the edge that stays, and gives it one new size after the landing (`keepsSizeInHold`, `keepsOutOfTabRowInHold`;
-cmux#41105 and cmux#41291). The cause is measured: a Home that followed its pane missed 13 to 15 of about 125 refreshes.
-So "every frame" in the key resize row is false for these 2 pages until the Home's layout is cheap enough to follow. In
-a split, a close and a zoom the area holds no kind.
+A key resize has 2 holds that stay, and both are for one kind: the 2 Home pages (`InternalPageID.homeDock` and
+`.homeTab`, the views that state `PaneKeyResizeHeld`). (1) A Home that draws its tools in its pane's tab row at the
+press has no hold area (`PaneContentAreaView.holdArea(for:drawsInTabRow:)` gives nil): the host holds the pane's whole
+content, its tab strip too, at its start size until after the landing (`PaneHostView.heldArea` is nil; test
+`theDockedHomeWithItsToolsInTheTabRowHoldsItsWholePaneThroughAKeyResize`). A bare view in a test takes the same path.
+(2) A Home with no tools in the tab row at the press, and a Home that a tab change shows inside the hold, is held by
+the hold area (`PaneContentAreaView`) of the app's pane content (`PaneContentView`): the tab strip follows the pane,
+and the area keeps the Home at its start size, under the tab strip, at the edge that stays, and gives it one new size
+after the landing (`keepsSizeInHold`, `keepsOutOfTabRowInHold`; cmux#41105 and cmux#41291). The cause is measured: a
+Home that followed its pane missed 13 to 15 of about 125 refreshes. So "every frame" in the key resize row is false for
+these 2 pages until the Home's layout is cheap enough to follow. In a split, a close and a zoom neither hold is on,
+for any kind.
 
 What shows between the old and the new picture today:
 

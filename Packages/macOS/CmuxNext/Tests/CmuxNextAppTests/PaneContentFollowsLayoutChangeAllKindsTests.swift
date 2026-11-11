@@ -240,11 +240,13 @@ struct PaneContentFollowsLayoutChangeAllKindsTests {
     }
 
     /// The NEW pane of a split grows from a zero-wide sliver at the edge it opens from (`PaneArrival`): its content has
-    /// its pane's rect in every frame from the sliver to the landing, for every kind. Before 2026-11-11 the host gave a
-    /// held kind (an agent chat) its rest size once and never resized it on the way
-    /// (`aPaneGrowingFromASliverNeverResizesItsPage`); a pane that arrives at its final width beside a chat is another
-    /// path (`ChatPanelSlideInTests`). The layout's own path: a real `LayoutRootView`, p1 alone, then p1 | p2, and p2
-    /// shows the kind's content from the turn that mounts it (`PaneContentFollowsPaneAllKindsTests.Panes`).
+    /// its pane's rect in every frame from the sliver to the landing, for every kind. COVERAGE of the layout's own path,
+    /// not the proof of the removed hold: this provider (`PaneContentFollowsPaneAllKindsTests.Panes`) held no kind before
+    /// 2026-11-11 either, so the test passes at that base too. The hold that the app's provider had for an agent chat
+    /// (the rest size once, no resize on the way: the deleted `aPaneGrowingFromASliverNeverResizesItsPage`) is proved
+    /// gone by `theContentFollowsItsPaneInEveryFrame`, kind `.agent`. A pane that arrives at its final width beside a
+    /// chat is another path (`ChatPanelSlideInTests`). Here: a real `LayoutRootView`, p1 alone, then p1 | p2, and p2
+    /// shows the kind's content from the turn that mounts it.
     @Test(.timeLimit(.minutes(1)), arguments: TabContent.Kind.allCases)
     func theContentOfANewPaneFollowsItFromTheSliver(_ kind: TabContent.Kind) throws {
         typealias Rects = PaneContentFollowsPaneAllKindsTests

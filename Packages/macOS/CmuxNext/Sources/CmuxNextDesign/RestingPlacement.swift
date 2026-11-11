@@ -69,8 +69,8 @@ public protocol PaneMotionTargeting: NSView {
     /// The enclosing placement's content area will rest `sizeChange` larger (negative: smaller) than it is
     /// now, in points; the pane chrome around this view does not change size during a spring, so this
     /// view's final size is `bounds.size + sizeChange`.
-    /// - Returns: The edge held content taller than its clip should be pinned to during the spring
-    ///   (``PaneMotionAnchor``): a terminal whose prompt is on its last row answers `.bottom`.
+    /// - Returns: The vertical edge this view's kept frame rides (``PaneMotionAnchor``): a terminal whose prompt is
+    ///   on its last row answers `.bottom`. The pane's host reads it only for content it holds whole in a key resize.
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor
 }
 
@@ -92,7 +92,9 @@ public extension PaneResizeGestureFollowing {
     func paneResizeGestureReleased() {}
 }
 
-/// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).
+/// The vertical edge that kept content rides while its pane moves (``PaneMotionTargeting``): a terminal's surface in
+/// its host on a layout spring, and content that its pane's host holds whole in a key resize. No host holds content on
+/// a split's, a close's or a zoom's spring.
 public enum PaneMotionAnchor: Sendable {
     /// Pinned at the top (the default).
     case top
