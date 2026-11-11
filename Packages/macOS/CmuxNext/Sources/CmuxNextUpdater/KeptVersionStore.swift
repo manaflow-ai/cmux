@@ -176,6 +176,8 @@ nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
     public var storeSchemas: [String: Int]?
     /// The bundle as the full check read it; nil: not checked yet (``KeptVersionStore/sealPending()``).
     var seal: KeptSeal?
+    /// Whether its code has run once since it was kept (``KeptWarmup``); nil: not yet.
+    var warmed: Bool?
 
     public init(build: String, date: String? = nil, teamID: String? = nil, storeSchemas: [String: Int]? = nil) {
         self.build = build

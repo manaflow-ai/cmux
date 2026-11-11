@@ -16,11 +16,22 @@ nonisolated enum KeptWarmup {
         let started = ContinuousClock.now
         let schemas = await StoreSchemaProbe(bundle: kept.bundle).readable()
         log.append("kept \(build): first run of its code took \(ContinuousClock.now - started)")
-        guard let schemas, kept.storeSchemas == nil else { return }
-        // Beside the bundle, not in it: the seal is untouched (the run changes no file's ctime either).
+        // An answer means its code ran. Recorded beside the bundle, not in it: the seal is untouched
+        // (the run changes no file's ctime either).
+        guard let schemas else { return }
         let file = kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName)
         guard var record = KeptRecord.read(from: file) else { return }
-        record.storeSchemas = schemas
-        do { try record.save(to: file) } catch { log.append("kept \(build): could not record its stores: \(error)") }
+        record.warmed = true
+        if record.storeSchemas == nil, kept.storeSchemas == nil { record.storeSchemas = schemas }
+        do { try record.save(to: file) } catch { log.append("kept \(build): could not record its first run: \(error)") }
+    }
+
+    /// Runs each kept build whose code has not run since it was kept: a keep made at a click, or
+    /// one whose run a quit cut short (Restart to Update right after the update staged). At launch.
+    @concurrent static func warmPending(store: KeptVersionStore, log: UpdateLogBuffer) async {
+        let pending = store.list(teams: false).filter { kept in
+            KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))?.warmed != true
+        }
+        for kept in pending { await warm(store: store, build: kept.build, log: log) }
     }
 }

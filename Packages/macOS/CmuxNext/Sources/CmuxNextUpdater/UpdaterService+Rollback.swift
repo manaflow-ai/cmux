@@ -180,14 +180,13 @@ extension UpdaterService {
         let store = keptVersions, bundle = Bundle.main.bundleURL, log = log, work = work
         // task-owner: a launch tidy that ends by itself; nobody waits on it.
         Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
-            let sealed = (try? await work.run(.bestEffort, mayBlock: .files) { () -> [String] in
-                let tidied = RollbackSwap.recover(current: bundle, store: store) + store.sweep()
-                if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
-                return store.sealPending()
+            let tidied = (try? await work.run(.bestEffort, mayBlock: .files) {
+                RollbackSwap.recover(current: bundle, store: store) + store.sweep() + store.sealPending().map { "sealed \($0)" }
             }) ?? []
-            // A keep made at a click (the swap, an install) is checked and sealed now, then warmed.
-            for build in sealed { await KeptWarmup.warm(store: store, build: build, log: log) }
+            if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
+            // A keep made at a click, or one whose first run a quit cut short, runs once now.
             await self?.refreshRevertOffer()
+            await KeptWarmup.warmPending(store: store, log: log)
         }
     }
 

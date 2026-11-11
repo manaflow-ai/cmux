@@ -100,6 +100,30 @@ import Testing
         #expect(full.value == 1)
     }
 
+    /// A kept build's code runs once after the keep (macOS checks a new bundle at its first run, so
+    /// going back to it later does not wait on that), and again at launch when a quit cut it short.
+    @Test func aKeptBuildRunsOnceSoGoingBackIsNotItsFirstLaunch() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" }, quickTeamID: { _ in "TEAM" })
+        let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: app, build: "100")
+        let cli = app.appending(path: "Contents/Resources/bin/cmux")
+        try FileManager.default.createDirectory(at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let runs = root.appending(path: "runs")
+        try Data("#!/bin/sh\necho run >> '\(runs.path)'\necho '{\"sessions\": 3}'\n".utf8).write(to: cli)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", teamID: "TEAM"))
+        let log = UpdateLogBuffer()
+        await KeptWarmup.warmPending(store: store, log: log)
+        await KeptWarmup.warmPending(store: store, log: log)
+        let ran = try String(contentsOf: runs, encoding: .utf8).split(separator: "\n")
+        #expect(ran.count == 1, "runs once, and the record says so")
+        let listed = try #require(store.list(teams: false).first)
+        #expect(listed.storeSchemas == ["sessions": 3], "its answer is the stores it reads")
+        #expect(store.checkedTeam(of: listed) == "TEAM", "the run leaves the seal as it was")
+    }
+
     /// The prune keeps the builds kept most recently, so the build this Mac came from stays even
     /// when its number is lower than one kept before it.
     @Test func thePruneKeepsWhatWasKeptLast() throws {
