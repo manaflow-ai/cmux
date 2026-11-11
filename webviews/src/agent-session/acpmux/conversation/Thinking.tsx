@@ -96,10 +96,18 @@ type Roll = {
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed: read only when the key changes, so a tick costs no second render.
-  const drawn = useRef(tail);
+  // The tail as last committed, and the roll it was last committed with. Refs are read only in the
+  // layout effect, never in render: a new roll's old tail is filled in there, before paint, so only
+  // a key change costs a second render and a tick costs none.
+  const drawn = useRef({ tail, turns: roll.turns });
   useLayoutEffect(() => {
-    drawn.current = tail;
+    const before = drawn.current;
+    drawn.current = { tail, turns: roll.turns };
+    if (roll.out && roll.turns !== before.turns) {
+      setRoll((now) =>
+        now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before.tail } } : now,
+      );
+    }
   });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
@@ -109,7 +117,8 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      out: rolls ? { ...roll, out: undefined, tail: drawn.current } : undefined,
+      // Its tail is the one last drawn, filled in by the layout effect above.
+      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
   return roll;
