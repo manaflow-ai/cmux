@@ -119,6 +119,14 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
 - Known limit: acpmux does not read an agent CLI's own config outside the launch, such as
   `~/.codex/config.toml` (its `mcp_servers`, `notify`) or opencode's global config. A program those
   files start is not judged; the claim believes the agent CLI as the lead accepted.
+- Delta review at d2e3f400 (w5l-delta-rev, BLOCK): acpmux did not read the code after Python's
+  `-c`, so `python3.12 -I -c "exec(open('agent.py').read())"` kept the claim. Lead decision, an
+  allowlist: Python `-c` refuses in every form (`-c CODE`, `-cCODE`, `-Ic`), and `-m` keeps the
+  claim only for a module of `PYTHON_MODULES`, which is empty (no supported agent CLI is launched
+  by `python -m`), so every module refuses (`timeit -s`, `pdb`, `runpy`, `cProfile`, ...). A script
+  by an absolute path outside the folder and code from stdin with the safe path keep it.
+- Known limit: shell quote joining (`n''ode`) is not undone. No supported agent CLI passes an
+  argument word to a shell today.
 ## Still open
 - F1 (codex review of #40158, deferred by the lead, cmux#40605): a pooled agent is judged at
   take time. The pool prewarm spawns with no claim (`spawn.rs` `spawn_profile_for`,

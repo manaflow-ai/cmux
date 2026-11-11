@@ -25,6 +25,12 @@
 use super::*;
 use std::collections::BTreeMap;
 
+/// Python modules a launch may run by `-m` and keep the claim: the modules of the supported agent
+/// CLIs. None of them is launched by `python -m` today, so the list is empty and `-m` refuses
+/// (lead, #40158): a stock module runs code it is given (`timeit -s`, `pdb`, `runpy`,
+/// `cProfile`, `code`, `doctest`, `unittest`).
+const PYTHON_MODULES: &[&str] = &[];
+
 /// Node's flags that preload a module: a bare name resolves from the working folder.
 const NODE_PRELOAD: &[&str] = &["-r", "--require", "--import", "--loader", "--experimental-loader"];
 
@@ -599,7 +605,11 @@ impl Launch<'_> {
     }
 
     /// CPython 3 of minor version `minor` (when known) with arguments `args` and env `env`
-    /// ([`Self::understood`]). Its short options are read as clusters (`-um` is a module run).
+    /// ([`Self::understood`]). Its short options are read as clusters (`-Ic` is code of the
+    /// command line). Code of the command line (`-c`) refuses in every form, and a module run
+    /// (`-m`) refuses unless its module is on [`PYTHON_MODULES`] and the safe path holds: the
+    /// code can open a folder file by a name it builds, and a stock module runs code it is given
+    /// (`timeit -s`, `pdb`, `runpy`).
     fn python(&self, minor: Option<u32>, args: &[String], env: &BTreeMap<String, String>) -> bool {
         // `PYTHONSAFEPATH` exists from 3.11; a Python whose version no name tells (`python3`, a
         // shim that the folder's `.python-version` may point) is not known to have it.
@@ -636,12 +646,19 @@ impl Launch<'_> {
             let mut letters = cluster.chars();
             while let Some(letter) = letters.next() {
                 match letter {
-                    // A module or code of the command line (the rest of the cluster or the next
-                    // word), then its arguments.
-                    'm' | 'c' => {
+                    // Code of the command line: acpmux does not read code (lead, #40158).
+                    'c' => return false,
+                    // A module (the rest of the cluster or the next word), then its arguments:
+                    // only a reviewed one, with the safe path.
+                    'm' => {
                         let safe = safe_flag || (safe_env && !no_env);
-                        let rest = if letters.as_str().is_empty() { i + 1 } else { i };
+                        let (module, rest) = if letters.as_str().is_empty() {
+                            (args.get(i).map(String::as_str), i + 1)
+                        } else {
+                            (Some(letters.as_str()), i)
+                        };
                         return safe
+                            && module.is_some_and(|m| PYTHON_MODULES.contains(&m))
                             && self.args_understood(args.get(rest..).unwrap_or_default(), true);
                     }
                     'P' | 'I' => safe_flag = true,
@@ -896,10 +913,11 @@ mod tests {
         std::fs::write(cwd.join("python3"), "").unwrap();
         let bare = launch(&["python3", "-u", "/opt/agent.py"], &[]);
         assert_eq!(judge(&bare, cwd, &path), None);
-        // Python that guards its import path, Node that preloads an absolute module.
-        let guarded = launch(&["python3", "-P", "-m", "agent"], &[]);
+        // Python that guards its import path and reads its code from acpmux (stdin), Node that
+        // preloads an absolute module.
+        let guarded = launch(&["python3", "-P", "-"], &[]);
         assert_eq!(judge(&guarded, cwd, &path), None);
-        let safe = launch(&["python3.12", "-m", "agent"], &[("PYTHONSAFEPATH", "1")]);
+        let safe = launch(&["python3.12", "-"], &[("PYTHONSAFEPATH", "1")]);
         assert_eq!(judge(&safe, cwd, &path), None);
         let node = launch(&["node", "--require", "/opt/hook.js", "/opt/agent.js"], &[]);
         assert_eq!(judge(&node, cwd, &path), None);
@@ -1183,7 +1201,8 @@ mod tests {
 
     /// Python options that drop the safe import path read the folder: `-E` ignores
     /// `PYTHONSAFEPATH`, and `-m` in a cluster (`-um`) is still a module run. `-I` and `-P` keep
-    /// the safe path (codex review of #40158, F3).
+    /// the safe path for code that acpmux sends on stdin (codex review of #40158, F3; `-m` and
+    /// `-c` refuse in every form since the lead's decision).
     #[test]
     fn python_options_that_drop_the_safe_path_read_the_folder() {
         let dir = tempfile::tempdir().unwrap();
@@ -1199,12 +1218,15 @@ mod tests {
             let why = judge(&launch(argv, env), cwd, &system_path());
             assert_eq!(why, Some("launch_reads_folder"), "{argv:?} {env:?}");
         }
-        let guarded: &[(&[&str], &[(&str, &str)])] = &[
-            (&["python3", "-Im", "agent"], &[]),
-            (&["python3", "-P", "-um", "agent"], &[]),
-            (&["python3.12", "-um", "agent"], &safe),
-        ];
+        // `-E` drops `PYTHONSAFEPATH` for code from stdin too.
         let (_tools, path) = tools();
+        let why = judge(&launch(&["python3.12", "-E", "-"], &safe), cwd, &path);
+        assert_eq!(why, Some("launch_reads_folder"));
+        let guarded: &[(&[&str], &[(&str, &str)])] = &[
+            (&["python3", "-I", "-"], &[]),
+            (&["python3", "-P", "-u", "-"], &[]),
+            (&["python3.12", "-u", "-"], &safe),
+        ];
         for (argv, env) in guarded {
             assert_eq!(judge(&launch(argv, env), cwd, &path), None, "{argv:?} {env:?}");
         }
@@ -1281,13 +1303,19 @@ mod tests {
     fn a_wrapper_that_drops_the_env_drops_the_safe_path() {
         let dir = review_folder();
         let safe = [("PYTHONSAFEPATH", "1")];
-        assert_reads(
-            dir.path(),
-            &["env", "-u", "PYTHONSAFEPATH", "python3.12", "-m", "agent"],
-            &safe,
-        );
-        assert_reads(dir.path(), &["env", "-i", "python3.12", "-m", "agent"], &safe);
-        assert_reads(dir.path(), &["sudo", "python3.12", "-m", "agent"], &safe);
+        // Code from stdin on a Python known to have the safe path, so only the dropped env
+        // refuses (a module run refuses in every form).
+        let (_tools, path) = tools();
+        for argv in [
+            &["env", "-u", "PYTHONSAFEPATH", "python3.12", "-"][..],
+            &["env", "-i", "python3.12", "-"],
+            &["sudo", "python3.12", "-"],
+        ] {
+            let why = judge(&launch(argv, &safe), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
+        let kept = launch(&["env", "python3.12", "-"], &safe);
+        assert_eq!(judge(&kept, dir.path(), &path), None);
     }
 
     /// Node finds `agent.js` for a script named `agent`, and `--run` runs a `package.json` script
@@ -1431,12 +1459,12 @@ mod tests {
         let dir = review_folder();
         let safe = [("PYTHONSAFEPATH", "1")];
         let (tools, path) = tools();
-        for argv in [&["python3", "-m", "agent"][..], &["python3.10", "-m", "agent"]] {
+        for argv in [&["python3", "-"][..], &["python3.10", "-"]] {
             let why = judge(&launch(argv, &safe), dir.path(), &path);
             assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
         }
         let absolute = tools.path().join("python3.11").to_string_lossy().into_owned();
-        for argv in [&["python3.12", "-m", "agent"][..], &[absolute.as_str(), "-um", "agent"]] {
+        for argv in [&["python3.12", "-"][..], &[absolute.as_str(), "-u", "-"]] {
             assert_eq!(judge(&launch(argv, &safe), dir.path(), &path), None, "{argv:?}");
         }
     }
