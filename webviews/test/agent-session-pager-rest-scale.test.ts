@@ -175,3 +175,46 @@ test("a page acpmux refuses as paced is asked again from its cursor, never as th
   expect(calls.filter((call) => call.method === "_acpmux/watch" && call.params.limit === undefined)).toHaveLength(0);
   expect(calls.filter((call) => call.params.cursor === String(PAGE * 2))).toHaveLength(3);
 });
+
+test("a paced page of a whole-list read is asked again from its cursor, not from the start", async () => {
+  let refusals = 2;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === 1_000 && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), {
+        data: { reason: "list.paced", retryable: true, retryAfterMs: 5 },
+      });
+    const end = Math.min(from + 1_000, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  expect(await pager.whole()).toHaveLength(COUNT);
+  expect(calls.filter((call) => call.method === "_acpmux/watch")).toHaveLength(1);
+  expect(calls.filter((call) => call.params.cursor === "1000")).toHaveLength(3);
+});
+
+test("a page acpmux keeps pacing is asked again until it comes, never read whole", async () => {
+  let refusals = 6;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === PAGE && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), { data: { reason: "list.paced", retryAfterMs: 1 } });
+    const end = Math.min(from + PAGE, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => (held = [...held, ...fresh]),
+    ),
+  ).toBe(true);
+  expect(held).toHaveLength(COUNT);
+  expect(calls.filter((call) => call.method === "_acpmux/watch" && call.params.limit === undefined)).toHaveLength(0);
+});
