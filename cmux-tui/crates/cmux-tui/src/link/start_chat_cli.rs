@@ -55,6 +55,8 @@
 mod ledger;
 mod pick;
 mod project;
+#[cfg(test)]
+mod refusal_table_tests;
 mod reservations;
 mod spare_warm;
 #[cfg(test)]
