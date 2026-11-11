@@ -17,15 +17,12 @@ const SRC: &str = "cmux-tui/crates/acpmux/src/";
 const KNOWN: &[&str] = &[
     "agent_host/link.rs RECEIPTS",
     "daemon/router_owner.rs ROUTER",
-    "folder_instructions.rs SWAP_HOOK",
     "harness_fixture.rs LOADED",
     "harness_fixture.rs EMPTY",
-    "hub/transfer_in.rs SWEEP_PAUSE",
     "route_probe.rs LAST",
     "server/chats/team_audit.rs HELD",
     "server/dual_requests.rs BOOK",
     "shadow_admission.rs KEPT",
-    "store/journal_store/meta.rs SETTLE_HOLD",
     "vault.rs LOADED",
 ];
 
