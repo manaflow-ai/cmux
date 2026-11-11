@@ -404,7 +404,9 @@ class TagGate(unittest.TestCase):
         branch = "github.ref == 'refs/heads/feat-cmux-next'"
         push, dispatch = "github.event_name == 'push'", "github.event_name == 'workflow_dispatch'"
         passes = (f"{branch} && ({push} || {dispatch})", f"{branch} && {push}", f"{branch} && {dispatch}",
-                  f"${{{{ {branch} && ({push} || {dispatch}) }}}}", f"({push} || {dispatch}) && {branch}")
+                  f"${{{{ {branch} && ({push} || {dispatch}) }}}}", f"({push} || {dispatch}) && {branch}",
+                  f"{branch} && ({push} || {dispatch}) && github.repository_owner == 'manaflow-ai'",
+                  f"!cancelled() && {branch} && {push} && github.event.head_commit.message != ''")
         refused = {
             "ref only": branch,
             "ref and an unrelated term": f"{branch} && github.repository_owner == 'manaflow-ai'",
@@ -414,6 +416,16 @@ class TagGate(unittest.TestCase):
             "schedule": f"{branch} && github.event_name == 'schedule'",
             "an event alternative outside the branch": f"{branch} && {push} || {dispatch}",
             "negated event": f"{branch} && github.event_name != 'pull_request'",
+            # An allowed term does not excuse another event term beside it: every event atom must be allowed.
+            "== workflow_run beside push": f"{branch} && {push} && github.event_name == 'workflow_run'",
+            "== workflow_run beside the allowed pair": f"{branch} && ({push} || {dispatch}) && github.event_name == 'workflow_run'",
+            "!= beside push": f"{branch} && {push} && github.event_name != 'pull_request'",
+            "contains() beside push": f"{branch} && {push} && contains(fromJSON('[\"push\", \"workflow_run\"]'), github.event_name)",
+            "contains() alone": f"{branch} && contains('push workflow_dispatch', github.event_name)",
+            "|| inside parens beside push": f"{branch} && {push} && (github.event_name == 'workflow_run' || {dispatch})",
+            "index form beside push": f"{branch} && {push} && github['event_name'] == 'workflow_run'",
+            "reversed operands beside push": f"{branch} && {push} && 'workflow_run' == github.event_name",
+            "negated allowed term beside push": f"{branch} && {push} && !({dispatch})",
         }
         for label, condition in [(c, c) for c in passes]:
             with self.subTest(passes=label):
