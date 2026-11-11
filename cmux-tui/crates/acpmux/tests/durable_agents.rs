@@ -108,11 +108,19 @@ impl Daemon {
 
     /// A daemon whose fake agent steers as Claude Code does (`FAKE_CLAUDE_STEER`).
     fn claude_steering(tag: &str) -> Self {
+        Self::claude_steering_with(tag, &[])
+    }
+
+    /// [`Self::claude_steering`], with more `NAME=value` settings for the fake agent.
+    fn claude_steering_with(tag: &str, agent_env: &[&str]) -> Self {
         let mut daemon = Self::with_env(tag, "approve-all", &[]);
         daemon.sigterm();
+        let mut argv = vec!["/usr/bin/env", "FAKE_CLAUDE_STEER=1"];
+        argv.extend_from_slice(agent_env);
+        argv.extend_from_slice(&["python3", FAKE]);
         std::fs::write(
             daemon.home.join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": argv}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon.start();
@@ -633,6 +641,54 @@ async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends
         after_gate.flatten().is_some_and(|g| results[0]["seq"].as_u64().unwrap() > g),
         "the turn settled before the agent ended it: {events:#?}"
     );
+}
+
+/// An update restarts acpmux while a turn holds a steer its agent has not read (Claude Code holds
+/// a message for the turn's next tool step). The turn ends before that step, and the agent
+/// answers the steer "no turn is running". The daemon that wrote the steer runs it as the next
+/// turn then, but it is gone; the adopting daemon dropped the answer, so a message the sender was
+/// told was steered in never reached the agent.
+#[tokio::test]
+async fn a_steer_its_turn_never_read_runs_next_after_an_update_restart() {
+    let mut daemon = Daemon::claude_steering_with("steer-lost", &["FAKE_STEER_NO_TURN_AT_END=1"]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    steerer
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "the steer written to the agent", |e| {
+        e["kind"] == "session/prompt" && e["msg"]["params"]["_meta"]["steer"] == true
+    });
+
+    daemon.sigterm();
+    drop((client, steerer));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    let tell = |e: &Value| {
+        e["kind"] == "user_message" && e["msg"]["text"] == "a tell" && e["msg"]["steer"] != true
+    };
+    let turn =
+        daemon.wait_event(&session, "the steer run as a turn of its own", tell)["msg"]["turnId"]
+            .clone();
+    daemon.wait_event(&session, "the steer's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["turnId"] == turn
+    });
+    let runs = daemon.events(&session).iter().filter(|e| tell(e)).count();
+    assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
 }
 
 /// An update restart adopts a running Claude chat without initializing its agent again, so the
