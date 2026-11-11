@@ -424,9 +424,9 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
 });
 
 // Leo, 2026-11-11 (ask-9d22a47adb): "when the new messages come in, like the animation is just way too
-// fucking slow ... when the rest of the transcript moves up and your message comes in ... It's not
-// fast enough and it's not fucking together enough ... There should be, like, mathematical ways to
-// determine what the fuck is wrong with ours." The measure: at every frame the thread's rise has
+// f***ing slow ... when the rest of the transcript moves up and your message comes in ... It's not
+// fast enough and it's not f***ing together enough ... There should be, like, mathematical ways to
+// determine what the f*** is wrong with ours." The measure: at every frame the thread's rise has
 // played the share of its move that the bubble's entrance has of its own (the send motion, 180 ms on
 // MOTION_SEND_CURVE), and both rest in the same frame. On base a 60 px send's spring rested at
 // 258 ms and trailed the bubble's clock by up to 27 px.

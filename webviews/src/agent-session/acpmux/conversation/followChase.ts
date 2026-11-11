@@ -92,8 +92,8 @@ export function arrivalStepMs(px: number, scale = 1, floor = MOTION_MS.quick * s
   const frames = ((Math.PI / 2) * Math.abs(px)) / (ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight);
   return Math.max(floor, (frames * 1000) / 120);
 }
-/// A send's rise (Leo, 2026-11-11: "the animation is just way too fucking slow ... when the rest of
-/// the transcript moves up and your message comes in ... It's not fast enough and it's not fucking
+/// A send's rise (Leo, 2026-11-11: "the animation is just way too f***ing slow ... when the rest of
+/// the transcript moves up and your message comes in ... It's not fast enough and it's not f***ing
 /// together enough"). The thread rises on the send motion itself (`--agent-motion-send`, 180 ms, on
 /// MOTION_SEND_CURVE), the clock the sent bubble opens and the thinking row fades in on
 /// (conversation.css SEND-ENTRANCE), so at every frame the rise has played the share of its move the
