@@ -83,8 +83,8 @@ class CrashClassRuleSignature(unittest.TestCase):
 
     def test_an_objc_selectors_line_is_a_named_failure_not_an_unmatchable_job(self):
         job = failed_job(1, 10, HEAD, "crash-class selectors", "Run the selector check")
-        _, tests, _ = excuse.signature(job, log(1, "Run the selector check", self.OBJC))
-        _, other, _ = excuse.signature(job, log(1, "Run the selector check", self.OBJC.replace(":12:", ":13:")))
+        _, tests, _ = placed_signature(job, log(1, "Run the selector check", self.OBJC))
+        _, other, _ = placed_signature(job, log(1, "Run the selector check", self.OBJC.replace(":12:", ":13:")))
         self.assertEqual(tests, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
         self.assertNotEqual(tests, other)
 
@@ -178,6 +178,13 @@ def frame_legacy(job, text):
         if n == owner:
             out += [stamp + line for line in own]
     return "\n".join(out)
+
+
+def placed_signature(job, text, base=False):
+    """excuse.signature of a fixture written before lines were placed by step order, framed as the job-log endpoint
+    serves it (frame_legacy) so step_owners places it: a log it does not place has no signature (excuse.UNPLACED)."""
+    job = copy.deepcopy(job)
+    return excuse.signature(job, frame_legacy(job, text), base)
 
 
 class InProgressJobLogGitHub(FakeGitHub):
@@ -1585,6 +1592,18 @@ class Excusing(unittest.TestCase):
         self.gh.logs[6] = log(child_name, step, "error: missing release note")
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
         self.assertIn("release-notary", "\n".join(lines))
+
+    def test_a_guard_status_whose_log_is_not_placed_is_refused(self):
+        # validate_guard_routes reads the guard's failed steps and errors through signature(): a log that does not map
+        # one to one onto its steps (two `Run` headers in the routing step) proves no step's lines, so its routes
+        # excuse nothing (#40542's Codex F1 at 76dc160c, every signature() caller).
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.logs[3] = log(name, "Check routed guard jobs", "##[group]Run scripts/ci/needs_verdict.py",
+                              "##[group]Run inner/action@v1",
+                              "workflow-guard-tests: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
 
     def test_a_failed_guard_check_must_still_have_a_failed_aggregate_job(self):
         # The check-run metadata can remain failed after its Actions job is
@@ -3016,7 +3035,7 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 
     def test_a_fail_line_is_no_error_line_for_another_job(self):
         job = failed_job(1, 10, HEAD, name=SWIFT)
-        self.assertEqual(excuse.signature(job, log(SWIFT, TEST_STEP, "FAIL: something"))[2], set())
+        self.assertEqual(placed_signature(job, log(SWIFT, TEST_STEP, "FAIL: something"))[2], set())
 
     def test_a_crash_is_never_excused_even_when_the_base_dispatch_fails(self):
         gh = SignedHostGitHub()
@@ -3504,7 +3523,18 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_echoed_script_lines_are_not_error_lines(self):
-        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        # The base log's two steps at their real times, so step_owners places it (the jobs API's steps of run
+        # 41138142557's kit job; the macOS step ends the second before the simulator step's header).
+        job = dict(self.gh.jobs[2], steps=[
+            {"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+             "started_at": "2026-10-30T23:15:20Z", "completed_at": "2026-10-30T23:15:30Z"},
+            {"number": 2, "name": "swift test (macOS)", "status": "completed", "conclusion": "success",
+             "started_at": "2026-10-30T23:15:31Z", "completed_at": "2026-10-30T23:16:37Z"},
+            {"number": 3, "name": self.STEP, "status": "completed", "conclusion": "failure",
+             "started_at": "2026-10-30T23:16:38Z", "completed_at": "2026-10-30T23:29:27Z"},
+            {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
+             "started_at": "2026-10-30T23:29:27Z", "completed_at": "2026-10-30T23:29:27Z"}])
+        _, tests, errors = excuse.signature(job, self.gh.logs[2])
         self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
         self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
 
@@ -3520,14 +3550,14 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
     def test_successful_ok_diagnostic_wrapper_is_not_an_error(self):
         successful = "ok: cmux Computer Use.app validation (error: expected nested helper diagnostic)"
         self.gh.logs[2] = log(self.KIT, self.STEP, successful)
-        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        _, tests, errors = placed_signature(self.gh.jobs[2], self.gh.logs[2])
         self.assertEqual(tests, set())
         self.assertEqual(errors, set())
 
     def test_error_outside_ok_wrapper_remains_evidence(self):
         self.gh.logs[2] = log(self.KIT, self.STEP,
                               "error: cmux Computer Use.app validation failed")
-        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        _, tests, errors = placed_signature(self.gh.jobs[2], self.gh.logs[2])
         self.assertEqual(tests, set())
         self.assertEqual(errors, {"error: cmux Computer Use.app validation failed"})
 
@@ -6613,7 +6643,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "7a28b5eca868b9f5258457dd01a21dcb503e02cdaa1688cfa6931e3ac8cd5eba"
+    VENDORED_FINGERPRINT = "0d74413175a0e1a4c878a08c869895b3a88bf5254d2ac3ea56fd07e86273ce13"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -7395,6 +7425,60 @@ class StepOwnershipCallers(unittest.TestCase):
             with self.subTest(columns=columns):
                 self.assertTrue(excuse.quarantined_only({"name": "swift", "steps": framed_steps(steps)},
                                                         framed_log(lines, columns=columns), {"sometimes()": "hq#1"}))
+
+
+class UnplacedSignature(unittest.TestCase):
+    """signature() of a log step_owners does not place is excuse.UNPLACED, never an empty or partial set a caller
+    could subtract a base's from, and every caller refuses on it or treats the red as new (#40542's Codex F1 at
+    76dc160c: next_batch's expand_job subtracted the base's signature of such a log from the head's and read a head's
+    new Sources/New.swift failure as inherited, because a passing composite printed New.swift on the base too)."""
+
+    STEPS = [("Composite", "success", 10, 12), ("Unit tests", "failure", 20, 22)]
+
+    def lines(self, red, placed=False):
+        composite = [("Composite", 10, "##[group]Run ./.github/actions/setup")]
+        if not placed:
+            composite.append(("Composite", 11, "##[group]Run inner/action@v1"))  # the composite's inner `Run` line
+        return composite + [("Composite", 11, NEW_RED),
+                            ("Unit tests", 20, "##[group]Run swift test"), ("Unit tests", 21, red),
+                            ("Unit tests", 21, EXIT)]
+
+    def job(self, steps=None):
+        return {"id": 1, "run_id": 10, "head_sha": HEAD, "name": SWIFT, "status": "completed",
+                "conclusion": "failure", "steps": framed_steps(steps or self.STEPS)}
+
+    def test_an_unplaced_log_has_no_signature_on_either_side(self):
+        for columns in (False, True):
+            text = framed_log(self.lines(OLD_RED), SWIFT, columns=columns)
+            for base in (False, True):
+                with self.subTest(columns=columns, base=base):
+                    self.assertIs(excuse.signature(self.job(), text, base), excuse.UNPLACED)
+            placed = excuse.signature(self.job(), framed_log(self.lines(OLD_RED, placed=True), SWIFT, columns=columns),
+                                      True)
+            self.assertIsNot(placed, excuse.UNPLACED)
+            self.assertEqual(placed[0], {"Unit tests"})
+
+    def test_package_tests_refuses_an_unplaced_log(self):
+        package = excuse.PACKAGE_JOBS["CmuxMobileKit tests (macOS swift test, iOS simulator)"]
+        steps = [("Composite", "success", 10, 12), ("swift test (macOS)", "failure", 20, 22)]
+        lines = [(("swift test (macOS)" if step == "Unit tests" else step), at, text)
+                 for step, at, text in self.lines(OWN)]
+        with self.assertRaises(excuse.Refused):
+            excuse.package_tests(package, self.job(steps), framed_log(lines, SWIFT))
+
+    def test_quarantined_only_never_explains_an_unplaced_log(self):
+        self.assertFalse(excuse.quarantined_only(self.job(), framed_log(self.lines(FLAKE), SWIFT),
+                                                 {"sometimes()": "hq#1"}))
+
+    def test_judge_refuses_an_unplaced_head_whatever_the_base(self):
+        for columns in (False, True):
+            with self.subTest(columns=columns):
+                github = FakeGitHub()
+                github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+                github.logs = {1: framed_log(self.lines(NEW_RED), SWIFT, columns=columns),
+                               2: framed_log(self.lines(NEW_RED, placed=True), SWIFT, columns=columns)}
+                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 class NamedRunStepHeader(unittest.TestCase):

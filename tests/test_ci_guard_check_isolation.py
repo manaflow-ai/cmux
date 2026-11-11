@@ -62,13 +62,22 @@ def job_and_log(failing: set[str], other_test: bool = False) -> tuple[dict, str]
     """The failed CI job and its `gh run view --log` text, as base_red_excuse.py reads them; with
     `other_test`, an unrelated failing unittest in the same job, red on the base too."""
     done = run_guard(failing)
+    # Framed as the runner logs a job, so base_red_excuse.step_owners places each line in its step (a log it does
+    # not place has no signature): "Set up job", one `Run` header per step, "Complete job".
+    def step(number, name, conclusion, start, end):
+        return {"number": number, "name": name, "status": "completed", "conclusion": conclusion,
+                "started_at": f"2026-10-27T02:10:{start:02d}Z", "completed_at": f"2026-10-27T02:10:{end:02d}Z"}
+
     job = {"id": 1, "run_id": 1, "name": JOB, "status": "completed", "conclusion": "failure",
-           "steps": [{"name": "Checkout", "status": "completed", "conclusion": "success"},
-                     {"name": STEP, "status": "completed", "conclusion": "failure"}]}
+           "steps": [step(1, "Set up job", "success", 0, 2), step(2, "Checkout", "success", 3, 5),
+                     step(3, STEP, "failure", 10, 40), step(4, "Complete job", "success", 40, 40)]}
     lines = done.stdout.splitlines() + ["##[error]Process completed with exit code 1."]
     if other_test:
         lines = ["FAIL: test_unrelated (test_other.Other.test_unrelated)"] + lines
-    log = "\n".join(f"{JOB}\t{STEP}\t2026-10-27T02:10:37.8032610Z {line}" for line in lines)
+    framed = ([("Set up job", 0, "Current runner version: '2.338.2'"),
+               ("Checkout", 3, "##[group]Run actions/checkout@v6"), (STEP, 10, "##[group]Run tests/run-guards.sh"),
+               (STEP, 10, "##[endgroup]")] + [(STEP, 37, line) for line in lines])
+    log = "\n".join(f"{JOB}\t{name}\t2026-10-27T02:10:{at:02d}.8032610Z {line}" for name, at, line in framed)
     return job, log
 
 

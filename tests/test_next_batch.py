@@ -604,6 +604,28 @@ CHECKS_LOG = """\
 """
 
 
+def framed(*texts: str, step: str = "Run tests") -> tuple[list[dict], str]:
+    """(steps, log) for a job whose one failing STEP prints TEXTS, framed as the runner logs a job ("Set up job", the
+    step's own `Run` header, "Complete job"), so base_red_excuse.step_owners places every line: a log it does not
+    place has no signature, and expand_job never reads it as a base red."""
+    def at(second: int) -> str:
+        return f"2026-10-19T03:02:{second:02d}Z"
+
+    steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+              "started_at": at(0), "completed_at": at(1)},
+             {"number": 2, "name": step, "status": "completed", "conclusion": "failure",
+              "started_at": at(2), "completed_at": at(9)},
+             {"number": 3, "name": "Complete job", "status": "completed", "conclusion": "success",
+              "started_at": at(9), "completed_at": at(9)}]
+    lines = ["2026-10-19T03:02:00.5Z Current runner version: '2.338.2'", "2026-10-19T03:02:02.5Z ##[group]Run tests",
+             "2026-10-19T03:02:02.6Z ##[endgroup]", *(f"2026-10-19T03:02:05.5Z {text}" for text in texts)]
+    return steps, "\n".join(lines) + "\n"
+
+
+def log_of(text: str) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess([], 0, text, "")
+
+
 class BaseReds(unittest.TestCase):
     """Base pushes and dispatches skip the checks job, so the batch validates the
     base itself and compares single checks, not the whole job."""
@@ -667,11 +689,12 @@ class BaseReds(unittest.TestCase):
     def test_without_a_probe_only_outright_failures_in_the_push_run_count(self):
         controller = self.controller()
         controller.gh.runs.return_value = [{"id": 1, "status": "completed", "head_branch": nb.BASE}]
+        steps, text = framed("error: x", step="Build")
         controller.gh.api.return_value = {"jobs": [
             {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
-            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
+            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure", "steps": steps},
         ]}
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: x\n", "")
+        controller.gh.gh.return_value = log_of(text)
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
         self.assertIn("event=push", controller.gh.runs.call_args_list[0].args[1])
 
@@ -684,12 +707,13 @@ class BaseReds(unittest.TestCase):
         dev = {"id": 3, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
                "display_title": "cmux NEXT DEV daily · " + "c" * 40}
         controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [dev, tier]]
+        steps, text = framed("error: y", step="Build")
         jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
-                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"},
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure", "steps": steps},
                     {"id": 9, "name": "cmux-next checks (god files, concurrency, crash safety, l10n)",
-                     "conclusion": "failure"}]}
+                     "conclusion": "failure", "steps": steps}]}
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        controller.gh.gh.return_value = log_of(text)
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
         listed = controller.gh.runs.call_args_list[1].args[1]
         # Review of this change: where the base's own push run has a verdict for the job (coalescing off, or
@@ -711,14 +735,15 @@ class BaseReds(unittest.TestCase):
                   "display_title": title + "d" * 40, "created_at": "2026-10-30T12:15:00Z"}
         older = {"id": 3, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
                  "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        steps, text = framed("error: y", step="Build")
         controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], [newest, older]]
         jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
                 2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "skipped"},
                     {"id": 9, "name": "cmux-next generated files", "conclusion": "success"}],
-                3: [{"id": 10, "name": "cmux-next daemon tests", "conclusion": "failure"},
-                    {"id": 11, "name": "cmux-next generated files", "conclusion": "failure"}]}
+                3: [{"id": 10, "name": "cmux-next daemon tests", "conclusion": "failure", "steps": steps},
+                    {"id": 11, "name": "cmux-next generated files", "conclusion": "failure", "steps": steps}]}
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        controller.gh.gh.return_value = log_of(text)
         # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
@@ -731,11 +756,12 @@ class BaseReds(unittest.TestCase):
                       "display_title": title + f"{n:x}" * 40} for n in range(nb.BASE_TIER_LOOKBACK + 2)]
         tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
                 "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        steps, text = framed("error: y", step="Build")
         controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], cancelled + [tier]]
         jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
-                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"}]}
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure", "steps": steps}]}
         controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        controller.gh.gh.return_value = log_of(text)
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
@@ -787,13 +813,12 @@ class BaseReds(unittest.TestCase):
     def test_a_base_red_job_excuses_only_the_tests_that_fail_on_the_base(self):
         """A red swift test on the base must not excuse a stack that breaks another test."""
         controller = self.controller()
-        steps = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
+        steps, _ = framed()
         job = {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}
         controller.gh.api.return_value = {"jobs": [job]}
 
         def failing(*tests):
-            text = "".join(f"2026-10-19T03:02:59.1Z \u2718 Test {name} recorded an issue at A.swift:1:2: x\n" for name in tests)
-            return subprocess.CompletedProcess([], 0, text, "")
+            return log_of(framed(*(f"\u2718 Test {name} recorded an issue at A.swift:1:2: x" for name in tests))[1])
 
         controller.gh.gh.return_value = failing("alpha()")
         base = set(controller.failed_jobs(1, detail=True))
@@ -805,16 +830,49 @@ class BaseReds(unittest.TestCase):
         # Job-level names stay for the base-red comparison's lanes.
         self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
 
+    def test_a_failure_in_a_log_that_is_not_placed_is_never_the_bases(self):
+        """#40542's Codex F1 at 76dc160c: a passing composite prints Sources/New.swift, then the failed step prints
+        Old.swift on the base and New.swift on the head. The composite's inner `Run` line leaves the log unplaced
+        (base_red_excuse.step_owners), so no line is proven the failed step's: the head's red is its own, never
+        inherited, and the base's inherits nothing."""
+        controller = self.controller()
+
+        def at(second: int) -> str:
+            return f"2026-10-19T03:02:{second:02d}Z"
+
+        steps = [{"number": n, "name": name, "status": "completed", "conclusion": conclusion,
+                  "started_at": at(start), "completed_at": at(end)}
+                 for n, (name, conclusion, start, end) in enumerate(
+                     [("Set up job", "success", 0, 1), ("Set up the toolchain", "success", 10, 12),
+                      ("Unit tests", "failure", 20, 22), ("Complete job", "success", 22, 22)], 1)]
+
+        def run(file: str) -> subprocess.CompletedProcess:
+            return log_of("\n".join([
+                "2026-10-19T03:02:00.5Z Current runner version: '2.338.2'",
+                "2026-10-19T03:02:10.5Z ##[group]Run ./.github/actions/setup-toolchain",
+                "2026-10-19T03:02:11.5Z ##[group]Run inner/action@v1",
+                "2026-10-19T03:02:11.5Z concurrency: error: Sources/New.swift:9 blocks the main thread",
+                "2026-10-19T03:02:20.5Z ##[group]Run swift test",
+                f"2026-10-19T03:02:21.5Z concurrency: error: Sources/{file}.swift:9 blocks the main thread",
+                "2026-10-19T03:02:21.5Z ##[error]Process completed with exit code 1."]) + "\n")
+
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = run("Old")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = run("New")
+        stack = set(controller.failed_jobs(2, detail=True))
+        self.assertTrue(stack - base, f"a new failure read as inherited: head {stack}, base {base}")
+
     def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
         """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
         controller = self.controller()
-        steps = [{"name": "Run tests", "conclusion": "failure"}]
+        steps, _ = framed()
         controller.gh.api.return_value = {"jobs": [
             {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
-        controller.gh.gh.return_value = subprocess.CompletedProcess(
-            [], 0, "2026-10-19T03:02:59.1Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x\n", "")
+        controller.gh.gh.return_value = log_of(framed("\u2718 Test alpha() recorded an issue at A.swift:1:2: x")[1])
         base = set(controller.failed_jobs(1, detail=True))
-        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z still running\n", "")
+        controller.gh.gh.return_value = log_of(framed("still running")[1])
         self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
         crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")

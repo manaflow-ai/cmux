@@ -152,7 +152,7 @@ class WebPositiveExport(unittest.TestCase):
         marker = "tap-test/v1 " + json.dumps(row)
         self.assertEqual(reds.read(marker).crashes, [])
         self.assertEqual(reds.read(marker).failed, set())
-        self.assertEqual(excuse.signature(base.failed_job(1, 10, base.HEAD), marker)[2], set())
+        self.assertEqual(base.placed_signature(base.failed_job(1, 10, base.HEAD), marker)[2], set())
 
 
 class QuarantineEvidence(unittest.TestCase):
