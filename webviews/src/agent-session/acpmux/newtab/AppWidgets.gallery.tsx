@@ -121,7 +121,9 @@ export default componentEntry<Props>({
       props: { layout: ["timer", CLOCK, PRS], builtins: ["timer"] },
       play: async (ctx) => {
         await drawn(2)(ctx);
-        await ctx.contextMenu({ selector: ".nt-screen" });
+        // On a widget, not the page's middle: this template's composer is there, and the page's menu
+        // leaves a right-click on the composer to the composer (NewTabScreen.tsx `ignore`).
+        await ctx.contextMenu({ selector: ".nt-extra-timer" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-grid-frame .nt-widget-remove").length === 3);
         await ctx.click({ selector: '.nt-edit-button[data-menu="newtab-add-widget"]' });

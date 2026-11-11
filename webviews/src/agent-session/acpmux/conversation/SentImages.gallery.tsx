@@ -15,6 +15,9 @@ type Shot = { width: number; height: number; hue: number };
 type Props = {
   images: (PromptImage & { shot?: Shot; broken?: boolean })[];
   pending?: boolean;
+  /// The pane's own send, before acpmux's echo: the row holds each image's bytes (`src`), so the
+  /// bubble reads nothing and each slot has its image's shape in its first frame.
+  held?: boolean;
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
   primedLate?: boolean;
@@ -77,7 +80,22 @@ function GalleryPrimedLate({ images }: Props) {
   return named ? <GallerySentImages images={named} pending /> : null;
 }
 
-function GallerySentImages({ images, pending = false, primedLate = false, inline = false, attachmentOnly }: Props) {
+/// Sent images whose row holds their bytes, as the pane's own row does from the moment it sends.
+function GalleryHeld({ images }: Props) {
+  // Painted one time: with no `shot` left, the shown row does not paint each image again.
+  const [held] = useState(() => images.map(({ shot, ...image }) => ({ ...image, src: paint(shot!) })));
+  return <GalleryShownImages images={held} />;
+}
+
+function GallerySentImages({
+  images,
+  pending = false,
+  held = false,
+  primedLate = false,
+  inline = false,
+  attachmentOnly,
+}: Props) {
+  if (held) return <GalleryHeld images={images} />;
   if (primedLate) return <GalleryPrimedLate images={images} />;
   if (attachmentOnly) return <GalleryAttachmentOnly images={images} state={attachmentOnly} />;
   return <GalleryShownImages images={images} pending={pending} inline={inline} />;
@@ -185,8 +203,12 @@ export default componentEntry<Props>({
   load: async () => GallerySentImages,
   variants: {
     pasted: {
-      note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
-      props: { images: pasted },
+      note: "Three screenshots the person just pasted and sent (square, wide, tall): each the whole image at most 120px tall, at its own shape from its first frame; hover names its size.",
+      // The row holds the bytes, as the pane's own send does. Read from acpmux with no size on record
+      // (`named`, `wide-strip`), a slot is a square until its image decodes; three large images decode
+      // one after the other on a loaded machine, and each one moved its neighbours again, so this
+      // state's load shift was 0.039 in one run and 0.22 in the next of the same commit.
+      props: { images: pasted, held: true },
     },
     "wide-strip": {
       note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
