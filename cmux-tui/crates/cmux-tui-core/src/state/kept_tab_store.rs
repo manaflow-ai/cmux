@@ -147,11 +147,13 @@ pub(crate) fn read_kept_tabs(
 /// The `extra.relaunch` of one tab: `{cwd}` for a kept tab (with
 /// `on_show: true` for a parked one), else null.
 pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::Result<Value> {
-    let row = connection
-        .query_row("SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
-        })
-        .optional()?;
+    let row = super::values::query_row_cached(
+        connection,
+        "SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1",
+        [tab_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0)),
+    )
+    .optional()?;
     Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
 }
 

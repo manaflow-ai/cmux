@@ -32363,7 +32363,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy acpmux Session File",
+      "title" : "Copy cmux Session File",
       "title_key" : "action.agentChat.copyAcpmuxSessionFile",
       "title_table" : "ActionCatalog"
     },
