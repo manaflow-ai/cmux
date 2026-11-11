@@ -2,7 +2,8 @@
 // name of every harness it lists (OpenCode's, today), so it does not change width from tab to tab.
 // A drag on its outer edge sets a width of the person's own, kept for every composer in the app and
 // followed by every open page (as modelChipIcon.ts is); a double-click on the edge goes back to
-// the default. Narrower than a name, the name ends in an ellipsis (Lucas 2026-11-10).
+// the default (Lucas 2026-11-10). Narrower than a name, the name wraps (Lawrence 2026-11-05: "cant
+// see full model name").
 import { useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "cmux.acpmux.modelMenuWidth";
