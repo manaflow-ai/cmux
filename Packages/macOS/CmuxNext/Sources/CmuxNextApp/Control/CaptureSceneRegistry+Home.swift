@@ -175,7 +175,7 @@ extension CaptureSceneRegistry {
         _ = frames.stop()
         guard home != nil, let chief = TopHomePageView.chief(services.home) else { return failed("no Chief conversation: \(services.home.unavailableMessage)") }
         do { try await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath) } catch { return failed("feed.needsYouInChief: \(error)") }
-        guard var environment = QuitAgents.environment(services), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return failed("no acpmux environment") }
+        guard var environment = await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: false), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return failed("no acpmux environment (resolved as if not --showcase, which mocks it)") }
         guard let capture = try? HomeNeedsYouCapture(send: { op, data in Task { await Self.feedOp(daemon, op, data) } }) else { return failed("in-app acpmux did not listen") }
         defer { capture.stop() }
         (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
