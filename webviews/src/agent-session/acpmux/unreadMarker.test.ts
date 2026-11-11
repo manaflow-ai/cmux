@@ -15,7 +15,15 @@ import {
   unreadPending,
   unreadRead,
 } from "./conversation/unreadState";
-import { jumpUpShown, jumpUpTarget, newerMark, placeOffScreen, pressJumpUp, type ManualMark } from "./jumpUp";
+import {
+  jumpUpShown,
+  jumpUpTarget,
+  newerMark,
+  placeOffScreen,
+  placeOffView,
+  pressJumpUp,
+  type ManualMark,
+} from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
 
 beforeEach(() => resetUnreadForTest());
@@ -86,6 +94,19 @@ test("Jump up shows only while its place is off screen, and while it holds a way
   expect(jumpUpShown(false, undefined)).toBe(false);
   expect(jumpUpShown(true, undefined)).toBe(true);
   expect(jumpUpShown(false, { top: 900, atLatest: true })).toBe(true);
+});
+
+test("Jump up reads a place where its row draws: a prompt in sight at the chat's top is on screen", () => {
+  // gallery agent-pane.transcript#codex-turn-raw-commands: the first prompt's layout top is 0, the view
+  // 10 px down; the row draws 16 px lower (THREAD_TOP), its bubble whole under the header.
+  const view = { shownTop: 10, height: 532, threadTop: 16, topInset: 0, dockSpace: 96 };
+  expect(placeOffView(0, view)).toBe(false);
+  // Scrolled past it, it is off screen.
+  expect(placeOffView(0, { ...view, shownTop: 40 })).toBe(true);
+  // Under the dock it is out of sight too.
+  expect(placeOffView(420, view)).toBe(false);
+  expect(placeOffView(440, view)).toBe(true);
+  expect(placeOffView(undefined, view)).toBe(false);
 });
 
 test("a second press goes back to where the view was", () => {

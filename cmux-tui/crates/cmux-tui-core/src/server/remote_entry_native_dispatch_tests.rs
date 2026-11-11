@@ -88,8 +88,8 @@ fn native_owner_provisions_attaches_and_reads_context_over_real_entry() {
         methods,
         [
             json!("acp.trust.get"),
-            json!("_acpmux/web_modes"),
             json!("_acpmux/harnesses"),
+            json!("_acpmux/web_modes"),
             json!("acp.trust.get"),
             json!("session/new"),
             json!("_acpmux/web_modes")
@@ -155,7 +155,7 @@ fn native_owner_start_preserves_folder_trust() {
     let methods: Vec<_> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
     assert_eq!(
         methods,
-        [json!("_acpmux/web_modes"), json!("_acpmux/harnesses"), json!("acp.trust.get")]
+        [json!("_acpmux/harnesses"), json!("_acpmux/web_modes"), json!("acp.trust.get")]
     );
 }
 
@@ -396,6 +396,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    // The provider's change notice is the verified local app's, as its register and its result:
+    // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
+    "apps-provider-changed",
     "apps-provider-register",
     "apps-provider-result",
     "apps-run",

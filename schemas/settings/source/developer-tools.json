@@ -35,6 +35,41 @@
           "swift_owner": "AppPageDevToolsSetting"
         }
       ]
+    },
+    {
+      "name": "internalDeveloperMode",
+      "section": "development",
+      "group": {
+        "key": "settings.group.internalDeveloperMode",
+        "text": "Internal Developer Mode"
+      },
+      "note": "Settings > Development (DEV and NIGHTLY only) > Internal Developer Mode (Lawrence 2026-11-09: \"move all debug things to cmd shift p that is only visible when cmux internal developer mode is toggled on\").",
+      "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "note": "Off (the default): the Command Palette lists no debug commands. On: every debug-only action is a palette row titled \"Debug: <name>\" (playgrounds, Debug Settings, the latency HUD); there is no Debug menu. DEV and NIGHTLY only: Release and RC builds have no debug actions and never show this row. Scripts (the CLI, MCP) run debug actions in DEV and NIGHTLY whatever this is.",
+          "title": {
+            "key": "settings.internalDeveloperMode",
+            "text": "Internal Developer Mode"
+          },
+          "help": {
+            "key": "settings.internalDeveloperMode.help",
+            "text": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "developer",
+            "internal",
+            "debug",
+            "developer mode",
+            "playground",
+            "command palette",
+            "diagnostics"
+          ],
+          "swift_owner": "InternalDeveloperModeSetting"
+        }
+      ]
     }
   ]
 }

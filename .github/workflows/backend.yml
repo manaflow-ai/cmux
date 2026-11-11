@@ -309,14 +309,16 @@ jobs:
 
   # The Cloud journey (scripts/cmux-next/cloud-journey.ts) against this PR's preview Worker: create a machine,
   # start an agent, chat, connect, sync, pause, resume, delete. Its step table is the job summary, and a red step is
-  # this PR's red. The agent test account's pair lives in cmux-next-cloud-journey; without it the job notes the skip.
+  # this PR's red. A preview binds the development Stack project, which staging shares, so the pair is the staging agent
+# test account's in cmux-next-vm-image-dev (as journey-staging). Without it the job fails (cloud-journey-ci.sh), never
+# skips: it read CMUX_JOURNEY_DEV_STACK_* from cmux-next-cloud-journey, which holds no such pair (cmuxterm-hq#8702).
   # The chat runs on the shared model stub (tests/fixtures/model-stub) with a made-up login: no Claude secret.
   journey-preview:
     needs: [preview]
     if: always() && needs.preview.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
     timeout-minutes: 50
     steps:
@@ -332,8 +334,8 @@ jobs:
           bun-version: "1.4.4"
       - name: Cloud journey (preview-${{ github.event.pull_request.number }})
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           JOURNEY_MODEL: stub
           TARGET: preview-${{ github.event.pull_request.number }}

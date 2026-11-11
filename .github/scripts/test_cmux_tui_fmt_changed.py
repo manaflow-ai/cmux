@@ -22,7 +22,11 @@ FAKE_CARGO = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$CARGO_LOG"
 for arg in "$@"; do
   if [[ "$arg" == *"/${FAIL_PACKAGE:-none}/Cargo.toml" ]]; then
-    echo "Diff in $arg"
+    if [[ -n "${DIFF_FILE:-}" ]]; then
+      echo "Diff in ${arg%/Cargo.toml}/${DIFF_FILE}:3:"
+    else
+      echo "Diff in $arg"
+    fi
     exit 1
   fi
 done
@@ -80,8 +84,10 @@ class FmtChangedTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "change")
 
-    def run_check(self, *args: str, fail: str | None = None) -> subprocess.CompletedProcess[str]:
+    def run_check(self, *args: str, fail: str | None = None, **extra: str) -> subprocess.CompletedProcess[str]:
         env = dict(self.env)
+        env.pop("CMUX_NEXT_STYLE_GUARDS", None)
+        env.update(extra)
         if fail:
             env["FAIL_PACKAGE"] = fail
         return subprocess.run(
@@ -119,6 +125,23 @@ class FmtChangedTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cmux-tui/crates/b", result.stdout + result.stderr)
         self.assertIn("cargo fmt", result.stdout + result.stderr)
+
+    def test_a_warn_only_run_names_each_unformatted_file_in_a_warning(self) -> None:
+        # Pull requests into feat-cmux-next only warn (CMUX_NEXT_STYLE_GUARDS=warn); the warning names the file and
+        # line rustfmt would change, so the annotation sits on it instead of on the workflow.
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        result = self.run_check("--base", self.base, fail="b", DIFF_FILE="src/lib.rs", CMUX_NEXT_STYLE_GUARDS="warn")
+        self.assertNotEqual(result.returncode, 0, "the workflow step turns the exit code into a pass, not the script")
+        self.assertIn("::warning file=cmux-tui/crates/b/src/lib.rs,line=3,title=cmux-tui rustfmt (warn-only)::",
+                      result.stdout)
+        self.assertNotIn("::error", result.stdout)
+
+    def test_a_failing_run_names_the_file_in_an_error_and_a_nameless_diff_the_manifest(self) -> None:
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        named = self.run_check("--base", self.base, fail="b", DIFF_FILE="src/lib.rs")
+        self.assertIn("::error file=cmux-tui/crates/b/src/lib.rs,line=3,title=cmux-tui rustfmt::", named.stdout)
+        nameless = self.run_check("--base", self.base, fail="b")
+        self.assertIn("::error file=cmux-tui/crates/b/Cargo.toml,title=cmux-tui rustfmt::", nameless.stdout)
 
     def test_one_red_package_does_not_hide_the_others(self) -> None:
         self.write("cmux-tui/crates/a/src/lib.rs", "pub fn a2() {}\n")

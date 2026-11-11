@@ -1,3 +1,4 @@
+import CmuxNextApps
 import CmuxNextCloud
 @testable import CmuxNextDaemon
 import Foundation

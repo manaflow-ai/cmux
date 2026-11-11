@@ -19,6 +19,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+mod prompt_coach;
+pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -113,6 +115,9 @@ mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+mod live_ages;
+#[cfg(test)]
+mod live_ages_tests;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -355,6 +360,46 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
+/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
+pub const MAX_MATCH_BYTES: usize = 2 * 1024;
+
+/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
+/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
+/// bound.
+pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
+    match pattern {
+        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
+            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
+/// it was cut.
+pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
+    let Some(p) = pattern else { return false };
+    if p.len() <= MAX_MATCH_BYTES {
+        return false;
+    }
+    let mut end = MAX_MATCH_BYTES;
+    while !p.is_char_boundary(end) {
+        end -= 1;
+    }
+    p.truncate(end);
+    true
+}
+
+impl Hub {
+    /// Run durable watches: the loop that reconciles them on hub events and the
+    /// `REMOTE_WORKERS` that page peer chats. The daemon starts them once at startup; a test
+    /// that needs real watch paging starts them on its own hub.
+    pub fn start_watches(self: &Arc<Self>) {
+        watches::Watches::start(self);
+    }
+}
 mod web_control;
 mod web_token;
 mod work_below;
@@ -493,6 +538,10 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
+    /// Whether its prompt is accepted: its sender heard `prompt_accepted`, when it was queued or
+    /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
+    /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
+    pub accepted: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -556,6 +605,10 @@ pub struct PromptOptions {
     /// person's prompt, yet no connection proved the person, so it lifts no protected hold
     /// (`protected_hold.rs`), as #37497 made it.
     pub unproven_owner: bool,
+    /// The text of a prompt a connection proved the person's (`server/requests.rs`
+    /// `person_admitted`), for the prompt coach (`prompt_coach.rs`): recorded by the prompt's
+    /// id once it has one, so its own turn's end settles it.
+    pub coach: Option<String>,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -697,6 +750,9 @@ pub struct Hub {
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
     /// close clients normally so they do not immediately reconnect to a dead daemon.
     pub(crate) restart_requested: std::sync::atomic::AtomicBool,
+    /// Raised when a supervised task cannot go on: the daemon stops for a restart
+    /// (`crate::supervise`).
+    pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -770,6 +826,8 @@ pub struct Hub {
     /// The model ids Codex chats reported that each live list lacked, by profile name, each
     /// already probed again for once (`recheck_live_models`).
     pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
+    /// When each live list's probe last started (`hub/live_ages.rs`): a read probes an old one again.
+    pub(super) live_ages: StdMutex<live_ages::LiveAges>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -872,6 +930,8 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
+    /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
+    pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -899,6 +959,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a prompt whose turn shows, before its last check and its acceptance.
+    #[cfg(test)]
+    pub(super) turn_shown_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
     #[cfg(test)]
     pub(super) first_work_seam: full_access_bound::WriteSeam,
@@ -1137,6 +1200,7 @@ impl Hub {
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1174,6 +1238,7 @@ impl Hub {
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
+            live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
@@ -1224,6 +1289,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
+            coach_rewriter: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -1244,6 +1310,8 @@ impl Hub {
             queue_approval_off: AtomicBool::new(false),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            turn_shown_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
             #[cfg(test)]
@@ -1320,8 +1388,8 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
-            let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            // It takes the notices' receiver: it cannot run twice.
+            crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
@@ -1414,6 +1482,7 @@ impl Hub {
         }
         {
             let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            plan.listed = true;
             plan.waiting.extend(waiting);
             plan.adopting.extend(hosted.iter().cloned());
             plan.hosted.extend(hosted.iter().cloned());
@@ -1620,6 +1689,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
@@ -2378,7 +2448,7 @@ impl Hub {
         text: &str,
     ) -> Result<Option<String>, RpcError> {
         if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error().message));
+            return Err(RpcError::invalid_params(queue::moving_error(session).message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {

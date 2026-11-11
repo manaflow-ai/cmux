@@ -28,6 +28,7 @@ const GLOBALS = [
   "HTMLElement",
   "Element",
   "MutationObserver",
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -50,7 +51,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
   });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -61,6 +62,9 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     Element: dom.window.Element,
     // The highlighted lines watch the page's theme (HighlightedCode.tsx) when a highlight pool is up.
     MutationObserver: dom.window.MutationObserver,
+    // A read's lines load @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const container = dom.window.document.getElementById("root")!;
