@@ -406,6 +406,12 @@
 .acpmux-md-inline-chip[data-state="failed"] {
   width: 72px;
 }
+/* A loading or failed video in the text: its one box (composer/videoShape.ts), as wide as its shape
+   at the chip's height, the box its chip and poster keep. */
+.acpmux-md-inline-chip[data-video-shape]:not([data-sizing]) {
+  width: calc(var(--cmux-control-height, 24px) * 2 * var(--acpmux-video-ratio, 1));
+  min-width: 0;
+}
 /* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
    a video's poster is as tall as two control rows so it sits in a line of text; an image that could
    not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */
