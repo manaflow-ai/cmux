@@ -718,7 +718,15 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
+        // A template that this registry already published has a durable
+        // public terminal id. If its tab was closed it is detached, and it is
+        // restored detached below like any other terminal: placing its
+        // identity-less runtime here would leave a tab slot with no durable
+        // identity, fail every later resource projection, and stop the
+        // session from creating terminals.
+        let first_adoption = orphan_hosts::placed_on_adoption(&terminal)
+            && registry.terminal_resource_id(terminal_id)?.is_none();
+        if first_adoption && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -771,6 +779,8 @@ impl Mux {
                 }
             }
         }
+        #[cfg(test)]
+        test_hooks::run_committed_before_route_publish_hook();
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);

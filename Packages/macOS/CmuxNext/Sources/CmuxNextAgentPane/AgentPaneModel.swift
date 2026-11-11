@@ -365,6 +365,9 @@ public final class AgentPaneModel {
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
     @ObservationIgnored public var onTryAnotherApproach: (@MainActor (_ throughSeq: Int, _ session: String) async throws -> [String: Any])?
+    /// Runs a Cloud chat's turn checkpoint or rewind for the session this pane showed when the call
+    /// arrived; nil unless the app offers it (signed in, a Cloud chat, `cloud.turnCheckpoints` on).
+    @ObservationIgnored public var onCloudTurnRewind: (@MainActor (_ request: AgentPaneCloudTurnRewind, _ session: String) async throws -> [String: Any])?
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -488,8 +491,15 @@ public final class AgentPaneModel {
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
         // kept every subagent, side chat and sender open off the prewarmed page ("touched by
-        // featureTips"), each one making a cold page instead. Keeping or claiming a tip still touches.
+        // featureTips"), each one making a cold page instead.
         case .featureTips(.read): break
+        // A claim is the page's own question (may this install see the tip now), sent with no input of the
+        // person, and the X of a tip keeps one record. Both change the app's records
+        // (``AgentPaneFeatureTipRecords``) and nothing a page keeps past its next adoption (cloudChatHintModel.ts
+        // reads the records again then). Counted as touches, they kept every closed New Tab page of a default
+        // profile out of the spare pool, one cold page per Cmd-W. `used` still touches: the person used the
+        // tip's control in this page (picked Cloud there), and the page holds that pick.
+        case .featureTips(.claim), .featureTips(.keep(id: _, state: "closed")): break
         case .reply(let reply) where reply.isPassive: break
         case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break
@@ -760,6 +770,21 @@ public final class AgentPaneModel {
                 return AgentPaneReply.success(try await onTryAnotherApproach(request.throughSeq, session))
             } catch {
                 return AgentPaneReply.failure(code: "try_another_approach_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
+        case .cloudTurnRewind(let request):
+            guard remoteChat, newTab == nil, let session = sessionId, let onCloudTurnRewind else {
+                return Self.unsupported(request.method)
+            }
+            // A checkpoint follows each completed turn with no click (the setting is the person's
+            // consent); a rewind replaces the machine, so only the person's click starts one.
+            if case .rewind = request, !(userGesture || transport.gestures.consume()) {
+                return Self.transportFailure(.gestureRequired)
+            }
+            do {
+                return AgentPaneReply.success(try await onCloudTurnRewind(request, session))
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_turn_rewind_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):

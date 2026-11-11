@@ -108,6 +108,15 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
+    /// hides itself and asks for a layout. It never fades with the footer.
+    public var healthIndicator: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            healthIndicator.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -325,6 +334,8 @@ public final class SidebarView: NSView {
         ]
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
+        // A stuck project header draws its own fade under it: the list's top fade holds off while one is stuck.
+        list.onStuckHeaderChange = { [weak self] stuck in self?.edgeFade.holdsTopEdge = stuck }
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands(); buildNeedsYou()
 
@@ -371,7 +382,7 @@ public final class SidebarView: NSView {
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
     private func syncListSize() { list.fitToClip() }
 
-    override public func layout() {
+    override public func layout() { // perf-hot: 1ms window-resize-step
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
@@ -442,6 +453,10 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
+        // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
+        // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
+        // make the switcher again (a window resize step).
+        let spacesChanged = bandsDirty
         if bandsDirty || bandsSize != b.size {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
@@ -469,7 +484,7 @@ public final class SidebarView: NSView {
         cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
-        footerBand.placeSpaces(top: y, height: spacesHeight)
+        footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

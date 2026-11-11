@@ -295,6 +295,9 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     public var textRuns: [ConversationTextRun]
     /// Markdown links over `text` (an agent's `[label](url)`, label kept).
     public var links: [ConversationTextLink]
+    /// Markdown tables over `text` (an agent's pipe table, rewritten as rows
+    /// of tab-separated cells by ``ConversationMarkdownTables``).
+    @ConversationEmptyWhenMissing public var tables: [ConversationTextTable]
     /// Rich link card for the URL that opens or ends `text`, if any.
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
@@ -333,6 +336,7 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
         links: [ConversationTextLink] = [],
+        tables: [ConversationTextTable] = [],
         linkPreview: ConversationLinkPreview? = nil,
         effect: ConversationMessageEffect? = nil,
         unsendFailed: Bool = false,
@@ -359,6 +363,7 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         self.mentions = mentions
         self.textRuns = textRuns
         self.links = links
+        self.tables = tables
         self.linkPreview = linkPreview
         self.effect = effect
         self.unsendFailed = unsendFailed
