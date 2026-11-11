@@ -5,6 +5,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -1685,6 +1686,23 @@ export default agentPaneEntry({
         summary(5.6, { status: "completed", durationMs: 14_000 }),
       ]),
       play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-scroll": {
+      note: 'Leo 2026-11-10: "just tried this touchpad scrolling the github preview is kinda bad". A long reply with a pull request chip on every paragraph: a wheel or touchpad scroll puts an open card away at once, and a chip sliding under a still pointer opens nothing until the pointer moves again.',
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Which pull requests landed tonight?", 6),
+        assistant(
+          Array.from(
+            { length: 24 },
+            (_, index) =>
+              `Paragraph ${index + 1}: the lane landed #${LANE_NUMBERS[index % LANE_NUMBERS.length]} after review, ` +
+              "and the follow-up keeps the transcript readable while it waits for the next base merge.",
+          ).join("\n\n"),
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
     },
     "github-references-same-number": {
       note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
@@ -3804,6 +3822,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
@@ -3815,6 +3834,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
           throw new Error("an ended background turn with nothing to open drew a line");
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
         if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
         if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))

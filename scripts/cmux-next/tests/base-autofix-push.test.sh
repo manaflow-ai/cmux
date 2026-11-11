@@ -6,11 +6,22 @@
 # move failed, and with a push every minute or two no repair landed for hours
 # (the settings exports stayed stale from 05:27 on 2026-10-19).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
+# the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
+# "Directory not empty" (cmux-next run 42965233728). GIT_CONFIG_* reaches every git below, the
+# script's own included.
+export GIT_CONFIG_COUNT=4 \
+  GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
+  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false \
+  GIT_CONFIG_KEY_2=receive.autogc GIT_CONFIG_VALUE_2=false \
+  GIT_CONFIG_KEY_3=gc.autoDetach GIT_CONFIG_VALUE_3=false
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # A generated file whose inputs (the action exports) the edits below never touch.
 gen=web/data/cmux-shortcuts.generated.json
@@ -21,7 +32,7 @@ cap=plans/cmux-next/daemon-capabilities.json
 setup() {
   with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p web/data \
     && echo src > source.txt && echo old > "$gen" \
@@ -113,7 +124,7 @@ grep -q "cmux-tui/bindings/page/generated.txt" "$tmp/out" || fail "the refusal d
 # sources; the fake flag file sits outside every input area so a flag edit moves nothing else.
 setup_next() {
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
     && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \

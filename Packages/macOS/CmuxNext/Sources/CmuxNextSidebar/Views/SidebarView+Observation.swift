@@ -195,7 +195,7 @@ extension SidebarViewComponents {
         if lastState != nil, profileChanged, model.docDrag != nil { updateBands(reloadsList: false) }
         if listChanged {
             if profileChanged {
-                showSpace()
+                showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

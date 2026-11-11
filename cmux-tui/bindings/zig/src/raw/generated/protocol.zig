@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0";
+pub const ir_sha256 = "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2034,6 +2034,29 @@ pub const SendExpectAgent = struct {
     session: wire.Field([]const u8) = .absent,
 };
 
+pub const ServerStatsCommandConnections = struct {
+    accepted: u64,
+    kind: []const u8,
+    refused: u64,
+};
+
+pub const ServerStatsCommandRow = struct {
+    count: u64,
+    hist: []const u64,
+    kind: []const u8,
+    max_ns: u64,
+    name: []const u8,
+    total_ns: u64,
+};
+
+pub const ServerStatsCommands = struct {
+    connections: []const ServerStatsCommandConnections,
+    hist_bounds_ns: []const u64,
+    name_limit: u64,
+    names: u64,
+    rows: []const ServerStatsCommandRow,
+};
+
 pub const ServerStatsConnections = struct {
     accepted: u64,
     active: u64,
@@ -2234,6 +2257,7 @@ pub const ServerStatsResourceProjection = struct {
 };
 
 pub const ServerStatsResult = struct {
+    commands: ?ServerStatsCommands = null,
     connections: ServerStatsConnections,
     disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
@@ -2247,6 +2271,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "commands",
         "disk",
         "hook_queue",
         "journal_followers",
