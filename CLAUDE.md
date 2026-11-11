@@ -105,8 +105,10 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
 - The hook takes a turn: 2 pushes are checked at once on a Mac (`CMUX_PREPUSH_SLOTS`), and the rest
   wait (`pre-push: ... waiting for a turn`; `queue Ns` in the hook-times line). A wait is not a hang.
 - On a Mac too loaded to finish the hook (load average far above its core count), push through an
-  idle Mac: `scripts/cmux-next/push-from-host.sh <branch>` pushes `HEAD` to `origin/<branch>` from
-  `cmux-lawrence-2` (`--host`, `--sha`), where the same hook runs and refuses the same things.
+  idle Mac: `scripts/cmux-next/push-from-host.sh --rebase <branch>` pushes `HEAD` to `origin/<branch>`
+  from `cmux-lawrence-2` (`--host`, more than once for a fallback; `--sha`), where the same hook runs
+  and refuses the same things. `--rebase` rebases there onto the branch's newest head first, which a
+  busy branch needs; the pushed commits then have new ids, so fetch and rebase before more work.
 
 ## Before you touch hot paths
 

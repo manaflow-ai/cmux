@@ -76,6 +76,7 @@ mod terminal_moves;
 mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
+mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
 #[cfg(unix)]
