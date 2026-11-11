@@ -65,7 +65,9 @@ export async function replyElsewhere(
     await call("chat.asks.answer", replyParams(sent));
     return "answered";
   } catch (error) {
-    if (!(error instanceof NativeError) || !notAnsweredHere(error)) throw error;
+    // The host refuses a question it can't send here (one acpmux holds in another shape): its
+    // chat's card answers it, so it opens rather than leave the row stuck.
+    if (!(error instanceof NativeError) || !(notAnsweredHere(error) || error.code === "refused")) throw error;
     open();
     return "opened";
   }

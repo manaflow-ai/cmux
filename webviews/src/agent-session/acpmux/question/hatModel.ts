@@ -27,7 +27,7 @@ import { NEXT_STEP } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/jumpPillModel";
-import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../needsYou/model";
+import { answersInPlace, needsYouItems, type NeedsYouItem, type WatchedAsk } from "../needsYou/model";
 import { sessionIndex } from "../sessionIndex";
 import { sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
 import { harnessName } from "../permissions/planBuild";
@@ -225,7 +225,9 @@ function childQuestions(
     const tag = hatTag(header);
     // A one-question ask with an id to answer is answered here: its choices as buttons, and a
     // typed answer when it takes one. Anything longer opens its chat, where its card takes it.
-    const answerable = Boolean(item.question && item.permissionId && item.question.items.length === 1);
+    const answerable = Boolean(
+      item.question && item.permissionId && item.question.items.length === 1 && answersInPlace(item.question),
+    );
     out.push({
       id: item.id,
       source: "child",
@@ -235,7 +237,7 @@ function childQuestions(
       prompt: first?.prompt ?? item.ask,
       who: askerName(index.get(item.sessionId), item.who.name),
       answers: answerable && item.question ? oneClickAnswers(item.question) : [],
-      typed: answerable && Boolean(first?.allowsOther) && !first?.multiSelect,
+      typed: answerable && Boolean(first?.allowsOther) && !first?.multiSelect && !(first && hasPreviews(first)),
       ...(item.question ? { question: item.question } : {}),
     });
   }

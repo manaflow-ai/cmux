@@ -387,10 +387,37 @@ test("answerFromHome: a question's choice goes as its card's reply, with its ans
       answers: { "Which sign-in?": "Passkeys (Recommended)" },
     },
   ]);
-  // A host that can't (another computer's chat, an older host) opens the chat; a refusal rejects.
+  // A host that can't (another computer's chat, an older host) opens the chat, and so does a
+  // question it refuses (acpmux holds it in a shape the host can't send): no row is left stuck.
   expect(await answer("unsupported")).toBe("opened");
-  expect(opened).toEqual(["auth"]);
-  await expect(answer("refused")).rejects.toThrow();
+  expect(await answer("refused")).toBe("opened");
+  expect(opened).toEqual(["auth", "auth"]);
+  await expect(answer("native.invalid_params")).rejects.toThrow();
+});
+
+test("questionAnswers: a generic interactive ask and a question with previews open their chat", async () => {
+  const { questionAnswers } = await import("../src/agent-session/acpmux/needsYou/model");
+  const ask = (harness: string, preview?: { text: string; format: string }) =>
+    ({
+      id: "p",
+      source: { harness, session: "s", permission: "p" },
+      items: [
+        {
+          id: "q0",
+          prompt: "Pick one",
+          options: [
+            { id: "a", label: "A", ...(preview ? { preview } : {}) },
+            { id: "b", label: "B" },
+          ],
+          multiSelect: false,
+          allowsOther: false,
+        },
+      ],
+      state: { kind: "pending" },
+    }) as unknown as NonNullable<NeedsYouItem["question"]>;
+  expect(questionAnswers(ask("claude")).map((answer) => answer.id)).toEqual(["a", "b"]);
+  expect(questionAnswers(ask("acp"))).toEqual([]);
+  expect(questionAnswers(ask("claude", { text: "mock", format: "monospace" }))).toEqual([]);
 });
 
 test("replyElsewhere: an Other answer goes in the person's own words", async () => {

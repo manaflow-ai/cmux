@@ -207,7 +207,12 @@ function InboxRow({
   const chat = item.who.chief ? t("needsYou.chief") : item.who.name;
   const where = [chat, look === "grouped" ? undefined : project, machine].filter(Boolean).join(" · ");
   return (
-    <li className="acpmux-home-inbox-row" data-kind={item.kind} data-sending={sending ? "" : undefined}>
+    <li
+      className="acpmux-home-inbox-row"
+      data-kind={item.kind}
+      data-question={item.question ? "" : undefined}
+      data-sending={sending ? "" : undefined}
+    >
       <button
         type="button"
         className="acpmux-home-inbox-open"

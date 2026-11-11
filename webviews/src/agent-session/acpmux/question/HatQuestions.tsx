@@ -178,7 +178,10 @@ export function HatQuestions({
     setFailed(undefined);
     actions.answer(shown, answer).then(
       // Answered: the question leaves when its source says so; until then its buttons stay quiet.
-      () => undefined,
+      // Opened in its chat instead: the band takes a click again.
+      (outcome) => {
+        if (outcome === "opened") setSending(undefined);
+      },
       () => {
         setSending(undefined);
         setFailed(shown.id);
@@ -192,7 +195,9 @@ export function HatQuestions({
     setSending(REPLY);
     setFailed(undefined);
     actions.reply(shown, text).then(
-      () => undefined,
+      (outcome) => {
+        if (outcome === "opened") setSending(undefined);
+      },
       () => {
         setSending(undefined);
         setFailed(shown.id);
