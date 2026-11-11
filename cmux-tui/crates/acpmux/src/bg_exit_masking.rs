@@ -592,18 +592,18 @@ impl Cmd {
     }
 
     /// The words from its name on; empty for a command of only assignments.
-    fn from_name(&self) -> &[Word] {
+    fn named_words(&self) -> &[Word] {
         let at = self.words.iter().position(|w| !Self::assignment(w)).unwrap_or(self.words.len());
         self.words.get(at..).unwrap_or_default()
     }
 
     /// Its name's literal value; `None` for one that expands (`$CMD`) or only assignments.
     fn name(&self) -> Option<&str> {
-        self.from_name().first()?.lit.as_deref()
+        self.named_words().first()?.lit.as_deref()
     }
 
     fn args(&self) -> Vec<Option<&str>> {
-        self.from_name().iter().skip(1).map(|w| w.lit.as_deref()).collect()
+        self.named_words().iter().skip(1).map(|w| w.lit.as_deref()).collect()
     }
 
     /// It ends the shell (or function) with the failure that reached it: `exit` but `exit 0`,
@@ -623,7 +623,7 @@ impl Cmd {
 
     /// Setup that is not the work whose exit matters.
     fn setup(&self) -> bool {
-        self.from_name().is_empty()
+        self.named_words().is_empty()
             || matches!(
                 self.name(),
                 Some(
