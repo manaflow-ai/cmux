@@ -2228,7 +2228,7 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
             "against that pin and passed"), ""
 
 
-def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
+def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, errors: set[str], tests: set[str],
                    crashes: set[str], github) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
     PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
@@ -2236,8 +2236,9 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
     error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
     something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
-    before. The caller asks only after test_reds.read found no crash or cut-short run. CRASHES: crash_signals of a
-    placed view, or an unplaced head's whole-log ones (UnplacedSignature.crashes).
+    before. The caller asks only after test_reds.read found no crash or cut-short run. STEPS: the job's failed steps
+    by (name, conclusion), counted (failed_step_keys), on both paths, so no duplicate step is lost. CRASHES:
+    crash_signals of a placed view, or an unplaced head's whole-log ones (UnplacedSignature.crashes).
 
     Returns (audit line, set-aside line). The first is the excuse when the pin is the job's only red. The second, when
     other reds stand beside a pin a rule covers, says why the pin's own parts (without_ffi_pin) leave the base
@@ -2272,8 +2273,12 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
               f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
               "by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
-    if (tests or crashes or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
-            or rollup not in errors):
+    # STEPS are failed_step_keys: the pin's steps alone, each failed once. A step name read twice (a failure and a
+    # cancelled one, say) is two reds, never the pin's one (#41158's review, F1 at 5fa1ea1d).
+    if (tests or crashes or not steps or others or rollup not in errors
+            or any(step not in (FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP) or conclusion != "failure" or count != 1
+                   for (step, conclusion), count in steps.items())
+            or len({step for step, _ in steps}) != len(steps)):
         return None, f"set aside '{FFI_PIN_CHECK}' (\"{FFI_PIN_ERROR}\"): {reason}"
     return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and {reason}", None
 
@@ -5082,16 +5087,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         pinned, aside = (None, None)
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests,
+            # By (name, conclusion), counted (failed_step_keys), never the names signature() keeps.
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, failed_step_keys(view.job), head_errors, head_tests,
                                            crash_signals(view), github)
         elif got.unplaced is not None:
             # The pin's rules read this PR's paths, never the log's layout: an unplaced head is judged by them too.
             u = got.unplaced
-            # A failed step's name read twice is not one red: the pin rule (by names) is not asked, and the whole
-            # comparison below refuses a pin red it would read.
-            if all(count == 1 for count in u.steps.values()):
-                pinned, aside = ffi_pin_step_a(repo, base, sha, name, {step for step, _ in u.steps}, set(u.errors),
-                                               set(u.tests), set(u.crashes), github)
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, u.steps, set(u.errors), set(u.tests),
+                                           set(u.crashes), github)
         if pinned is not None:
             audit.append(pinned)
             continue

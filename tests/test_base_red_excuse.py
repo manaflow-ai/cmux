@@ -6086,6 +6086,30 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             "step-A Rust change, pinned by the release its merge publishes"])
         self.assertEqual(len(self.graphql), 1)
 
+    def duplicate_rollup(self):
+        # #41158's review, F1 at 5fa1ea1d: a second "Fail on any red check", cancelled, beside the failed one. By name
+        # the two are one step, and the pin-only excuse took them as the pin's one red.
+        self.gh.jobs[1]["steps"].append(dict(self.gh.jobs[1]["steps"][-1], conclusion="cancelled"))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_placed(self):
+        self.pr_files(*self.RUST)
+        self.duplicate_rollup()
+        self.assertIsNot(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False,
+                                            **UNKNOWN), excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_unplaced(self):
+        self.pr_files(*self.RUST)
+        self.gh.logs[1] = self.unplaced_pin_log()
+        self.duplicate_rollup()
+        self.assertIs(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False, **UNKNOWN),
+                      excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+
     def unplaced_pin_log(self, *extra):
         """pin_log with its rollup step run through a composite action (two `Run` headers in one step), so step_owners
         cannot place the log (cmux#41086 at 2026-11-11, after #40542)."""
