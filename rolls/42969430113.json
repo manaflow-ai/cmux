@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42969430113",
+  "recorded_at": "2026-11-11T06:08:16Z",
+  "reason": "cmux-tui 0909c8bd7c02 changes the image's cmux-tui (pinned 574f7a2391a0)",
+  "dry_run": false,
+  "cmux_tui": "0909c8bd7c02e0dd92469b8aa5d63bef4770d9b5",
+  "fixes": [
+    {
+      "sha": "0909c8bd7c02e0dd92469b8aa5d63bef4770d9b5",
+      "mergedAt": "2026-11-10T21:47:24-08:00",
+      "subject": "Cloud Claude with no sign-in uses the team's model plane, the inference gateway too (#40703)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T06:08:16Z",
+    "snapshot_id": "sh-0a8a67d831a942b8baf5a9e662aa59c5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42969430113): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a15f5f1e5225de8d5e1c2b7d697d2eca4ef0c746",
+    "image": "cloud-native-auto-0909c8bd-42969430113-1",
+    "revision": "ci-42969430113-1",
+    "at": "2026-11-11T06:08:16Z"
+  },
+  "rolled_back": false
+}
