@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42937385823",
+  "recorded_at": "2026-11-11T01:23:46Z",
+  "reason": "cmux-tui 64b1225a583c changes the image's cmux-tui (pinned cf8ecdeca051)",
+  "dry_run": false,
+  "cmux_tui": "64b1225a583c570944194f0d25bdfc2cf33f9a4f",
+  "fixes": [
+    {
+      "sha": "64b1225a583c570944194f0d25bdfc2cf33f9a4f",
+      "mergedAt": "2026-11-10T16:54:51-08:00",
+      "subject": "Reapply \"cmux-tui-core: registry connections keep their hot statements compiled\""
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:23:46Z",
+    "snapshot_id": "sh-522a6d7a920848ed90f01c523a05f27c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42937385823): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "88cd0e47360333610ef82b3e1ff855ec766d6dac",
+    "image": "cloud-native-auto-64b1225a-42937385823-1",
+    "revision": "ci-42937385823-1",
+    "at": "2026-11-11T01:23:46Z"
+  },
+  "rolled_back": false
+}
