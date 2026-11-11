@@ -102,12 +102,6 @@ DYNAMIC_IMPORT_AUDIT: dict[tuple[str, ...], str] = {
         "sys.path.insert",
         "0, __import__('os').path.dirname(__import__('os').path.abspath(__file__))",
     ): "inserts its own folder, which is already sys.path[0]",
-    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location", "'pr_runner_pool', path"): (
-        "path is pr_runner_pool.py beside it (a name bound in two functions); the decide checkout lists it"
-    ),
-    ("scripts/ci/side_lane_placement.py", "importlib.util.spec_from_file_location", "'next_macos_cascade', path"): (
-        "path is next_macos_cascade.py beside it (a name bound in two functions); the decide checkout lists it"
-    ),
     ("scripts/ci/portable_job_placement.py", "importlib.util.spec_from_file_location", "name, path"): (
         "_load() takes the literal names pr_runner_pool and side_lane_placement, files beside it the decide "
         "checkout lists"
@@ -375,15 +369,22 @@ def find_modules(
 # script's import closure is reported as unverifiable unless DYNAMIC_IMPORT_AUDIT names its file,
 # call and argument text with a reason. The check learns only forms it can prove, and only these:
 #   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
-#     in front of everything before it (so the last one wins), each append at the end;
+#     in front of everything before it (so the last one wins), each append at the end, but only when
+#     their order is provable: every such call is a statement of its own directly in the module body
+#     and they all sit in one file of the closure, or no two of the folders involved offer the same
+#     top-level module name, so order cannot change what loads (changes that only name the entry
+#     folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
+#     which file a module loads from is reported as "path search does not settle (A <-> B)";
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
 #     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
 #     keyed by (loading file, loaded file).
 # P must be a fixed path in the repo: a string literal (relative to the repo root, the run step's
 # directory), or __file__ through Path(), str(), os.fspath(), .resolve(), .absolute(), .parent,
 # .parents[N], / "literal", .with_name("literal"), .joinpath("literal"), os.path.abspath/realpath/
-# dirname or os.path.join(..., "literal"), directly or through a name the module binds exactly once
-# (`NAME = ...`) and never rebinds in any scope (no second assignment, `+=`, loop or with target,
+# dirname or os.path.join(..., "literal"), directly or through a name bound exactly once by a plain
+# `NAME = ...` statement in the body of the innermost function around the call (or, for a name that
+# function never binds, of the module; never at module level in a module with a star import), and
+# that nothing else in that scope rebinds (no second assignment, `+=`, loop or with target,
 # parameter, import, global...). Any other form, a keyword argument, or an insert at another index is
 # unverifiable.
 
@@ -428,17 +429,21 @@ def _dotted(node: ast.AST, aliases: dict[str, str]) -> str | None:
     return ".".join([aliases.get(node.id, node.id), *reversed(attrs)])
 
 
-def _bound_once(tree: ast.AST) -> dict[str, ast.AST]:
-    """Names the module binds exactly once, by a plain `NAME = expr`, and nowhere else in any scope
-    (no other assignment, augmented assignment, loop, with, except or walrus target, del, import,
-    def, class, parameter, global, nonlocal or match capture of that name) -> expr."""
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _binding_counts(scope: ast.AST) -> Counter[str]:
+    """How many times each name is bound anywhere inside `scope` (nested scopes included, which only
+    makes a name harder to prove): assignments, augmented assignments, loop, with, except, walrus and
+    match targets, del, imports, defs, classes, parameters, global and nonlocal. All but a plain
+    assignment count twice, so they alone disqualify a name."""
     binds: Counter[str] = Counter()
-    for node in ast.walk(tree):
+    for node in ast.walk(scope):
         if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
             binds[node.id] += 1
         elif isinstance(node, ast.arg):
             binds[node.arg] += 2
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node is not scope:
             binds[node.name] += 2
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
@@ -450,12 +455,47 @@ def _bound_once(tree: ast.AST) -> dict[str, ast.AST]:
             binds[node.name] += 2
         elif isinstance(node, ast.MatchMapping) and node.rest:
             binds[node.rest] += 2
+    return binds
+
+
+def _bound_once(scope: ast.AST, star: bool = False) -> dict[str, ast.AST]:
+    """Names `scope` (the module or one function) binds exactly once, by a plain `NAME = expr`
+    statement directly in its body, and nowhere else inside it -> expr. A binding in a block (if, for,
+    try...) never counts. With a star import in the module (`star`), no module-level name is provable."""
+    if star and isinstance(scope, ast.Module):
+        return {}
+    binds = _binding_counts(scope)
     once: dict[str, ast.AST] = {}
-    for node in ast.walk(tree):
+    for node in getattr(scope, "body", []):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             if binds[node.targets[0].id] == 1:
                 once[node.targets[0].id] = node.value
     return once
+
+
+def _scope_bindings(tree: ast.Module) -> dict[int, dict[str, ast.AST | None]]:
+    """For every node in a function, the names a path there can use: the innermost function's
+    provable names, None for any other name that function (or an enclosing one) binds at all, then the
+    module's provable names. Nodes at module level get the module's. Keyed by node id."""
+    star = any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree))
+    module = _bound_once(tree, star)
+    out: dict[int, dict[str, ast.AST | None]] = {}
+
+    def visit(node: ast.AST, names: dict[str, ast.AST | None]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _FUNCTIONS):
+                inner = dict(names)
+                inner.update({name: None for name, count in _binding_counts(child).items() if count})
+                if not isinstance(child, ast.Lambda):
+                    inner.update(_bound_once(child))
+                out[id(child)] = inner
+                visit(child, inner)
+            else:
+                out[id(child)] = names
+                visit(child, names)
+
+    visit(tree, dict(module))
+    return out
 
 
 class _FixedPath:
@@ -549,21 +589,25 @@ def normal_audit_key(key: tuple[str, ...]) -> tuple[str, ...]:
 def dynamic_calls(
     root: Path, rel: str
 ) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
-    """What a file's dynamic imports do, in source order: (("insert" or "append", folder) for each
-    learned sys.path change, files learned spec_from_file_location calls load, unresolved (call, line,
-    argument text)). The argument text is _call_text's, so the audit can name the exact call."""
+    """What a file's dynamic imports do, in source order: (("insert" or "append", folder, ordered,
+    call, line, argument text) for each fixed sys.path change, files learned spec_from_file_location
+    calls load, unresolved (call, line, argument text)). A path change is `ordered` only when it is a
+    statement of its own directly in the module body: straight-line code that runs once, in source
+    order, at import. The argument text is _call_text's, so the audit can name the exact call."""
     try:
         tree = ast.parse((root / rel).read_bytes())
     except (OSError, SyntaxError, ValueError):
         return (), (), ()
     aliases = _aliases(tree)
-    fixed = _FixedPath(root / rel, root, aliases, _bound_once(tree))
-    path_ops: list[tuple[str, str]] = []
+    scopes = _scope_bindings(tree)
+    path_ops: list[tuple[str, str, bool, str, int, str]] = []
+    top_level = {id(stmt.value) for stmt in tree.body if isinstance(stmt, ast.Expr)}
     loads: list[str] = []
     unresolved: list[tuple[str, int, str]] = []
 
     def in_repo(node: ast.AST, want_dir: bool) -> str | None:
-        found = fixed(node)
+        # A name resolves in the innermost function first, then at module level (lexical scope).
+        found = _FixedPath(root / rel, root, aliases, scopes.get(id(node), {}))(node)
         if found is None:
             return None
         found = Path(os.path.normpath(found))
@@ -592,12 +636,14 @@ def dynamic_calls(
                 if isinstance(first, ast.Constant) and type(first.value) is int and first.value == 0:
                     folder = in_repo(args[1], want_dir=True)
                     if folder is not None:
-                        path_ops.append(("insert", folder))
+                        path_ops.append(
+                            ("insert", folder, id(node) in top_level, name, node.lineno, _call_text(node))
+                        )
                         continue
             elif name == "sys.path.append" and len(args) == 1:
                 folder = in_repo(args[0], want_dir=True)
                 if folder is not None:
-                    path_ops.append(("append", folder))
+                    path_ops.append(("append", folder, id(node) in top_level, name, node.lineno, _call_text(node)))
                     continue
             elif name == "importlib.util.spec_from_file_location" and len(args) == 2:
                 file = in_repo(args[1], want_dir=False)
@@ -609,45 +655,108 @@ def dynamic_calls(
     return tuple(path_ops), tuple(loads), tuple(unresolved)
 
 
+SEARCH_DOES_NOT_SETTLE = "path search does not settle"
+
+
+def _module_names(root: Path, folder: str) -> set[str]:
+    """Top-level module names a folder offers: x.py files and x/ folders (packages or namespaces)."""
+    try:
+        entries = list((root / folder).iterdir()) if (root / folder).is_dir() else []
+    except OSError:
+        return set()
+    names = set()
+    for entry in entries:
+        if entry.is_dir() and entry.name.isidentifier():
+            names.add(entry.name)
+        elif entry.suffix == ".py" and entry.stem.isidentifier():
+            names.add(entry.stem)
+    return names
+
+
+def _search_path(
+    root: Path, rel_ops: list[tuple[str, tuple]], base: str, extra: tuple[str, ...], audited: frozenset
+) -> tuple[list[str], list[str], list[tuple[str, str, int, str]]]:
+    """(folders in front, folders at the end, path changes that cannot be ordered) from the closure's
+    fixed sys.path changes, as (file, ops) in the order ModuleFinder met the files.
+
+    Changes that only name the entry folder (already sys.path[0]) leave the search unchanged in any
+    order. Otherwise the order must be provable: every change is a module-level statement (see
+    dynamic_calls) and they all sit in one file; or no two folders of the search path involved (the
+    changed ones, the entry folder, PYTHONPATH's) offer the same top-level module name, so any order
+    loads the same files. When neither holds, each change that is not audited by (file, call,
+    argument text) is unverifiable and none is learned; audited ones are dropped."""
+    ops = [(rel, op) for rel, file_ops in rel_ops for op in file_ops]
+    if all(op[1] == base for _, op in ops):
+        return [], [], []
+    files = {rel for rel, _ in ops}
+    folders = list(dict.fromkeys([base, *extra, *(op[1] for _, op in ops)]))
+    offered = [_module_names(root, folder) for folder in folders]
+    disjoint = sum(len(n) for n in offered) == len(set().union(*offered))
+    if disjoint or (len(files) == 1 and all(op[2] for _, op in ops)):
+        front: list[str] = []
+        back: list[str] = []
+        for _, (kind, folder, *_rest) in ops:
+            if kind == "insert":  # insert(0, x) puts x in front of every earlier entry
+                if folder in front:
+                    front.remove(folder)
+                front.insert(0, folder)
+            elif folder not in front and folder not in back:
+                back.append(folder)
+        return front, back, []
+    unordered = []
+    for rel, (_kind, _folder, _ordered, call, line, text) in ops:
+        if (rel, call, text) not in audited:
+            unordered.append((rel, call, line, text))
+    return [], [], unordered
+
+
 @lru_cache(maxsize=None)
 def full_run(
     root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None, audited: frozenset = frozenset()
-) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int], ...]]:
+) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int, str], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
-    path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). Learned sys.path changes
-    in the closure (the script first, then modules as ModuleFinder meets them, each in source order)
-    build the search path, and learned loads join the closure unless `audited` holds (loader, file);
-    the run repeats until neither changes."""
+    path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). The
+    closure's fixed sys.path changes build the search path when their order is provable
+    (_search_path), and learned loads join the closure unless `audited` holds (loader, file); the run
+    repeats until neither changes. A search that comes back to an earlier state without settling is
+    one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places."""
     base = how[1] if how else script.rsplit("/", 1)[0]
     module = how[0] if how else None
     front: list[str] = []
     back: list[str] = []
     loaded: dict[str, str] = {}  # file -> the file that loads it
-    for _ in range(10):
+    states: list[tuple] = []
+    for _ in range(20):
         search = tuple(dict.fromkeys([*front, base, *extra, *back]))
         places, importer = find_modules(root, script, search, module, tuple(loaded.items()))
         files = dict.fromkeys([script, *(p for p in places.values() if not p.endswith("/"))])
-        new_front: list[str] = []
-        new_back: list[str] = []
         new_loaded: dict[str, str] = {}
         unresolved = []
+        rel_ops = []
         for rel in files:
             path_ops, loads, calls = dynamic_calls(root, rel)
-            for op, folder in path_ops:
-                if op == "insert":  # insert(0, x) puts x in front of every earlier entry
-                    if folder in new_front:
-                        new_front.remove(folder)
-                    new_front.insert(0, folder)
-                elif folder not in new_front and folder not in new_back:
-                    new_back.append(folder)
+            if path_ops:
+                rel_ops.append((rel, path_ops))
             for file in loads:
                 if (rel, file) not in audited:
                     new_loaded.setdefault(file, rel)
             unresolved += [(rel, call, line, text) for call, line, text in calls]
-        if (new_front, new_back, new_loaded) == (front, back, loaded):
+        new_front, new_back, unordered = _search_path(root, rel_ops, base, extra, audited)
+        unresolved += unordered
+        state = (front, back, loaded)
+        states.append((state, places))
+        if (new_front, new_back, new_loaded) == state:
             return places, importer, search, tuple(loaded.items()), tuple(unresolved)
+        seen = [i for i, (old, _) in enumerate(states) if old == (new_front, new_back, new_loaded)]
+        if seen:
+            cycle = [p for _, p in states[seen[0]:]]
+            names = sorted({n for p in cycle for n in p if len({q.get(n) for q in cycle}) > 1})
+            sides = [" <-> ".join(dict.fromkeys(str(p.get(n)) for p in cycle)) for n in names]
+            what = ", ".join(sides) or " <-> ".join(" ".join(st[0][0] + st[0][1]) or "(none)" for st in states[seen[0]:])
+            # The files it would load are unknown: report only that, not misses from one of the states.
+            return {}, {}, search, (), ((script, SEARCH_DOES_NOT_SETTLE, 0, what),)
         front, back, loaded = new_front, new_back, new_loaded
-    raise RuntimeError(f"{script}: the dynamic imports in its closure never settle")
+    return {}, {}, search, (), ((script, SEARCH_DOES_NOT_SETTLE, 0, "no fixed point in 20 rounds"),)
 
 
 def stale_audit_entries(root: Path, audit: dict[tuple[str, ...], str]) -> list[str]:
@@ -661,9 +770,10 @@ def stale_audit_entries(root: Path, audit: dict[tuple[str, ...], str]) -> list[s
         if not (root / rel).is_file():
             out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: the file is gone, drop the entry")
             continue
-        _, loads, calls = dynamic_calls(root, rel)
+        path_ops, loads, calls = dynamic_calls(root, rel)
         normal = normal_audit_key(key)
-        live = what in loads if len(key) == 2 else (what, normal[2]) in {(c, t) for c, _, t in calls}
+        live_calls = {(c, t) for c, _, t in calls} | {(op[3], op[5]) for op in path_ops}
+        live = what in loads if len(key) == 2 else (what, normal[2]) in live_calls
         if not live:
             out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: no call in {rel} matches it; re-check the call and the entry")
         elif not str(reason).strip():
@@ -912,6 +1022,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
         )
         found: dict[str, tuple[str, str]] = {}  # missing place -> (importer's place, listed script)
         unverifiable: dict[tuple[str, str, str], tuple[int, str]] = {}  # (file, call, args) -> (line, script)
+        unsettled: dict[str, str] = {}  # script -> the files its search trades
         for run in runs:
             script = run[0]
             if sparse[run] is None:
@@ -919,6 +1030,9 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             places, importer, _, _, calls = full[run]
             for rel, call, line, text in calls:
                 key = (rel, call, text)
+                if call == SEARCH_DOES_NOT_SETTLE:
+                    unsettled.setdefault(rel, text)
+                    continue
                 if key not in audited and (key not in unverifiable or (rel == script and unverifiable[key][1] != rel)):
                     unverifiable[key] = (line, script)
             lost = {}
@@ -948,6 +1062,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             misses.append(
                 f"{prefix}{rel} {what} (line {line}), {UNVERIFIABLE}" + ("" if rel == script else f" (via {script})")
             )
+        misses += [f"{prefix}{rel} unverifiable: {SEARCH_DOES_NOT_SETTLE} ({what})" for rel, what in sorted(unsettled.items())]
         misses += sorted(set(bad_paths))
     return misses + stale_audit_entries(root, audit)
 
@@ -1412,8 +1527,8 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(
             self._misses(self.block("scripts/ci/fnorder.py", "scripts/b/ordmod2.py")),
             [
-                f"w.yml run Check out: scripts/ci/fnorder.py calls sys.path.insert(0, 'scripts/b') (line 3), {unverifiable}",
                 f"w.yml run Check out: scripts/ci/fnorder.py calls sys.path.insert(0, 'scripts/a') (line 5), {unverifiable}",
+                f"w.yml run Check out: scripts/ci/fnorder.py calls sys.path.insert(0, 'scripts/b') (line 3), {unverifiable}",
             ],
         )
         # Module-level inserts in two files: their relative order depends on where the import runs.
