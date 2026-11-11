@@ -80,7 +80,13 @@ function domCaretRect(view: EditorView): { left: number; top: number; bottom: nu
 }
 
 /// Where the drawn caret stands, in the viewport: its x and its top and bottom.
-function caretPlace(view: EditorView, block: HTMLElement): { x: number; top: number; bottom: number } | null {
+/// `scale`: viewport px per CSS px of the field (an ancestor's CSS `zoom`, Agent Chat Zoom or the
+/// gallery's scale): the caret's rects are the viewport's, the paragraph's line height its own.
+function caretPlace(
+  view: EditorView,
+  block: HTMLElement,
+  scale: number,
+): { x: number; top: number; bottom: number } | null {
   const head = view.state.selection.head;
   const $head = view.state.doc.resolve(head);
   // Beside text, the text's own character (its box is the words' height); beside a chip alone, the
@@ -89,7 +95,7 @@ function caretPlace(view: EditorView, block: HTMLElement): { x: number; top: num
   // native caret is drawn on (the end of the line after End, the start after typing on), which a
   // document position alone cannot tell.
   const at = domCaretRect(view) ?? view.coordsAtPos(head, $head.nodeAfter?.isText || !$head.nodeBefore ? 1 : -1);
-  const height = lineHeightOf(block);
+  const height = lineHeightOf(block) * scale;
   const tall = at.bottom - at.top > height * 1.25;
   let middle = (at.top + at.bottom) / 2;
   if (tall || at.bottom - at.top <= 0) {
@@ -130,14 +136,16 @@ export function inlineCaretPlugin(): Plugin {
           field?.append(caret);
         }
         if (!field) return hide();
-        const place = caretPlace(view, block);
-        if (!place) return hide();
         const box = field.getBoundingClientRect();
+        const scale = field.offsetWidth > 0 ? box.width / field.offsetWidth || 1 : 1;
+        const place = caretPlace(view, block, scale);
+        if (!place) return hide();
         // In the field's scrolled content, so a scroll carries the caret with the text.
         const width = parseFloat(getComputedStyle(caret).width) || 2;
-        const left = place.x - width / 2 - box.left - field.clientLeft + field.scrollLeft;
-        const top = place.top - box.top - field.clientTop + field.scrollTop;
-        const height = place.bottom - place.top;
+        // Viewport px back to the field's own CSS px, where its absolute children are placed.
+        const left = (place.x - box.left) / scale - width / 2 - field.clientLeft + field.scrollLeft;
+        const top = (place.top - box.top) / scale - field.clientTop + field.scrollTop;
+        const height = (place.bottom - place.top) / scale;
         const color = getComputedStyle(view.dom).caretColor;
         const key = `${left}:${top}:${height}:${color}`;
         if (key === last && !caret.hidden) return;

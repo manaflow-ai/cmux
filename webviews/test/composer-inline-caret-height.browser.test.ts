@@ -87,7 +87,10 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
       return {
         chip: { left: chip.left, right: chip.right, top: chip.top, bottom: chip.bottom },
         words: { left: words.left, right: words.right, top: words.top, bottom: words.bottom },
-        lineHeight: parseFloat(getComputedStyle(paragraph).lineHeight),
+        // In viewport px: under a zoom (Agent Chat Zoom) the computed value is the unzoomed one.
+        lineHeight:
+          (parseFloat(getComputedStyle(paragraph).lineHeight) * paragraph.getBoundingClientRect().width) /
+          paragraph.offsetWidth,
       };
     });
 
@@ -128,9 +131,13 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
           const { chip, words, lineHeight } = await layout(page);
           // The chip is taller than the text: the line's box is the chip's.
           expect(chip.bottom - chip.top).toBeGreaterThan(lineHeight * 1.5);
-          const band = { top: chip.top - 8, bottom: chip.bottom + 8 };
+          const band = { top: Math.min(chip.top, words.top) - 8, bottom: Math.max(chip.bottom, words.bottom) + 8 };
           const places = {
-            "beside the chip": { offset: AFTER_CHIP, left: chip.right - 2, right: words.left + 3 },
+            "beside the chip": {
+              offset: AFTER_CHIP,
+              left: chip.right - 2,
+              right: Math.max(words.left, chip.right) + 12,
+            },
             "inside the words": { offset: IN_WORDS, left: words.left + 2, right: words.right + 6 },
           };
           for (const [where, { offset, left, right }] of Object.entries(places)) {
