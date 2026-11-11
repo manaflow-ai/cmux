@@ -9,11 +9,18 @@ extension TabStripView: TabStripCorner {
 
     public var selectsLeadingTab: Bool { leadsWithSelection }
 
+    public func setRunsIntoCard(_ runs: Bool) {
+        guard runs != runsIntoCard else { return }
+        runsIntoCard = runs
+        needsLayout = true
+    }
+
     /// Gives every cell the foot below its pill (the selected one draws it) and reports whether the
     /// selected tab is the first. A layout pass: a selection alone calls ``reportCornerLead()``.
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
-        let runsDown = isPaneTabRow && CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom
+        // A strip inside the card (a lower split pane's, ``setRunsIntoCard(_:)``) keeps the pill too.
+        let runsDown = isPaneTabRow && runsIntoCard && CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom
         let foot = runsDown ? max(0, bounds.height - (tabY + tabHeight)) : 0
         for cell in cells.values { cell.cornerFoot = foot }
         reportCornerLead()

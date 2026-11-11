@@ -102,6 +102,10 @@ public protocol TabStripCorner: AnyObject {
     var cornerFrameInWindow: CGRect { get }
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
+    /// Whether the strip is on the card's top row, where the frame's shade is behind it: only there does
+    /// its selected tab run into the card. A strip inside the card (a lower split pane's) keeps the pill,
+    /// which a tab in the card's own color would hide on the card.
+    func setRunsIntoCard(_ runs: Bool)
 }
 
 extension Metrics {
@@ -153,7 +157,7 @@ public final class CornerFlushChrome: NSView {
         while let ancestor = view {
             if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
                 chrome.strips.add(strip)
-                if !chrome.isHidden { chrome.redraw() }
+                if chrome.isHidden { strip.setRunsIntoCard(false) } else { chrome.redraw() }
                 return true
             }
             view = ancestor.superview
@@ -189,6 +193,7 @@ public final class CornerFlushChrome: NSView {
         }
         guard on, alpha > 0, radius > 0, superview === root else {
             isHidden = true
+            markTopRow(card: nil, in: root)
             shade.update(card: card, radius: radius, alpha: alpha)
             return
         }
@@ -213,11 +218,13 @@ public final class CornerFlushChrome: NSView {
         // wedges and no shade band over that pane's content.
         guard hasTopStrip(card: card, in: root) else {
             wedges.path = nil
+            markTopRow(card: nil, in: root)
             if let content { Self.roundBottomOnly(content, false) }
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
             return
         }
         if let content { Self.roundBottomOnly(content, true) }
+        markTopRow(card: card, in: root)
         let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
@@ -240,6 +247,15 @@ public final class CornerFlushChrome: NSView {
             onTop = true
         }
         return onTop
+    }
+
+    /// Tells each strip of this window whether it is on the top row of `card` (nil: no tab row, so none
+    /// is), so only those run their selected tab into the card. O(strips); a strip relays out only on a change.
+    private func markTopRow(card: CGRect?, in root: NSView) {
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            let onTop = card.map { !strip.isHidden && abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - $0.maxY) < 2 } ?? false
+            strip.setRunsIntoCard(onTop)
+        }
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.

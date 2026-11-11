@@ -90,6 +90,9 @@ public final class TabStripView: NSView {
     /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
     /// reports again with the strip's fresh place.
     var reportedCornerFrame: CGRect?
+    /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
+    /// tab may run into the card; true until the chrome first says otherwise.
+    var runsIntoCard = true
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
