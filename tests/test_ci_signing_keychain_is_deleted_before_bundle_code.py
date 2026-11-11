@@ -78,7 +78,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -91,6 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner_variables  # noqa: E402
 import workflow_jobs  # noqa: E402
+from shell_invocations import invocations  # noqa: E402,F401  (re-exported for the guards below)
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -612,64 +612,8 @@ def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
     return failures
 
 
-# Words a simple command may start with before the program it runs: `if !`, a shell, `exec`, `time`, `env`.
-_COMMAND_PREFIX = {"if", "elif", "while", "until", "!", "then", "else", "do", "exec", "time", "command", "env",
-                   "nohup", "{", "}"}
-_SHELLS = {"bash", "sh", "zsh"}
-_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_PUNCTUATION = "();<>|&"
-
-
-def _command_break(token: str) -> bool:
-    """A shlex punctuation token (shlex joins a run of them, e.g. `);`) that ends one simple command and starts the
-    next: `;`, `&`, `&&`, `|`, `||`, parentheses. A redirection (`>`, `>&`, `<<`) holds `<` or `>` and is no break."""
-    return bool(token) and all(c in _PUNCTUATION for c in token) and not any(c in "<>" for c in token)
-
-
-def invocations(run: str) -> list[list[str]]:
-    """The one invocation detector: each simple command a `run:` block runs, as its words (the program first, a
-    leading `./` dropped). Only a command's program counts as run, so text that only names a script runs nothing:
-    comments (whole-line or trailing), echo and printf arguments and quoted strings (words after the program), and
-    heredoc bodies (skipped up to their delimiter; several on one line close in order). Env assignments, the _COMMAND_PREFIX words and a shell's
-    options before its script are skipped; `;`, `&&`, `||`, `|` and parentheses start a new command. A line shlex
-    cannot read runs nothing here, so a reader built on this fails closed (the job is named, not exempted)."""
-    found: list[list[str]] = []
-    pending: list[str] = []  # heredoc delimiters opened on one line, closed in order (`cat <<A <<B`: A's body, then B's)
-    for line in re.sub(r"\\\n\s*", " ", run).splitlines():
-        if pending:
-            if line.strip() == pending[0]:
-                pending.pop(0)
-            continue
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        try:
-            tokens = list(lexer)
-        except ValueError:
-            continue
-        words: list[str] = []
-        for index, token in enumerate(tokens):
-            if token in ("<<", "<<-") and index + 1 < len(tokens):
-                pending.append(tokens[index + 1].lstrip("-"))
-            if _command_break(token):
-                if words:
-                    found.append(words)
-                words = []
-                continue
-            words.append(token)
-        if words:
-            found.append(words)
-    programs = []
-    for words in found:
-        start = 0
-        while start < len(words) and (_ASSIGNMENT.match(words[start]) or words[start] in _COMMAND_PREFIX):
-            start += 1
-        if start < len(words) and words[start] in _SHELLS:
-            start += 1
-            while start < len(words) and words[start].startswith("-"):
-                start += 1
-        if start < len(words):
-            programs.append([words[start].removeprefix("./"), *words[start + 1:]])
-    return programs
+# The one invocation detector lives in tests/shell_invocations.py (quoting, operators, heredocs); its cases run in
+# real bash in tests/test_shell_invocations.py.
 
 
 def invoked_programs(step: dict) -> list[str]:
@@ -844,6 +788,8 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
             ("heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<'EOF' > next.txt\n./{script}\nEOF\n./sign.sh"}]),
             # Codex: `cat <<A <<B` opens two heredocs; B's body is text too, not a command that runs.
             ("second heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<A <<'B' > next.txt\nfirst\nA\n./{script}\nB\n./sign.sh"}]),
+            # hq#9150: a quoted `;` is an argument, not a command break, so the script after it is still text.
+            ("quoted semicolon", [{**CERTIFICATE_STEP, "run": f"echo \";\" ./{script}\n./sign.sh"}]),
             ("trailing comment", [{**CERTIFICATE_STEP, "run": f"./sign.sh # then ./{script}"}]),
             ("another step", [{**CERTIFICATE_STEP, "run": "./sign.sh"}, {"name": "Notarize", "run": f"./{script}"}])):
         mentioned = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
