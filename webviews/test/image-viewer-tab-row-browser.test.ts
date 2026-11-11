@@ -12,6 +12,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures, playNotice } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
@@ -59,15 +60,7 @@ await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
           );
           const report = await page.evaluate(() => ({
             ready: document.documentElement.dataset.galleryReady,
-            play: (
-              window as {
-                cmuxGalleryPlayReport?: {
-                  status: string;
-                  error?: string;
-                  steps: { problems: string[] }[];
-                };
-              }
-            ).cmuxGalleryPlayReport,
+            play: JSON.stringify((window as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
           }));
           const captures = process.env.CMUX_IMAGE_VIEWER_CAPTURE_DIR || process.env.FAST_CHECKS_OUT;
           if (captures) {
@@ -75,8 +68,15 @@ await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
             await page.screenshot({ path: path.join(captures, `${variant}-${colorScheme}.png`) });
           }
           expect(report.ready).toBe("1");
-          expect(report.play?.error ?? "").toBe("");
-          expect(report.play?.steps.flatMap((step) => step.problems) ?? []).toEqual([]);
+          // What the play did wrong, by name: its own checks (the viewer under the tab row, the name
+          // outside its bar, a dimmed image), a step that did not run, a moved anchor, a layout shift,
+          // and a covered, clipped or off-screen popup in any step (the Gallery dialog is graded as a
+          // popup and its entry does not ask for the popup-layer check, so the stage only warns).
+          // A frame over 33 ms or a slow settle times the shared CI runner as much as the page and
+          // fails no behavior test (support/galleryPlay.ts); the notice still names it and its step.
+          const notice = playNotice(`image-viewer-tab-row ${variant} ${colorScheme}`, report.play);
+          if (notice) console.log(notice);
+          expect(playFailures(report.play, "all")).toEqual([]);
         } finally {
           await page.close();
         }

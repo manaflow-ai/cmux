@@ -103,14 +103,14 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
 
 // Leo, 2026-11-06: "your intermediate message got lost. that can never happen" (turn-fold-keeps-replies.test.ts).
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold keeps a reply between two runs in sight, each run on its own line`, () => {
+  test(`${family}: a closed fold keeps a reply between two runs in sight, both runs under it`, () => {
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
     // The fold hides only calls, so no header counts messages.
     expect(worked.previous).toBeUndefined();
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "w1", "n1", "w2", "a"]);
-    expect(rows.filter((row) => row.kind === "activity").every((row) => row.foldRun === true)).toBe(true);
+    // Every call stays under the closed line, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {

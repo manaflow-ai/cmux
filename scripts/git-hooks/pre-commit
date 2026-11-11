@@ -14,12 +14,289 @@ if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_
 fi
 REGISTRY_VALIDATOR="$HOOK_DIR/validate_test_execution_registry.py"
 PBX_NORMALIZER="$HOOK_DIR/normalize-pbxproj.py"
+BUN_VERSION_READER="$HOOK_DIR/webviews_bun_version.py"
 if [[ ! -f "$REGISTRY_VALIDATOR" || ! -f "$PBX_NORMALIZER" ]]; then
     echo "pre-commit: trusted helper copies are missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Every program this hook runs is reached through one checked resolver, never
+# by a bare name: a checkout that put its own rustup (or git, sed, env...) ahead
+# on PATH ran it before anything was checked. The resolver takes a name through
+# PATH's absolute entries only ('', '.' and other relative entries are skipped),
+# or an absolute path, and prints it only when no place its lookup passes
+# through lies inside this checkout (its work tree, its git directories and
+# every worktree of the clone): not the directory it is found in, not any
+# symlink hop (a link to a file or to a directory, followed one hop at a time),
+# not its final target. A checkout link named git pointing at /bin/sh is
+# refused like a checkout git: the link picks what runs and as which name. A
+# tool from an install root (mise, asdf, ~/.bun) must also resolve inside that
+# root. Otherwise it says why and prints nothing.
+# Children look programs up by name too (npm's `#!/usr/bin/env node`, the
+# registry helper's git): their PATH is one private directory of links to
+# checked tools only (CHILD_TOOLS below), never a PATH directory, whose other
+# entries nobody checked.
+# The trusted interpreter the installer recorded is its only root of trust.
+# tests/test_install_git_hooks.py parses this hook and fails on any command
+# that is neither a shell builtin nor a resolved tool.
+# Python free of single quotes: it is a single-quoted bash string.
+TOOL_RESOLVER='
+import os
+import sys
+import tempfile
+
+# The names children of the hook may look up on PATH. Each gets a link in the
+# private PATH directory of the children when the resolver finds a checked one; a
+# name not listed here is simply not found by a child.
+CHILD_TOOLS = (
+    "git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find", "env",
+    "mktemp", "tail", "sleep", "sh", "bash", "node", "npm", "npx", "bun", "bunx", "rustup", "rustfmt",
+    "cargo", "python3", "dirname", "basename", "readlink", "realpath", "uname", "chmod", "ln", "cp",
+    "tr", "xargs", "touch", "wc", "date", "id", "which", "tar", "gzip",
+)
+
+
+def real(path):
+    return os.path.realpath(path)
+
+
+def within(path, directory):
+    return path == directory or path.startswith(directory.rstrip(os.sep) + os.sep)
+
+
+def say(message):
+    sys.stderr.write("pre-commit: " + message + "\n")
+
+
+def first_line(path):
+    try:
+        with open(path) as handle:
+            return handle.readline().strip()
+    except OSError:
+        return ""
+
+
+def checkout_dirs(start):
+    """The real work tree, git directories and every worktree of the clone, without running git."""
+    found = []
+
+    def add(path):
+        if path and real(path) not in found:
+            found.append(real(path))
+
+    top = real(start)
+    while not os.path.lexists(os.path.join(top, ".git")):
+        parent = os.path.dirname(top)
+        if parent == top:
+            top = ""
+            break
+        top = parent
+    git_dirs = [os.environ.get("GIT_DIR", "")]
+    add(os.environ.get("GIT_WORK_TREE", ""))
+    if top:
+        add(top)
+        dot_git = os.path.join(top, ".git")
+        if os.path.isdir(dot_git):
+            git_dirs.append(dot_git)
+        elif first_line(dot_git).startswith("gitdir:"):
+            git_dirs.append(os.path.join(top, first_line(dot_git)[len("gitdir:"):].strip()))
+    for git_dir in filter(None, git_dirs):
+        git_dir = real(git_dir)
+        add(git_dir)
+        common = first_line(os.path.join(git_dir, "commondir"))
+        common = real(os.path.join(git_dir, common)) if common else git_dir
+        add(common)
+        if os.path.basename(common) == ".git":
+            add(os.path.dirname(common))
+        try:
+            names = os.listdir(os.path.join(common, "worktrees"))
+        except OSError:
+            names = []
+        for name in names:
+            pointer = first_line(os.path.join(common, "worktrees", name, "gitdir"))
+            if pointer:
+                add(os.path.dirname(os.path.join(common, "worktrees", name, pointer)))
+    return found
+
+
+def trail(path):
+    """Every place a lookup of an absolute path passes through: each symlink, at its real
+    location, one hop at a time (links to directories and chains included), then the
+    final target. None for a link loop or an unreadable link."""
+    places = []
+    pending = [part for part in path.split("/") if part]
+    current = "/"
+    hops = 0
+    while pending:
+        part = pending.pop(0)
+        if part == ".":
+            continue
+        if part == "..":
+            current = os.path.dirname(current)
+            continue
+        step = os.path.join(current, part)
+        if os.path.islink(step):
+            hops += 1
+            if hops > 40:
+                return None
+            places.append(step)
+            try:
+                target = os.readlink(step)
+            except OSError:
+                return None
+            if target.startswith("/"):
+                current = "/"
+            pending = [piece for piece in target.split("/") if piece] + pending
+        else:
+            current = step
+    places.append(current)
+    return places
+
+
+def check(candidate, root, mode, dirs):
+    """True when candidate may run; otherwise says why (unless it is simply absent)."""
+    if not candidate.startswith("/"):
+        say(f"{candidate} is not an absolute path; not running it.")
+        return False
+    if not os.path.exists(candidate):
+        return False
+    places = trail(candidate)
+    if places is None:
+        say(f"{candidate} is a symlink loop or an unreadable link; not running it.")
+        return False
+    resolved = places[-1]
+    if not (os.path.isfile(resolved) and os.access(resolved, os.X_OK)):
+        say(f"{candidate} is not an executable file; not running it.")
+        return False
+    if root or mode:
+        root_real = real(root) if root else ""
+        if not root_real or not within(resolved, root_real):
+            say(f"{candidate} resolves to {resolved}, outside its install root {root_real}; not running it.")
+            return False
+    # A package install inside the checkout (its node_modules) is the one place
+    # a tool may live inside it; the hook checks that git tracks nothing there.
+    for place in places:
+        if mode == "checkout-install" and within(place, root_real):
+            continue
+        for directory in dirs:
+            if within(place, directory):
+                say(f"{candidate} passes through {place}, inside this checkout ({directory}); not running it.")
+                return False
+    return True
+
+
+def find(name, search_path, dirs):
+    for entry in search_path.split(":"):
+        if not entry.startswith("/"):
+            if os.path.isfile(os.path.join(entry, name)):
+                label = entry or "(empty: the current directory)"
+                say(f"PATH entry {label} is relative; not running {name} from it.")
+            continue
+        candidate = os.path.join(entry, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK) and check(candidate, "", "", dirs):
+            return candidate
+    return ""
+
+
+def child_path(search_path, dirs, found):
+    """A new private directory (mode 0700, outside the checkout) of links to the checked
+    CHILD_TOOLS: the only PATH children of the hook get."""
+    for base in (tempfile.gettempdir(), "/tmp"):
+        if base.startswith("/") and os.path.isdir(base) \
+                and not any(within(real(base), directory) for directory in dirs):
+            break
+    else:
+        say("no temporary directory outside this checkout for the PATH of its children; not committing.")
+        sys.exit(1)
+    plain(real(base))  # the directory name must reach bash whole, or nothing is made
+    shims = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
+    for name in CHILD_TOOLS:
+        tool = found[name] if name in found else find(name, search_path, dirs)
+        if tool:
+            os.symlink(tool, os.path.join(shims, name))
+    return shims
+
+
+def plain(*fields):
+    if any("\t" in field or "\n" in field for field in fields):
+        say("a checkout or tool path holds a tab or newline; not running anything.")
+        sys.exit(1)
+    return "\t".join(fields)
+
+
+mode, arguments = sys.argv[1], sys.argv[2:]
+if mode == "boot":
+    start, search_path, names = arguments[0], arguments[1], arguments[2:]
+    dirs = checkout_dirs(start)
+    if not dirs:
+        say("found no git directory for this checkout; not running its tools.")
+        sys.exit(1)
+    if not check(sys.executable, "", "", dirs):
+        sys.exit(1)
+    lines = [plain("dir", directory) for directory in dirs]
+    missing = []
+    found = {}
+    for name in names:
+        found[name] = find(name, search_path, dirs)
+        if found[name]:
+            lines.append(plain("tool", "TOOL_" + name.upper().replace("-", "_"), found[name]))
+        else:
+            missing.append(name)
+    if missing:
+        say("no usable " + ", ".join(missing) + " on PATH outside this checkout; not committing.")
+        sys.exit(1)
+    shims = child_path(search_path, dirs, found)
+    lines.append(plain("path", shims))
+    print("\n".join(lines + ["ok"]))
+elif mode == "resolve":
+    wanted, root, kind, search_path, dirs = arguments[0], arguments[1], arguments[2], arguments[3], arguments[4:]
+    if "/" in wanted:
+        found = wanted if check(wanted, root, kind, dirs) else ""
+    else:
+        found = find(wanted, search_path, dirs)
+    if not found:
+        sys.exit(1)
+    print(plain(found))
+else:
+    sys.exit(2)
+'
+ORIGINAL_PATH="${PATH:-}"
+CHECKOUT_REAL_DIRS=()
+CHILD_PATH_DIR=""
+BOOT_OK=0
+# The programs every commit may need, resolved in one interpreter start.
+CORE_TOOLS=(git sed grep head cut sort awk cat mkdir mv rm find env mktemp tail sleep)
+# The only writer of TOOL_* variables (the detector checks there is no other).
+load_resolved_tools() {
+    local kind name value
+    while IFS=$'\t' read -r kind name value; do
+        case "$kind" in
+            dir) CHECKOUT_REAL_DIRS+=("$name") ;;
+            path) CHILD_PATH_DIR="$name" ;;
+            tool) [[ "$name" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v "$name" '%s' "$value" ;;
+            ok) BOOT_OK=1 ;;
+        esac
+    done < <("$PYTHON3_BIN" -I -c "$TOOL_RESOLVER" boot "$PWD" "$ORIGINAL_PATH" "${CORE_TOOLS[@]}" || true)
+}
+load_resolved_tools
+if (( ! BOOT_OK )); then
+    echo "pre-commit: could not resolve the tools this hook runs outside this checkout; refusing to run (do not pass --no-verify)." >&2
+    exit 1
+fi
+# Children (vp's and npm's `#!/usr/bin/env node`, a rustup proxy, the registry
+# helper's git) look tools up by name: their only PATH is the private directory
+# of links to checked tools the boot made. A PATH directory itself is never
+# handed on: an outside one may hold node -> <checkout>/payload.
+export PATH="$CHILD_PATH_DIR"
+# Removed however the hook ends (cleanup, below, takes this trap over).
+trap '"$TOOL_RM" -rf "$CHILD_PATH_DIR"' EXIT
+# The one checked resolver: a name (looked up on the caller's PATH) or an
+# absolute path, optionally within an install root. Prints the path or fails.
+resolve_tool() { # name-or-path [install-root] [checkout-install]
+    "$PYTHON3_BIN" -I -c "$TOOL_RESOLVER" resolve "$1" "${2:-}" "${3:-}" "$ORIGINAL_PATH" "${CHECKOUT_REAL_DIRS[@]}"
+}
+
+REPO_ROOT="$("$TOOL_GIT" rev-parse --show-toplevel)"
 PBXPROJ="cmux.xcodeproj/project.pbxproj"
 
 cd "$REPO_ROOT"
@@ -27,7 +304,7 @@ cd "$REPO_ROOT"
 # A merge commit (git merge, or a resolved conflict) stages the other parent's
 # files against HEAD: its added tests and workflow lines are that branch's, not
 # this commit's. The registry step below skips them, and so do the formatters.
-MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
+MERGE_HEAD_PATH="$("$TOOL_GIT" rev-parse --git-path MERGE_HEAD)"
 IN_MERGE=0
 [[ -f "$MERGE_HEAD_PATH" ]] && IN_MERGE=1
 
@@ -46,25 +323,26 @@ for registry_path in tests/test-execution.d tests/test-execution.toml; do
 done
 # No unstaged edit and no new fragment: what the step below finds changed is its own.
 registry_unchanged() {
-    (( ${#REGISTRY[@]} > 0 )) && git diff --quiet -- "${REGISTRY[@]}" \
-        && [[ -z "$(git ls-files --others --exclude-standard -- "${REGISTRY[@]}")" ]]
+    (( ${#REGISTRY[@]} > 0 )) && "$TOOL_GIT" diff --quiet -- "${REGISTRY[@]}" \
+        && [[ -z "$("$TOOL_GIT" ls-files --others --exclude-standard -- "${REGISTRY[@]}")" ]]
 }
-if (( ! IN_MERGE )) && git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
+if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT | "$TOOL_GREP" -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
     && registry_unchanged; then
     OWN_TESTS=()
     while IFS= read -r test_path; do
         [[ -n "$test_path" ]] && OWN_TESTS+=(--only "$test_path")
     done < <(
         {
-            git diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
-            git diff --cached -U0 -- .github/workflows | grep -E '^\+' | grep -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
-        } | sort -u
+            "$TOOL_GIT" diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
+            "$TOOL_GIT" diff --cached -U0 -- .github/workflows | "$TOOL_GREP" -E '^\+' | "$TOOL_GREP" -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
+        } | "$TOOL_SORT" -u
     )
     if (( ${#OWN_TESTS[@]} > 0 )); then
+        # The helper runs `git` by name: the children's PATH links the resolved git.
         "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
     fi
     if ! registry_unchanged; then
-        git add -A -- "${REGISTRY[@]}"
+        "$TOOL_GIT" add -A -- "${REGISTRY[@]}"
         echo "pre-commit: registered new tests in ${REGISTRY[*]}"
     fi
 fi
@@ -85,11 +363,11 @@ if [[ "${CMUX_SKIP_FORMAT_HOOKS:-0}" == 1 ]]; then
 fi
 
 # Only normalize when the pbxproj is part of this commit.
-if git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+if "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT | "$TOOL_GREP" -Fxq "$PBXPROJ"; then
     # Refuse to normalize when the working-tree pbxproj has unstaged changes.
     # Otherwise the `git add` at the end would silently stage hunks the
     # user deliberately left out of this commit.
-    if ! git diff --quiet -- "$PBXPROJ"; then
+    if ! "$TOOL_GIT" diff --quiet -- "$PBXPROJ"; then
         echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
         echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
         exit 1
@@ -100,8 +378,8 @@ if git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; the
     # If the normalizer rewrote the file, restage so the commit captures
     # the normalized form. (Working tree had no unstaged changes per the
     # guard above, so anything that changed is purely from normalization.)
-    if ! git diff --quiet -- "$PBXPROJ"; then
-        git add "$PBXPROJ"
+    if ! "$TOOL_GIT" diff --quiet -- "$PBXPROJ"; then
+        "$TOOL_GIT" add "$PBXPROJ"
     fi
 fi
 
@@ -134,7 +412,7 @@ STAGED_WEB_PATHS=()
 STAGED_RUST_PATHS=()
 STAGED_SWIFT_PATHS=()
 while IFS= read -r -d '' path; do
-    if (( ! SKIP_FORMATTERS )) && ! git diff --quiet -- "$path"; then
+    if (( ! SKIP_FORMATTERS )) && ! "$TOOL_GIT" diff --quiet -- "$path"; then
         case "$path" in
             webviews/*|cmux-tui/frontends/web/*|*.rs|*.swift)
                 echo "pre-commit: $path has unstaged changes; stage or stash them before formatting." >&2
@@ -159,12 +437,12 @@ while IFS= read -r -d '' path; do
             STAGED_SWIFT_PATHS+=("$path")
             ;;
     esac
-done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+done < <("$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT -z)
 
 # The version a lockfile pins for a package, or nothing.
 locked_version() { # package-dir name
     if [[ -f "$1/bun.lock" ]]; then
-        sed -nE "s/^ *\"$2\": \[\"$2@([^\"]+)\".*/\1/p" "$1/bun.lock" | head -n 1
+        "$TOOL_SED" -nE "s/^ *\"$2\": \[\"$2@([^\"]+)\".*/\1/p" "$1/bun.lock" | "$TOOL_HEAD" -n 1
     elif [[ -f "$1/package-lock.json" ]]; then
         "$PYTHON3_BIN" -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["packages"].get("node_modules/"+sys.argv[2], {}).get("version", ""))' \
             "$1/package-lock.json" "$2" 2>/dev/null || true
@@ -172,9 +450,12 @@ locked_version() { # package-dir name
 }
 # Temporary files and a held install lock go away however the hook ends.
 RUSTFMT_DEFAULTS=""
+BOOTSTRAP_LOG=""
+BUN_PIN=""
 HELD_LOCK=""
 cleanup() {
-    rm -f "${RUSTFMT_DEFAULTS:-}"
+    "$TOOL_RM" -f "${RUSTFMT_DEFAULTS:-}" "${BOOTSTRAP_LOG:-}"
+    "$TOOL_RM" -rf "$CHILD_PATH_DIR"
     release_install_lock
 }
 # Removes the lock only while it is still ours: a hook that ran past the
@@ -184,9 +465,9 @@ cleanup() {
 release_install_lock() {
     if [[ -n "$HELD_LOCK" ]]; then
         local holder
-        holder="$(cat "$HELD_LOCK/pid" 2>/dev/null || true)"
+        holder="$("$TOOL_CAT" "$HELD_LOCK/pid" 2>/dev/null || true)"
         if [[ "$holder" == "$$" || -z "$holder" ]]; then
-            rm -rf "$HELD_LOCK"
+            "$TOOL_RM" -rf "$HELD_LOCK"
         fi
     fi
     HELD_LOCK=""
@@ -203,21 +484,21 @@ trap 'exit 130' INT
 # live once moved (another hook took it meanwhile) is put back.
 lock_is_stale() { # lock-dir
     local holder
-    holder="$(cat "$1/pid" 2>/dev/null || true)"
+    holder="$("$TOOL_CAT" "$1/pid" 2>/dev/null || true)"
     { [[ -n "$holder" ]] && ! kill -0 "$holder" 2>/dev/null; } \
-        || [[ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null || true)" ]]
+        || [[ -n "$("$TOOL_FIND" "$1" -maxdepth 0 -mmin +10 2>/dev/null || true)" ]]
 }
 take_install_lock() { # lock-dir
-    if ! mkdir "$1" 2>/dev/null; then
+    if ! "$TOOL_MKDIR" "$1" 2>/dev/null; then
         lock_is_stale "$1" || return 1
-        mv "$1" "$1.stale.$$" 2>/dev/null || return 1
+        "$TOOL_MV" "$1" "$1.stale.$$" 2>/dev/null || return 1
         if ! lock_is_stale "$1.stale.$$"; then
-            [[ -e "$1" ]] || mv "$1.stale.$$" "$1" 2>/dev/null || true
-            rm -rf "$1.stale.$$"
+            [[ -e "$1" ]] || "$TOOL_MV" "$1.stale.$$" "$1" 2>/dev/null || true
+            "$TOOL_RM" -rf "$1.stale.$$"
             return 1
         fi
-        rm -rf "$1.stale.$$"
-        mkdir "$1" 2>/dev/null || return 1
+        "$TOOL_RM" -rf "$1.stale.$$"
+        "$TOOL_MKDIR" "$1" 2>/dev/null || return 1
     fi
     HELD_LOCK="$1"
     printf '%s\n' "$$" >"$1/pid"
@@ -237,6 +518,103 @@ web_packages_stale() { # package-dir
     return 1
 }
 
+# A checkout decides what it pins, never where the hook runs a binary from: a
+# pin like ../../../repository/payload walked out of the mise directory and ran
+# the checkout's own payload/bin/bun. Every candidate goes through resolve_tool
+# (above), with the install root it must stay inside.
+# The bun version webviews/package.json devEngines pins, as the one shared reader
+# (scripts/webviews_bun_version.py, installed beside this hook) reads it: the
+# devEngines.packageManager entry named "bun", only as an exact major.minor.patch.
+# check-webviews-bun-version.sh calls the same reader, so the two cannot disagree.
+# Without the trusted reader, or with no pin it accepts, the hook cannot vouch
+# for a bun: it says why and how to fix it, and fails (the caller refuses).
+pinned_bun_version() {
+    local pin status=0
+    if [[ ! -f "$BUN_VERSION_READER" ]]; then
+        echo "pre-commit: the trusted copy of webviews_bun_version.py is missing, so this hook cannot read the bun pin; run scripts/install-git-hooks.sh" >&2
+        return 1
+    fi
+    pin="$("$PYTHON3_BIN" -I "$BUN_VERSION_READER" "$REPO_ROOT/webviews/package.json" 2>&1)" || status=$?
+    if (( status != 0 )); then
+        echo "pre-commit: ${pin//[^[:print:]]/?}; declare an exact bun in webviews/package.json devEngines.packageManager" >&2
+        return 1
+    fi
+    printf '%s\n' "$pin"
+}
+# Every bun and npm call runs through tool_env: BUN_OPTIONS is the caller's,
+# and bun prepends it to every command line, so a `--preload PATH` there made
+# `bun install` fail with 'Script not found "install"' and no vp got installed.
+# The tool is checked again here, so no caller can hand env an unchecked argv[0].
+tool_env() { # tool args...
+    local tool
+    tool="$(resolve_tool "$1")" || return 1
+    shift
+    "$TOOL_ENV" -u BUN_OPTIONS "$tool" "$@"
+}
+# The bun the install runs, by absolute path: a bun at exactly the pinned
+# version from mise, asdf, PATH or ~/.bun. There is no other fallback: with none
+# at the pin it says how to install one and fails. Each candidate path is built
+# only from the validated pin and passes resolve_tool before even its --version runs.
+resolve_bun() { # pin (validated)
+    local want="$1" entry root candidate path_bun mise_root asdf_root bun_root
+    path_bun="$(resolve_tool bun || true)"
+    if [[ -n "$want" ]]; then
+        mise_root="${MISE_DATA_DIR:-${XDG_DATA_HOME:-${HOME:-/nonexistent}/.local/share}/mise}/installs/bun"
+        asdf_root="${ASDF_DATA_DIR:-${HOME:-/nonexistent}/.asdf}/installs/bun"
+        bun_root="${BUN_INSTALL:-${HOME:-/nonexistent}/.bun}"
+        for entry in "$mise_root|$mise_root/$want/bin/bun" "$asdf_root|$asdf_root/$want/bin/bun" \
+            "|$path_bun" "$bun_root|$bun_root/bin/bun"; do
+            root="${entry%%|*}"
+            candidate="${entry#*|}"
+            [[ -n "$candidate" ]] || continue
+            candidate="$(resolve_tool "$candidate" "$root")" || continue
+            if [[ "$(tool_env "$candidate" --version 2>/dev/null || true)" == "$want" ]]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done
+    fi
+    echo "pre-commit: no bun ${want:-(no pin)} in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
+    return 1
+}
+# Stops the commit when the hook would have to install packages with a bun it
+# cannot vouch for; the lines before say why and what fixes it.
+refuse_bun_install() { # package
+    echo "pre-commit: refusing to install $1 packages with a bun this hook cannot vouch for (see above)." >&2
+    release_install_lock
+    exit 1
+}
+# Runs an install step in a package directory with its output kept. When it
+# fails, prints what ran and with which tool, so a broken bootstrap is never
+# just "vp is unavailable".
+bootstrap_run() { # package-dir tool args...
+    local dir="$1" status=0 version
+    shift
+    BOOTSTRAP_LOG="${BOOTSTRAP_LOG:-$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-pre-commit-install.XXXXXX")}"
+    (cd "$dir" && tool_env "$@") >"$BOOTSTRAP_LOG" 2>&1 || status=$?
+    (( status != 0 )) || return 0
+    version="$(tool_env "$1" --version 2>&1 | "$TOOL_HEAD" -n 1 || true)"
+    {
+        echo "pre-commit: install failed in $dir (exit $status)"
+        echo "pre-commit:   command: env -u BUN_OPTIONS $*"
+        echo "pre-commit:   argv[0]: $1"
+        echo "pre-commit:   $1 --version: ${version:-no output}${BUN_PIN:+ (webviews/package.json pins bun $BUN_PIN)}"
+        if [[ -n "${BUN_OPTIONS:-}" ]]; then
+            echo "pre-commit:   BUN_OPTIONS: set (removed for this command)"
+        else
+            echo "pre-commit:   BUN_OPTIONS: not set"
+        fi
+        if [[ -n "${NODE_OPTIONS:-}" ]]; then
+            echo "pre-commit:   NODE_OPTIONS: set"
+        else
+            echo "pre-commit:   NODE_OPTIONS: not set"
+        fi
+        echo "pre-commit:   last lines of its output:"
+        "$TOOL_TAIL" -n 20 "$BOOTSTRAP_LOG" | "$TOOL_SED" 's/^/pre-commit:     /'
+    } >&2
+    return "$status"
+}
+
 if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
     for package in "${WEB_PACKAGES[@]}"; do
         PACKAGE_PATHS=()
@@ -254,29 +632,40 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             # deletes node_modules first. A held lock means someone else is
             # installing; format with what is there, or, with no vp yet, wait
             # (up to two minutes) for that install.
-            INSTALL_LOCK="$(git rev-parse --absolute-git-dir)/cmux-format-install-${package//\//-}.lock"
+            INSTALL_LOCK="$("$TOOL_GIT" rev-parse --absolute-git-dir)/cmux-format-install-${package//\//-}.lock"
             if ! take_install_lock "$INSTALL_LOCK"; then
                 echo "pre-commit: another agent is installing $package packages; using the current ones (waiting for them if vp is missing)" >&2
                 for ((wait_seconds = 0; wait_seconds < 120; wait_seconds++)); do
                     [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
-                    sleep 1
+                    "$TOOL_SLEEP" 1
                 done
-            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
-                echo "pre-commit: installing $package packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
-                (cd "$PACKAGE_DIR" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]]; then
+                BUN_PIN="$(pinned_bun_version)" || refuse_bun_install "$package"
+                BUN_BIN="$(resolve_bun "$BUN_PIN")" || refuse_bun_install "$package"
+                echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
+                bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
                 if [[ "$package" == webviews ]]; then
                     # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
                     # output since #21946); write them so a later typecheck in this checkout finds them.
-                    (cd "$PACKAGE_DIR" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                    (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
                 fi
-            elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && command -v npm >/dev/null 2>&1; then
-                echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
-                (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
+            elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && NPM_BIN="$(resolve_tool npm)"; then
+                BUN_PIN=""
+                echo "pre-commit: installing $package packages for vp ($NPM_BIN ci --ignore-scripts)" >&2
+                bootstrap_run "$PACKAGE_DIR" "$NPM_BIN" ci --ignore-scripts --no-audit --no-fund || true
             fi
             [[ "$HELD_LOCK" != "$INSTALL_LOCK" ]] || release_install_lock
         fi
-        VP_BIN="$PACKAGE_DIR/node_modules/.bin/vp"
-        if [[ ! -x "$VP_BIN" ]]; then
+        # The package's own vp, the one tool the hook runs from inside the checkout:
+        # vp fmt evaluates the package's vite.config.ts anyway. It must resolve
+        # inside the package's node_modules, and git must track nothing there, so
+        # it came from the install above, never from a commit.
+        if [[ -n "$("$TOOL_GIT" ls-files -- "$package/node_modules" | "$TOOL_HEAD" -n 1)" ]]; then
+            echo "pre-commit: git tracks files under $package/node_modules; not running its vp." >&2
+            formatter_missing "vp is unavailable for $package (install its packages)"
+            continue
+        fi
+        if ! VP_BIN="$(resolve_tool "$PACKAGE_DIR/node_modules/.bin/vp" "$PACKAGE_DIR/node_modules" checkout-install)"; then
             formatter_missing "vp is unavailable for $package (install its packages)"
             continue
         fi
@@ -285,7 +674,7 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             # A commit of only fmt-ignored files (webviews CSS) matches nothing.
             "$VP_BIN" fmt --no-error-on-unmatched-pattern "${PACKAGE_PATHS[@]}"
         )
-        git add -- "${PACKAGE_PATHS[@]/#/$package/}"
+        "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]/#/$package/}"
     done
 fi
 
@@ -298,7 +687,7 @@ rust_package_root() { # repository-relative path -> nearest directory with a [pa
     local dir="${1%/*}"
     [[ "$dir" == "$1" ]] && dir=""
     while :; do
-        if [[ -f "$REPO_ROOT/${dir:+$dir/}Cargo.toml" ]] && grep -q '^\[package\]' "$REPO_ROOT/${dir:+$dir/}Cargo.toml"; then
+        if [[ -f "$REPO_ROOT/${dir:+$dir/}Cargo.toml" ]] && "$TOOL_GREP" -q '^\[package\]' "$REPO_ROOT/${dir:+$dir/}Cargo.toml"; then
             echo "$dir"
             return 0
         fi
@@ -308,13 +697,13 @@ rust_package_root() { # repository-relative path -> nearest directory with a [pa
 }
 rust_edition() { # package root -> its edition, following edition.workspace = true
     local manifest="$REPO_ROOT/${1:+$1/}Cargo.toml" dir="$1" edition
-    edition="$(sed -nE 's/^edition[[:space:]]*=[[:space:]]*"([0-9]{4})".*/\1/p' "$manifest" | head -n 1)"
-    if [[ -z "$edition" ]] && grep -qE '^edition([[:space:]]*\.[[:space:]]*workspace[[:space:]]*=[[:space:]]*true|[[:space:]]*=[[:space:]]*\{[[:space:]]*workspace[[:space:]]*=[[:space:]]*true)' "$manifest"; then
+    edition="$("$TOOL_SED" -nE 's/^edition[[:space:]]*=[[:space:]]*"([0-9]{4})".*/\1/p' "$manifest" | "$TOOL_HEAD" -n 1)"
+    if [[ -z "$edition" ]] && "$TOOL_GREP" -qE '^edition([[:space:]]*\.[[:space:]]*workspace[[:space:]]*=[[:space:]]*true|[[:space:]]*=[[:space:]]*\{[[:space:]]*workspace[[:space:]]*=[[:space:]]*true)' "$manifest"; then
         while [[ -n "$dir" ]]; do
             if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
             manifest="$REPO_ROOT/${dir:+$dir/}Cargo.toml"
-            if [[ -f "$manifest" ]] && grep -q '^\[workspace\.package\]' "$manifest"; then
-                edition="$(awk '/^\[/{section=$0} section=="[workspace.package]" && /^edition[[:space:]]*=/{gsub(/[^0-9]/,"",$0); print; exit}' "$manifest")"
+            if [[ -f "$manifest" ]] && "$TOOL_GREP" -q '^\[workspace\.package\]' "$manifest"; then
+                edition="$("$TOOL_AWK" '/^\[/{section=$0} section=="[workspace.package]" && /^edition[[:space:]]*=/{gsub(/[^0-9]/,"",$0); print; exit}' "$manifest")"
                 break
             fi
         done
@@ -325,7 +714,7 @@ rust_toolchain() { # package root -> the channel the nearest rust-toolchain(.tom
     local dir="$1"
     while :; do
         if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" ]]; then
-            sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([A-Za-z0-9][A-Za-z0-9._-]*)".*/\1/p' "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" | head -n 1
+            "$TOOL_SED" -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([A-Za-z0-9][A-Za-z0-9._-]*)".*/\1/p' "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" | "$TOOL_HEAD" -n 1
             return 0
         fi
         if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain" ]]; then
@@ -363,26 +752,26 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             RUST_ENTRIES+="$package_root"$'\t'"$path"$'\n'
         fi
     done
-    RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | cut -f1 | sort -u)"
+    RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | "$TOOL_CUT" -f1 | "$TOOL_SORT" -u)"
     # rustfmt can follow `mod` declarations from a staged module and rewrite
     # its children. Refuse that case within the affected Cargo package rather
     # than touching an unstaged Rust file in the worktree.
     while IFS= read -r package_root; do
         [[ -n "$RUST_ENTRIES" ]] || break
         if {
-            git diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
-            git ls-files --others --exclude-standard -- "${package_root:-.}"
-        } | grep -Eq '\.rs$'; then
+            "$TOOL_GIT" diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
+            "$TOOL_GIT" ls-files --others --exclude-standard -- "${package_root:-.}"
+        } | "$TOOL_GREP" -Eq '\.rs$'; then
             echo "pre-commit: ${package_root:-.} has unstaged Rust edits; stage or stash them before formatting." >&2
             exit 1
         fi
     done <<<"$RUST_ROOTS"
     if [[ -n "$RUST_ENTRIES" ]]; then
-        RUSTFMT_BIN="$(command -v rustfmt || true)"
+        RUSTFMT_BIN="$(resolve_tool rustfmt || true)"
         if [[ -z "$RUSTFMT_BIN" ]]; then
             formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
         else
-            RUSTFMT_DEFAULTS="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+            RUSTFMT_DEFAULTS="$("$TOOL_MKTEMP" "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
             while IFS= read -r package_root; do
                 config="$(rust_config "$package_root")"
                 RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")
@@ -396,15 +785,23 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 PACKAGE_RUSTFMT="$RUSTFMT_BIN"
                 toolchain="$(rust_toolchain "$package_root")"
                 if [[ -n "$toolchain" ]]; then
-                    pinned="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
-                    if [[ -n "$pinned" && -x "$pinned" ]]; then
-                        PACKAGE_RUSTFMT="$pinned"
+                    # Resolved once, and only when a package pins a toolchain.
+                    [[ -n "${RUSTUP_BIN+set}" ]] || RUSTUP_BIN="$(resolve_tool rustup || true)"
+                    pinned_path=""
+                    if [[ -n "$RUSTUP_BIN" ]]; then
+                        pinned_path="$(cd / && "$RUSTUP_BIN" which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
+                    fi
+                    if [[ -n "$pinned_path" ]] && PINNED_RUSTFMT="$(resolve_tool "$pinned_path")"; then
+                        PACKAGE_RUSTFMT="$PINNED_RUSTFMT"
                     else
                         echo "pre-commit: ${package_root:-.} pins Rust $toolchain; using $RUSTFMT_BIN (rustup toolchain install $toolchain --component rustfmt)" >&2
                     fi
                 fi
-                "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}"
-                git add -- "${PACKAGE_PATHS[@]}"
+                # From /, so a rustup proxy picks no toolchain (or toolchain
+                # path) from a rust-toolchain file in the checkout: every
+                # argument is absolute.
+                (cd / && "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}")
+                "$TOOL_GIT" add -- "${PACKAGE_PATHS[@]}"
             done <<<"$RUST_ROOTS"
         fi
     fi
@@ -413,13 +810,13 @@ fi
 # cmux currently has no Swift-format configuration. Keep this branch ready for
 # the day one is added without making a formatter a setup prerequisite today.
 if (( ${#STAGED_SWIFT_PATHS[@]} > 0 && ! SKIP_FORMATTERS )) && [[ -f "$REPO_ROOT/.swift-format" ]]; then
-    SWIFT_FORMAT_BIN="$(command -v swift-format || true)"
+    SWIFT_FORMAT_BIN="$(resolve_tool swift-format || true)"
     if [[ -z "$SWIFT_FORMAT_BIN" ]]; then
         formatter_missing "swift-format is unavailable"
     else
         for path in "${STAGED_SWIFT_PATHS[@]}"; do
             "$SWIFT_FORMAT_BIN" format --in-place --configuration "$REPO_ROOT/.swift-format" "$path"
-            git add -- "$path"
+            "$TOOL_GIT" add -- "$path"
         done
     fi
 fi
