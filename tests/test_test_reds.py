@@ -456,6 +456,27 @@ class PerTest(unittest.TestCase):
         self.assertTrue(reds.read(log(over, heading, crash)).crashes)
         self.assertTrue(reds.read(log(over, f"--- {crash}")).crashes)
 
+    def test_a_vitest_console_block_that_quotes_a_signal_is_not_a_crash_and_its_fail_heading_names_the_test(self):
+        # cmux backend run 43060098319 (2026-11-11): a test's own JSON log line quoted "claude exited on signal 9"
+        # and the job read as "the test process crashed", though vitest failed cleanly on one assertion.
+        name = "test/team-overage-cap.test.ts > the team spending cap > refuses a new model call (v2)"
+        quoted = '{"msg":"chief_cc.turn_ended_early","kind":"timeout","error":"claude exited on signal 9: "}'
+        # workerd's own log of a request's uncaught rejection (2447 of them in that run): workerd keeps serving.
+        uncaught = "uncaught exception; source = Uncaught (in promise); stack = Error: chief.provision.platform_unbound"
+        head = log("stderr | test/chief-brain-cc.test.ts > Cloud Chief > posts what a long turn streamed", quoted, "",
+                   uncaught,
+                   f" FAIL  {name}", "AssertionError: expected { Object (ok, team_cap, ...) } to match object",
+                   " Test Files  1 failed | 212 passed (213)", "##[error]Process completed with exit code 1.")
+        found = reds.read(head)
+        self.assertEqual(found.crashes, [])
+        self.assertEqual(found.failed, {name})
+        self.assertFalse(reds.classify(head, head, "test").own)
+        # The same words outside a console block (after its closing blank line) are still a crash.
+        loose = log("stderr | test/a.test.ts > a", "logged", "", "worker exited on signal 11")
+        self.assertTrue(reds.read(loose).crashes)
+        # A bun file result (`FAIL file`, no ` > `) is not read as a vitest name.
+        self.assertEqual(reds.failed_names(["FAIL test/a.test.ts 1.2s"]), set())
+
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "

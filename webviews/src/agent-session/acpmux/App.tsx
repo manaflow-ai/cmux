@@ -20,7 +20,8 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { takeCapture } from "./composer/screenCapture";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
@@ -97,6 +98,7 @@ import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
+  cloudSendAgent,
   cloudStartModePick,
   holdCloudModePick,
   useCloudModePick,
@@ -182,7 +184,6 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
-  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -190,7 +191,6 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
-  withSource,
 } from "./attachments";
 import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers } from "./ComposerPickers";
@@ -765,6 +765,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
+import { hatSeenKey, unseenHatQuestions } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -1258,7 +1259,9 @@ const hatActions = (
   focusComposer: () => void,
   reaches: (owner: string) => boolean,
   asker: () => string | undefined,
+  dismiss: (question: HatQuestion) => void,
 ): HatQuestionActions => ({
+  dismiss,
   answer: (question, answer) => {
     // A tagged ask's answer goes as its card's does (`restartReaches`): only to the chat it was read
     // for, never the next during a switch's hold, and as its card sends it (`answerThrough`): a send
@@ -2535,20 +2538,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
-  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{
-      name?: string;
-      mimeType?: string;
-      data?: string;
-      source?: unknown;
-    } | null>("composer.capture", { mode }).catch(() => null);
-    if (!shot?.data) return undefined;
-    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
-    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
-    return withSource(file, attachmentSource(shot.source));
+  // The + menu's Attach Screenshot…, Attach Window… and Record Screen… (composer/screenCapture.ts):
+  // a still goes back to the composer as an image; a recording goes in here as a video link chip.
+  // Either goes only to the chat the capture started in.
+  const captureChat = useRef(snapshot.sessionId);
+  useLayoutEffect(() => {
+    captureChat.current = snapshot.sessionId;
+  }, [snapshot.sessionId]);
+  const captureScreen = useCallback(async (mode: CaptureMode) => {
+    const taken = await takeCapture(mode, callNative, () => captureChat.current);
+    if (taken?.kind === "recording") composerHandle.current?.attach(taken.attachment);
+    return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
@@ -3768,9 +3768,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.asks,
     ],
   );
-  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
+  // The ones the person put away (the hat's × or Escape, question/hatSeen.ts) leave it; they share
+  // the pinned asks' dismissals, so a tagged ask put away in one place leaves both.
+  const hatQuestionsUnseen = useMemo(
+    () => unseenHatQuestions(hatQuestionsRead, askDismissals.keys),
+    [hatQuestionsRead, askDismissals],
+  );
+  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
-    : (hatQuestionsKept.current = hatQuestionsRead);
+    : (hatQuestionsKept.current = hatQuestionsUnseen);
   // Who asks in this chat: its agent by name, as the trust card names it. An answer to its ask
   // quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   const asker = snapshot.summary?.harness
@@ -3778,12 +3784,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const askerRef = useRef(asker);
   askerRef.current = asker;
+  // The hat's × reaches the shown chat's dismissals; the ref follows it after each commit (never in render).
+  const dismissPinnedAskRef = useRef(dismissPinnedAsk);
+  useLayoutEffect(() => {
+    dismissPinnedAskRef.current = dismissPinnedAsk;
+  }, [dismissPinnedAsk]);
   const hatQuestionActions = useMemo(
     () =>
       hatActions(
         () => composerHandle.current?.focus(),
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => askerRef.current,
+        (question) => dismissPinnedAskRef.current(hatSeenKey(question)),
       ),
     [],
   );
@@ -11998,6 +12010,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             plusExtensions={plusSearchExtensions}
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
+            // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
+            canRecord={
+              localCwd !== undefined &&
+              !quick &&
+              !readOnlySubagent &&
+              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
+            }
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
@@ -12437,11 +12456,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             text,
                             attachments,
                             {
-                              harness,
                               ...cloudStartFolder(cwd),
-                              ...(model ? { model } : {}),
-                              // The Mode chip's pick for this harness goes with New Tab's send too.
-                              ...cloudStartModePick(harness),
+                              // The agent the Mode chip names and its pick: a harness with no
+                              // Cloud start mode is left out, so the machine starts Claude.
+                              ...cloudSendAgent(
+                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
+                                harness,
+                                model,
+                              ),
                             },
                             true,
                           ),
