@@ -103,6 +103,7 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;

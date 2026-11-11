@@ -160,7 +160,10 @@ import Testing
         #expect(m.pinnedRowHeight == m.listRowHeight, "\(setting): pinned row \(m.pinnedRowHeight), workspace row \(m.listRowHeight)")
         #expect(m.pinnedTitle == tokens.titleSize, "\(setting): pinned title \(m.pinnedTitle), token \(tokens.titleSize)")
         #expect(m.pinnedTitle == m.listTitle, "\(setting): pinned title \(m.pinnedTitle), workspace title \(m.listTitle)")
-        #expect(m.pinnedGlyph == m.listGlyph, "\(setting): pinned icon \(m.pinnedGlyph), workspace icon \(m.listGlyph)")
+        // A workspace favicon's bitmap is drawn 4/3 its optical side so the ink, not the bitmap's transparent margin, fills
+        // `SidebarStyle.rowGlyphOpticalSide` (Lawrence 2026-11-09, one icon size); compare the sizes it draws at.
+        let listOptical = m.listGlyph * 3 / 4
+        #expect(abs(m.pinnedGlyph - listOptical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), workspace icon \(listOptical)")
     }
 
     /// The card the pinned row opens takes its sizes from ``SidebarRowTokens/hoverCard``.
