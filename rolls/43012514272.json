@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43012514272",
+  "recorded_at": "2026-11-11T11:44:03Z",
+  "reason": "cmux-tui 242eb21a4430 changes the image's cmux-tui (pinned 9fbf1e5eaceb)",
+  "dry_run": false,
+  "cmux_tui": "242eb21a443099eaf17de17ac7641aa1865c9587",
+  "fixes": [
+    {
+      "sha": "4a1a598ae8272c9aecd7df3864fdd5e979c1cf56",
+      "mergedAt": "2026-11-11T03:14:30-08:00",
+      "subject": "fix(workspace): the first-tab key default compiles; document first_tab and workspace"
+    },
+    {
+      "sha": "b9783320dc572941dd5e801f23110bc30182a60f",
+      "mergedAt": "2026-11-11T03:14:27-08:00",
+      "subject": "feat(daemon): create-workspace takes its first tab; browser tabs target a workspace"
+    },
+    {
+      "sha": "dd68ca475f800a243a224a75fcb4e72425b6f45b",
+      "mergedAt": "2026-11-11T03:14:25-08:00",
+      "subject": "test(daemon): a browser workspace is one request with no terminal (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T11:44:03Z",
+    "snapshot_id": "sh-971e17f2a0574fba83caa2ebc7dde0ea",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43012514272): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "30270f85d5bb5ec9b33324139074d4281c821b3c",
+    "image": "cloud-native-auto-242eb21a-43012514272-1",
+    "revision": "ci-43012514272-1",
+    "at": "2026-11-11T11:44:03Z"
+  },
+  "rolled_back": false
+}
