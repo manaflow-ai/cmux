@@ -164,19 +164,15 @@
    inset shadow (or the border the control already has), so no control changes size. Hover steps the
    fill up one notch; the edge stays. Borders: None clears the edge with the card lines. */
 :root[data-settings-look="refined"] .settings {
-  /* A control is a quiet well with one hairline (Lucas 2026-11-12, after the pressed fill on hover
-     read "too bright"; his reference: a near-black "Use default ⌄" pill). Dark: a few percent of black
-     under the card, so it sits a step below it, and a solid edge mixed into the base (an alpha white
-     edge glows on dark). Light: the page's own white on the grey card, with an alpha ink edge. Hover
-     lifts the dark well a little and greys the light one a little; the edge stays. */
-  --look-control-fill: light-dark(var(--polish-base), color-mix(in srgb, black 24%, transparent));
-  --look-control-fill-hover: light-dark(
-    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-base)),
-    color-mix(in srgb, black 10%, transparent)
-  );
+  /* A control is the card's own background with one hairline (Lucas 2026-11-12: "match the
+     background ... do not make it black"; Aside's "Google ⌃⌄"): no fill of its own at rest, a faint
+     ink lift on hover, and the edge, solid and mixed into the base so it recedes on dark, does the
+     drawing. */
+  --look-control-fill: transparent;
+  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 4%, transparent);
   --look-control-line: light-dark(
-    color-mix(in srgb, var(--polish-ink) 12%, transparent),
-    color-mix(in srgb, var(--polish-ink) 12%, var(--polish-base))
+    color-mix(in srgb, var(--polish-ink) 14%, transparent),
+    color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base))
   );
   --look-control-edge: inset 0 0 0 1px var(--look-control-line);
 }
@@ -201,7 +197,8 @@
    containers"). The others take a faint fill under the pointer. */
 :root[data-settings-look="refined"] .settings .segmented {
   border-color: transparent;
-  background: var(--look-control-fill);
+  /* The track keeps a soft fill of its own: the controls' clear fill would leave no track. */
+  background: color-mix(in srgb, var(--polish-ink) 5%, transparent);
 }
 
 :root[data-settings-look="refined"] .settings .segment {
@@ -217,6 +214,21 @@
   background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base)));
   box-shadow: var(--elevation-1);
   color: var(--polish-ink);
+}
+
+/* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
+   to the focus ink; a refused value keeps its danger edge. */
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"]:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--polish-focus);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant][aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--ds-color-danger);
 }
 
 /* Every pop-up on the page ends in the same small caret (Lucas 2026-11-12: "just the \/ caret ...
