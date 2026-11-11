@@ -36,6 +36,25 @@ struct CloudVmKindTests {
         #expect(DaemonCapability.agentSessionStartModel.rawValue == "agent-session-start-model-v1")
     }
 
+    /// A Cloud chat on the person's own machine starts in their `agents.defaultPermissionMode`, as a local new chat does
+    /// (unset: full access, acpmux's default), sent only to a daemon that takes it and only for the owner's own VM; a value
+    /// acpmux does not know sends nothing, so the start keeps asking.
+    @Test func anOwnersStartSendsThePersonsPermissionMode() {
+        let params = { (setting: String?, owns: Bool, serves: Bool) in
+            AgentSessionAttachClient.startParams(cwd: nil, harness: nil, homeConfirmed: false, personKey: nil, servesKeyedReason: false,
+                                                 callerOwnsVM: owns, servesVMKind: true, servesPermissionMode: serves,
+                                                 permissionMode: setting)["permission_mode"] as? String
+        }
+        #expect(params(nil, true, true) == "fullAccess")
+        #expect(params("bypassPermissions", true, true) == "fullAccess")
+        #expect(params("standard", true, true) == "standard")
+        #expect(params("ask", true, true) == "ask")
+        #expect(params("anything", true, true) == nil)
+        #expect(params("fullAccess", false, true) == nil, "a teammate's or another host's start keeps asking")
+        #expect(params("fullAccess", true, false) == nil, "an older daemon refuses an unknown param")
+        #expect(DaemonCapability.agentSessionStartPermissionMode.rawValue == "agent-session-start-permission-mode-v1")
+    }
+
     @Test func aNoFolderStartOmitsCwdOnlyAsAnAbsentParameter() {
         let params = AgentSessionAttachClient.startParams(cwd: nil, harness: nil, homeConfirmed: false, personKey: nil,
                                                            servesKeyedReason: false, callerOwnsVM: true, servesVMKind: true)
