@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The Mac side of the host credential relay (cx-wb5.63, slice B of
 /// cx-wb5.57; cmux-tui-core `apps/relay.rs`): a first-party app server
@@ -10,11 +11,21 @@ public import Foundation
 /// to `POST /v1/read`, a keyed op to `POST /v1/ops`. The Worker's answer
 /// goes back unchanged as the provider ABI body; the server sees no
 /// credential and the daemon never sees one.
+///
+/// `credential.carrier_socket {machine}` (the Cloud server's `relay.carrier`
+/// line, first-party-apps/cloud/server/src/link/dial.rs) answers the path
+/// of this app's own `cmux carrier serve` socket of a machine it has a
+/// session of, started when it is not running: `{value: {socket}}`. The
+/// person's credential stays in that child; the answer holds only the path
+/// (the child's socket is 0600, in this user's private temporary folder). A
+/// refusal is `{code, message, retryable}` with a `cmux carrier` step code
+/// (``CarrierRefusal``).
 public nonisolated struct CloudCredentialRelay: Sendable {
     /// The provider family this relay serves.
     public static let family = "credential"
     public static let relayOp = "credential.relay"
     public static let sessionOp = "credential.session"
+    public static let carrierSocketOp = "credential.carrier_socket"
     /// The only app server the relay serves, and the only op family it
     /// sends: an install token with origin user counts as the person on the
     /// Worker (feed answers), so no other app and no other family may ever
@@ -63,25 +74,55 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let post: Post
     /// A valid install token; throws when no user is signed in or the mint fails.
     let token: @Sendable () async throws -> String
-    /// The current install generation. Link calls fence the answer to the
-    /// same install/team that was signed in when the request began.
-    let installID: @Sendable () async -> String?
     /// The Worker refused the token (401): the next ``token`` mints again.
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
     /// The ops the app server may have sent (``bundledServedOps()`` in the app).
     let allowedOps: @Sendable () async -> Set<String>
+    /// This app's carrier socket of a machine (``carrierSocketOp``).
+    let carrierSocket: CarrierSocket
+    /// Whether an organization turned Cloud off (`DisabledFeatures`): then no op is relayed and no
+    /// carrier socket is handed out, so a Cloud app server cannot start a carrier around the policy.
+    public let policy = Policy()
+
+    /// ``policy``: set on the main actor by the app's policy, read by each call.
+    public nonisolated final class Policy: Sendable {
+        private let state = Mutex(false)
+        public var turnedOff: Bool { state.withLock { $0 } }
+        public func set(turnedOff: Bool) { state.withLock { $0 = turnedOff } }
+    }
+
+    /// Why the app has no carrier socket of a machine: a `cmux carrier` step code (`ticket`, `relay`,
+    /// `parked_timeout`, `handshake`, `service_refused`, `bad_request`, `socket`), `cloud.machine.not_found`
+    /// (no session of that machine) or `unavailable`. Never a credential.
+    public struct CarrierRefusal: Error, Equatable, Sendable {
+        public var code: String
+        public var message: String
+        public var retryable: Bool
+
+        public init(code: String, message: String, retryable: Bool = false) {
+            (self.code, self.message, self.retryable) = (code, message, retryable)
+        }
+    }
+
+    /// The carrier socket path of `machine`, or why there is none.
+    public typealias CarrierSocket = @Sendable (_ machine: String) async -> Result<String, CarrierRefusal>
+
+    /// No carrier (a relay built without the app's Cloud sessions).
+    public static let noCarrier: CarrierSocket = { _ in
+        .failure(CarrierRefusal(code: "unavailable", message: "this cmux has no Cloud carrier"))
+    }
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
                 allowedOps: @escaping @Sendable () async -> Set<String>,
-                installID: (@Sendable () async -> String?)? = nil) {
+                carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) {
         self.post = post
         self.token = token
-        self.installID = installID ?? { nil }
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps
+        self.carrierSocket = carrierSocket
     }
 
     /// Answers one provider call of the `credential` family.
@@ -89,67 +130,32 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard call.app == Self.app else {
             return Self.failure("credential.app_refused", "only \(Self.app) may use the credential relay")
         }
+        if call.op != Self.sessionOp, policy.turnedOff { return Self.turnedOff }
         switch call.op {
         case Self.sessionOp:
             let state = await session()
             return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
         case Self.relayOp:
             return await relay(call.params)
+        case Self.carrierSocketOp:
+            return await carrier(call.params)
         default:
             return Self.failure("operation.unsupported", "\(call.op) is not a credential op")
         }
     }
 
-    /// Answers the private link transport. This path is deliberately separate
-    /// from `answer`: it has no app/manifest input and is called only by the
-    /// authenticated cmux-tui link socket. In particular, keeping
-    /// `refusedOps` in the app-provider path means an app server can never
-    /// acquire a dial token.
-    func linkConnectInfo(host: String, expectedInstall: String? = nil) async -> Answer {
-        await linkRequest(op: "cloud.machine.connect_info", params: .object(["host": .string(host)]), expectedInstall: expectedInstall)
-    }
-
-    func linkToken(host: String, services: [String], expectedInstall: String? = nil) async -> Answer {
-        await linkRequest(op: "cloud.machine.link_token", params: .object([
-            "host": .string(host),
-            "services": .array(services.map(JSONValue.string)),
-        ]), expectedInstall: expectedInstall)
-    }
-
-    private func linkRequest(op: String, params: JSONValue, expectedInstall: String? = nil) async -> Answer {
-        let initialSession = await session()
-        let initialInstall = await installID()
-        guard initialSession.signedIn else { return Self.notSignedIn }
-        guard let initialInstall, expectedInstall == nil || expectedInstall == initialInstall else { return Self.notSignedIn }
-        guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-        var envelope: [String: JSONValue] = ["op": .string(op), "params": params]
-        if op == "cloud.machine.link_token" { envelope["origin"] = .string("cli") }
-        guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else { return Self.failure("validation.invalid", "link request is not JSON") }
-        do {
-            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-            let bearer = try await token()
-            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-            var reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, bearer)
-            if reply.status == 401 {
-                await invalidate()
-                guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-                let retryBearer = try await token()
-                guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-                reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, retryBearer)
-            }
-            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-            return Self.answer(status: reply.status, body: reply.body)
-        } catch {
-            if await !session().signedIn { return Self.notSignedIn }
-            return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
+    /// `credential.carrier_socket {machine}`: the path only, for a signed-in app.
+    private func carrier(_ params: JSONValue) async -> Answer {
+        guard let machine = params["machine"]?.stringValue, !machine.isEmpty else {
+            return Self.failure("validation.invalid", "credential.carrier_socket needs a machine")
         }
-    }
-
-    private func sameLinkGeneration(session initial: Session, install initialInstall: String?) async -> Bool {
-        let current = await session()
-        guard current.signedIn, current.team == initial.team else { return false }
-        guard let initialInstall else { return false }
-        return await installID() == initialInstall
+        guard await session().signedIn else { return Self.notSignedIn }
+        switch await carrierSocket(machine) {
+        case .success(let socket):
+            return Answer(ok: true, body: .object(["value": .object(["socket": .string(socket)])]))
+        case .failure(let refusal):
+            return Self.failure(refusal.code, refusal.message, retryable: refusal.retryable)
+        }
     }
 
     private func relay(_ params: JSONValue) async -> Answer {
@@ -222,6 +228,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     }
 
     static let notSignedIn = failure("not_signed_in", "sign in to cmux")
+    static let turnedOff = failure("cmux.policy.turned_off", "your organization turned off cmux Cloud")
 
     static func failure(_ code: String, _ message: String, retryable: Bool = false) -> Answer {
         Answer(ok: false, body: .object(["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]))

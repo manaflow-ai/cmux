@@ -28,7 +28,7 @@ import Testing
 
     @Test func theSessionCarriesTheDotsTheRowsAndTheChosenColor() throws {
         let session = GroupEditorSession(id: "s1", revision: 3, group: Self.group, items: Self.items)
-        let event = session.event(themed: false, icons: GroupEditorIcons())
+        let event = session.event(palette: .glass, icons: GroupEditorIcons())
         #expect(event["id"]?.stringValue == "s1")
         #expect(event["revision"]?.intValue == 3)
         #expect(event["name"]?.stringValue == "Work")
@@ -43,7 +43,7 @@ import Testing
 
         var none = Self.group
         none.tint = .none
-        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(themed: false, icons: GroupEditorIcons())
+        let cleared = GroupEditorSession(id: "s2", revision: 1, group: none, items: []).event(palette: .glass, icons: GroupEditorIcons())
         guard case let .array(dots)? = cleared["colors"] else { Issue.record("no colors"); return }
         #expect(dots.filter { $0["chosen"]?.boolValue == true }.compactMap { $0["id"]?.stringValue } == ["grey"],
                 "a group with no color shows the No color dot chosen")
@@ -150,35 +150,45 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
-    /// Review of #37299 at a9e3400 (F1): the page's controls are fixed CSS sizes that follow only the Interface Size,
-    /// so the card's width does not shrink with the density (Ultra-compact cut off the dots, Custom Color and Set Icon).
-    @Test func theCardKeepsItsWidthAtEveryDensity() {
+    /// Review of #37299 at a9e3400 (F1), and of #37274 at ae317df (F1): the page's controls are fixed CSS sizes times
+    /// its `--cmux-interface-scale` (`Typography.pageScale`), so the card is 240 times that at every density: wider at
+    /// Spacious, whose 14.5 pt text grows the page, and never narrower than 240 at the smaller ones.
+    @Test func theCardMatchesItsPageScaleAtEveryDensity() {
         let design = DesignSettings.shared
-        let saved = design.densityTokens
-        defer { design.densityTokens = saved }
-        let widths = design.availableDensities.map { density in
+        let saved = (design.densityTokens, design.overrides[.chromeFontSize])
+        defer {
+            design.densityTokens = saved.0
+            design.setOverride(.chromeFontSize, saved.1)
+        }
+        design.setOverride(.chromeFontSize, nil)
+        for density in design.availableDensities {
             design.densityTokens = density
-            return (density.id, SidebarGroupEditor.width)
+            let standard = 240 * Typography.pageScale
+            #expect(abs(SidebarGroupEditor.width - standard) <= 0.5,
+                    "the editor is \(SidebarGroupEditor.width) wide at density \(density.id); its page's controls need \(standard)")
+            #expect(SidebarGroupEditor.width >= 239.5, "the editor shrank to \(SidebarGroupEditor.width) at density \(density.id)")
         }
-        let standard = 240 * Typography.userScale
-        for (id, width) in widths {
-            #expect(abs(width - standard) <= 0.5, "the editor is \(width) wide at density \(id); its controls need \(standard)")
-        }
+        design.densityTokens = DensityPreset.spacious.tokens
+        #expect(SidebarGroupEditor.width > 250, "Spacious grows the page's controls, the editor stayed \(SidebarGroupEditor.width) wide")
     }
 
-    /// Review of #37299 at efa6302 (F1): the page scales its controls by the Interface Size (`Typography.userScale`,
-    /// its `--cmux-interface-scale`), so the card widens with it and the swatch row and icon button stay whole.
-    @Test func theCardWidensWithTheInterfaceSize() {
+    /// Review of #37299 at efa6302 (F1), and of #37274 at ae317df (F1): the card follows the page's Text Size scale
+    /// (`Typography.pageScale`), which grows past the Default body size and stays 1 below it, so a small Text Size
+    /// keeps the card 240 wide for controls drawn at 1x.
+    @Test func theCardFollowsTheTextSizeLikeItsPage() {
         let design = DesignSettings.shared
-        let saved = design.overrides[.chromeFontSize]
-        defer { design.setOverride(.chromeFontSize, saved) }
-        design.setOverride(.chromeFontSize, nil)
-        let base = SidebarGroupEditor.width
+        let saved = (design.densityTokens, design.overrides[.chromeFontSize])
+        defer {
+            design.densityTokens = saved.0
+            design.setOverride(.chromeFontSize, saved.1)
+        }
+        design.densityTokens = DensityPreset.compact.tokens
+        design.setOverride(.chromeFontSize, 11)
+        #expect(abs(SidebarGroupEditor.width - 240) <= 0.5, "a Text Size below 13 pt draws the page at 1x; the card is \(SidebarGroupEditor.width)")
         design.setOverride(.chromeFontSize, 16)
-        let scale = Typography.userScale
-        #expect(scale > 1, "the test's chrome font size did not enlarge the interface")
-        #expect(abs(SidebarGroupEditor.width - base * scale) <= 0.5,
-                "the card stayed \(SidebarGroupEditor.width) wide for controls scaled \(scale)x")
+        #expect(Typography.pageScale > 1, "the test's Text Size did not enlarge the page")
+        #expect(abs(SidebarGroupEditor.width - 240 * Typography.pageScale) <= 0.5,
+                "the card stayed \(SidebarGroupEditor.width) wide for controls scaled \(Typography.pageScale)x")
     }
 
     /// Review of #37299 at efa6302 (F2): the editor takes the keys as it opens, before the page has painted, so a name

@@ -18,7 +18,6 @@ path = "src/main.rs"
 cmux-cloud-environment.workspace = true
 cmux-json.workspace = true
 base64.workspace = true
-cmux-cloud-wire.workspace = true
 cmux-link.workspace = true
 url.workspace = true
 x25519-dalek.workspace = true
@@ -36,10 +35,6 @@ sha2.workspace = true
 ring.workspace = true
 # gh's hosts.yml, read for the own-login check (`github_cli::parse_gh_hosts`).
 yaml-rust = "0.4.5"
-# The relay-first chat path (`cloud/relay.rs`): the machine's held socket to the platform.
-futures-util.workspace = true
-tokio.workspace = true
-tokio-tungstenite.workspace = true
 
 [dev-dependencies]
 # The composed bootstrap journey reuses cmux-server’s signed-channel fixtures.

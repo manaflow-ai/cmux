@@ -597,7 +597,7 @@ class OwnedVerify(unittest.TestCase):
         self.assertIn("steps.owned.outputs.owned", owned_output)
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
-        self.assertEqual(job.get("environment"), "ci-routing-agent")
+        self.assertEqual(job.get("environment"), {"name": "ci-routing-agent", "deployment": False})
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
         self.assertNotIn("github.run_attempt == 1", step["if"])
@@ -685,7 +685,7 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertEqual(mint["if"], route["if"])
                 # No widening: the job keeps actions: read and contents: read, in the routing environment.
                 self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
-                self.assertEqual(job["environment"], "ci-routing-agent")
+                self.assertEqual(job["environment"], {"name": "ci-routing-agent", "deployment": False})
                 budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
                 self.assertGreaterEqual(job_limit(job), budget)
 

@@ -28,7 +28,10 @@ afterEach(() => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
@@ -78,7 +81,9 @@ test("the Delete confirmation opens on its Delete button, so Return deletes", as
   let confirmed = 0;
   await renderOpen(() => confirmed++);
   const focused = document.activeElement as HTMLElement | null;
-  expect(focused?.classList.contains("acpmux-delete-dialog-confirm")).toBe(true);
+  // The Delete button: the solid danger button Return presses.
+  expect(focused?.getAttribute("aria-keyshortcuts")).toBe("Enter");
+  expect(focused?.hasAttribute("data-danger")).toBe(true);
   // Return on the focused Delete button presses it (a native button's Enter is its click).
   await act(async () => focused?.click());
   expect(confirmed).toBe(1);

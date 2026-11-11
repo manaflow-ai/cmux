@@ -32,6 +32,10 @@ notches on a frame top, a tail curl on a line end, a sleeper z, paw dots. 1-2 sh
 where it is natural and legible; most icons should NOT get one (aim for 15-25% of a batch). Never on
 status, security, permission-denied, error or destructive icons.
 
+Neko candidates are compared in `agent-pane.neko-icon-family` before being offered as a theme.
+Gallery-only artwork must not enter the production icon map. The candidate survey and rounds live
+in `design/icons/neko-evaluation.md`; a round records coverage separately from visual quality.
+
 ## Consistency rules (the inventory found these drawn many ways; there is ONE icon each now)
 - close = x (two 1.5 strokes, 6..18), used for tab close, dismiss, field clear (field.clear may be x in a
   circle). add/new = plus; "new X" = X with a small plus badge at bottom-right (badge: plus 5 px wide
@@ -41,8 +45,9 @@ status, security, permission-denied, error or destructive icons.
 - status family: one circle language: success = check in circle, warning = triangle with bang,
   error = x in circle (NOT the triangle), info = i in circle, running = 3/4 arc (static; animation is
   the app's job), needs input = circle with dot pulse ring, idle = hollow circle, off = slashed circle.
-- fork (agent.fork) and git.branch must differ: branch = git graph (two nodes and a curve); fork = one
-  line splitting into two arrowheads (Y). handoff = baton: arrow passing between two hands is too
+- fork (agent.fork), git.branch and git.pullrequest must differ: branch = git graph (two nodes and a
+  curve); fork = the fork mark, two top nodes whose tines join one stem to a bottom node (Leo 2026-11-09,
+  "and this fork symbol is so bad", of the arrow drawings); pull request = two columns and an arrow. handoff = baton: arrow passing between two hands is too
   detailed; use an arrow crossing from one small rounded square into another.
 - permission (site permissions) icons: the noun icon (camera, mic, location...); ".blocked" variants =
   same icon with a diagonal slash (slash drawn with a 1.5 knockout gap on its left side).

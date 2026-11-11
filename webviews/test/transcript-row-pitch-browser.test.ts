@@ -76,6 +76,8 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           from: [sender],
           promptIds: [`${id}-prompt`],
           preview: "Ready for review.",
+          // acpmux sends the newest message whole (hub/inbox.rs `newest`): one short line, on the line.
+          newest: "Ready for review.",
         },
       ],
     });
@@ -134,7 +136,7 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           rows,
         );
         // One waiting message draws as its own received line, with no group head (PendingMessagesCard.tsx).
-        await page.locator(".cv-pending .cv-disclosure__line, .cv-pending__line").first().waitFor();
+        await page.locator(".cv-pending .cv-agentmsg__line, .cv-pending__line").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         // Two frames for the transcript to place rows by their drawn heights.
         await page.evaluate(
@@ -146,6 +148,7 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
             ".acpmux-row > .cv-tools > .cv-tool",
             ".acpmux-row > .cv-tools > * > .cv-tool",
             ".acpmux-row > .cv-tools .cv-agent-activity-row",
+            ".cv-received > .cv-agentmsg__line",
             ".cv-received > .cv-disclosure__line",
             ".cv-lane-batch .cv-agent-activity-row",
             ".cv-pending__line",

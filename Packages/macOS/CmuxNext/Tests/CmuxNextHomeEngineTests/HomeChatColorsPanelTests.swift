@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
     }
 
     private func rig() throws -> Rig {
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let store = HomeChatColorStore(defaults: defaults)
         let panel = HomeChatColorsPanel(store: store, design: DesignSettings())
         panel.show(conversation: "chat", name: "Ada", over: nil)
@@ -77,5 +78,13 @@ import Testing
         await settle { !reset.isEnabled }
         #expect(!reset.isEnabled)
         #expect(!navy.isAccessibilitySelected())
+    }
+
+    @Test func escapeClosesThePanel() throws {
+        let rig = try rig()
+        rig.panel.show(conversation: "chat", name: "Ada", over: nil)
+        #expect(rig.window.isVisible)
+        rig.window.cancelOperation(nil)
+        #expect(!rig.window.isVisible)
     }
 }

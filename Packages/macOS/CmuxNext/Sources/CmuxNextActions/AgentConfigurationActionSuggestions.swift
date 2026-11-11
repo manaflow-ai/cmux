@@ -13,4 +13,6 @@ public nonisolated extension ActionSuggestions {
     static let agentEfforts = "agentEfforts"
     /// Modes currently advertised by the focused harness.
     static let agentModes = "agentModes"
+    /// The harness profiles in the user's own harness folder (Set Agent Icon…), by harness id.
+    static let agentHarnessProfiles = "agentHarnessProfiles"
 }

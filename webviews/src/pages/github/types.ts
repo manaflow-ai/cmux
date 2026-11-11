@@ -20,14 +20,60 @@ export const GitHubOps = {
   diffFile: "cmux.github.diff.file",
   /** `{url, head}` → `{merged, queued}`: GitHub's normal merge, pinned to `head`; needs the person's click. */
   merge: "cmux.github.pr.merge",
+  /** `{url}` → `{checks, reading}`: the CI dashboard's jobs, from the App's one checks cache. */
+  checks: "cmux.github.checks.read",
+  /** `{url, runs}` → `{rerun}`: re-runs those Actions runs' failed jobs; needs the person's click. */
+  rerun: "cmux.github.checks.rerun",
 } as const;
+
+/** One job of the CI dashboard (GitHubChecks.swift). */
+export interface DashboardJob {
+  /** The Actions job id; 0 for a commit status. */
+  id: number;
+  name: string;
+  workflow: string;
+  /** The Actions run it belongs to, what Re-run failed reruns. */
+  run?: number;
+  /** The event that started its run (`push`, `pull_request`); two events' runs are separate rows. */
+  event?: string;
+  state: "passed" | "failed" | "running" | "queued" | "skipped";
+  /** ISO 8601, empty before it starts or ends. */
+  startedAt: string;
+  completedAt: string;
+  url?: string;
+  /** Seconds the same job took at the base branch's tip. */
+  expected?: number;
+  /** A failed job's failing step and the end of its log, once read. */
+  failure?: { step: string | null; excerpt: string };
+  /** It fails the same way at the base branch's tip (the rollup's `onBase`). */
+  onBase?: boolean;
+}
+
+export interface DashboardChecks {
+  head: string;
+  settled: boolean;
+  /** GitHub has more suites or check runs than the host's one read takes: `jobs` is not all of them. */
+  truncated?: boolean;
+  jobs: DashboardJob[];
+}
+
+/** Re-run failed's progress on the page. */
+export type RerunState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | { phase: "started" }
+  | { phase: "failed"; message: string };
 
 /** One review comment, on a line of a file. */
 export interface ReviewComment {
   path: string;
   line: number | null;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   url: string | null;
+  /** Whether its thread is resolved; null when the read did not reach its thread. */
+  resolved?: boolean | null;
 }
 
 /** A comment or a review in the conversation. */
@@ -35,6 +81,8 @@ export interface ConversationEntry {
   kind: "comment" | "review";
   author: string;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** ISO 8601. */
   at: string;
   url: string | null;
@@ -46,6 +94,8 @@ export interface ConversationEntry {
 /** The host's `pr.details` answer (GitHubPullRequestDetails.swift). */
 export interface PullRequestDetails {
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** The head commit the page shows: Merge is pinned to it. */
   headCommit: string;
   /** GitHub's merge state, lowercased: `clean`, `unstable`, `blocked`, `behind`, `dirty`, `unknown`. */
@@ -56,9 +106,15 @@ export interface PullRequestDetails {
   conversation: ConversationEntry[];
   /** How many comments and reviews GitHub has; can be more than `conversation` holds. */
   conversationTotal: number;
+  /** How many comments and reviews the read got back, counted as `conversationTotal` is (before the
+   *  host leaves out empty review wrappers, so not `conversation.length`). Below the total, the
+   *  read has only part of the history. */
+  conversationRead: number;
   /** `approved`, `changes_requested`, `commented`, `dismissed` or `requested`. */
   reviewers: { name: string; state: string }[];
   linked: { number: number; title: string; url: string; state: string }[];
+  /** The signed-in GitHub login that read these details, for the conversation's Mine filter. */
+  viewer?: string;
 }
 
 /** One file's inline diff, as the page holds it. */

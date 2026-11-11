@@ -187,6 +187,11 @@ export default agentPaneEntry({
       note: "The lead chat, narrow: it starts a Codex review as a sub-session and posts progress replies while it runs.",
       snapshot: lead(false),
     },
+    "lead-running-hover": {
+      note: "The pointer on the sub-session's name: only its chip lights, the chat's one opener (Leo, 2026-11-05: \"subagents need to have their clickable bit be highlighted instead of the whole line click\").",
+      snapshot: lead(false),
+      play: async (ctx) => ctx.hover({ selector: ".cv-disclosure__open button.cv-agent-tag.is-open" }),
+    },
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",
       snapshot: lead(true),

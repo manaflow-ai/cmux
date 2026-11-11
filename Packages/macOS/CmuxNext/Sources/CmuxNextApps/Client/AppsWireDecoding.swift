@@ -22,6 +22,9 @@ public nonisolated struct AppsWireDecoding {
         case "apps-host":
             guard let app = json["app"]?.stringValue, let state = json["state"]?.stringValue.flatMap(AppHostState.init(rawValue:)) else { return nil }
             return .host(app: app, state: state, reason: json["reason"]?.stringValue)
+        case "apps-reload-failed":
+            guard let app = json["app"]?.stringValue else { return nil }
+            return .reloadFailed(app: app, reason: json["reason"]?.stringValue ?? AppsStrings.mountFailed)
         case "apps-log":
             guard let app = json["app"]?.stringValue else { return nil }
             return .log(app: app, level: json["level"]?.stringValue ?? "info", message: json["message"]?.stringValue ?? "", date: date)

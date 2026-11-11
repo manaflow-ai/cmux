@@ -1,4 +1,5 @@
 import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 
 /// A short-lived cmux access token for one team, for a person or agent outside
@@ -12,6 +13,13 @@ public struct CloudAccessToken: Sendable, Equatable {
     public var team: String
     /// The token's `sub` (the backend user id), when the token says.
     public var user: String?
+
+    /// A mint that gave no token, and the backend team it was for (nil when even that is unknown), so the
+    /// refusal names the team cmux Cloud refused, never the team the caller asked for (nil: the app's own).
+    public struct Refusal: Error, Equatable, Sendable {
+        public var failure: Failure
+        public var team: String?
+    }
     /// The token's `exp`, when the token says.
     public var expiresAt: Date?
 
@@ -89,6 +97,14 @@ public struct CloudAccessToken: Sendable, Equatable {
         return reply.team
     }
 
+    /// The backend's id for a Stack user (the API's `userIdFor`, as CloudIdentity.workerUserID): the `creator` a
+    /// cmux-next machine record names. Rust has the same rule (cmux-tui-core `cloud_conversations`), but not yet over
+    /// the pinned app FFI.
+    public static func backendUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
     /// The failure an install mint threw, as one of ours.
     static func failure(_ error: any Error) -> Failure {
         if let failure = error as? Failure { return failure }
@@ -137,5 +153,20 @@ extension CloudAuth {
     public func accessTokenTeam(requested: String?) throws -> String? {
         try CloudAccessToken.team(requested: requested, activeStackTeam: activeTeam.id, managedStackTeam: managedTeamID,
                                   stackProjectID: configuration.stackProjectID)
+    }
+
+    /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
+    /// Throws only ``CloudAccessToken/Refusal``, naming the team it was for: the picked one, else the install
+    /// token's own (`cmux whoami` said "team -" for the app's own team, Leo's NIGHTLY, 2026-11-11).
+    public func accessToken(requested: String?, identity: MacInstallIdentity) async throws -> CloudAccessToken {
+        var team = requested
+        do {
+            team = try accessTokenTeam(requested: requested)
+            return try await identity.accessToken(team: team)
+        } catch {
+            let failure = error as? CloudAccessToken.Failure ?? .badReply
+            if team == nil, let own = try? await identity.installToken() { team = MacInstallIdentity.team(ofToken: own) }
+            throw CloudAccessToken.Refusal(failure: failure, team: team)
+        }
     }
 }

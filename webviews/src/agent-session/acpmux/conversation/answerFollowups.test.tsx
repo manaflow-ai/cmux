@@ -150,7 +150,8 @@ test("F2: the card's two copies share the answer on its way, so two clicks send 
   await act(async () => buttons()[0]!.click());
   expect(buttons().every((b) => b.disabled)).toBe(true);
   await act(async () => buttons()[1]!.click());
-  expect(sent).toEqual(["Inline"]);
+  // No asker named: the quote is the question alone (nextStepAsk.ts `answerPrompt`).
+  expect(sent).toEqual(["> Which look should ship?\n\nInline"]);
   await act(async () => finish());
   expect(buttons().some((b) => b.disabled)).toBe(false);
 });

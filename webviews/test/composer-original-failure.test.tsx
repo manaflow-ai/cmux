@@ -2,19 +2,20 @@
 // An image is its chip once its preview is made, while its original still uploads (composer/
 // intakeFiles.ts). When that upload fails, the chip says so and offers Retry, and the preview
 // still sends; when the person sends or removes the chip, the cancelled upload stays silent.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import {
-  AttachmentStrip,
   useAttachmentIntake,
   type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntake";
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
+import { UPLOAD_RETRY_INPUT_WAIT_MS } from "../src/agent-session/acpmux/composer/uploadRetry";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -296,11 +297,17 @@ test("an image whose original was not saved shows Retry in a local chat too, and
   await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
   act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
+  // An upload that should never start has no event to wait for. Under fake timers every try again
+  // a listener could arm (zero-delay after the input, or the timed one) fires at once, and the act
+  // after it runs what that started, so an upload that starts on its own is in `uploads` here.
+  jest.useFakeTimers();
   for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
-  // An upload that should never start has no event to wait for; one task turn lets a listener's
-  // zero-delay try again run if one were armed.
-  // fixed-wait: waits on the absence of an upload, which no event signals.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  try {
+    act(() => void jest.advanceTimersByTime(UPLOAD_RETRY_INPUT_WAIT_MS));
+  } finally {
+    jest.useRealTimers();
+  }
+  await act(async () => {});
   expect(uploads).toEqual(["local"]);
   expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
 });

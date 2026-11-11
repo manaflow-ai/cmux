@@ -87,9 +87,9 @@ extension WorkspaceRowView {
         return (view, columns.trailingEdge(before: view.frame))
     }
 
-    /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.
+    /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's ground (``SidebarStyle/ground``).
     static func badgeBackdrop(_ fill: NSColor?) -> CGColor {
-        let base = Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.sidebarBackground
+        let base = SidebarStyle.ground
         guard let fill = fill?.usingColorSpace(.sRGB) else { return base.cgColor }
         let blended = base.blended(withFraction: fill.alphaComponent, of: fill.withAlphaComponent(1)) ?? base
         return blended.cgColor

@@ -84,3 +84,32 @@ def cell(summary, case):
     flashes = summary["flashes"]
     return (f"{summary['first_content_ms']['median']}{extra}, empty {summary['longest_empty_ms']}, "
             f"{flashes} flash{'es' if flashes != 1 else ''}")
+
+
+SPARE_MARKS = ("spare_adopted", "spare_empty", "spare_unready", "spare_refused")
+
+
+def spare_pool(records):
+    """What a case's opens found in the prewarmed page pool (AgentPaneSpareAdoption.swift's trace marks),
+    as `adopted 4/6, refused 2/6 (touched by featureTips)`, or None when no open's trace has a pool mark
+    (a case that never asks the pool). A refused or empty spare is a cold page for that open: every
+    subagent open made one for as long as a page's boot read of its tip records marked the spare touched,
+    and no number but the open's own time said so."""
+    counts, notes = {}, {}
+    for record in records:
+        marks = record.get("marks_ms") or {}
+        mark = next((m for m in SPARE_MARKS if m in marks), None)
+        if mark is None:
+            continue
+        counts[mark] = counts.get(mark, 0) + 1
+        if mark != "spare_adopted" and record.get("note"):
+            notes.setdefault(mark, set()).add(str(record["note"]))
+    if not counts:
+        return None
+    total = len(records)
+    parts = []
+    for mark in SPARE_MARKS:
+        if mark in counts:
+            why = f" ({', '.join(sorted(notes[mark]))})" if mark in notes else ""
+            parts.append(f"{mark.removeprefix('spare_')} {counts[mark]}/{total}{why}")
+    return ", ".join(parts)

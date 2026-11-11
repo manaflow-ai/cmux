@@ -104,6 +104,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     /// New calls wait for a cutover or a fall-back now.
     var holding: Bool { state.withLock { $0.holding } }
 
+    /// Calls parked until the cutover or fall-back lets them go.
+    var heldCalls: Int { state.withLock { $0.held.count } }
+
     // MARK: The move
 
     /// Moves the chat to `preferred` (the direct link): true once it carries the chat. False, with
@@ -495,6 +498,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
 
     public func children() async throws -> Data { try await call { try await $0.children() } }
     public func media(path: String) async throws -> Data { try await call { try await $0.media(path: path) } }
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        try await call { try await $0.mediaRange(path: path, offset: offset, length: length, handle: handle) }
+    }
     public func typing(_ on: Bool) async throws { try await call { try await $0.typing(on) } }
     public func view(_ visible: Bool) async throws { try await call { try await $0.view(visible) } }
     public func setModel(_ modelId: String) async throws -> Data { try await call { try await $0.setModel(modelId) } }
@@ -504,6 +510,11 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     }
     public func servesLogin() async -> Bool { (try? await call { await $0.servesLogin() }) ?? false }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data { try await call { try await $0.login(op, fields) } }
+    public func btw(_ question: String) async throws -> Data { try await call { try await $0.btw(question) } }
+    public func servesSide() async -> Bool { (try? await call { await $0.servesSide() }) ?? false }
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        try await call { try await $0.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
+    }
 
     public func detach() async {
         let clients = end()

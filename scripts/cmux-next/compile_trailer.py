@@ -433,6 +433,19 @@ DECL_SCAN = re.compile(r"""
 """, re.X)
 TYPE_KINDS = {"struct", "class", "enum", "protocol", "actor", "extension"}
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Swift's reserved words: one names a declaration only in backticks or after a `.` (2026-11-08: an enum case
+# `` `return` `` was matched by every `return` statement in a train's new lines).
+KEYWORDS = frozenset(
+    "as associatedtype break case catch class continue default defer deinit do else enum extension fallthrough false "
+    "fileprivate for func guard if import in init inout internal is let nil operator private protocol public repeat "
+    "rethrows return self Self static struct subscript super switch throw throws true try typealias var where while"
+    .split())
+KEYWORD_USE = re.compile(r"(?:\.\s*|`)(" + "|".join(sorted(KEYWORDS)) + r")(?![A-Za-z0-9_])")
+
+
+def code_names(code: str) -> set[str]:
+    """The identifiers CODE names: a reserved word only as `.word` or `` `word` ``."""
+    return (set(IDENT.findall(code)) - KEYWORDS) | set(KEYWORD_USE.findall(code))
 STRING_OPEN = re.compile(r'(#*)("""(?=[ \t]*\n)|")')  # a multi-line literal's `"""` ends its line
 ATTRIBUTE_LINE = re.compile(r"^\s*@[A-Za-z_]\w*(?:\([^)]*\))?\s*$")
 
@@ -792,7 +805,7 @@ def tokens_of(text: str | None) -> set[str]:
     if text is None:
         return set()
     code = swift_code(text)
-    return set(IDENT.findall("\n".join(code) if code is not None else text))
+    return code_names("\n".join(code) if code is not None else text)
 
 
 def added_tokens(text: str, added: list[int]) -> set[str]:
@@ -804,21 +817,24 @@ def added_tokens(text: str, added: list[int]) -> set[str]:
     found: set[str] = set()
     for index in added:
         if index < len(file.code):
-            found |= set(IDENT.findall(file.code[index]))
+            found |= code_names(file.code[index])
             found |= scope_of(file.frames[index])
     return found
 
 
 def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool],
-          testable: dict[str, set[str]] | None = None) -> tuple[str, str] | None:
+          testable: dict[str, set[str]] | None = None, sees=None) -> tuple[str, str] | None:
     """(why, the file) a side with EFFECT can break among FILES {path: the names it uses} (SWITCHES {path: its change
     adds a `switch`}), or None. A changed or new member counts where the file also names a type it sits in (a removed
-    one, and a top-level one, by name alone); a private one only in its own file."""
+    one, and a top-level one, by name alone); a private one only in its own file. SEES(path, declaring path) says
+    whether a file's module can see the declaring file's module at all (itself or a dependency); None: every one."""
     home = module_of
     def where(row: Change, need_scope: bool):
         for path, tokens in sorted(files.items()):
             if row[4] and path != row[1]:
                 continue
+            if sees is not None and not sees(path, row[1]):
+                continue  # a module the file's module does not depend on: no name of it can reach the file
             if (len(row) > 5 and row[5] and home(path) != home(row[1])
                     and (home(row[1]) or ("", ""))[1] not in (testable or {}).get(path, set())):
                 continue  # internal to another module, and this file has no `@testable import` of it
@@ -841,6 +857,8 @@ def meets(effect: Effect, files: dict[str, set[str]], switches: dict[str, bool],
             if (len(row) > 5 and row[5] and module_of(path) != module_of(row[1])
                     and (module_of(row[1]) or ("", ""))[1] not in (testable or {}).get(path, set())):
                 continue  # an enum internal to another module this file does not `@testable import`
+            if sees is not None and not sees(path, row[1]):
+                continue
             if adds and (not row[4] or path == row[1]) and names & files.get(path, set()):
                 return f"enum `{row[0]}` changed its cases in {row[1]}", path
     return None
@@ -949,7 +967,20 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
     graph = module_graph(repo, head)
     exports = exported_by(repo, head)
     names = {module for _, module in touched}
-    forward = closure(names, {k: graph.get(k, set()) | exports.get(k, set()) for k in set(graph) | set(exports)})
+    edges = {k: graph.get(k, set()) | exports.get(k, set()) for k in set(graph) | set(exports)}
+    forward = closure(names, edges)
+    reach: dict[str, set[str]] = {}
+
+    def sees(path: str, declared: str) -> bool:
+        """Whether PATH's module is DECLARED's module or depends on it (2026-11-08: a train's test that does not
+        depend on CmuxNextServer was refused over `window.close()` when upstream removed `PairInviteModel.close()`,
+        because the reach was the whole train's modules). A file outside a module counts as seeing everything."""
+        mine, theirs = module_of(path), module_of(declared)
+        if mine is None or theirs is None:
+            return True
+        if mine[1] not in reach:
+            reach[mine[1]] = closure({mine[1]}, edges)
+        return theirs[1] in reach[mine[1]]
     users: dict[str, set[str]] = {}
     for target, deps in graph.items():
         for dep in deps:
@@ -1000,7 +1031,7 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
         found = effect(path, fork, base, up_hunks[path])
         if found is None:
             return f"upstream changed {path}, in a module the push is in or uses, and the gate could not read it"
-        hit = meets(found, own_files, own_switches, own_testable)
+        hit = meets(found, own_files, own_switches, own_testable, sees)
         if hit:
             return f"upstream: {hit[0]}, and the push's {hit[1]} names it"
     # The push's change against upstream's changed files in modules that see the push's (they compile against it).
@@ -1018,7 +1049,7 @@ def rebase_safe(repo: Path, job_commit: str, head: str, own: list[str], base: st
     up_files = {p: added_tokens(texts[f"{base}:{p}"], up_hunks[p][1]) for p in reverse_paths
                 if texts[f"{base}:{p}"] is not None}
     hit = meets(own_effect, up_files, {p: adds_switch(up_hunks[p][2]) for p in up_files},
-                {p: set(TESTABLE.findall(texts[f"{base}:{p}"])) for p in up_files})
+                {p: set(TESTABLE.findall(texts[f"{base}:{p}"])) for p in up_files}, sees)
     if hit:
         return f"the push: {hit[0]}, and upstream's {hit[1]} names it"
     return None

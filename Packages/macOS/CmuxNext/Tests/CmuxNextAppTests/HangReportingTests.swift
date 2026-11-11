@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextTestSupport
 import Foundation
 import Sentry
 import Testing
@@ -101,7 +102,7 @@ import Testing
 
     @Test func theInstallIDIsMadeOnceAndKept() throws {
         let suite = "hang-reporting-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = CrashReportIdentity.installID(in: defaults)
         #expect(UUID(uuidString: first) != nil)

@@ -26,14 +26,18 @@ export type TurnFoldStyle = {
   /// notes sit between its work, as Codex's header does; a reply in sight is never one of them. False: it always reads "Worked for Ns",
   /// as ChatGPT's.
   countsMessages: boolean;
+  /// The closed line counts every call the turn made after its time, "Worked for 2m 17s · 14 tool
+  /// calls": the turn's one outer level, over the runs between its asides, each of which counts only
+  /// its own calls (toolGroups.ts `isAside`). False: the time alone, as Codex's header reads.
+  countsCalls: boolean;
 };
 
 /// ChatGPT and Codex: the conclusion fold, under Codex's own header.
-const CODEX: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: true };
+const CODEX: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: true, countsCalls: false };
 
 /// The fold every other family gets: one closed "Worked for 36s" over the
 /// conclusion, never a message count; opened, its runs fold per run.
-const WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false };
+const WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false, countsCalls: true };
 
 /// Keyed by the harness family's agent (agentKey: "claude-sr2" is "claude"). A family missing here
 /// folds as Codex does, as every family but Claude did before this table.
@@ -48,7 +52,12 @@ export const TURN_FOLD_STYLES: Readonly<Record<string, TurnFoldStyle>> = {
 
 /// Claude's other arm (`runs` in claudeTurnFold.experiment.ts): no turn fold, each run of calls on
 /// its own line in place as Claude desktop draws it, the prose between runs in sight.
-export const CLAUDE_IN_PLACE: TurnFoldStyle = { conclusion: false, runs: true, countsMessages: false };
+export const CLAUDE_IN_PLACE: TurnFoldStyle = {
+  conclusion: false,
+  runs: true,
+  countsMessages: false,
+  countsCalls: false,
+};
 
 /// The fold style of a harness family (acpmux's summary `family`); undefined folds as Codex does.
 /// `claudeInPlace` defaults to the experiment's arm, so a Claude turn keeps its runs in place only there.

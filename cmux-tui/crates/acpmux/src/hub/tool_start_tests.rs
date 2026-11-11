@@ -14,6 +14,7 @@ fn event(dir: &str, kind: &str, update: Value) -> HubEvent {
         }),
         remote: None,
         update_line: Default::default(),
+        row: Default::default(),
     }
 }
 

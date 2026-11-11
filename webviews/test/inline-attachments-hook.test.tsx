@@ -10,12 +10,16 @@
 // 5. an image in the text that cannot be drawn says so, as the strip's does, with Retry and Remove.
 // 6. a loading chip's node deleted and brought back by undo loads again under its id (#26545's
 //    review at 17b50e79); one whose file is not kept leaves the text, never an empty atom.
+// 7. one placement rule for every kind (Leo, 2026-11-09: "we have inline stuff, so why is this not
+//    inline? This one went above the whole thing."): an image, a video, a file, a screenshot and a
+//    Pasted text chip each go in at the caret, and one whose node a value from outside took away while
+//    it loaded (as a slow video's read invites) goes at the prompt's start, never the strip above.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
@@ -110,6 +114,11 @@ type Controls = {
   setPlacing(on: boolean): void;
   setText(next: string): void;
   sent(ids: string[]): void;
+  setScope(next: string): void;
+  keepInStrip(chips: PendingAttachment[]): void;
+  place(chips: PendingAttachment[]): void;
+  setPending(next: PendingAttachment[]): void;
+  keepAsFile(id: string): void;
 };
 
 /// A field and the hook, as the New Tab page wires them: the consumer holds the value and the
@@ -130,6 +139,7 @@ async function render(initial: {
   const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
   const { useInlineAttachments } = await import("../src/agent-session/acpmux/composer/inlineAttachments");
+  const { usePastedChips } = await import("../src/agent-session/acpmux/composer/pastedChips");
   const field = createRef<MarkdownFieldHandle>();
   const controls = createRef<Controls>() as { current: Controls | null };
   function Harness() {
@@ -137,10 +147,32 @@ async function render(initial: {
     const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(initial.attachments ?? []);
     const [placing, setPlacing] = useState(initial.placing ?? true);
     const [pending, setPending] = useState<PendingAttachment[]>(initial.pending ?? []);
+    const [scope, setScope] = useState("first");
     const attachmentsRef = useRef(attachments);
     attachmentsRef.current = attachments;
+    const setAttachments = (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
+      attachmentsRef.current = update(attachmentsRef.current);
+      setAttachmentsState((current) => update(current));
+    };
+    // Keep as .txt, as the composer wires it (ComposerBox.tsx): the intake makes the file's chip at
+    // once and places it, at the start when the pasted chip had no node.
+    const placeFile = useRef<(chips: PendingAttachment[], start: boolean) => void>(() => {});
+    const pasted = usePastedChips(attachmentsRef, setAttachments, field, (file, inText = true) => {
+      const made: ComposerAttachment = {
+        id: "kept-txt",
+        kind: "link",
+        name: file.name,
+        mimeType: file.type,
+        size: 1,
+        path: "/tmp/Pasted text.txt",
+      };
+      setAttachments((current) => [...current, made]);
+      placeFile.current([{ id: made.id, name: made.name, image: false } as PendingAttachment], !inText);
+    });
     const inline = useInlineAttachments({
+      keepFile: pasted.keepAsFile,
       field,
+      scope,
       text,
       attachments,
       attachmentsRef,
@@ -168,7 +200,13 @@ async function render(initial: {
       setPlacing,
       setText,
       sent: (ids) => inline.sent(ids),
+      setScope,
+      keepInStrip: (chips) => inline.place(chips, undefined, true),
+      place: (chips) => inline.place(chips, "drop"),
+      setPending,
+      keepAsFile: (id) => inline.keepFile(id),
     };
+    placeFile.current = (chips, start) => inline.place(chips, undefined, start);
     return (
       <>
         <MarkdownField
@@ -183,6 +221,13 @@ async function render(initial: {
         />
         {inline.chips}
         {initial.strip && <AttachmentStrip attachments={attachments} onRemove={() => {}} />}
+        {/* The inline view's strip: only what is not placed in the text (ComposerBox.tsx). */}
+        <div
+          data-unplaced={attachments
+            .filter((chip) => !inline.inText(text).has(chip.id))
+            .map((chip) => chip.id)
+            .join(" ")}
+        />
       </>
     );
   }
@@ -218,6 +263,26 @@ test("attachments added while nothing is placed go into the text when placing st
   expect(nodes()).toEqual([]);
   await act(async () => controls.setPlacing(true));
   await until(() => nodes().includes(FILE.id));
+  expect(nodes()).toEqual([FILE.id]);
+});
+
+// A chip kept as a file where it had no node in the text (pastedChips.ts keepAsFile) goes at the
+// start of the prompt, never at the caret and never left in the strip (Leo, 2026-11-09: "we have
+// inline stuff, so why is this not inline?"); across a scope change it is placed once, not again.
+test("a file kept where it had no node goes at the prompt's start, once, across a scope change", async () => {
+  const { field, controls } = await render({ text: "look", placing: true });
+  await act(async () => field.current!.setCaret(4));
+  await act(async () => {
+    controls.keepInStrip([{ ...FILE } as unknown as PendingAttachment]);
+    controls.setAttachments([FILE]);
+  });
+  for (let turn = 0; turn < 5; turn++) await settle();
+  expect(nodes()).toEqual([FILE.id]);
+  expect(field.current!.value().indexOf("look")).toBeGreaterThan(field.current!.value().indexOf(FILE.id));
+  await act(async () => controls.setScope("second"));
+  for (let turn = 0; turn < 5; turn++) await settle();
+  await act(async () => controls.setAttachments([{ ...FILE }]));
+  for (let turn = 0; turn < 5; turn++) await settle();
   expect(nodes()).toEqual([FILE.id]);
 });
 
@@ -429,4 +494,142 @@ test("an image in the text whose original did not fail shows no Retry", async ()
   await render({ text: `look ${inlineToken(IMAGE.id)} here`, attachments: [IMAGE] });
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));
   expect(inlineChip(IMAGE.id)!.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+});
+
+/// Every kind a person adds, as its read makes it.
+const KINDS: { label: string; attachment: ComposerAttachment; pending: Partial<PendingAttachment> }[] = [
+  {
+    label: "a screenshot",
+    attachment: { id: "k-shot", kind: "image", name: "Screenshot.png", mimeType: "image/png", size: 3, data: "AAAA" },
+    pending: { image: true },
+  },
+  {
+    label: "a video",
+    attachment: {
+      id: "k-video",
+      kind: "link",
+      name: "Screen Recording.mov",
+      mimeType: "video/quicktime",
+      size: 48_000_000,
+      path: "/Users/dev/Desktop/Screen Recording.mov",
+    },
+    pending: { video: true },
+  },
+  { label: "a file", attachment: { ...FILE, id: "k-file" }, pending: {} },
+  {
+    label: "a PDF",
+    attachment: {
+      id: "k-pdf",
+      kind: "link",
+      name: "spec.pdf",
+      mimeType: "application/pdf",
+      size: 9,
+      path: "/tmp/spec.pdf",
+    },
+    pending: {},
+  },
+  {
+    label: "a Pasted text chip",
+    attachment: {
+      id: "k-pasted",
+      kind: "pasted",
+      name: "Pasted text",
+      mimeType: "text/plain",
+      size: 5,
+      text: "a\nb\nc",
+    },
+    pending: {},
+  },
+];
+
+const unplaced = () => host.querySelector("[data-unplaced]")?.getAttribute("data-unplaced") ?? "";
+
+for (const { label, attachment, pending } of KINDS) {
+  const chip = { id: attachment.id, name: attachment.name, image: false, ...pending } as PendingAttachment;
+
+  test(`${label} added at the caret loads there and stays in the text`, async () => {
+    const { field, controls } = await render({ text: "hello world" });
+    await act(async () => field.current!.setCaret("hello ".length));
+    await act(async () => {
+      controls.setPending([chip]);
+      controls.place([chip]);
+    });
+    expect(nodes()).toEqual([attachment.id]);
+    await act(async () => {
+      controls.setPending([]);
+      controls.setAttachments([attachment]);
+    });
+    for (let turn = 0; turn < 3; turn++) await settle();
+    expect(nodes()).toEqual([attachment.id]);
+    expect(unplaced()).toBe("");
+    const value = field.current!.value();
+    expect(value.indexOf(attachment.id)).toBeGreaterThan(value.indexOf("hello"));
+    expect(value.indexOf(attachment.id)).toBeLessThan(value.indexOf("world"));
+  });
+
+  test(`${label} whose node a value from outside took away while it loaded lands at the prompt's start, not the strip`, async () => {
+    const { field, controls } = await render({ text: "hello" });
+    await act(async () => field.current!.setCaret(5));
+    await act(async () => {
+      controls.setPending([chip]);
+      controls.place([chip]);
+    });
+    expect(nodes()).toEqual([attachment.id]);
+    // A chat's draft read, a carried prompt: the text is replaced, its node gone, the read still out.
+    await act(async () => controls.setText("hello there"));
+    await settle();
+    expect(nodes()).toEqual([]);
+    await act(async () => field.current!.setCaret("hello th".length));
+    await act(async () => {
+      controls.setPending([]);
+      controls.setAttachments([attachment]);
+    });
+    for (let turn = 0; turn < 3; turn++) await settle();
+    expect(nodes()).toEqual([attachment.id]);
+    expect(unplaced()).toBe("");
+    // At the start, never between the letters typed meanwhile.
+    const value = field.current!.value();
+    expect(value.indexOf(attachment.id)).toBeLessThan(value.indexOf("hello there"));
+    expect(value).toContain("hello there");
+  });
+}
+
+// Router review of #39955 (F1): Keep as .txt on a Pasted text chip that has no node (a value from
+// outside took it away) puts the file in the text; an undo then brings the paste back, never leaves
+// the draft with neither the paste nor its file.
+test("Keep as .txt on a node-less pasted chip survives an undo", async () => {
+  const PASTED = {
+    id: "k-pasted",
+    kind: "pasted",
+    name: "Pasted text",
+    mimeType: "text/plain",
+    size: 5,
+    text: "a\nb\nc",
+  } as ComposerAttachment;
+  const { field, controls } = await render({ text: `hello ${inlineToken(PASTED.id)}`, attachments: [PASTED] });
+  await until(() => nodes().includes(PASTED.id));
+  // A value from outside: the node goes, the chip stays (drawn in the strip until placed).
+  await act(async () => controls.setText("hello there"));
+  await settle();
+  expect(nodes()).toEqual([]);
+  expect(controls.attachments().map((chip) => chip.id)).toEqual([PASTED.id]);
+  // Later than the editor's undo grouping (500 ms, read from each transaction's Date.now), as a
+  // person's click is: its own undo step. The clock moves on instead of the test waiting.
+  const realNow = Date.now;
+  const later = realNow() + 1000;
+  Date.now = () => later;
+  try {
+    await act(async () => controls.keepAsFile(PASTED.id));
+  } finally {
+    Date.now = realNow;
+  }
+  for (let turn = 0; turn < 3; turn++) await settle();
+  expect(nodes()).toEqual(["kept-txt"]);
+  expect(controls.attachments().map((chip) => chip.id)).toEqual(["kept-txt"]);
+  await act(async () => field.current!.undo());
+  for (let turn = 0; turn < 3; turn++) await settle();
+  const held = controls.attachments().map((chip) => chip.id);
+  expect(held.includes(PASTED.id) || held.includes("kept-txt")).toBe(true);
+  expect(nodes().some((id) => held.includes(id!))).toBe(true);
+  expect(field.current!.value()).toContain("hello there");
 });

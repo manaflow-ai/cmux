@@ -5,6 +5,7 @@ import type {
   AccountsRow,
   AccountsState,
   CloudEnvironmentsState,
+  HarnessesState,
   HostLists,
   ProviderAccount,
 } from "./ops";
@@ -254,6 +255,15 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   accounts: accounts(),
   ...extra,
 });
+/** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
+const showEndpoint =
+  (ready = "[data-agents-endpoint]") =>
+  async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+    await ctx.waitFor(() => ctx.document.querySelector(ready));
+    const form = ctx.find({ selector: "[data-agents-endpoint]" });
+    form.setAttribute("data-gallery-capture", "");
+    form.scrollIntoView({ block: "center" });
+  };
 const variants: Record<string, SettingsPageVariant> = {
   "model-picker-placement-inherited": variant("agents", {
     focus: "agentPane.display.harnessPlacement",
@@ -347,6 +357,19 @@ const providerAccounts: ProviderAccount[] = [
   },
 ];
 
+/** The Codex harness row alone, for the account variants. */
+const codexHarness: HarnessesState["harnesses"] = [
+  {
+    id: "codex",
+    name: null,
+    kind: "acp",
+    source: "path",
+    problem: null,
+    version: "0.164.0",
+    checkedAt: minutesAgo(54),
+  },
+];
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
     note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
@@ -426,6 +449,59 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Remove asks first, in the row. Three states of the one flow: the question open on an added
+  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
+  // read before its sign-out is no longer shown.
+  "agents-harnesses-account-remove-confirm": variant("agents", {
+    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
+    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
+    steps: [
+      wait('[data-account="codex-2"] [data-account-action="remove"]'),
+      click('[data-account="codex-2"] [data-account-action="remove"]'),
+      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-remove-confirm-key": variant("agents", {
+    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "claude-key",
+          family: "claude",
+          name: "Work key",
+          home: null,
+          defaultHome: "~/.claude",
+          shadowOf: null,
+          signedIn: true,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+          key: true,
+        },
+      ],
+      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
+    },
+    steps: [
+      wait('[data-account="claude-key"] [data-account-action="remove"]'),
+      click('[data-account="claude-key"] [data-account-action="remove"]'),
+      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-signed-out": variant("agents", {
+    note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-2" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
@@ -453,6 +529,35 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
+  }),
+  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  "personalization-background": variant("personalization", {
+    focus: "personalization.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
+    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+  }),
+  "personalization-chief": variant("personalization", {
+    focus: "personalization.chief",
+    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
+    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
+  }),
+  "personalization-text": variant("personalization", {
+    focus: "personalization.text",
+    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
+    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
+  }),
+  "personalization-sounds": variant("personalization", {
+    focus: "personalization.sounds",
+    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
@@ -775,6 +880,28 @@ Object.assign(variants, {
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
       const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "worktree-setup": variant("agents", {
+    note: "Settings > Agents > Worktree Setup: the project's scripts and files to copy, what the repository says under each.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "worktree-setup-edited": variant("agents", {
+    note: "Edited: a replaced setup script, the run script turned off (empty), with Use Repository's under each, Save lit.",
+    steps: [
+      wait('[data-worktree-field="setup"] textarea:not([disabled])'),
+      input('[data-worktree-field="setup"] textarea', "bun install --frozen-lockfile"),
+      input('[data-worktree-field="run"] textarea', "x"),
+      input('[data-worktree-field="run"] textarea', ""),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
       card.setAttribute("data-gallery-capture", "");
       card.scrollIntoView({ block: "center" });
     },
@@ -1262,6 +1389,74 @@ Object.assign(variants, {
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
   }),
+  // Settings > Agents > Add > Endpoint (plan api-and-open-models gaps 3 and 6): an open-weight model
+  // or your own endpoint, picked from a preset.
+  "agents-endpoint-empty": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [wait("[data-agents-endpoint]")],
+    play: showEndpoint(),
+    note: "Endpoint tab as it opens: the model server on this Mac preset, its URL filled, no key field, no models yet (Check and Add waits for one).",
+  }),
+  "agents-endpoint-gateway-filled": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "gateway" },
+      input('[data-endpoint-field="baseUrl"] input', "https://gateway.example.com"),
+      input('[data-endpoint-field="models"] input', "model-large, model-medium, model-small"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+    ],
+    play: showEndpoint(),
+    note: "The Anthropic-compatible gateway preset filled in: it runs Claude Code, three models fill its Opus, Sonnet and Haiku slots, and the key field says where the key goes.",
+  }),
+  "agents-endpoint-fetched": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      click('[data-endpoint-field="models"] button'),
+      wait("[data-endpoint-fetched]"),
+    ],
+    play: showEndpoint("[data-endpoint-fetched]"),
+    note: "Fetch Models on the local model server: the endpoint's three models fill the list and the line under it says how many it found.",
+  }),
+  "agents-endpoint-doctor-failed": variant("agents", {
+    focus: "agents.endpoint",
+    endpoint: {
+      doctor: {
+        ok: false,
+        steps: [
+          { name: "launch", ok: true },
+          {
+            name: "prompt",
+            ok: false,
+            detail: "401 Unauthorized",
+            fix: "check the key: the endpoint refused it. Store it again with `cmux harness secret set hosted-models CMUX_BYO_API_KEY`",
+          },
+        ],
+      },
+    },
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "hosted" },
+      input('[data-endpoint-field="baseUrl"] input', "https://api.example.com/v1"),
+      input('[data-endpoint-field="models"] input', "model-large"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+      click("[data-endpoint-add]"),
+      wait('[data-endpoint-status="failed"]'),
+    ],
+    play: showEndpoint('[data-endpoint-status="failed"]'),
+    note: "Check and Add on a hosted provider whose key is refused: the failing step, its detail and fix; the form stays open and the key field is empty again.",
+  }),
+  "agents-endpoint-insecure": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "team-server" },
+      input('[data-endpoint-field="baseUrl"] input', "http://inference.example.com/v1"),
+    ],
+    play: showEndpoint(),
+    note: "Your team's server over plain http to another machine: the line under the URL asks for https, and Check and Add waits.",
+  }),
   "agents-stable-check-idle": variant("agents", {
     note: "Check actions at rest, reserving their translated Checking label width.",
     agents: { doctor: {} },
@@ -1635,6 +1830,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

@@ -22,6 +22,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -517,13 +524,18 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('"$runner/ensure-system-chrome.sh"', block)
         self.assertLess(text.index("CMUX_CHROME_HEADLESS_SHELL="), text.index('bash "$runner/run-webviews-tests.sh"'))
         self.assertIn('CMUX_WEB_TEST_STATES="$out.states"', text)
+        # #40115: an older commit's probe draws the shards' font, from the runner's copy (the commit may lack it).
+        self.assertLess(text.index('"$runner/pin-browser-test-font.sh"'), text.index("cd webviews || exit 0"))
         with tempfile.TemporaryDirectory() as tmp:
             helper = Path(tmp, "ensure-system-chrome.sh")
             helper.write_text("#!/usr/bin/env bash\necho 'system Chrome 142 at /opt/chrome'\n"
                               "echo 'CMUX_CHROME_HEADLESS_SHELL=/cache/chrome-headless-shell'\n")
             helper.chmod(0o755)
+            pin = Path(tmp, "pin-browser-test-font.sh")
+            pin.write_text("#!/usr/bin/env bash\necho 'pin-browser-test-font: the UI font stack draws Inter'\n")
+            pin.chmod(0o755)
             got = subprocess.run(["bash", "-c", f"runner={tmp}\n{block}\nprintf '%s' \"$CMUX_CHROME_HEADLESS_SHELL\""],
-                                 capture_output=True, text=True, check=True, env={"PATH": os.environ["PATH"]})
+                                 capture_output=True, text=True, check=True, env=git_fixture_env.fixture_env({"PATH": os.environ["PATH"]}))
             self.assertTrue(got.stdout.endswith("/cache/chrome-headless-shell"), got.stdout)
 
 
@@ -605,7 +617,8 @@ class WorkflowTests(unittest.TestCase):
             finally:
                 del sys.modules[spec.name]
             self.assertTrue(copied.WEB_BUNDLE_KEY.is_file(), copied.WEB_BUNDLE_KEY)
-            for name in ("run-webviews-tests.sh", "web_coalesce.py", "web-bisect-probe.sh", "webviews_test_history.py"):
+            for name in ("run-webviews-tests.sh", "web_coalesce.py", "web-bisect-probe.sh", "webviews_test_history.py",
+                         "pin-browser-test-font.sh"):
                 self.assertTrue(Path(tmp + runner, name).is_file(), name)
 
     def test_the_marker_is_restored_from_and_saved_to_one_path(self):

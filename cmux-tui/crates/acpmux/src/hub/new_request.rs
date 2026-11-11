@@ -121,6 +121,9 @@ pub struct NewRequest {
     /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
     /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
     pub wait_start: bool,
+    /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
+    /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
+    pub require_asking: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

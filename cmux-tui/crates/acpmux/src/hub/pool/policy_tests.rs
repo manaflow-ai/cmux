@@ -15,6 +15,9 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         auth: String::new(),
         account: None,
         machine: None,
+        prompt_suggestions: None,
+        model: None,
+        effort: None,
     }
 }
 

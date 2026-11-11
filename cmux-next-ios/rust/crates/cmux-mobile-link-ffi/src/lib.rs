@@ -13,8 +13,12 @@ use cmux_mobile_link::{ChannelEvent, DialError, DialOptions, LinkConfig, Signali
 use tokio::runtime::Runtime;
 
 mod browser;
+mod classic_leftovers;
+mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
 
@@ -180,6 +184,22 @@ pub enum CmuxMobileError {
     Transport { message: String },
     #[error("closed: {message}")]
     Closed { message: String },
+}
+
+/// The code of [`CmuxMobileError::Refused`] when the cmux service refused the
+/// access token (HTTP 401). The app refreshes the token once; a refused fresh
+/// token is a revoked session (it stops redialing and asks to sign in).
+pub const UNAUTHORIZED: &str = "unauthorized";
+
+impl From<cmux_mobile_link::signaling::SignalingError> for CmuxMobileError {
+    fn from(error: cmux_mobile_link::signaling::SignalingError) -> Self {
+        match error {
+            cmux_mobile_link::signaling::SignalingError::Unauthorized => {
+                Self::Refused { code: UNAUTHORIZED.into(), message: error.to_string() }
+            }
+            other => Self::Signaling { message: other.to_string() },
+        }
+    }
 }
 
 impl From<DialError> for CmuxMobileError {
@@ -604,6 +624,11 @@ pub struct ConnectOptions {
     /// rides RTP inside the tunnel (the "WireGuard only" comparison).
     #[uniffi(default = false)]
     pub no_webrtc_media: bool,
+    /// WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
+    /// made while the network is cellular (`set_cellular_path`) sends
+    /// repair data, about 2-3x the bytes, so a lossy network costs no time.
+    #[uniffi(default = false)]
+    pub ultra_on_cellular: bool,
 }
 
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
@@ -659,6 +684,7 @@ pub async fn connect_with_options(
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
             && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
+        ultra_on_cellular: options.ultra_on_cellular,
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -685,6 +711,8 @@ pub struct ConnectRequest {
     /// WireGuard: offer a WebRTC media session beside the link for browser
     /// video (cmux_mobile_link::hybrid).
     pub webrtc_media: bool,
+    /// WireGuard: "Ultra mode on cellular" (`ConnectOptions::ultra_on_cellular`).
+    pub ultra_on_cellular: bool,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -943,7 +971,7 @@ impl Warm {
     ) -> Result<Arc<WarmSocket>, CmuxMobileError> {
         let client = SignalingClient::connect(&key.base_url, token, &key.team_id, &key.device_id)
             .await
-            .map_err(|e| CmuxMobileError::Signaling { message: e.to_string() })?;
+            .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
         let socket = Arc::new(WarmSocket { key: key.clone(), client });
         let mut pool = self.sockets.lock().await;
@@ -996,6 +1024,16 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
         timing_marks(&timeline)
     })
     .await
+}
+
+/// The device's network is cellular now, or not (iOS `NWPathMonitor`,
+/// `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
+/// too). WireGuard dials made from now on turn ultra mode on when this is
+/// true and their `ConnectOptions::ultra_on_cellular` is set; a live link
+/// keeps its mode until it redials.
+#[uniffi::export]
+pub fn set_cellular_path(cellular: bool) {
+    cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
 /// How long the signaling socket may take to answer after a network
@@ -1101,6 +1139,7 @@ async fn dial(
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
+        ultra_on_cellular: request.ultra_on_cellular,
         timeline: timeline.clone(),
         ..DialOptions::default()
     };

@@ -17,6 +17,7 @@ fn spec() -> RunRecord {
         state: State::Paused,
         activities: BTreeMap::new(),
         outcome: None,
+        caller_subagent: None,
     }
 }
 

@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
@@ -80,6 +81,8 @@
         "sidebar.groupHeader.memberCount",
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
+        "sidebar.groupPalette",
+        "sidebar.groupGradient",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -114,8 +117,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -199,6 +201,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The app's one selected-text color (looks only)",
       "keys": [
         "appearance.highlightColor"
@@ -275,7 +284,6 @@
         "ui.animationSpeed",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
-        "ui.animations.bounce",
         "ui.animations.enabled",
         "ui.animations.sidebar",
         "ui.animations.tabs",
@@ -383,7 +391,8 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys"
       ]
     },
     {
@@ -462,10 +471,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -719,6 +736,10 @@
         "agentPane.display.pinnedPlan",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.unreadBanner",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",
@@ -730,6 +751,7 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement",
@@ -829,6 +851,7 @@
         "agentPane.showContextUsage",
         "agentPane.composerRing",
         "agentPane.showDictation",
+        "agentPane.dictationSource",
         "agentPane.spellChecking",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
@@ -896,9 +919,23 @@
     },
     {
       "agent": "userOnly",
+      "why": "The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.",
+      "keys": [
+        "agentPane.dictationShortcut"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.",
       "keys": [
         "cloud.agentsStartWithoutAsking"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "keys": [
+        "cloud.turnCheckpoints"
       ]
     },
     {
@@ -936,6 +973,14 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "keys": [
+        "agents.chats.coldArchive",
+        "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "picker.pinned"
@@ -965,6 +1010,14 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
@@ -1097,6 +1150,13 @@
     },
     {
       "agent": "privacy",
+      "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on.",
+      "keys": [
+        "browser.import.cookieSync"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Only the person's Connect click opts in to reading Messages.",
       "keys": [
         "imessage.enabled"
@@ -1188,8 +1248,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {
@@ -1218,6 +1280,20 @@
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the person's Command Palette lists the debug commands: the person's call.",
+      "keys": [
+        "app.internalDeveloperMode"
       ]
     },
     {
@@ -1321,7 +1397,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1343,6 +1420,13 @@
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
         "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
       ]
     },
     {
@@ -1379,6 +1463,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {
@@ -1446,6 +1538,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

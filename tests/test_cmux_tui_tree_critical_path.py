@@ -36,6 +36,13 @@ import sys
 import tempfile
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -288,7 +295,7 @@ def main():
     _check("build-ok" not in all_jobs, "no build-ok job between the build and publish")
     publish = all_jobs["publish"]
     base = dict(owns, **{"__needs__": needs(publish), "needs.build-darwin-fallback.result": "skipped",
-                         "needs.darwin-fallback-plan.result": "skipped"})
+                         "needs.darwin-fallback-plan.result": "skipped", "needs.build-linux.result": "success"})
     for build, fallback, recovered, expected in (("success", "skipped", "", True), ("failure", "success", "false", True),
                                                  ("failure", "skipped", "true", True), ("failure", "failure", "false", False),
                                                  ("failure", "skipped", "", False), ("skipped", "skipped", "", False)):
@@ -298,6 +305,9 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
+    # The Linux targets build in build-linux: publish never runs without them.
+    _check(not evaluate(publish["if"], dict(base, **{"needs.build.result": "success", "needs.build-linux.result": "failure"})),
+           "publish with build success and build-linux failure: skipped")
 
     # 4. publish-tree writes this commit's marker on feat-cmux-next, and only on its first (unix) pass.
     tree_steps = all_jobs["publish-tree"]["steps"]

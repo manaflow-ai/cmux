@@ -11,7 +11,8 @@ SOURCE_SHA or SHA256SUMS is a 404) is skipped, never waited for. The base's FFI 
 release it picks; merge_hold's classifier (scripts/ci/base_red_excuse.py) accepts such a pin once the app
 compiles against it. When nothing newer is published it prints the current pin, so the re-pin is a no-op.
 
-Reads tags with `git ls-remote` and release files anonymously from the release downloads: no API quota.
+Reads tags with `git ls-remote` and release files anonymously from the release downloads: no API quota. A download
+that fails but for a 404 is read once more through the release-assets API (two anonymous calls).
 The current pin is read only through scripts/ci/app_ffi_pin.py's canonical match; a Package.swift that does not
 match it exits 1. The walk goes newest first, a page of PAGE commits at a time, and ends at the current pin's
 commit (it never goes older than the pin), so any number of unpublished releases is skipped; more than MAX_PAGES
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -35,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 ASSET = "CCmuxAppFFI.xcframework.zip"
 TAG = re.compile(r"refs/tags/cmux-app-ffi-([0-9a-f]{40})$")
+DOWNLOAD = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$")
 SUMS_LINE = re.compile(r"^([0-9a-f]{64})  " + re.escape(ASSET) + r"$", re.M)
 PAGE = 200  # commits read from git per page, newest first
 MAX_PAGES = 50  # 10,000 commits since the pin: past that the walk errors out instead of stopping short
@@ -50,12 +53,13 @@ class Unpublished(Exception):
     """A release file is a 404: the release is not (fully) published."""
 
 
-def fetch(url: str) -> str:
-    """URL's text. Unpublished on a 404; three tries on anything else, then the error."""
+def get(url: str, headers: dict[str, str] | None = None, limit: int = 1 << 16) -> bytes:
+    """URL's body, at most LIMIT bytes. Unpublished on a 404; three tries on anything else, then the error."""
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(url, timeout=FETCH_SECONDS) as answer:  # noqa: S310 (release downloads)
-                return answer.read(1 << 16).decode("utf-8")
+            request = urllib.request.Request(url, headers=headers or {})
+            with urllib.request.urlopen(request, timeout=FETCH_SECONDS) as answer:  # noqa: S310 (release downloads)
+                return answer.read(limit)
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 raise Unpublished(url) from error
@@ -70,6 +74,26 @@ def fetch(url: str) -> str:
                 raise
         time.sleep(3 * (attempt + 1))
     raise AssertionError("unreachable")
+
+
+def fetch(url: str) -> str:
+    """URL's text. A release download that still fails goes through the release-assets API, which serves the same
+    file another way (2026-11-08: every release download answered 504 for hours while the API served the same bytes,
+    and the re-pin of cmux-app-ffi-d2c8d7c3 failed on it). release() checks what it gets like the download."""
+    try:
+        return get(url).decode("utf-8")
+    except (OSError, urllib.error.URLError) as error:
+        found = DOWNLOAD.match(url)
+        if not found:
+            raise
+        owner, repo, tag, name = found.groups()
+        print(f"note: {url} failed ({error}); reading it through the release-assets API", file=sys.stderr)
+    tags_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    assets = json.loads(get(tags_url, {"Accept": "application/vnd.github+json"}, limit=1 << 22))["assets"]
+    asset = next((item["url"] for item in assets if item["name"] == name), None)
+    if asset is None:
+        raise Unpublished(f"{tags_url} has no asset {name}")
+    return get(asset, {"Accept": "application/octet-stream"}).decode("utf-8")
 
 
 def git(*args: str) -> str:

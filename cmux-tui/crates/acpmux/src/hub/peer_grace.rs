@@ -22,6 +22,7 @@ impl Hub {
         if self.peer_notices_finished.load(Ordering::Acquire) {
             return;
         }
+        // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
         let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
     }
 
@@ -32,7 +33,7 @@ impl Hub {
             return;
         };
         {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             let link = current.link();
             if link.attempts <= 1 {
                 tracing::warn!(peer, "peer disconnected: {reason}");
@@ -44,7 +45,7 @@ impl Hub {
         self.peer_snapshots.flush(Some(peer));
     }
 
-    /// The cache write a drop owes, outside the rows lock. An outage's first drop
+    /// The cache write a drop owes, outside the rows writer lock. An outage's first drop
     /// writes now, not at the row deadline: a row change whose save was throttled
     /// reaches disk though the daemon may stop inside the grace window, and the
     /// outage's age is kept for a peer that lists no rows or only closed ones. A drop

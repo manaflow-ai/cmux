@@ -78,6 +78,17 @@ const openMachineList = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
 };
 
+/// New Project (newProject.ts): the folder menu's New project row, then its name field in the strip.
+const chooseNewProject = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  await ctx.click({ selector: '.nt-location [aria-label="Folder"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+  await ctx.click({ role: "option", name: /^New project$/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-project-name__field"));
+};
+const projectNameValue = (ctx: PlayContext) =>
+  ctx.document.querySelector<HTMLInputElement>(".nt-project-name__field")?.value;
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -379,6 +390,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/newtab/NewProjectName.tsx#NewProjectName",
+    "agent-session/acpmux/newtab/NewProjectName.tsx#NewProjectFailure",
     "ui/HideableChrome.tsx#HideableChrome",
     "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
@@ -423,6 +436,67 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
       },
     },
+    // New Project (Leo, 2026-11-08): the folder menu's New project row makes a new folder with an
+    // empty git repository for the chat; the strip names it, from the prompt until the person types one.
+    "new-project-chosen": {
+      note: "New project just chosen, prompt empty: the strip reads New project / project (the placeholder name until a prompt names one).",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        if (projectNameValue(ctx) !== "project") throw new Error("an empty prompt's project is not named project");
+        if (!ctx.document.querySelector(".nt-location")?.textContent?.includes("New project"))
+          throw new Error("the strip does not read New project");
+      },
+    },
+    "new-project-derived": {
+      note: 'New project with a prompt typed: "a habit tracker web app" names the folder habit-tracker in the strip, the kind words dropped.',
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        await typePrompt(ctx, "a habit tracker web app");
+        await ctx.waitFor(() => projectNameValue(ctx) === "habit-tracker");
+      },
+    },
+    "new-project-long-name-narrow": {
+      note: "New project in a 300 px pane with a long name the person typed: the name field gives up width before the folder control and ends in an ellipsis; nothing leaves the strip.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        ctx.document.body.style.maxWidth = "300px";
+        await typePrompt(ctx, "Build me a recipe box that imports recipes from photos");
+        await ctx.waitFor(() => projectNameValue(ctx) === "recipe-box");
+        await ctx.focus({ selector: ".nt-project-name__field" });
+        ctx.document.querySelector<HTMLInputElement>(".nt-project-name__field")?.select();
+        await ctx.type("Family Recipe Box With Photo Import And Weekly Meal Plans");
+        await ctx.waitFor(() => projectNameValue(ctx) === "family-recipe-box-with-photo-import-and-weekly-meal-plans");
+        // Return hands the keyboard back to the prompt, so the capture shows the name at rest.
+        await ctx.press("Enter");
+        const strip = ctx.document.querySelector(".acpmux-composer-context")?.getBoundingClientRect();
+        const name = ctx.document.querySelector(".nt-project-name__field")?.getBoundingClientRect();
+        if (!strip || !name || name.width <= 0) throw new Error("the project name field is not drawn");
+        if (name.right > strip.right + 0.5) throw new Error("the project name runs out of the strip");
+      },
+    },
+    "new-project-refused": {
+      note: "New project refused: acpmux made no folder, so the reason shows above the card with Dismiss, no chat starts and the prompt stays.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        await typePrompt(ctx, "a habit tracker web app");
+        await ctx.waitFor(() => projectNameValue(ctx) === "habit-tracker");
+        // The gallery's acpmux has no `_acpmux/project_new`, so the pane refuses as an older one does.
+        await ctx.press("Enter");
+        await ctx.waitFor(
+          () => !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("Couldn’t make the project"),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"))
+          throw new Error("a refused New project started a chat");
+      },
+    },
     "inherited-project": {
       note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
       ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
@@ -459,13 +533,13 @@ export default agentPaneEntry({
       },
     },
     "machines-fleet": {
-      note: "Machines… (the machine chip's right-click menu) with 21 machines acpmux lists (`host ls`): every one, This Mac first; in each group the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
+      note: "Machines… (the machine chip's right-click menu) with 21 machines acpmux lists (`host ls`): every one, This Mac first; in each group the ones a chat can start on first, in number order, the rest greyed with their state and no pick; the four acpmux cannot reach wait under a closed Unavailable (4) row.",
       ready: newTab(),
       snapshot: noChat([], { ...fleetPeers(), listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 17);
       },
     },
     "model-picker-open": {
@@ -535,6 +609,53 @@ export default agentPaneEntry({
         // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
         const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
+      },
+    },
+    "fix-from-link": {
+      note: "A lone GitHub issue URL leaves the normal composer intact and offers the explicit Fix in a new worktree action beneath it.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+        if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
+      },
+    },
+    "fix-from-link-stage": {
+      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
+      ready: newTab({
+        template: "default",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+      },
+    },
+    "fix-from-link-error": {
+      note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      native: {
+        "chat.fix_from_link": {
+          nativeError: {
+            code: "fix.checkout_missing",
+            userMessage: "No local checkout found; choose its folder or clone it first.",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".nt-fix-chip") !== null);
+        await ctx.click({ selector: ".nt-fix-chip" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-error[role=alert]") !== null);
       },
     },
     "widgets-all-off": {

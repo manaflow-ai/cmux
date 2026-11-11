@@ -24,9 +24,10 @@ judges the counts against the baseline at HEAD. Only cmux-tui.yml ran it before,
 #27935 landed two acpmux indexing_slicing hits that turned base red. A crate the run
 does not check keeps its baseline (the ratchet names it in a warning).
 
---compare-base (with --panic-ratchet and a base) lints the same packages at the base
-first, then judges HEAD with the ratchet's --base-clippy-json: a crate the base already
-has over its row is red only for hits HEAD adds. cmux-next fast gates use it on a pull
+--compare-base (with --panic-ratchet and a base): when HEAD is over the baseline, it lints
+the same packages at the base too, then judges HEAD with the ratchet's --base-clippy-json:
+a crate the base already has over its row is red only for hits HEAD adds. A HEAD within the
+baseline is green without the base lint, which could only excuse counts. cmux-next fast gates use it on a pull
 request merged with a tip whose baseline went down since the pull request's own ratchet
 ran (cmux_next_fast_gates.py), so a base ratchet red never reads as the pull request's.
 """
@@ -152,19 +153,75 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    rc = subprocess.run(command, cwd=repo / ROOT).returncode
+    rc, red_files = run_clippy(command, repo / ROOT)
     if rc:
         print(f"::error title=cmux-tui clippy::clippy -D warnings failed for {scope}; "
-              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why); "
-              f"a red in a package you did not touch may already be red on the base branch")
+              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
+        name_base_reds(repo, base if paths is not None else "", red_files)
     return 1 if rc else 0
+
+
+def run_clippy(command: list[str], cwd: Path) -> tuple[int, list[str]]:
+    """Run clippy with its output passed through as it comes, and return its exit code with the
+    files its errors point at (`--> crates/x/src/y.rs:1:2`, relative to cmux-tui), in order."""
+    files: list[str] = []
+    process = subprocess.Popen(command, cwd=cwd, stderr=subprocess.PIPE, text=True, errors="replace")
+    assert process.stderr is not None
+    for line in process.stderr:
+        sys.stderr.write(line)
+        if (path := red_file(line)) and path not in files:
+            files.append(path)
+    sys.stderr.flush()
+    return process.wait(), files
+
+
+def red_file(line: str) -> str | None:
+    """The file of a diagnostic's `-->` line, or None."""
+    rest = line.strip()
+    if not rest.startswith("--> "):
+        return None
+    location = rest[4:].strip()
+    # path:line:col; a Windows drive or a colon in the path keeps all but the last two fields.
+    parts = location.rsplit(":", 2)
+    return parts[0] if len(parts) == 3 and parts[1].isdigit() else None
+
+
+def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
+    """Say which red files the change does not touch, and the base commit that last changed each.
+
+    #40242 merged to feat-cmux-next with eight clippy errors in cmux-tui/src/cli/ext*.rs; every
+    pull request that touched cmux-tui then failed this step with a message naming its own
+    packages, and four of them were read as the pull request's own red. A red file outside the
+    diff is the base's: the fix is a base-red pull request, not a change to this one."""
+    if not base or set(base) == {"0"} or not red_files:
+        return
+    try:
+        changed = {path for path in fmt_changed.git(repo, "diff", "--name-only", "-z", base, "HEAD").split("\0") if path}
+    except subprocess.CalledProcessError:
+        return
+    outside = [path for path in red_files if f"{ROOT}/{path}" not in changed]
+    for path in outside:
+        try:
+            last = fmt_changed.git(repo, "log", "-1", "--format=%h %s", base, "--", f"{ROOT}/{path}").strip()
+        except subprocess.CalledProcessError:
+            last = ""
+        since = f" (last changed on the base by {last})" if last else ""
+        print(f"::error title=cmux-tui clippy (base red)::{ROOT}/{path} is red and this change does not touch it: "
+              f"most likely the base {base[:12]} already fails here{since}. Then fix it on the base branch in its own "
+              f"pull request and update this one once that lands (a lint this change causes in an untouched file, "
+              f"through an API it changed, is this change's to fix)")
+    if outside and len(outside) == len(red_files):
+        print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
     """Lint the production targets of `packages` with the ratchet's flags into `out`, then let
     the ratchet judge them. Cargo refuses `--lib` when no selected package has a library.
-    With `compare` (a base commit) the same lint runs there first, into `<out>.base`, and the
-    ratchet charges HEAD only for counts the base does not reach."""
+    With `compare` (a base commit) a HEAD the baseline already passes is green as it stands:
+    the base run only excuses counts over the baseline, so it cannot change that verdict. Only
+    a red HEAD lints the base too, into `<out>.base`, and the ratchet then charges HEAD only for
+    counts the base does not reach. On a green PR that skips one lint of the changed packages
+    (80 s of the job's 6 min on #37445, run 42334950081)."""
     ratchet = repo / RATCHET
     flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
                            stdout=subprocess.PIPE, text=True).stdout.split()
@@ -172,12 +229,22 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags]
     out.parent.mkdir(parents=True, exist_ok=True)
     judge = [sys.executable, str(ratchet), "--repo", str(repo), "--clippy-json", str(out)]
+    print(f"cmux-tui-clippy-changed: panic ratchet on {scope}", flush=True)
+    print(" ".join(command), flush=True)
+    with out.open("w", encoding="utf-8") as handle:
+        subprocess.run(command, cwd=repo / ROOT, stdout=handle)
+    # The ratchet refuses a run with no build-finished success line, so a failed build is red there.
     if compare:
+        strict = subprocess.run(judge, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if strict.returncode == 0:
+            print(strict.stdout, end="", flush=True)
+            print(f"cmux-tui-clippy-changed: HEAD passes the baseline, so the base {compare} is not linted", flush=True)
+            return 0
         base_out = out.with_name(out.name + ".base")
         head = fmt_changed.git(repo, "rev-parse", "HEAD").strip()
-        print(f"cmux-tui-clippy-changed: panic ratchet on {scope} at the base {compare}", flush=True)
+        print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {scope} at the base {compare}",
+              flush=True)
         print(" ".join(command), flush=True)
-        # The same checkout, so the HEAD run after it rebuilds only what the change touches.
         fmt_changed.git(repo, "checkout", "--quiet", "--detach", compare)
         try:
             with base_out.open("w", encoding="utf-8") as handle:
@@ -185,17 +252,11 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         finally:
             fmt_changed.git(repo, "checkout", "--quiet", "--detach", head)
         judge += ["--base-clippy-json", str(base_out)]
-    print(f"cmux-tui-clippy-changed: panic ratchet on {scope}", flush=True)
-    print(" ".join(command), flush=True)
-    with out.open("w", encoding="utf-8") as handle:
-        subprocess.run(command, cwd=repo / ROOT, stdout=handle)
-    # The ratchet refuses a run with no build-finished success line, so a failed build is red there.
     rc = subprocess.run(judge).returncode
     if rc:
         print(f"::error title=cmux-tui panic ratchet::the panic ratchet is red for {scope}; "
               f"its log above names each new hit (plans/cmux-next/rust-panic-free.md)")
     return 1 if rc else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -65,8 +65,8 @@ test("the popover lists every change of the update, not three and a count", asyn
   const text = host.textContent ?? "";
   for (let n = 1; n <= 9; n++) expect(text).toContain(`Change ${n}`);
   expect(text).not.toContain("6 more");
-  // The popover is the scroller and carries the shared card scroll style.
-  expect(host.querySelector(".wn-pop")?.hasAttribute("data-cmux-card-scroll")).toBe(true);
+  // The list is the scroller and carries the shared card scroll style.
+  expect(host.querySelector(".wn-pop-scroll")?.hasAttribute("data-cmux-card-scroll")).toBe(true);
 });
 
 test("a card scroller marks each edge that has more content past it", async () => {
@@ -89,4 +89,75 @@ test("a card scroller marks each edge that has more content past it", async () =
   expect(el.hasAttribute("data-cmux-more-below")).toBe(false);
   expect(el.hasAttribute("data-cmux-more-above")).toBe(true);
   stop();
+});
+
+// Leo 2026-11-05, on the hover card of an update across several nightlies: "this is too big ... i
+// can't even scroll through the changes from that preview!" It listed the staged build's one change
+// with its paragraph. The popover lists every build's changes, one line each, in a list that
+// scrolls under a pinned heading and above a pinned See all changes.
+test("the popover lists every build the update spans, one line each, in its own scroller", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const build = (n: number, title: string) => ({
+    build: `42${n}`,
+    shortVersion: `1.0.0-nightly.42${n}`,
+    date: "2026-11-05",
+    highlights: [{ id: `h${n}`, title, body: "", category: "new" as const }],
+    changes: [],
+  });
+  const span = [
+    build(3, "Go back to any recent version from What's New"),
+    build(2, "Sidebar rows keep their color while dragged"),
+    build(1, "Terminal tabs reopen in place"),
+  ];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights
+        data={{
+          version: "1.0.0-nightly.4212118000001",
+          build: "4212118000001",
+          fromVersion: "1.0.0-nightly.4210546000001",
+          fromBuild: "4210546000001",
+          source: "whatsNew",
+          language: "en",
+          items: [
+            {
+              id: "rollback",
+              title: "Go back to any recent version from What's New",
+              summary:
+                "What's New lists the recent builds; pick one and cmux installs it after the same checks as an update, then restarts.",
+              category: "new",
+            },
+          ],
+          rest: [],
+          moreCount: 0,
+          changelog: { from: "1.0.0-nightly.4210546000001", to: "1.0.0-nightly.4212118000001" },
+        }}
+        span={span}
+        strings={createStrings(table)}
+        actions={{ openChangelog: () => undefined }}
+      />,
+    ),
+  );
+  const rows = [...host.querySelectorAll(".wn-pop-row .wn-pop-item")].map((row) => row.textContent);
+  expect(rows).toEqual([
+    "Go back to any recent version from What's New",
+    "Sidebar rows keep their color while dragged",
+    "Terminal tabs reopen in place",
+  ]);
+  // The heading and See all changes sit outside the scroller, so they stay while the list scrolls.
+  const scroller = host.querySelector(".wn-pop-scroll")!;
+  expect(scroller.hasAttribute("data-cmux-card-scroll")).toBe(true);
+  expect(scroller.getAttribute("tabindex")).toBe("0");
+  expect(scroller.querySelector(".wn-pop-title, .wn-pop-all")).toBeNull();
+  expect(host.querySelector(".wn-pop")?.hasAttribute("data-cmux-card-scroll")).toBe(false);
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 4210546 → nightly 4212118");
+  expect(host.querySelectorAll(".wn-pop-all")).toHaveLength(1);
+  // No numbers: one line per change, its detail after the title.
+  expect(host.querySelector(".wn-pop-n")).toBeNull();
+  expect(host.querySelector(".wn-pop-row .wn-pop-line")?.textContent).toMatch(/^What's New lists the recent builds/);
 });

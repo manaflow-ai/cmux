@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -71,7 +72,7 @@ import Testing
     /// The service builds no Sparkle driver in tests (`enableSparkle: false`), so the reason it
     /// reports comes from the identity alone: none for the tip app, development for the rest.
     @MainActor @Test func theServiceReportsNoDisabledReasonOnlyForTheTipApp() {
-        let defaults = UserDefaults(suiteName: "TipAppTrackTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "TipAppTrackTests.\(UUID().uuidString)")!
         let tip = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed),
                                  policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
         #expect(tip.disabledReason == nil)

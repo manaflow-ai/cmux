@@ -437,11 +437,11 @@ def palette():
     print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
 
 def panels():
-    # The notifications and feed panels open at the window's top-right corner
-    # and close again (each action toggles its panel). Focus is requested as
+    # The notifications panel opens at the window's top-right corner and
+    # closes again (the action toggles the panel). Focus is requested as
     # for the palette: a capture slot's app never activates on its own.
     save_layout("panels")
-    for name, toggle in (("notifications", "showNotifications"), ("feed", "feed.show")):
+    for name, toggle in (("notifications", "showNotifications"),):
         record("panels", f"{name}-open", lambda toggle=toggle: action(toggle, focus=True))
         record("panels", f"{name}-close", lambda toggle=toggle: action(toggle, focus=True))
 

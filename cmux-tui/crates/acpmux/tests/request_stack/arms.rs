@@ -61,6 +61,17 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "denied: the connection names no caller chat",
             ),
         ),
+        // A valid issue link and a picked folder that does not exist (so no Git checkout, whatever
+        // the temp folder is): the arm parses the link, runs `git rev-parse` and stops at the
+        // checkout (not found), before trust, a worktree or a GitHub request.
+        (
+            method::CHAT_FIX_FROM_LINK_PREPARE,
+            Run(json!({"url": "https://github.com/o/r/issues/1", "cwd": "$CWD/no-such-checkout"})),
+        ),
+        (
+            method::CHAT_FIX_FROM_LINK,
+            Run(json!({"url": "https://github.com/o/r/issues/1", "cwd": "$CWD/no-such-checkout"})),
+        ),
         (
             method::MUX_PERSON_PROVE,
             Any(json!({}), "refused: the connection has no proof of the person"),
@@ -189,6 +200,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_PROTOCOL, Run(json!({}))),
         (method::MUX_HISTORY, Run(json!({"sessionId": "$S", "limit": 5}))),
         (method::MUX_SESSION_SEARCH, Run(json!({"sessionId": "$S", "query": "echo"}))),
+        // This connection is `Origin::Local`, so the brief folds the chat's own log.
+        (method::MUX_REVIEW_BRIEF, Run(json!({"sessionId": "$S"}))),
         (method::MUX_DRAFT_GET, Run(json!({"sessionId": "$S"}))),
         (method::MUX_DRAFT_SET, Run(json!({"sessionId": "$S", "text": "lso draft"}))),
         (
@@ -211,6 +224,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TAG, Run(json!({"sessionId": "$S", "set": {"lso": "1"}}))),
         (method::MUX_DETACH_PARENT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // `archived: false` brings a log back: an in-memory store has no archive file, so the
+        // chat `$S` stays as it is for the rows after this one.
+        (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,
@@ -219,6 +235,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "an in-process hub has no home, so folder profiles are off (invalid params)",
             ),
         ),
+        // Makes `~/Projects/lso-project` with `git init` and trusts it: this process's HOME is
+        // its hermetic scratch home (`support/daemon_env.rs`), never the person's.
+        (method::MUX_PROJECT_NEW, Run(json!({"name": "lso-project"}))),
         (method::MUX_AGENT_LOGIN_START, Skip("starts a real claude or codex sign-in")),
         (
             method::MUX_AGENT_LOGIN_FINISH,
@@ -358,6 +377,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
+        (
+            method::MUX_REGISTER,
+            Any(
+                json!({"name": "lso-register"}),
+                "taken only from the unix socket, by the peer's pid (invalid params)",
+            ),
+        ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
             method::MUX_KEEP,
@@ -460,6 +486,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "needs an upload id from file_put_begin (invalid params)",
             ),
         ),
+        (method::MUX_UPLOADS_KEEP, Run(json!({"sessionId": "$S", "keep": true}))),
         (method::MUX_WORKFLOWS, Run(json!({}))),
         (
             method::MUX_MEDIA_OPEN,

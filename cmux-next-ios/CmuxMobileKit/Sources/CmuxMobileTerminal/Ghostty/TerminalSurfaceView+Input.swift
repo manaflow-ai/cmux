@@ -14,7 +14,10 @@ extension TerminalSurfaceView {
         // or preedit). Ghostty's own replies to terminal queries also reach
         // `onInput`, but never pass through here.
         if actions.contains(where: \.isUserInput) { onUserInput?() }
+        let wasEncodingUserInput = isEncodingUserInput
+        defer { isEncodingUserInput = wasEncodingUserInput }
         for action in actions {
+            isEncodingUserInput = action.isUserInput
             switch action {
             case .key(let event):
                 Self.withCString(event.text) { text in

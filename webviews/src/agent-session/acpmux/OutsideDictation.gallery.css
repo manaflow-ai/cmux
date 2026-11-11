@@ -1,0 +1,29 @@
+/* Still marks, as every status dot is (no-breathing-dots.test.ts); tokens only. The looks the outside-dictation mark was weighed against (OutsideDictation.gallery.tsx). Only the
+   measured bars and the drawn wave ship (dictation.css); these restyle the same button for comparison. */
+.outside-gallery--dot .acpmux-mic[data-outside] .acpmux-mic-outside,
+.outside-gallery--ring .acpmux-mic[data-outside] .acpmux-mic-outside { display: none; }
+.outside-gallery--dot .acpmux-mic[data-outside] > :is(svg, img),
+.outside-gallery--ring .acpmux-mic[data-outside] > :is(svg, img) { display: block; }
+.outside-gallery--dot .acpmux-mic[data-outside] { position: relative; }
+.outside-gallery--dot .acpmux-mic[data-outside]::after {
+  content: "";
+  position: absolute;
+  top: var(--ds-space-1);
+  right: var(--ds-space-1);
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--ds-color-attention);
+}
+.outside-gallery--ring .acpmux-mic[data-outside] { position: relative; }
+.outside-gallery--ring .acpmux-mic[data-outside]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ds-color-attention) 70%, transparent);
+  pointer-events: none;
+}
+/* The measured bars, weighed: half as wide, or in the accent. */
+.outside-gallery--thin .acpmux-mic-level > [data-bar] { width: 1px; }
+.outside-gallery--accent .acpmux-mic-level { color: var(--acpmux-dictation-accent); }

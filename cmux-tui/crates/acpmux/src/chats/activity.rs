@@ -43,6 +43,8 @@ pub fn changes_activity(kind: &str) -> bool {
             | "permission_request"
             | "permission_decision"
             | "permission_auto"
+            // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
+            | "subsessions_waiting"
             | "purged"
             // `spawnedBy` names the chat's parent (`Hub::spawned_by`).
             | "tags"
@@ -77,6 +79,8 @@ pub fn attention(session: &Session) -> Option<&'static str> {
         SessionStatus::Closed => return None,
         SessionStatus::Waiting => return Some("needsInput"),
         _ if session.has_pending_permissions() => return Some("needsInput"),
+        // An open sub-session below it asks: the run stalls there (`hub/asks_below.rs`).
+        _ if session.waits_below() => return Some("needsInput"),
         SessionStatus::Running => return None,
         _ => {}
     }
@@ -116,12 +120,21 @@ type Newest = (u64, String, Value);
 /// The activity of every chat a session continues, by chat key: the closed sessions' part built
 /// once and shared until one of them changes (`ActivityCache`), the live sessions' part read now.
 /// Decorating stays one lookup per chat.
+#[derive(Default)]
 pub struct ChatActivity {
     closed: Arc<HashMap<String, Newest>>,
     live: HashMap<String, Newest>,
+    /// When the first session tag that had not expired when this was read expires: past it, a
+    /// `parent` or fold read from this may be out of date with no record saying so.
+    expires_at: Option<u64>,
 }
 
 impl ChatActivity {
+    /// When the first tag read for this activity expires (`expires_at`).
+    pub fn expires_at(&self) -> Option<u64> {
+        self.expires_at
+    }
+
     /// The fields of the newest session continuing `key`, closed or live.
     fn fields(&self, key: &str) -> Option<&Value> {
         match (self.closed.get(key), self.live.get(key)) {
@@ -267,7 +280,11 @@ impl Hub {
     fn chat_activity_with_expiry(&self) -> (Arc<ChatActivity>, Option<u64>) {
         let built = self.closed_chat_activity();
         (
-            Arc::new(ChatActivity { closed: built.closed.clone(), live: self.newest(&built.live) }),
+            Arc::new(ChatActivity {
+                closed: built.closed.clone(),
+                live: self.newest(&built.live),
+                expires_at: built.expires_at,
+            }),
             built.expires_at,
         )
     }

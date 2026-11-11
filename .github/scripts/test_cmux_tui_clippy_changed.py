@@ -35,6 +35,7 @@ printf '%s\\n' "$*" >> "$CARGO_LOG"
 for arg in "$@"; do
   if [[ "$arg" == "${FAIL_PACKAGE:-none}" ]]; then
     echo "error: this call to clone can be replaced with std::slice::from_ref"
+    [[ -n "${FAIL_FILE:-}" ]] && echo "   --> ${FAIL_FILE}:12:5" >&2
     exit 101
   fi
   if [[ "$arg" == --message-format=json ]]; then
@@ -170,6 +171,24 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertIn("::error title=cmux-tui clippy::", result.stdout)
         self.assertIn("pkg-a", result.stdout)
 
+    def test_a_red_file_the_change_does_not_touch_is_named_a_base_red(self) -> None:
+        # #40242's shape: the base already fails clippy in pkg-a's src/lib.rs; this change edits only a test.
+        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={"FAIL_FILE": "crates/a/src/lib.rs"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("   --> crates/a/src/lib.rs:12:5", result.stderr)
+        self.assertIn("::error title=cmux-tui clippy (base red)::cmux-tui/crates/a/src/lib.rs is red and this change "
+                      "does not touch it", result.stdout)
+        self.assertIn(f"last changed on the base by {self.base[:7]}", result.stdout)
+        self.assertIn("likely a base red", result.stdout)
+
+    def test_a_red_file_the_change_touches_is_not_called_a_base_red(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs", "pub fn a2() {}\n")
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={"FAIL_FILE": "crates/a/src/lib.rs"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy::", result.stdout)
+        self.assertNotIn("base red", result.stdout)
+
     def test_every_touched_member_is_linted_in_one_keep_going_run(self) -> None:
         self.write("cmux-tui/crates/b/src/lib.rs", "pub fn b2() {}\n")
         self.write("cmux-tui/src/main.rs", "fn main() { let _ = 1; }\n")
@@ -294,9 +313,8 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.ratchet_calls(), [])
 
-    def test_compare_base_lints_the_same_packages_at_the_base_first(self) -> None:
-        # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
-        # own count over the row is the base's red, so the ratchet gets the base run to compare with.
+    def test_compare_base_skips_the_base_lint_when_head_passes_the_baseline(self) -> None:
+        # The base run only excuses counts over the baseline, so a HEAD within it is green as it stands.
         self.change("cmux-tui/crates/a/src/lib.rs")
         head = self.git("rev-parse", "HEAD").strip()
         heads = self.tmp / "heads.log"
@@ -305,13 +323,29 @@ class ClippyChangedTests(unittest.TestCase):
                                 env_extra={"HEAD_LOG": str(heads)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint])
+        self.assertEqual(heads.read_text().split(), [head])
+        self.assertFalse(out.with_name(out.name + ".base").exists())
+        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+
+    def test_compare_base_lints_the_same_packages_at_the_base_when_head_is_red(self) -> None:
+        # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
+        # own count over the row is the base's red, so the ratchet gets the base run to compare with.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
         self.assertEqual(self.calls(), [lint, lint])
-        self.assertEqual(heads.read_text().split(), [self.base, head])
+        self.assertEqual(heads.read_text().split(), [head, self.base])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out),
-                                                 "--base-clippy-json", str(base_out)]])
+        strict = ["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
@@ -319,7 +353,8 @@ class ClippyChangedTests(unittest.TestCase):
         out = self.tmp / "out" / "panic-clippy.jsonl"
         out.parent.mkdir(parents=True)
         out.with_name(out.name + ".base").mkdir()  # opening the base JSONL fails
-        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base")
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1"})
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head)
 
@@ -331,15 +366,18 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
 
 
-def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing") -> str:
-    """A ratchet clippy run of the `acpmux` crate with `hits` hits of `lint` (each on its own line)."""
+def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing",
+                 file_name: str = "crates/acpmux/src/lib.rs", extra: tuple[str, ...] = ()) -> str:
+    """A ratchet clippy run of the `acpmux` crate with `hits` hits of `lint` in `file_name` (each on
+    its own line), plus one more in each file of `extra`."""
     lines = [{"reason": "compiler-artifact", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
               "target": {"kind": ["lib"]}}]
+    spans = [(file_name, line) for line in range(1, hits + 1)] + [(name, 1) for name in extra]
     lines += [{"reason": "compiler-message", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
                "target": {"kind": ["lib"]},
                "message": {"code": {"code": f"clippy::{lint}"},
-                           "spans": [{"is_primary": True, "file_name": "crates/acpmux/src/lib.rs",
-                                      "line_start": line, "column_start": 1}]}} for line in range(1, hits + 1)]
+                           "spans": [{"is_primary": True, "file_name": name,
+                                      "line_start": line, "column_start": 1}]}} for name, line in spans]
     lines.append({"reason": "build-finished", "success": finished})
     return "".join(json.dumps(line) + "\n" for line in lines)
 
@@ -389,6 +427,14 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         result = self.judge(clippy_jsonl(700), clippy_jsonl(700, finished=False))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("base clippy run did not finish", result.stderr)
+
+    def test_a_red_names_the_file_the_change_grew_before_the_bases_hits(self) -> None:
+        # #37778's shape: one new hit in a file that sorts after 693 old ones; the list named only
+        # the first 20 old ones, since a CI merge checkout has no origin/feat-cmux-next to diff.
+        result = self.judge(clippy_jsonl(693, extra=("crates/acpmux/src/zz.rs",)), clippy_jsonl(693))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        listed = [line.strip() for line in result.stderr.splitlines() if line.strip().startswith("crates/")]
+        self.assertEqual(listed[0], "crates/acpmux/src/zz.rs:1:1", result.stderr)
 
     def test_without_a_base_run_every_count_over_the_row_is_red(self) -> None:
         self.assertEqual(self.judge(clippy_jsonl(700)).returncode, 1)

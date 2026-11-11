@@ -5,7 +5,7 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
@@ -38,7 +38,7 @@ function installDom(): HTMLElement {
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -1032,7 +1032,7 @@ const familyRail = [
 ];
 
 test("familyTabs: one tab per model family, its routes in rail order", async () => {
-  const { familyTabs } = await import("./QuickModelMenu");
+  const { familyTabs } = await import("./quickModelMenuModel");
   const tabs = familyTabs(familyRail);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
     ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
@@ -1042,7 +1042,7 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
-  const { searchGroups } = await import("./QuickModelMenu");
+  const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [
     { id: "opus", name: "Opus", family: "claude-sr2" },
     { id: "opus", name: "Opus", family: "claude" },

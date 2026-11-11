@@ -44,6 +44,7 @@ fn paths(d: &Path) -> Paths {
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
         cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
+        peer_scratch: None,
     }
 }
 
@@ -346,6 +347,36 @@ async fn the_sessions_own_agent_answers_without_a_decision() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A guest from another harness starts that harness's agent in the chat's folder: the folder
+/// must be trusted for the guest's family, not only for the chat's own agent.
+#[tokio::test]
+async fn a_guest_from_another_harness_waits_for_its_own_folder_trust() {
+    let d = dir("guest");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
+    let work = d.join("work");
+    // Claude Code trusts the folder on its own; Codex has no answer for it.
+    std::fs::write(
+        &paths(&d).claude_json,
+        json!({"projects": {d.to_string_lossy(): {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    let claude = local.new_session(&work, "fclaude").await;
+    let before =
+        local.call("session/list", json!({})).await.to_string().matches("sessionId").count();
+    let guest = json!({"sessionId": claude, "question": "second opinion?", "inline": true, "targetHarness": "fcodex"});
+    let r = app.call("_acpmux/btw", guest.clone()).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    let after =
+        local.call("session/list", json!({})).await.to_string().matches("sessionId").count();
+    assert_eq!(before, after, "no guest agent started");
+
+    app.trust(&work, "untrusted").await;
+    assert_eq!(reason(&app.call("_acpmux/btw", guest).await), "trust.untrusted");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[tokio::test]
 async fn the_unix_socket_is_not_gated() {
     let d = dir("unix");
@@ -519,5 +550,28 @@ async fn a_peer_request_for_the_app_waits_and_a_peers_own_does_not() {
     // The peer's own user (its unix socket): the peer judges, as today.
     let r = peer.call("session/prompt", p("peer-own-user", None)).await;
     assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A side question a machine's cmux-tui asks for the app's pane (`agent-session-btw`, over the
+/// unix socket marked `via: app`) is held by the folder's trust as the app's own: in a pending
+/// or untrusted folder it opens no side session.
+#[tokio::test]
+async fn an_inline_side_question_for_the_app_waits_for_the_folders_trust() {
+    let d = dir("btw");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    let s = local.new_session(&work, "fclaude").await;
+    let ask = json!({"sessionId": s, "question": "why?", "inline": true,
+                     "_meta": {"acpmux": {"via": "app"}}});
+    let before = hub.sessions().len();
+    let r = local.call("_acpmux/btw", ask.clone()).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    app.trust(&work, "untrusted").await;
+    let r = local.call("_acpmux/btw", ask).await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+    assert_eq!(hub.sessions().len(), before, "a held side question opens nothing");
     let _ = std::fs::remove_dir_all(&d);
 }

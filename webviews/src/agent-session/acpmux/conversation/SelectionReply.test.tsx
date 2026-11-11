@@ -5,13 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  configureSelectionReply,
-  quoteMarkdown,
-  SelectionReplyChip,
-  selectionReplyPlace,
-  setQuoteReplySink,
-} from "./SelectionReply";
+import { SelectionReplyChip } from "./SelectionReply";
+import { configureSelectionReply, quoteMarkdown, selectionReplyPlace, setQuoteReplySink } from "./selectionReplyModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -46,7 +41,11 @@ afterEach(() => {
   unsink?.();
   unsink = undefined;
   configureSelectionReply("chip");
-  for (const key of KEYS) scope[key] = saved.get(key);
+  for (const key of KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom?.window.close();
   dom = undefined;
 });

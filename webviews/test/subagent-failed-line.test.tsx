@@ -6,7 +6,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { shortReason, SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { shortReason } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
 import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -93,8 +94,8 @@ test("failed lines take the quiet grid: plain title, muted reason, Retry and tim
   expect(rows).toHaveLength(2);
   for (const row of rows) {
     expect(row.dataset.look).toBe("grid");
-    // No chip around the title, and no "Subagent failed:" sentence in red.
-    expect(row.querySelector(".cv-agent-tag")).toBeNull();
+    // No "Subagent failed:" sentence in red; with nothing to open, the title is plain text, no chip.
+    expect(row.querySelector("button.cv-agent-tag")).toBeNull();
     expect(row.querySelector(".cv-subagent-failed__title")?.textContent).toBeTruthy();
     expect(row.querySelector(".cv-subagent-failed__reason")?.textContent).toBe(
       "Agent terminated early due to an API error",
@@ -103,7 +104,7 @@ test("failed lines take the quiet grid: plain title, muted reason, Retry and tim
     expect(row.querySelector(":scope > .cv-subagent-retry")).not.toBeNull();
     expect(row.querySelector(":scope > .cv-subagent-done__trail .cv-subagent-done__time")?.textContent).toBe("1m 1s");
     // The whole text stays in the line's accessible name.
-    expect(row.querySelector("button.cv-subagent-done")?.getAttribute("aria-label")).toContain(ERROR);
+    expect(row.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toContain(ERROR);
   }
 });
 

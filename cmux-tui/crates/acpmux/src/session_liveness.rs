@@ -21,6 +21,42 @@ pub struct HarnessFailures {
     error: String,
 }
 
+/// Its harness's own command sandbox (`hub/harness_sandbox.rs`), projected from the mux
+/// `harness_sandbox_failed` and `harness_sandbox_recovered` records and saved with the session,
+/// so a restart keeps it: when it first refused a command, kept for good, and whether it
+/// refuses them now.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HarnessSandbox {
+    pub first_at: Option<u64>,
+    pub failing: bool,
+}
+
+impl HarnessSandbox {
+    pub const FAILED: &str = "harness_sandbox_failed";
+    pub const RECOVERED: &str = "harness_sandbox_recovered";
+
+    pub fn is_none(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// A mux record of `kind` appended at `at`; every other kind changes nothing.
+    pub fn observe(&mut self, kind: &str, msg: &Value, at: u64) {
+        let first = msg.get("firstAt").and_then(Value::as_u64);
+        match kind {
+            Self::FAILED => {
+                self.first_at = self.first_at.or(first).or(Some(at));
+                self.failing = true;
+            }
+            Self::RECOVERED => {
+                self.first_at = self.first_at.or(first);
+                self.failing = false;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StuckReason {

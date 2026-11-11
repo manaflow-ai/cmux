@@ -7,14 +7,22 @@ import Foundation
 /// A destination the chat can move to. The page only receives targets the host can route through
 /// the existing CloudMove action; the id is validated again when the page asks to move.
 public struct AgentPaneMoveTarget: Equatable, Sendable {
+    /// ``localID`` names this Mac (Bring Back Local); any other id is a Cloud machine's.
+    public static let localID = "local"
     public let id: String
     public let label: String
     public let status: String
+    /// `local` (this Mac) or `cloud`: the icon the page's Move to… row shows.
+    public let kind: String
+    /// Why a move there would refuse now: the row is greyed with it.
+    public let reason: String?
 
-    public init(id: String, label: String, status: String = "") {
+    public init(id: String, label: String, status: String = "", kind: String = "cloud", reason: String? = nil) {
         self.id = id
         self.label = label
         self.status = status
+        self.kind = kind
+        self.reason = reason
     }
 
     /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
@@ -31,8 +39,9 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
     }
 
     var reply: [String: Any] {
-        var value: [String: Any] = ["id": id, "label": label]
+        var value: [String: Any] = ["id": id, "label": label, "kind": kind]
         if !status.isEmpty { value["status"] = status }
+        if let reason { value["reason"] = reason }
         return value
     }
 }
@@ -260,8 +269,12 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .toastAvoidance(let rect):
+            setToastAvoidance(rect)
+            return AgentPaneReply.success()
         case .hostGlass(let surfaces):
-            // Drawn before the reply: the page shows a surface once this answers (hostGlass.ts).
+            // Drawn before the reply, which only confirms: the page shows a surface's content first and
+            // reports its box once that content is on screen (hostGlass.ts, the hold).
             hostGlass.update(surfaces)
             return AgentPaneReply.success()
         case .copyText(let text):
@@ -289,11 +302,13 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
             var state = header.state(refresh: refresh).reply
-            state["moves"] = offeredMoves()
+            let moves = offeredMoves()
+            state["moves"] = moves.ids
+            state["moveReasons"] = moves.reasons
             state["moveTargets"] = header.moveTargets().map(\.reply)
             return AgentPaneReply.success(state)
-        case .sideChat(let fork):
-            return await AgentPaneSideChat.open(fork, in: self)
+        case .sideChat(let fork, let splitRight):
+            return await AgentPaneSideChat.open(fork, splitRight: splitRight, in: self)
         case .subagentPane(let agent, let focus, let title, let tone):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
@@ -358,11 +373,15 @@ enum AgentPaneSideChat {
         return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: model.transport.remoteHostID)
     }
 
-    static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {
+    /// `splitRight`: `/side`'s side chat opens in a new split right of the chat, half its width,
+    /// whatever is on the right already: the chat's ``AgentSidePanes`` tracker marks it so, and the
+    /// app's open reads the mark (#38042: "/side just opens a side chat (forked) as a right split").
+    static func open(_ fork: String, splitRight: Bool = false, in model: AgentPaneModel) async -> [String: Any] {
         guard let sessionId = model.sessionId, model.newTab == nil, fork != sessionId, holds(fork, chat: sessionId, in: model),
               let header = model.header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }
+        if splitRight { AgentSidePanes.chat(sessionId).splitRight(fork) }
         header.openSide(sessionId, fork)
         return AgentPaneReply.success()
     }
@@ -372,13 +391,31 @@ extension AgentPaneModel {
     /// The Cloud moves (`cloudMove`, `cloudBringBack`) the chat's right-click menu offers now, so the
     /// composer's picker offers the same: the App decides which apply (it hides Bring Back Local on a
     /// chat no move from this Mac put on its machine, and Move to Cloud on a chat of another machine).
-    func offeredMoves() -> [String] {
-        func ids(_ items: [NSMenuItem]) -> [String] {
-            items.flatMap { item in
-                (ActionRegistry.menuRun(of: item).map { [$0.id.rawValue] } ?? []) + ids(item.submenu?.items ?? [])
-            }
+    /// `reasons`: why each offered move would refuse now (a chat with no first message yet), as its menu row
+    /// says under its title: the picker shows that row disabled with it, never a click that does nothing.
+    func offeredMoves() -> (ids: [String], reasons: [String: String]) {
+        func rows(_ items: [NSMenuItem]) -> [NSMenuItem] {
+            items.flatMap { [$0] + rows($0.submenu?.items ?? []) }
         }
         let moves: Set<String> = ["cloudMove", "cloudBringBack"]
-        return ids(chatMenuItems?() ?? []).filter(moves.contains)
+        var ids: [String] = [], reasons: [String: String] = [:]
+        for item in rows(chatMenuItems?() ?? []) {
+            guard let id = ActionRegistry.menuRun(of: item)?.id.rawValue, moves.contains(id) else { continue }
+            ids.append(id)
+            // A row its target's reason disables (ActionTargetTitles.decorate set that reason as its help).
+            if (item.target as? NSMenuItemValidation)?.validateMenuItem(item) == false, let reason = item.toolTip, !reason.isEmpty {
+                reasons[id] = reason
+            }
+        }
+        return (ids, reasons)
+    }
+}
+
+extension AgentPaneModel {
+    /// Keeps the page's bottom stack (`pane.toastAvoidance`); a change moves the window's toasts.
+    func setToastAvoidance(_ rect: CGRect?) {
+        guard rect != toastAvoidance else { return }
+        toastAvoidance = rect
+        onToastAvoidance?()
     }
 }

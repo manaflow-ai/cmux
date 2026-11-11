@@ -1,6 +1,7 @@
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ import Testing
 
     @Test func deleteHidesUntilNewMessageAndPersists() {
         let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let box = Box()
         let source = Self.source(defaults, box)
@@ -62,7 +63,7 @@ import Testing
 
     @Test func showHiddenListsEveryOneAgain() {
         let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let source = Self.source(defaults, Box())
         source.hide(ConversationID("conv_joker"))

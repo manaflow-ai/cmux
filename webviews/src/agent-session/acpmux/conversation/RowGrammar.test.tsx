@@ -4,21 +4,24 @@
 // drawn side by side, a SendMessage call, a shell `acpmux send`, "Ran 2 commands" and "Subagent
 // finished", share one layout: the tool rows' grid (`.cv-tool`), the icon first, the sentence,
 // then the trailing column (status, then duration), then the chevron last. A send reads "Sent to"
-// with its recipient as the one chip, and a shut send's first line shows once.
+// with its recipient as the one chip, and a shut send's first line shows once. A shell `acpmux send`
+// draws as a received message's line (SentMessageLine.tsx; ask-64e107ccf0, Leo 2026-11-07: "it's
+// just not good, compared to the normal ones"), on the one message row (AgentMessageRow.tsx): the
+// same grammar, with the received line's sender span, checked below.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SubagentHarnessContext } from "../subagents/SubagentGroup";
+import { SubagentHarnessContext } from "../subagents/subagentGroupModel";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -113,7 +116,11 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
   );
   const rows: Record<string, HTMLElement> = {};
   for (const kind of ["send-message", "acpmux-send", "commands", "subagent"]) {
-    const row = container.querySelector<HTMLElement>(`[data-kind="${kind}"] .cv-tool:not(.cv-tool .cv-tool)`);
+    const row = container.querySelector<HTMLElement>(
+      kind === "acpmux-send"
+        ? `[data-kind="${kind}"] .cv-sent-msg > .cv-agentmsg__line`
+        : `[data-kind="${kind}"] .cv-tool:not(.cv-tool .cv-tool)`,
+    );
     if (!row) throw new Error(`no row for ${kind}`);
     rows[kind] = row;
   }
@@ -199,7 +206,7 @@ test("each row draws its trailing status or duration before the chevron, and the
 
 test("a send reads Sent to <recipient>, the recipient one chip, its status in the trailing column", async () => {
   const { rows } = await fourRows();
-  for (const kind of ["send-message", "acpmux-send"]) {
+  for (const kind of ["send-message"]) {
     const row = rows[kind]!;
     const words = row.querySelector(".cv-agentmsg__words")!.textContent;
     expect({ kind, words }).toEqual({ kind, words: "Sent to" });
@@ -212,19 +219,23 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     const trail = row.querySelector(".cv-tool__trail");
     const status = trail?.textContent?.toLowerCase();
     expect({ kind, status }).toEqual({ kind, status: "queued" });
-    if (kind === "acpmux-send") expect(trail!.querySelector(".cv-row-status")).not.toBeNull();
     expect(row.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
-  expect(rows["acpmux-send"]!.querySelector(".cv-recipient")!.textContent).toBe("fanout-infra");
+  // The shell send reads as a received line: "Sent to" in the sender span, the recipient one chip,
+  // its status in the trailing column, never part of the sentence.
+  const line = rows["acpmux-send"]!;
+  expect(line.querySelector(".cv-received__sender .cv-sent__words")!.textContent).toBe("Sent to");
+  expect([...line.querySelectorAll(".cv-recipient")].map((chip) => chip.textContent)).toEqual(["fanout-infra"]);
+  expect(line.querySelector(".cv-tool__trail .cv-row-status")?.textContent).toBe("queued");
+  expect(line.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
 });
 
 test("every message preview is cut by the one rule: one muted span that ellipsizes", async () => {
   const { rows } = await fourRows();
-  for (const kind of ["send-message", "acpmux-send"]) {
-    const previews = rows[kind]!.querySelectorAll(".cv-agentmsg__preview");
-    expect({ kind, previews: previews.length }).toEqual({ kind, previews: 1 });
-  }
+  expect(rows["send-message"]!.querySelectorAll(".cv-agentmsg__preview")).toHaveLength(1);
+  // The shell send's first line is a received line's one preview span.
+  expect(rows["acpmux-send"]!.querySelectorAll(".cv-received__preview")).toHaveLength(1);
   const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const rule = /\.cv-agentmsg__preview \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(rule).toContain("text-overflow: ellipsis");
@@ -237,7 +248,7 @@ test("the subagent line's duration is in the trailing column, not the sentence",
   expect(row.querySelector(".cv-tool__text")!.textContent).toBe("Subagent finished: Audit agent friction");
   expect(row.querySelector(".cv-tool__trail")!.textContent).toBe("2m 28s");
   // Its name for a screen reader still reads the whole line.
-  expect(row.querySelector("button.cv-subagent-done")!.getAttribute("aria-label")).toBe(
+  expect(row.querySelector(".cv-subagent-done")!.getAttribute("aria-label")).toBe(
     "Subagent finished: Audit agent friction · 2m 28s",
   );
 });
@@ -286,7 +297,10 @@ test("an opened send shows its message once, under the row, not again on the lin
     const row = rows[kind]!;
     const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle") ?? row;
     await act(async () => toggle.click());
-    expect({ kind, preview: row.querySelector(".cv-agentmsg__preview")?.textContent ?? "" }).toEqual({
+    expect({
+      kind,
+      preview: row.querySelector(".cv-agentmsg__preview, .cv-received__preview")?.textContent ?? "",
+    }).toEqual({
       kind,
       preview: "",
     });
@@ -316,15 +330,14 @@ test("the chevron follows the words and the trailing column ends the line", () =
   expect(sentence).toContain("overflow: hidden");
 });
 
-test("the subagent row's one button reaches its trailing markers", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split". No hit area covers the row, so the name chip is
+// its one target.
+test("the subagent row has no full-row hit area over its name chip", () => {
   const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
   const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(row).toContain("position: relative");
-  expect(row).toContain("isolation: isolate");
-  const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(hitArea).toContain('content: ""');
-  expect(hitArea).toContain("inset: 0");
-  expect(hitArea).toContain("z-index: var(--layer-backdrop)");
+  expect(css).not.toMatch(/\.cv-subagent-done::before \{/);
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {

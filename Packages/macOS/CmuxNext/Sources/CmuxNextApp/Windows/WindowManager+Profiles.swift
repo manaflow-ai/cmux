@@ -1,6 +1,8 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 import Observation
 
@@ -24,6 +26,7 @@ extension WindowManager {
             if ActionRunScope.viewChangeAllowed(), let controller = controller(for: owner) { bringToFront(controller) }
             return
         }
+        defer { if let shown = controller(for: state.id) { shown.sidebar.sameTurn.showing(space: state.profileID.rawValue) { shown.showWorkspace(requested: state.workspaceID) } } } // content and sidebar rows in this turn, not on observation hops
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
@@ -126,7 +129,7 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        transition(select: preferred) { $0.move(moving, to: state.id) }
+        transition(select: preferred, gesture: true) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
 
@@ -182,4 +185,33 @@ extension WindowManager {
         let remembered = ([state] + others).compactMap { $0.profileWorkspaces[profile] }
         return showing + remembered
     }
+}
+
+// The switcher's window marks (design/spaces.md "The switcher (PR 3)"): a window's spaces strip reads every other
+// window's space through these, and its Go to Window / Move Here run here (`SpaceWindowMarks.install`).
+extension WindowManager: SpaceWindowSource {
+    func spaceWindowsShowing() -> [SpaceWindowShowing] {
+        let value = registry.value
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return value.openWindows.sorted { order[$0.id, default: .max] < order[$1.id, default: .max] }.compactMap { window in
+            states[window.id].map {
+                SpaceWindowShowing(windowID: window.id, space: SidebarProfileKey($0.profileID.rawValue),
+                                   incognito: value.isIncognito(window.id) || incognitoSpaces[window.id] != nil)
+            }
+        }
+    }
+
+    func spaceWindowIsIncognito(_ windowID: String) -> Bool { isIncognito(window: windowID) }
+
+    func spaceWindowBringToFront(_ windowID: String) {
+        if let controller = controller(for: windowID) { bringToFront(controller) }
+    }
+
+    func spaceWindowBringHere(_ space: SidebarProfileKey, window windowID: String) {
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: space.rawValue), origin: .user)
+        invocation.arguments["window"] = .target(ActionTargetRef(kind: .window, id: windowID))
+        services.registry.perform("space.bringHere", invocation: invocation)
+    }
+
+    func spaceWindowNewIncognitoSpace() { services.registry.perform("space.newIncognito", invocation: ActionInvocation()) }
 }

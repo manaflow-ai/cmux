@@ -21,7 +21,7 @@ import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
 import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
-import type { HistoryEntry } from "../pages/history/types";
+import type { CookieBackup, HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
@@ -29,17 +29,21 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { MockEndpoint } from "../pages/settings/mockAgents";
 import type { BranchPickerGroup } from "../diff/generated/protocol";
 import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
   IntegrationsState,
   SharesState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -61,12 +65,23 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
+  /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
+   * turn's answer; default three models and a passing turn. */
+  endpoint?: Partial<MockEndpoint>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -98,6 +113,11 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** `video.info` answers: a video's length, size and poster for each path (composer/videoAttachments.ts). */
+  videos?: Record<string, unknown>;
+  /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
+   *  `media.load` and `video.quickLook`. */
+  refused?: string[];
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
@@ -175,7 +195,7 @@ export type AgentPaneVariant = VariantBase & {
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
-   *  Settings value it carries (`chatWidth`). */
+   *  Settings value it carries (`codexToolRuns`). */
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
@@ -207,7 +227,8 @@ export type AgentPaneVariant = VariantBase & {
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
-   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
+   * called with the call's params for its answer (one too large to write out, made when asked). */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
@@ -273,6 +294,13 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
+   * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
+  reviewBrief?: unknown;
+  /** Plain English: the sentence the in-page host writes for a hunk whose patch contains each
+   * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
+   * Absent, the host serves no summary op. */
+  summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -293,7 +321,15 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
+  action?:
+    | "select-machine"
+    | "create"
+    | "create-at-cap"
+    | "get"
+    | "ports-pending"
+    | "ports-shared"
+    | "cleanup-team"
+    | "resume";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -307,6 +343,20 @@ export type CloudPageVariant = VariantBase & {
   pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
+  /** Automatic cleanup as `cloud.plan.get` answers it (`retention`); absent: a server without it. */
+  retention?: import("../pages/cloud/ops").CloudRetention;
+  /** The plan's machines cap (paused ones count): a create past it is refused with a cap offer. */
+  machinesCap?: number;
+  /** The running machines the platform calls idle: a create at the running limit pauses one. */
+  idle?: string[];
+  /** The machine the cap refusal names to free (`details.free_up`). */
+  freeUp?: { machine: string; name: string | null; reason: string };
+  /** The caller is not a team admin: saving the team's cleanup numbers is refused. */
+  retentionForbidden?: boolean;
+  /** The team's spending cap as `cloud.plan.get` answers it; at the cap a start or create is refused. */
+  spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create is refused. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
@@ -361,6 +411,8 @@ export type EditorPageVariant = VariantBase & {
 /** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
 export type HistoryPageVariant = VariantBase & {
   entries?: HistoryEntry[];
+  /** The app's cookie backups (the Cookie Backups panel). */
+  cookieBackups?: CookieBackup[];
   loading?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
@@ -369,6 +421,8 @@ export type HistoryPageVariant = VariantBase & {
     grouping?: HistoryGrouping;
     selectIndex?: number;
     menuIndex?: number;
+    /** Opens the Cookie Backups panel. */
+    cookieBackups?: boolean;
   };
 };
 

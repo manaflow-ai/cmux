@@ -18,10 +18,7 @@ export default componentEntry<{ surface: "transcript" }>({
   pane: true,
   height: 640,
   widths: { narrow: 370, normal: 528, wide: 740 },
-  covers: [
-    "agent-session/acpmux/session-info/SessionInfo.tsx#sessionInfoStage",
-    "agent-session/acpmux/session-info/SessionInfo.tsx#pushedWidth",
-  ],
+  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel"],
   load: async () => {
     setHeaderState({ inspector: true });
     setSessionInfoOpen(true);

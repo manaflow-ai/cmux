@@ -104,8 +104,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action. `session`, when the page names
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
-    /// tab still shows it.
-    case runAction(String, session: String? = nil)
+    /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
+    /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -162,6 +164,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
+    /// `chats.resume {ref}`: `/resume <ref>` in the composer: the chat a pasted session id, id start,
+    /// transcript path or resume command names, resumed through the app's shared Open Chat path.
+    case resumeChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
     /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
@@ -176,12 +181,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
-    /// `cloud.signIn {task, ...}`: signs in, keeping the click for this exact Cloud start; the page
-    /// sends it again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
-    case cloudSignIn(AgentPaneCloudStart)
-    /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
-    /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
-    case cloudSignInCancel
+    /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
+    /// that start again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
+    case cloudSignIn(key: String)
+    /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
+    /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
+    case cloudSignInCancel(expired: Bool)
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
@@ -204,6 +209,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
+    /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
+    case cloudTurnRewind(AgentPaneCloudTurnRewind)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -243,6 +250,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
+    /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
+    case toastAvoidance(CGRect?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
@@ -255,7 +265,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
-    case sideChat(String)
+    /// `splitRight`: `/side`'s side chat, always a new split right of the chat (#38042).
+    case sideChat(String, splitRight: Bool = false)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
@@ -304,6 +315,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.handoff`: the mic, when `agentPane.dictationSource` names an app, sends that
+    /// app's shortcut or starts macOS Dictation (``AgentPaneDictationHandoff``).
+    case dictationHandoff
+    /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
+    case dictationSources
+    /// `dictation.watchMicrophone {on}`: a composer of the page has the keyboard (or none has any
+    /// more); while one has, the host says when another app holds the microphone (`micActivity`).
+    case watchMicrophone(Bool)
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
@@ -394,7 +413,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
-    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`).
+    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`),
+    /// and `pane.setDictationSource {source}` writes `agentPane.dictationSource`.
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
@@ -413,6 +433,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)
+    /// `chat.upload.begin {..., sessionId, promptId, ticket}`: a file the page uploads at the
+    /// person's Send, begun under that Send's ticket instead of a live gesture
+    /// (``AgentPaneModel/beginSendUpload(_:ticket:)``).
+    case uploadStageForSend(AgentPaneUploadStageRequest, AgentPaneUploadSendTicket)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -436,6 +460,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public var carriesFiles: Bool {
         if case .upload = self { return true }
         if case .uploadStage = self { return true }
+        if case .uploadStageForSend = self { return true }
         return false
     }
 

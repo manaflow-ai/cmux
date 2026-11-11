@@ -9,9 +9,12 @@
 //! proxy or a guest) nor a remote relay. Only the secret's SHA-256 is kept; create answers the
 //! secret once. A redeemed guest binds a connection with `agent-session-proxy-bind {link_guest}`
 //! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner",
-//! role}`. Only a signed-in account invited with `talk` may send (each prompt held for the
-//! owner): a guest who joined by the link alone, with no account, is always `view`, whatever
-//! its share says. Every guest frame re-checks the share (its
+//! role, avatar?}`. A guest who joined by the link alone, with no account, is always `view`,
+//! whatever its share says. A guest the room signed in (`account`, the room's attestation) who
+//! holds the link's secret but is not invited joins by the link as itself (`via: link`, a use
+//! spent): `talk` on any link unless the share was made with `signed_in_role: view`. An invitee
+//! takes its invite's role. Every
+//! prompt of any guest is held for the owner. Every guest frame re-checks the share (its
 //! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
 //! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
@@ -50,6 +53,8 @@ use crate::apps::timer::{TimerId, Timers};
 use crate::mux::Mux;
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
+#[path = "agent_session_share_link.rs"]
+mod link;
 #[path = "agent_session_share_open.rs"]
 mod open;
 #[path = "agent_session_share_room.rs"]
@@ -61,10 +66,13 @@ const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_TTL_SECS: u64 = 7 * DEFAULT_TTL_SECS;
 const MIN_TTL_SECS: u64 = 60;
 const MAX_USES: u32 = 8;
-/// A view-only link's uses (the Share dialog's "Anyone with the link"): its guests only watch,
-/// so it may admit many; the room bounds the guests connected at once, and the registry's size
-/// (`fits`) the guests recorded.
-const MAX_VIEW_USES: u32 = 1000;
+/// The uses of a link made with an explicit role (the Share dialog's "Anyone with the link",
+/// `view` or `talk`): its anonymous guests only watch and every prompt of a signed-in one is held
+/// for the owner, so it may admit many; the room bounds the guests connected at once, and the
+/// registry's size (`fits`) the guests recorded.
+const MAX_LINK_USES: u32 = 1000;
+/// A guest's avatar URL (`https://` only), in bytes.
+pub(super) const MAX_AVATAR_BYTES: usize = 1024;
 /// Records kept at once (an ended one goes when room is needed), so the file stays far below
 /// `state_file`'s 64 KiB read bound.
 const MAX_SHARES: usize = 16;
@@ -97,11 +105,46 @@ struct Guest {
     state: GuestState,
     /// SHA-256 of the redeem's `attempt_id`: a retry of that redeem gets this guest again.
     attempt_id_sha256: String,
-    /// The invited account this guest joined as (`None`: a link guest).
+    /// The account the room signed this guest in as: an invitee's, or (`via: link`) a signed-in
+    /// guest's who joined by the link. `None`: an anonymous link guest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<Role>,
+    /// `link`: a signed-in guest who joined by the link's secret, not by an invite. It spent a
+    /// use and is forgotten once gone ([`forget_gone`]), as an anonymous link guest is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    via: Option<Via>,
+    /// The signed-in account's profile picture (`https://`, at most [`MAX_AVATAR_BYTES`]), shown
+    /// beside the guest's messages. Dropped when the registry would not fit with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    avatar_url: Option<String>,
+}
+
+/// How a guest with an account joined: by the link's secret (none: by its invite).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Via {
+    Link,
+}
+
+impl Guest {
+    /// Joined as an invited account (its role, its own bound, no use spent).
+    fn invited(&self) -> bool {
+        self.account.is_some() && self.via.is_none()
+    }
+}
+
+/// A guest's avatar as the room gave it, kept only when it is an `https://` URL of at most
+/// [`MAX_AVATAR_BYTES`] of printable ASCII (as acpmux's `author.rs` takes an `avatar`); anything
+/// else is dropped (the guest still joins).
+fn avatar(url: Option<String>) -> Option<String> {
+    url.filter(|url| {
+        url.len() <= MAX_AVATAR_BYTES
+            && url.len() > "https://".len()
+            && url.starts_with("https://")
+            && url.bytes().all(|b| b.is_ascii_graphic())
+    })
 }
 
 /// What a create asks of its share: how long it lasts, how many guests it lets in, and the
@@ -111,9 +154,11 @@ pub(super) struct ShareTerms {
     pub(super) ttl_secs: u64,
     pub(super) uses: u32,
     pub(super) create_id: Option<String>,
-    /// The role the link is made for (`view` lifts its uses cap); a guest who joins by the link
-    /// watches only whatever it says.
+    /// The role the link is made for (any role lifts its uses cap). Anonymous guests only watch
+    /// whatever it says.
     pub(super) role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none.
+    pub(super) signed_in_role: Option<Role>,
 }
 
 /// The encoded registry at its largest: `state_file`'s 64 KiB read bound, less a margin.
@@ -181,7 +226,7 @@ pub(super) struct Present {
 /// host socket or the daemon restarts while its browser stays in the room.
 const KEEP_MS: u64 = 10 * 60 * 1000;
 
-/// Drops the link guests (no account) that left: not kicked, not [`Present`], and joined
+/// Drops the link guests (anonymous or signed in, never an invitee's) that left: not kicked, not [`Present`], and joined
 /// [`KEEP_MS`] ago or more. A view link may admit 1000 guests, far more than the file holds, so
 /// the ones gone make room for the next (cmux#37803, F4). Such a guest only watched; to watch
 /// again it opens the link anew, a use like any join. The share's `uses_left` is its own count,
@@ -192,7 +237,7 @@ fn forget_gone(shares: &mut [LinkShare], now: u64, present: &Present) {
     for share in shares {
         let share_id = &share.share_id;
         share.guests.retain(|g| {
-            g.account.is_some()
+            g.invited()
                 || g.state == GuestState::Kicked
                 || now.saturating_sub(g.joined_at.max(present.loaded_at)) < KEEP_MS
                 || present.guests.contains(&format!("{share_id}.{}", g.guest_id))
@@ -291,11 +336,15 @@ struct LinkShare {
     guests: Vec<Guest>,
     #[serde(default)]
     invitees: Vec<Invitee>,
-    /// The role the link was made for (`view`: the Share dialog's "Anyone with the link"), which
-    /// lifts its uses cap. A guest who joins by the link watches only whatever this says: sending
-    /// takes a signed-in account invited with `talk`. An invitee keeps its own role.
+    /// The role the link was made for (the Share dialog's "Anyone with the link"), which lifts
+    /// its uses cap. A guest who joins by the link alone (nobody signed in) watches only whatever
+    /// this says. An invitee keeps its own role.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none, on
+    /// any link (a `view` link included); `view` when the owner made the link for viewers only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signed_in_role: Option<Role>,
 }
 
 impl LinkShare {
@@ -338,6 +387,12 @@ impl LinkShare {
                     shown["account"] = json!(account);
                     shown["role"] = json!(g.role);
                 }
+                if let Some(via) = g.via {
+                    shown.set("via", json!(via));
+                }
+                if let Some(avatar) = &g.avatar_url {
+                    shown.set("avatar_url", json!(avatar));
+                }
                 shown
             })
             .collect();
@@ -355,7 +410,8 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "invite_url": self.invite_url(), "role": self.role, "guests": guests,
+            "invite_url": self.invite_url(), "role": self.role,
+            "signed_in_role": self.signed_in_role, "guests": guests,
             "invitees": invitees})
     }
 }
@@ -498,8 +554,9 @@ fn find<'a>(
     shares.iter_mut().find(|s| s.share_id == share_id).ok_or("share.unknown")
 }
 
-/// What `guest` may do: an invitee its invite's role, a guest who joined by the link alone
-/// (no account, so nobody signed in) `view`, always.
+/// What `guest` may do: a signed-in guest the role it joined with (an invitee its invite's, a
+/// link guest the link's), a guest who joined by the link alone (no account, so nobody signed
+/// in) `view`, always.
 fn role_of(guest: &Guest) -> Role {
     match guest.account {
         Some(_) => guest.role.unwrap_or(Role::View),
@@ -509,11 +566,15 @@ fn role_of(guest: &Guest) -> Role {
 
 /// The author a guest binds as, with its role ([`role_of`]). The author is stamped on what the
 /// guest sends (`_meta.acpmux.author`), which every participant of the chat sees, so it never
-/// names the invitee's account (often an email): that stays in the owner's own `-list`.
+/// names the guest's account (often an email): that stays in the owner's own `-list`. A
+/// signed-in guest's profile picture goes as `avatar` (acpmux's provenance `fromAvatar`).
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
         "name": guest.name, "approval": "owner"});
     author.set("role", json!(role_of(guest)));
+    if let Some(avatar) = &guest.avatar_url {
+        author.set("avatar", json!(avatar));
+    }
     author
 }
 
@@ -537,10 +598,14 @@ struct Create {
     ttl_secs: Option<u64>,
     #[serde(default)]
     uses: Option<u32>,
-    /// The role the link is made for: `view` allows up to 1000 uses. A guest who joins by the
-    /// link watches only either way (sending takes an invited account).
+    /// The role the link is made for: any role allows up to 1000 uses. A guest who joins by the
+    /// link alone (nobody signed in) watches only either way.
     #[serde(default)]
     role: Option<Role>,
+    /// What a signed-in guest who joins by the link (not invited) may do: `talk` (the default,
+    /// on any link) or `view` (the owner's viewers-only link).
+    #[serde(default)]
+    signed_in_role: Option<Role>,
     /// The owner's cmux cloud access token, for the room's `PUT` only (never stored).
     #[serde(default)]
     owner_token: Option<String>,
@@ -577,8 +642,10 @@ struct Uninvite {
     account: String,
 }
 
-/// A redeem: a link guest's (`secret`) or an invited account's (`account`, attested by the room
-/// after its sign-in, never with the secret).
+/// A redeem: a link guest's (`secret`), an invited account's (`account` alone), or a signed-in
+/// link guest's (`secret` and `account`). `account` and `avatar_url` are the room's attestation
+/// of its own verified sign-in: they come only from the room's host socket frame (`room.rs`) or
+/// the owner's own unix connection, never from a guest's page.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Redeem {
@@ -589,6 +656,9 @@ pub(super) struct Redeem {
     pub(super) attempt_id: String,
     #[serde(default)]
     pub(super) account: Option<String>,
+    /// The signed-in account's profile picture (`https://`, at most 1024 bytes; else dropped).
+    #[serde(default)]
+    pub(super) avatar_url: Option<String>,
 }
 
 impl LinkShares {
@@ -822,7 +892,8 @@ impl LinkShares {
     }
 
     /// Spends a use and names a new guest; a retry of a recorded `attempt_id` gets that guest
-    /// again without a use, while the share is live.
+    /// again without a use, while the share is live. An invited account spends no use; a
+    /// signed-in account that is not invited but holds the secret joins by the link (a use).
     pub(super) fn redeem(
         &self,
         directory: Option<&Path>,
@@ -835,6 +906,8 @@ impl LinkShares {
             return Err("share.bad_request");
         }
         let account = p.account.as_deref().map(normal_account).transpose()?;
+        // Only a signed-in account has a picture.
+        let avatar_url = avatar(p.avatar_url.clone()).filter(|_| account.is_some());
         let guest_id = token::<8>()?;
         let attempt = hex(&digest(&[&p.attempt_id]));
         let connected = || self.present();
@@ -842,32 +915,43 @@ impl LinkShares {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
                 || !p.secret.is_empty() && same(&hex(&digest(&[&p.secret])), &share.secret_sha256);
-            // A guest who joins by the link watches only: nobody signed in.
-            let link_role = Some(Role::View);
-            let (account, role) = match account {
+            // A signed-in guest who joins by the link may send on any link unless the owner
+            // limited signed-in guests to watching (`signed_in_role: view`); an anonymous one
+            // watches only.
+            let signed_in_role = share.signed_in_role.unwrap_or(Role::Talk);
+            let (account, role, via) = match account {
                 None if !secret_matches() => return Err("share.secret"),
-                None => (None, link_role),
+                None => (None, Some(Role::View), None),
                 Some(account) => {
                     // An ended share says how it ended, to any account.
                     share.live()?;
-                    // A retry of a removed account's earlier join says it was removed.
-                    let earlier = share.guests.iter().any(|g| {
+                    // The account's guest that made this attempt, if any.
+                    let earlier = share.guests.iter().find(|g| {
                         g.account.as_ref() == Some(&account) && same(&g.attempt_id_sha256, &attempt)
                     });
-                    let invitee = share
-                        .invitees
-                        .iter()
-                        .find(|i| i.account == account && i.state == InviteState::Invited);
-                    match (invitee, earlier) {
-                        (Some(invitee), _) => {
-                            let role = invitee.role;
-                            (Some(account), Some(role))
+                    let earlier_via = earlier.map(|g| g.via);
+                    let invitee = share.invitees.iter().find(|i| i.account == account);
+                    let invited = invitee.filter(|i| i.state == InviteState::Invited);
+                    match (invited, earlier_via) {
+                        (Some(invitee), _) => (Some(account), Some(invitee.role), None),
+                        // A retry of the account's earlier join by the link: that guest again
+                        // (below), with the secret as it came.
+                        (None, Some(Some(Via::Link))) if secret_matches() => {
+                            (Some(account), Some(signed_in_role), Some(Via::Link))
                         }
-                        (None, true) => return Err("share.kicked"),
-                        // An account that is not invited but holds the link's secret joins by
-                        // the link, as a link guest (a use spent, no account kept).
-                        (None, false) if secret_matches() => (None, link_role),
-                        (None, false) => return Err("share.not_invited"),
+                        (None, Some(Some(Via::Link))) => return Err("share.secret"),
+                        // A retry of a removed account's earlier join says it was removed.
+                        (None, Some(_)) => return Err("share.kicked"),
+                        // The owner removed this account: the link does not let it back in.
+                        (None, None) if invitee.is_some() && secret_matches() => {
+                            return Err("share.kicked");
+                        }
+                        // Not invited, holding the link's secret: a link guest that keeps its
+                        // account (a use spent).
+                        (None, None) if secret_matches() => {
+                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                        }
+                        (None, None) => return Err("share.not_invited"),
                     }
                 }
             };
@@ -875,13 +959,24 @@ impl LinkShares {
             let reply = |g: &Guest| {
                 let mut answer =
                     json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
-                // The guest's role (a link guest's is `view`): the room hands it to the page,
-                // which draws a view guest with no composer, and drops a view guest's prompts.
+                // The guest's role: the room hands it to the page, which draws a view guest with
+                // no composer, and drops a view guest's prompts.
                 answer.set("role", json!(role_of(g)));
                 answer
             };
-            if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))
+            if let Some(guest) =
+                share.guests.iter_mut().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
+                // A link guest an older daemon recorded without its account (it kept none for
+                // a join by the link) is the same join retried by the link: that guest again.
+                let unrecorded = guest.account.is_none() && guest.via.is_none();
+                if unrecorded && via == Some(Via::Link) {
+                    return match guest.state {
+                        GuestState::Active => Ok((reply(guest), false)),
+                        GuestState::Kicked => Err("share.kicked"),
+                        GuestState::Left => Err("share.left"),
+                    };
+                }
                 // An attempt is one account's: another account (or a link guest) never gets it.
                 if guest.account != account {
                     return Err(if account.is_some() {
@@ -890,32 +985,46 @@ impl LinkShares {
                         "share.secret"
                     });
                 }
-                return match guest.state {
-                    GuestState::Active => Ok((reply(guest), false)),
-                    GuestState::Kicked => Err("share.kicked"),
-                    GuestState::Left => Err("share.left"),
-                };
+                // An attempt is one way of joining too. The account's earlier join by the link,
+                // now that the account is invited, is not its invite's guest (whose role the
+                // owner chose): it ends, its connections close, and the invite joins anew below.
+                if guest.via != via {
+                    if via.is_some() || guest.state != GuestState::Active {
+                        return Err("share.not_invited");
+                    }
+                    guest.state = GuestState::Left;
+                    // It answers no attempt any more: the invite's guest takes this one.
+                    guest.attempt_id_sha256 = String::new();
+                } else {
+                    return match guest.state {
+                        GuestState::Active => Ok((reply(guest), false)),
+                        GuestState::Kicked => Err("share.kicked"),
+                        GuestState::Left => Err("share.left"),
+                    };
+                }
             }
-            match &account {
+            match (&account, via) {
                 // An invite spends no link use; it bounds the account's live guests instead.
-                Some(account) => {
+                (Some(account), None) => {
                     let live = share
                         .guests
                         .iter()
-                        .filter(|g| g.account.as_ref() == Some(account))
+                        .filter(|g| g.invited() && g.account.as_ref() == Some(account))
                         .filter(|g| g.state == GuestState::Active)
                         .count();
                     if live >= MAX_GUESTS_PER_ACCOUNT {
                         return Err("share.used");
                     }
-                    // The account's ended guests go: an invited account may join again anyway,
-                    // so its history only grows the file.
+                    // The account's ended invited guests go: an invited account may join again
+                    // anyway, so its history only grows the file.
                     share.guests.retain(|g| {
-                        g.account.as_ref() != Some(account) || g.state == GuestState::Active
+                        !g.invited()
+                            || g.account.as_ref() != Some(account)
+                            || g.state == GuestState::Active
                     });
                 }
-                None if share.uses_left == 0 => return Err("share.used"),
-                None => share.uses_left -= 1,
+                _ if share.uses_left == 0 => return Err("share.used"),
+                _ => share.uses_left -= 1,
             }
             let guest = Guest {
                 guest_id,
@@ -925,11 +1034,24 @@ impl LinkShares {
                 attempt_id_sha256: attempt,
                 account,
                 role,
+                via,
+                avatar_url,
             };
             let answer = reply(&guest);
+            let pictured = guest.avatar_url.is_some();
             share.guests.push(guest);
             if !fits_or_prune(shares, now, &connected) {
-                return Err("share.limit");
+                // The picture is the one optional part: without it the guest may still fit.
+                let dropped = pictured && {
+                    let share = find(shares, &p.share_id)?;
+                    if let Some(last) = share.guests.last_mut() {
+                        last.avatar_url = None;
+                    }
+                    fits(shares)
+                };
+                if !dropped {
+                    return Err("share.limit");
+                }
             }
             Ok((answer, true))
         })
@@ -1324,11 +1446,19 @@ pub(super) fn handle(
         "agent-session-share-uninvite" => {
             parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
         }
+        // A share link the app was handed: the page to open in its web view, signed in when it may be.
+        "agent-session-share-open-link" => {
+            parse(params).and_then(|p: link::OpenLink| link::open(shares, p))
+        }
         "agent-session-share-redeem" => {
             parse(params).and_then(|p: Redeem| shares.redeem(directory, p))
         }
         _ => Err("share.bad_request"),
     };
+    let answer = answer.map(|mut data| {
+        room::name_app_in_invites(&mut data, &shares.bridge.app_query());
+        data
+    });
     // A revoke, a kick, or an expiry any verb noticed closes the guests' connections now.
     shares.settle(mux);
     match answer {
@@ -1362,6 +1492,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",
         "share.room_unreachable" => "the share room did not answer; the share was not opened",
         "share.room_refused" => "the share room refused this share (or sharing is off there)",
+        "share.not_a_link" => "not a chat share link of a known share room",
         _ => "bad request",
     };
     send_response(

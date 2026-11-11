@@ -61,6 +61,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "app.reloadCustomViews",
+        group: GROUP,
+        title: t("AppStoreActions", "action.app.reloadCustomViews", "Reload Custom Views"),
+        keywords: &["apps", "reload", "customize", "custom views", "sidebar sections", "refresh", "script", "error"],
+        category: "settings",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "apps reload",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "app.install",
         group: GROUP,
         title: t("AppStoreActions", "action.app.install", "Install App…"),

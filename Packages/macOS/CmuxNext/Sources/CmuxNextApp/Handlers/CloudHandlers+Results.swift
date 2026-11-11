@@ -1,8 +1,12 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextSidebar
+import Foundation
 
 /// What a Cloud action found, for whoever ran it: a person sees `text` in a
 /// sheet titled `title`; a CLI, MCP, script or remote run gets `text` and
@@ -117,29 +121,32 @@ extension CloudHandlers {
                 defer { group.cancelAll() }
                 return await group.next() ?? nil
             }
+            // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a CLI or
+            // agent caller can start that plan's checkout; a declined or dismissed create is refused.
+            var facts: [String: Any] = ["creationId": creation.id.uuidString.lowercased(), "workspaceId": creation.workspaceID as Any,
+                                        "plan": creation.planRefusal?.plan as Any, "machine": creation.session.map(machineFacts) as Any]
             switch settled {
-            case .created?, .pending?, nil:
-                guard let session = creation.session else {
-                    return .success(["pending": .bool(true), "status": .string("creating"), "creation_id": .string(creation.id.uuidString.lowercased())])
-                }
-                return .success(createdMachineFields(session, workspaceID: creation.workspaceID))
+            case .pending?, nil: break
+            case .created?: facts["state"] = "created"
+            case .gone?: facts["state"] = "gone"
             case .failed(let reason)?:
-                // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a
-                // CLI or agent caller can start that plan's checkout (`cmux billing checkout --plan`).
-                if let refusal = creation.planRefusal {
-                    return .failure(ActionWorkFailure(code: planRequiredCode, reason: "new Cloud machine: \(reason) (plan: \(refusal.plan))"))
-                }
-                return .failure(ActionWorkFailure("new Cloud machine: \(reason)"))
-            case .gone?:
-                // Declined in the confirmation (an agent's create asks the person first), or dismissed.
+                facts["state"] = "failed"
+                facts["reason"] = reason
+            }
+            let reply = CloudHandlerRules().ask("cloud_handler_settled", facts.compacted)
+            if let failure = reply?["failure"] as? [String: Any] {
+                let reason = CloudHandlerRules.text(CloudHandlerRules.decodeSaid(failure["reason"] ?? NSNull()))
+                if failure["refusal"] as? Bool == true { return .failure(ActionWorkFailure(refusal: .unavailable, reason: reason)) }
+                if let code = failure["code"] as? String { return .failure(ActionWorkFailure(code: code, reason: reason)) }
+                return .failure(ActionWorkFailure(reason))
+            }
+            guard case .object(let fields)? = reply?["fields"].map(CloudHandlerRules.result) else {
                 return .failure(ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined))
             }
+            return .success(fields)
         }
         registry.track(result: task)
     }
-
-    /// The error code of a `cloud new-machine` refused for a paid plan, as the Cloud contract names it.
-    static let planRequiredCode = "cloud.plan.required"
 
     /// How long `cloud new-machine` waits for the server's machine before it
     /// answers `pending`: inside `action.run`'s 40 s result deadline.
@@ -151,15 +158,13 @@ extension CloudHandlers {
         return nil
     }
 
-    static func createdMachineFields(_ session: CloudMachineSession, workspaceID: String?) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = [
-            "machine_id": .string(session.machineID),
-            "title": .string(session.machine.title),
-            "status": .string(session.effectiveStatus.rawValue),
-            "target": .string("machine:\(session.machineID)"),
-        ]
-        if let workspaceID { fields["workspace_id"] = .string(workspaceID) }
-        return fields
+    /// A machine's facts for the rules (``CloudHandlerRules``): its id, title, shown status, size and address.
+    static func machineFacts(_ session: CloudMachineSession) -> [String: Any] {
+        let machine = session.machine
+        return ["id": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
+                "displayName": machine.displayName as Any, "sizeName": machine.size?.name as Any, "cpu": machine.size?.cpu as Any,
+                "memoryMb": machine.size?.memoryMb as Any, "idlePauseMinutes": machine.idlePauseMinutes as Any,
+                "ipv4": machine.address?.ipv4 as Any, "ipv6": machine.address?.ipv6 as Any].compacted
     }
 
     /// The longest a CLI or agent `cloud exec` runs its command (the Cloud
@@ -177,16 +182,117 @@ nonisolated enum CreatedMachine: Equatable, Sendable {
     case gone
 
     @MainActor init(_ creation: CloudMachineCreation, in creations: CloudCreations) {
-        guard creations.all.contains(where: { $0 === creation }) else {
-            self = creation.session == nil ? .gone : .created
-            return
+        var reason: String?
+        if case .failed(let why) = creation.phase { reason = why }
+        let state = CloudHandlerRules().ask("cloud_handler_creation", [
+            "listed": creations.all.contains(where: { $0 === creation }), "hasSession": creation.session != nil, "failed": reason != nil,
+        ])?["state"] as? String
+        switch state {
+        case "created": self = .created
+        case "failed": self = .failed(reason ?? "")
+        case "gone": self = .gone
+        default: self = .pending
         }
-        if creation.session != nil {
-            self = .created
-        } else if case .failed(let reason) = creation.phase {
-            self = .failed(reason)
-        } else {
-            self = .pending
+    }
+}
+
+/// The app's side of ``CloudHandlerRules``: its words for each refusal key, and the port names.
+extension CloudHandlerRules {
+    init() {
+        self.init(words: { Self.failure($0) })
+    }
+
+    /// The refusal when the rules do not answer (the app's FFI is missing an op): the action does nothing.
+    static var unanswered: String {
+        String(localized: "cloud.operationUnavailable", defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module)
+    }
+
+    func arg(_ check: String, _ invocation: ActionInvocation, port names: CloudPortNames? = nil, extra: [String: Any] = [:]) throws -> Any {
+        try arg(check, invocation, names: names.map(Self.json), extra: extra)
+    }
+
+    func text(_ check: String, _ invocation: ActionInvocation, port names: CloudPortNames? = nil, extra: [String: Any] = [:]) throws -> String {
+        try arg(check, invocation, port: names, extra: extra) as? String ?? ""
+    }
+
+    func port(_ invocation: ActionInvocation) throws -> Int {
+        try arg("port", invocation) as? Int ?? 0
+    }
+
+    func namedPort(_ invocation: ActionInvocation, _ names: CloudPortNames, verb: String) throws -> Int {
+        try arg("namedPort", invocation, port: names, extra: ["verb": verb]) as? Int ?? 0
+    }
+
+    func id(_ invocation: ActionInvocation, missing: String) throws -> String {
+        try text("id", invocation, extra: ["missing": missing])
+    }
+
+    /// The machine and port a port message names, as the rules read them (`port` absent: `<port>`).
+    static func json(_ names: CloudPortNames) -> [String: Any] {
+        var object: [String: Any] = ["name": names.name, "id": names.id]
+        if let port = Int(names.port) { object["port"] = port }
+        return object
+    }
+
+    /// `said` as a thrown refusal: not found and bad targets keep their kind.
+    static func failure(_ said: Said) -> ActionFailure {
+        let message = text(said)
+        switch said.kind {
+        case "not_found": return .notFound(message)
+        case "invalid_target": return .invalidTarget(message)
+        default: return ActionFailure(message: message)
+        }
+    }
+
+    /// The app's localized words for what the rules said. A port refusal names the machine and
+    /// port first (name, id, port), then its own values.
+    static func text(_ said: Said) -> String {
+        let first = said.args.first ?? ""
+        let value = { (index: Int) in said.args.indices.contains(index) ? said.args[index] : "" }
+        var names = CloudPortNames(name: value(0), id: value(1), port: nil)
+        if said.args.count > 2 { names.port = value(2) }
+        switch said.key {
+        case "text": return first
+        case "unavailable": return Self.unanswered
+        case "commandRequired": return CloudStrings.commandRequired
+        case "filePathRequired": return CloudStrings.filePathRequired
+        case "invalidPort": return CloudStrings.invalidPort
+        case "idlePauseMustBeOneOf": return CloudStrings.idlePauseMustBeOneOf(first)
+        case "machineWorkspaceRequired": return CloudStrings.machineWorkspaceRequired(first)
+        case "publicationRequired": return CloudStrings.publicationRequired
+        case "publicKeyRequired": return CloudStrings.publicKeyRequired
+        case "fileContentsRequired": return CloudStrings.fileContentsRequired
+        case "snapshotRequired": return CloudStrings.snapshotRequired
+        case "apiKeyRequired": return CloudStrings.apiKeyRequired
+        case "machineConfigUnreadable": return CloudStrings.machineConfigUnreadable(first)
+        case "sizeMustBeOneOf": return CloudStrings.sizeMustBeOneOf(first)
+        case "laneNeedsName": return CloudStrings.laneNeedsName
+        case "repoUnrecognized": return CloudStrings.repoUnrecognized
+        case "repoCredentialsInURL": return CloudStrings.repoCredentialsInURL
+        case "repoInvalidRef": return CloudStrings.repoInvalidRef
+        case "resizeNeedsSizeOrDisk": return CloudStrings.resizeNeedsSizeOrDisk(first)
+        case "bootstrapScriptRequired": return CloudStrings.bootstrapScriptRequired
+        case "machineNameInvalid": return CloudStrings.machineNameInvalid
+        case "unknownMachine": return CloudStrings.unknownMachine(first)
+        case "noMachine": return CloudStrings.noMachine
+        case "createDeclined": return CloudStrings.createDeclined
+        case "signInFirst": return CloudStrings.signInFirst
+        case "diagnosticsAllWell": return CloudStrings.diagnosticsAllWell(first)
+        case "noTeams": return CloudStrings.noTeams
+        case "noSuchTeam": return CloudStrings.noSuchTeam(first)
+        case "portInvalid": return CloudPortStrings.invalidPort(names, verb: value(2))
+        case "portFailed": return CloudPortStrings.failed(names, detail: value(3))
+        case "portLimit": return CloudPortStrings.limit(names)
+        case "portPathInvalid": return CloudPortStrings.pathInvalid(names)
+        case "portNoLink": return CloudPortStrings.noLink(names)
+        case "gitHubAppConfirmBody": return CloudStrings.gitHubAppConfirmBody(name: value(0), email: value(1))
+        case "gitHubAppConfirmNoIdentity": return CloudStrings.gitHubAppConfirmNoIdentity
+        case "gitHubConfirmBody": return CloudStrings.gitHubConfirmBody(name: value(0), email: value(1))
+        case "gitHubConfirmNoIdentity": return CloudStrings.gitHubConfirmNoIdentity
+        case "gitHubFallbackNotConnected": return CloudStrings.gitHubFallback(.notConnected)
+        case "gitHubFallbackNotConfigured": return CloudStrings.gitHubFallback(.notConfigured)
+        case "gitHubFallbackUnknown": return CloudStrings.gitHubFallback(.unknown)
+        default: return said.args.isEmpty ? Self.unanswered : said.args.joined(separator: " ")
         }
     }
 }

@@ -21,8 +21,9 @@ extension SettingsWindowService {
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = services.themeStore.generation
         return [
-            // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
-            "dev_build": .bool(DevTools.isDebugBuild),
+            // The Development category (dev_only) shows in DEV and NIGHTLY builds (DevTools.isEnabled);
+            // Devices shows in every build.
+            "dev_build": .bool(DevTools.isEnabled),
             // Raw legacy preference; the web shares its fallback policy with the model picker.
             "harness_placement": .string(AgentPaneTunables.harnessPlacement.value.rawValue),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
@@ -160,7 +161,7 @@ extension SettingsWindowService {
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let session = services.machines.session(id)
-        let owns = session?.appLink?.ownership.callerOwnsVM == true
+        let owns = session?.appLink.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }

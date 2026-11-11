@@ -148,8 +148,19 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
-            drop(input_handoff);
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
+            // What the written prompt records (the rules it carried, `turns.rs`) is recorded
+            // before the handoff is let go: a fork, which takes the handoff for its copy and
+            // cut (`fork.rs`), sees a written prompt with its record.
             on_sent();
+            drop(input_handoff);
         };
         if confirm_written {
             child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
@@ -241,7 +252,15 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // A person's steer tells the agent who sent it (`author::agent_label`), as a turn's
+        // prompt does; the record above and the fallback keep their words alone.
+        let labeled = match crate::author::agent_label(opts.provenance.as_ref()) {
+            Some(label) if super::forum::slash_command(&blocks).is_none() => {
+                std::iter::once(label).chain(blocks.iter().cloned()).collect()
+            }
+            _ => blocks.clone(),
+        };
+        let wire_blocks = super::turns::agent_blocks(self, session, &labeled).await?;
         // Stopped while its copies were made: written now, it would reach no turn, and its
         // fallback would start one after the Stop. Another agent's message goes on: it is kept
         // out of the stopping turn, or comes back if that turn ends before its agent read it
@@ -282,6 +301,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -371,6 +391,8 @@ impl Hub {
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 written.notify_one();
+                // A question it carries is answered by this turn (`question_replies.rs`).
+                self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }

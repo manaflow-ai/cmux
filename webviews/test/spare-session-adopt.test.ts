@@ -276,6 +276,55 @@ test("a chat the daemon does not list is the adopted tab's missing chat, never a
   expect(daemon.attaches).toEqual([chat]);
 });
 
+// Leo, 2026-11-05: "It should take a lot faster of a time to be loading, like within a few seconds,
+// really. So I don't know what's going on, how we're losing track of these things." A tab that
+// adopts the spare for a chat whose machine is still connecting draws the chat's saved transcript
+// under why it is not here, as a tab whose handshake named it does (direct.ts `drawMissingTail`),
+// and the saved transcript stays the host's for the next open.
+test("an adopted chat the daemon does not list yet keeps its saved transcript on screen and on the host", async () => {
+  const chat = "adopt-connecting";
+  const kept = {
+    events: chatEvents(chat, "Retry added in the saved transcript."),
+    lastSeq: 2,
+    historyExhausted: true,
+    summary: summary(chat),
+  };
+  const forgotten: string[] = [];
+  (
+    dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
+    "chat.tail.get": async (params: any) => (String(params.sessionId) === chat ? kept : null),
+    "chat.tail": async (params: any) => {
+      if (params.tail === undefined) forgotten.push(String(params.sessionId));
+      return null;
+    },
+    "chat.snapshot.put": async () => null,
+  };
+  const daemon = new Daemon(["newest"]);
+  // What a render paints: the last snapshot of each synchronous turn (React batches the rest).
+  const painted: AcpmuxSnapshot[] = [];
+  let turn: AcpmuxSnapshot | undefined;
+  const page = await spare(daemon, (snapshot) => {
+    if (turn === undefined)
+      queueMicrotask(() => {
+        painted.push(turn!);
+        turn = undefined;
+      });
+    turn = snapshot;
+  });
+  expect(await page.client.adoptSession(chat)).toBeUndefined();
+  await flush();
+  expect(page.last()?.missingSession).toBe(chat);
+  expect(page.last()?.missingReason).toBe("notListedAtOpen");
+  expect(page.last()?.drewKeptTail).toBe(true);
+  expect(text(page.last())).toContain("Retry added in the saved transcript.");
+  expect(forgotten).toEqual([]);
+  // From the first frame that drew it, the transcript never leaves the screen.
+  const first = painted.findIndex((frame) => text(frame).includes("Retry added in the saved transcript."));
+  expect(first).toBeGreaterThanOrEqual(0);
+  for (const frame of painted.slice(first)) expect(text(frame)).toContain("Retry added in the saved transcript.");
+});
+
 test("a failed adoption cannot clear a chat selected after its list read", async () => {
   const missing = "adopt-gone";
   const next = "selected-after-adoption";

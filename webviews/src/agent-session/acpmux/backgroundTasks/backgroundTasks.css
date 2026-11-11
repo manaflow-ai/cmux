@@ -215,7 +215,10 @@
 .acpmux-bg__task-open.ui-btn:disabled {
   cursor: default;
 }
-/* A hover lights only the control it belongs to (rulebook). */
+/* A hover lights only the control it belongs to (rulebook), on the frame the pointer reaches it
+   (no fill fade trailing the pointer down the list while the tasks update), and fades out on the
+   button's quick step when it leaves, as a list row's hover does (pages/shared/desktop.css "Hover
+   intent"; conversation.css HOVER FOLLOWS THE POINTER; test/agent-pane-hover-follows-row.test.ts). */
 .acpmux-bg__name.ui-btn:hover:not(:disabled),
 .acpmux-bg__task-open.ui-btn:hover:not(:disabled),
 .acpmux-bg__fold.ui-btn:hover:not(:disabled),
@@ -223,6 +226,7 @@
 .acpmux-bg__more.ui-btn:hover:not(:disabled),
 .acpmux-bg__line--fold.ui-btn:hover:not(:disabled) {
   background: var(--ds-color-hover);
+  transition-duration: 0s;
 }
 .acpmux-bg__icon.ui-btn:focus-visible,
 .acpmux-bg__name.ui-btn:focus-visible,
@@ -405,6 +409,20 @@
 }
 .acpmux-bg__tool[data-failed] .acpmux-bg__line--fold.ui-btn {
   color: var(--agent-status-failure);
+}
+/* A run's steps, opened under its line (SubagentTranscript.tsx `RunLine`): set in one step, as Claude
+   Code's drill-in nests a run's calls under its summary. */
+.acpmux-bg__run-steps {
+  padding-inline-start: var(--ds-space-3);
+}
+/* A run's line (`RunLine`): its summary ellipsizes, its failures after it never shrink. */
+.acpmux-bg__run-name {
+  display: inline-flex;
+  min-width: 0;
+}
+.acpmux-bg__run-sep {
+  flex: none;
+  white-space: pre;
 }
 .acpmux-bg__thought-text {
   margin: var(--ds-space-1) 0 0;

@@ -224,6 +224,14 @@ impl Controller for Cubic {
         }
     }
 
+    fn on_sack_loss(&mut self, now: Instant, in_flight: usize) {
+        let entering = !self.in_fast_recovery;
+        self.on_loss(now, in_flight);
+        if entering {
+            self.cwnd = self.ssthresh.min(self.rwnd).max(self.mss);
+        }
+    }
+
     fn on_rto(&mut self, _now: Instant, in_flight: usize) {
         // RFC 5681: when the retransmission timer fires for a segment that has
         // already been retransmitted by the timer (no new data was ACKed since
@@ -331,6 +339,22 @@ mod test {
     use super::*;
 
     const MSS: usize = 1024;
+
+    #[test]
+    fn test_sack_loss_cuts_without_inflation() {
+        let mut cubic = Cubic::new();
+        cubic.set_mss(MSS);
+        cubic.set_remote_window(usize::MAX);
+        let in_flight = 20 * MSS;
+        cubic.on_sack_loss(Instant::from_millis(0), in_flight);
+        let ssthresh = (in_flight as f64 * BETA_CUBIC) as usize;
+        assert_eq!(cubic.ssthresh, ssthresh);
+        assert_eq!(cubic.cwnd, ssthresh);
+        assert!(cubic.in_fast_recovery);
+        // A second report in the same recovery changes nothing.
+        cubic.on_sack_loss(Instant::from_millis(1), in_flight);
+        assert_eq!(cubic.cwnd, ssthresh);
+    }
 
     fn ack(cubic: &mut Cubic, len: usize, now: Instant) {
         cubic.on_ack(now, len, cubic.window().saturating_sub(MSS), &rtte())

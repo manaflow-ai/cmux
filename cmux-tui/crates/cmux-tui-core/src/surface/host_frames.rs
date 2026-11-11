@@ -22,12 +22,14 @@
 //!
 //! Every other frame (including `ClearHistoryAck`, whose replay must stay
 //! ordered with output, and resize and cell-pixel responses) goes to the
-//! surface's reader in stream order through a queue bounded by payload
-//! bytes. When the queue is full the thread stops reading, which keeps the
-//! host's backpressure. Once the surface's reader abandons the stream
-//! (`abandon`), the thread discards ordered frames instead of queueing them,
-//! so a backlog can never delay an acknowledgement it still owes; it still
-//! resolves `ClearHistoryAck` (status only, see `resolves_after_abandon`).
+//! surface's reader in stream order through a queue bounded by bytes: each
+//! frame counts its payload plus a fixed per-frame cost, so a flood of empty
+//! frames is bounded too. When the queue is full the thread stops reading,
+//! which keeps the host's backpressure. Once the surface's reader abandons
+//! the stream (`abandon`), the thread discards ordered frames instead of
+//! queueing them, so a backlog can never delay an acknowledgement it still
+//! owes; it still resolves `ClearHistoryAck` (status only, see
+//! `resolves_after_abandon`).
 //!
 //! A `ClipboardReadRequest` from a host that negotiated clipboard reads
 //! becomes the connection's pending read and a `ClipboardReadCancel`
@@ -43,16 +45,36 @@
 //! not lost to the drop's own shutdown.
 
 use std::collections::VecDeque;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
 use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 
-/// Output bytes the reader thread may queue ahead of the surface's reader.
-/// One frame is always admitted, however large.
-const QUEUED_PAYLOAD_BUDGET: usize = 8 * 1024 * 1024;
+/// Bytes the reader thread may queue ahead of the surface's reader, counted
+/// by [`queued_cost`]. One frame is always admitted, however large.
+const QUEUED_BYTES_BUDGET: usize = 8 * 1024 * 1024;
+
+/// Bytes the reader thread reads from the socket in one call. A host link
+/// under backlog holds many frames; reading them one header and one payload
+/// at a time cost at least two `read` calls per frame. Bounded and small next
+/// to [`QUEUED_BYTES_BUDGET`]: when the queue is full the thread still stops
+/// reading, so the host keeps its backpressure (it may have written at most
+/// this many bytes more).
+const LINK_READ_BUFFER: usize = 64 * 1024;
+
+/// What a queued frame costs besides its payload: the wire header it arrived
+/// with and its queue slot. Empty frames (Bell, metadata) cost this alone;
+/// counting only payload bytes let a flood of them grow the queue without
+/// bound.
+const QUEUED_FRAME_OVERHEAD: usize =
+    crate::terminal_host_protocol::HEADER_LEN + size_of::<HostFrame>();
+
+/// What `frame` costs against [`QUEUED_BYTES_BUDGET`] while it is queued.
+fn queued_cost(frame: &Frame) -> usize {
+    QUEUED_FRAME_OVERHEAD + frame.payload.len()
+}
 
 /// What the surface's reader receives.
 pub(super) enum HostFrame {
@@ -65,13 +87,17 @@ pub(super) enum HostFrame {
 #[derive(Default)]
 struct QueueState {
     frames: VecDeque<HostFrame>,
-    queued_payload: usize,
+    /// The [`queued_cost`] of the queued frames.
+    queued_bytes: usize,
     ended: bool,
     /// The surface's reader no longer reads this queue (`abandon` or drop).
     abandoned: bool,
     /// The demultiplexer was dropped with replies still owed: the thread
     /// ends once no waiter it resolves is left, or at this deadline.
     draining: Option<std::time::Instant>,
+    /// Tests: how many times the reader thread waited for room in the queue.
+    #[cfg(test)]
+    budget_waits: usize,
 }
 
 struct Queue {
@@ -151,7 +177,7 @@ impl HostFrames {
         loop {
             if let Some(frame) = state.frames.pop_front() {
                 if let HostFrame::Frame(frame) = &frame {
-                    state.queued_payload -= frame.payload.len();
+                    state.queued_bytes -= queued_cost(frame);
                 }
                 self.queue.changed.notify_all();
                 return frame;
@@ -161,6 +187,27 @@ impl HostFrames {
             }
             state = self.queue.changed.wait(state).unwrap();
         }
+    }
+
+    /// The next frame when one is already queued and `admit` accepts it;
+    /// never blocks. The surface's reader takes the Output frames queued
+    /// behind the one it applies with this.
+    pub(super) fn try_recv_if(&self, admit: impl FnOnce(&Frame) -> bool) -> Option<Frame> {
+        let mut state = self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let HostFrame::Frame(front) = state.frames.front()? else { return None };
+        if !admit(front) {
+            return None;
+        }
+        let HostFrame::Frame(frame) = state.frames.pop_front()? else { return None };
+        state.queued_bytes = state.queued_bytes.saturating_sub(queued_cost(&frame));
+        self.queue.changed.notify_all();
+        Some(frame)
+    }
+
+    /// Tests: how many frames are queued for the surface's reader.
+    #[cfg(test)]
+    pub(super) fn queued_frames_for_test(&self) -> usize {
+        self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).frames.len()
     }
 
     /// The surface's reader stops reading this stream (for example at
@@ -174,7 +221,7 @@ impl HostFrames {
         let ended = {
             let mut state = self.queue.state.lock().unwrap();
             state.abandoned = true;
-            state.queued_payload = 0;
+            state.queued_bytes = 0;
             // A clear-history acknowledgement already queued behind the frame
             // that ended the read still answers its requester. It is resolved
             // under the queue lock, before the thread can see `abandoned` at
@@ -252,12 +299,14 @@ fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -
 }
 
 fn read_stream(
-    mut stream: impl Read,
+    stream: impl Read,
     control_responses: &ControlResponses,
     protocol_version: u16,
     early: EarlyResponses,
     queue: &Queue,
 ) {
+    // A payload larger than the buffer is read straight into its frame.
+    let mut stream = BufReader::with_capacity(LINK_READ_BUFFER, stream);
     loop {
         let draining = queue.state.lock().unwrap().draining;
         if draining.is_some_and(|deadline| {
@@ -301,8 +350,13 @@ fn read_stream(
         let mut state = queue.state.lock().unwrap();
         while !state.abandoned
             && !state.frames.is_empty()
-            && state.queued_payload + frame.payload.len() > QUEUED_PAYLOAD_BUDGET
+            && state.queued_bytes + queued_cost(&frame) > QUEUED_BYTES_BUDGET
         {
+            #[cfg(test)]
+            {
+                state.budget_waits += 1;
+                queue.changed.notify_all();
+            }
             state = queue.changed.wait(state).unwrap();
         }
         if state.abandoned {
@@ -312,7 +366,7 @@ fn read_stream(
             }
             continue;
         }
-        state.queued_payload += frame.payload.len();
+        state.queued_bytes += queued_cost(&frame);
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
     }
@@ -459,6 +513,33 @@ mod tests {
         assert_eq!(clear.recv().unwrap().kind, MessageKind::ClearHistoryAck);
     }
 
+    /// A cell-pixel request whose caller stopped waiting (a deferred waiter)
+    /// still owns its acknowledgement when that acknowledgement is queued at
+    /// the end of the stream: the surface's reader resolves it in order.
+    #[test]
+    fn end_of_stream_keeps_a_deferred_cell_pixel_waiter_whose_ack_is_queued() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let _deferred = responses.wait_for_test(7, MessageKind::CellPixelSizeAck);
+        assert!(responses.defer_cell_pixel(7, (9, 18)));
+        let queue = queue();
+        let stream = stream_of(&[
+            frame(MessageKind::CellPixelSizeAck, 7, version),
+            frame(MessageKind::Exit, 0, version),
+        ]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert!(
+            responses.has_waiter(7),
+            "the deferred cell-pixel waiter was failed before its queued acknowledgement"
+        );
+        let state = queue.state.lock().unwrap();
+        assert!(state.ended);
+        let Some(HostFrame::Frame(queued)) = state.frames.front() else {
+            panic!("the CellPixelSizeAck frame was not queued");
+        };
+        assert!(responses.resolve(queued), "the queued acknowledgement found no waiter");
+    }
+
     /// After `abandon`, ordered frames are discarded instead of queued, so a
     /// backlog larger than the queue budget cannot delay an acknowledgement.
     #[test]
@@ -475,7 +556,98 @@ mod tests {
         read_stream(stream_of(&frames), &responses, version, SMART, &queue);
         assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
         let state = queue.state.lock().unwrap();
-        assert!(state.frames.is_empty() && state.queued_payload == 0);
+        assert!(state.frames.is_empty() && state.queued_bytes == 0);
+    }
+
+    /// Empty frames (Bell, metadata) count against the queue budget too: a
+    /// host that floods them while the surface's reader is busy cannot grow
+    /// the queue without bound. The thread must stop reading at the budget,
+    /// as it does for output.
+    #[test]
+    fn empty_frames_count_against_the_queue_budget() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut bell = Frame::new(MessageKind::Bell, Vec::new());
+        bell.version = version;
+        // More empty frames than the budget admits at their wire size alone.
+        let admitted = QUEUED_BYTES_BUDGET / crate::terminal_host_protocol::HEADER_LEN;
+        let stream = stream_of(&vec![bell; admitted + 2]);
+        std::thread::scope(|scope| {
+            let reader = scope.spawn(|| read_stream(stream, &responses, version, SMART, &queue));
+            // The surface's reader drains nothing: the thread either stops
+            // at the budget or reads the whole stream.
+            let state = queue
+                .changed
+                .wait_while(queue.state.lock().unwrap(), |state| {
+                    !state.ended && state.budget_waits == 0
+                })
+                .unwrap();
+            let (ended, queued) = (state.ended, state.frames.len());
+            drop(state);
+            // Release a waiting thread, as the surface reader's abandon does.
+            queue.state.lock().unwrap().abandoned = true;
+            queue.changed.notify_all();
+            reader.join().unwrap();
+            assert!(
+                !ended && queued <= admitted,
+                "the reader thread queued {queued} empty frames without stopping at the budget"
+            );
+        });
+    }
+
+    /// Counts the `read` calls made on a stream.
+    struct CountingReader<R> {
+        inner: R,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.inner.read(buf)
+        }
+    }
+
+    /// A backlog of small frames is read with a few large reads, not two
+    /// per frame, and arrives whole and in order; a payload larger than the
+    /// read buffer arrives whole after them.
+    #[test]
+    fn a_backlog_of_small_frames_is_read_in_few_calls() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut frames: Vec<Frame> = (0..1000u64)
+            .map(|index| {
+                let mut output =
+                    Frame::new(MessageKind::Output, format!("line {index}\r\n").into());
+                output.version = version;
+                output.sequence = index + 1;
+                output
+            })
+            .collect();
+        let mut large = Frame::new(MessageKind::Output, vec![b'y'; 3 * LINK_READ_BUFFER + 5]);
+        large.version = version;
+        large.sequence = 1001;
+        frames.push(large);
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stream = CountingReader { inner: stream_of(&frames), reads: reads.clone() };
+        read_stream(stream, &responses, version, SMART, &queue);
+        let state = queue.state.lock().unwrap();
+        let received: Vec<&Frame> = state
+            .frames
+            .iter()
+            .map(|frame| match frame {
+                HostFrame::Frame(frame) => frame,
+                HostFrame::End => panic!("End is not queued"),
+            })
+            .collect();
+        assert_eq!(received.len(), frames.len());
+        for (received, sent) in received.iter().zip(&frames) {
+            assert_eq!((received.sequence, &received.payload), (sent.sequence, &sent.payload));
+        }
+        let reads = reads.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(reads < 20, "{reads} read calls for 1001 frames");
     }
 
     /// A Kitty limits acknowledgement whose requester already gave up does

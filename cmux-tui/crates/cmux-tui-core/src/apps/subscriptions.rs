@@ -9,6 +9,8 @@ use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Supervis
 
 pub(crate) const AGENT_INVENTORY_INVALIDATION_CAPABILITY: &str = "agent-cli-app-invalidation-v1";
 pub(super) const INVENTORY_STREAM: &str = "agent_cli.changed";
+/// `apps-provider-changed {family}`: a provider tells readable subscribers its family changed.
+pub(crate) const PROVIDER_CHANGED_CAPABILITY: &str = "app-provider-changed-v1";
 
 /// A sequence belongs to this supervisor boot and its current provider connection.
 #[derive(Default)]
@@ -115,6 +117,39 @@ impl Supervisor {
         };
         self.emit(demand_event.into_iter().collect());
         result
+    }
+
+    /// The verified app's provider of `family` says its data changed: the readable subscribers of
+    /// `<family>.changed` get an empty invalidation and read again (`agent_chat.changed` for the
+    /// threads list). The provider names no stream, owner or payload. `agent_cli` keeps its
+    /// demand-sequenced `apps-agent-inventory-changed`.
+    pub fn provider_changed(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        family: &str,
+    ) -> Result<Value, ApiError> {
+        if !hosting_app_connection(&claim) {
+            return Err(ApiError::new(
+                "apps.provider.forbidden",
+                "only the verified app provider reports a change",
+            ));
+        }
+        if family == "agent_cli" {
+            return Err(ApiError::new(
+                "bad-request",
+                "agent_cli changes go through apps-agent-inventory-changed",
+            ));
+        }
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if inner.providers.get(family) != Some(&client) {
+            return Err(ApiError::new(
+                "apps.provider.unknown",
+                "this connection does not provide that family",
+            ));
+        }
+        Self::publish_stream_locked(&inner, &format!("{family}.changed"), json!({}));
+        Ok(json!({}))
     }
 
     /// Host sends only queue; holding the lock orders delivery with revocation and unsubscribe.

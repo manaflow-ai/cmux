@@ -73,8 +73,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running. Its finished steps fold under their run's line, which the tests
-    // open (`openRun`).
+    // The turn is still running. Its finished steps stay in sight in their open group, as nothing
+    // folds before the turn ends (cmux#38339); `openRun` opens it only if it is closed.
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -129,9 +129,10 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
   /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
-  /// it draws its own row.
+  /// it draws its own row. A running turn draws it open already (cmux#38339): then nothing is clicked.
   const openRun = async (page: Page) => {
-    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
+    const line = page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" });
+    if ((await line.getAttribute("aria-expanded")) !== "true") await line.click();
     await page.locator(".cv-thought").waitFor();
     // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
     await page.evaluate(async () => {
@@ -280,6 +281,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     expect(hovered.text).not.toBe(rest.text);
     expect(hovered.icon).toBe(rest.icon);
     // Open and still focused from the click, with the pointer gone, it is back at rest: only hover lights it.
+    // A running turn draws the group open (cmux#38339): the first click closes it, the second opens it.
+    if ((await run.getAttribute("aria-expanded")) === "true") await run.click();
     await run.click();
     await page.mouse.move(0, 0);
     await page.waitForFunction((before) => {

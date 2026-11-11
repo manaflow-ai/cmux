@@ -23,9 +23,10 @@ struct ClassicUpgradeSimulationTests {
     static let firstWindowBudget: Duration = .seconds(10)
 
     /// Quarantined: on a loaded daemon-tests job a different test of this suite fails each run (a made workspace
-    /// missing from its window's sidebar after a merge, a background workspace never parked, a full snapshot), and
-    /// each passes alone at the same head. Owner Lawrence Chen; manaflow-ai/cmuxterm-hq#7490. The tests still run and
-    /// log their failures as known issues; remove this wrapper in the PR that fixes the race.
+    /// missing from its window's sidebar after a merge, a background workspace never parked, a full snapshot, a
+    /// loose manyGroups workspace found in a group on the first launch), and each passes alone at the same head.
+    /// Owner Lawrence Chen; manaflow-ai/cmuxterm-hq#7490. The tests still run and log their failures as known
+    /// issues; remove this wrapper in the PR that fixes the race.
     private func quarantined(_ body: () async throws -> Void) async {
         await withKnownIssue("loaded-run race, manaflow-ai/cmuxterm-hq#7490", isIntermittent: true) { try await body() }
     }
@@ -41,6 +42,12 @@ struct ClassicUpgradeSimulationTests {
     /// import action make nothing more.
     @Test(arguments: ["fresh", "small", "manyGroups", "nestedSplits", "browsersAndViewers", "multiWindow", "oldSchema", "messy"])
     func theFirstLaunchBringsEverythingOnce(_ name: String) async throws {
+        // manyGroups only: the loaded-run race below (a loose workspace found in a group on the first launch).
+        if name == "manyGroups" { return await quarantined { try await firstLaunch(name) } }
+        try await firstLaunch(name)
+    }
+
+    private func firstLaunch(_ name: String) async throws {
         let profile = try #require(ClassicUpgradeProfile.matrix.first { $0.name == name })
         let mac = try ClassicUpgradeSimulator.Mac()
         try mac.save(profile)
@@ -207,7 +214,7 @@ struct ClassicUpgradeSimulationTests {
         let manual = Task { @MainActor in
             while services.onboarding.classicMigrationRun == nil { try? await Task.sleep(for: .milliseconds(10)) }
             return try await AppOnboardingServices(owner: services.onboarding)
-                .migrateClassic(.manual) { _ in true }
+                .migrateClassic(.manual) { _ in .accepted }
         }
         _ = await sim.launch()
         _ = try await manual.value

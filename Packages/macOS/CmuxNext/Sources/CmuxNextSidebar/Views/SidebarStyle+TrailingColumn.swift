@@ -14,12 +14,16 @@ extension SidebarStyle {
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: LayoutGrid.sidebarLead - horizontalInset,
+                       leadingInset: LayoutGrid.sidebarLead - contentInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
                        minTrailingCenterInset: minTrailingCenterInset)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }
+
+    /// The room right of the titlebar row's + when it centers on the trailing column (`SidebarView.layout`): the
+    /// column's distance from the sidebar's edge less half the button, never under the row's old `space3` inset.
+    static var titlebarPlusTrailingInset: CGFloat { max(Metrics.space3, trailingCenterFromEdge - toolbarButtonSize / 2) }
 
     /// How far inside a row's fill the trailing column centers: a status glyph's box (`statusGlyphSize`, the
     /// spinner's and the band's marks' side) ends the row's leading inset short of the fill's end, as a row's leading
@@ -28,7 +32,7 @@ extension SidebarStyle {
     /// old floor below, left a compact 10 pt glyph's box 8 pt short of the fill's end against 6 at its start (the running
     /// app's spinner ink 9 vs 6). Leo 2026-11-04 replaced the grid's fixed 24 pt line from the sidebar edge with the
     /// inset rule.
-    static var trailingCenterInset: CGFloat { horizontalInset + statusGlyphSize / 2 }
+    static var trailingCenterInset: CGFloat { contentInset + statusGlyphSize / 2 }
 
     /// The trailing column center's distance from the sidebar's edge, past the row's gap; the resize clearance
     /// below still wins if a larger control needs more room.

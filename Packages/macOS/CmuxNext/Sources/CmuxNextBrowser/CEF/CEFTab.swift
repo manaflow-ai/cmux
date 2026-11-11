@@ -99,6 +99,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The page `attach` loads: an agent-driven tab was created blank
     /// (`takeInitialURLString`).
     @ObservationIgnored var loadAfterAttach: URL?
+    /// An address loaded after the browser's creation started and before it exists: the creation
+    /// already took its URL (`takeInitialURLString`), so `attach` loads this one. The last one wins.
+    @ObservationIgnored var loadSinceCreation: URL?
     /// Focus cmux asked for while the page could not take it (no browser yet, or not shown):
     /// granted once the page shows (``grantPendingFocusIfShown()``).
     @ObservationIgnored var pendingFocus = false
@@ -130,8 +133,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
-    /// Until then the page base is the theme color, not the engine's white
-    /// (`CEFTab+LoadingBackground`).
+    /// Until then the page is see-through on the pane's own ground, not the
+    /// engine's white (`CEFTab+LoadingBackground`).
     @ObservationIgnored var documentSettled = false
     /// The `prefers-color-scheme` a live renderer was last told, so a tab
     /// switch (every one calls `pageThemeDidChange`) costs no DevTools round
@@ -150,16 +153,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the window backdrop show, as under a WebKit page that draws none. A cmux page sets it (the page
     /// host, `PageChromiumPage.setSeeThrough`); a web page stays opaque like Chrome.
     @ObservationIgnored public var pageSeeThrough = false {
-        didSet {
-            guard pageSeeThrough != oldValue else { return }
-            // A web page never calls the fork's see-through switch; only a page leaving see-through does.
-            if !pageSeeThrough, let browserID { _ = runtime.shim?.tabSetTransparentBackground(browserID, 0) }
-            applyPageBackground()
-        }
+        didSet { if pageSeeThrough != oldValue { applyPageBackground() } }
     }
+    /// The fork's see-through switch was last turned on for this tab (``CEFTab/showsPaneGround``), so leaving it turns
+    /// it off; a page never see-through never calls it.
+    @ObservationIgnored var seeThroughSent = false
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
+    /// Answers a dynamic path at once, in the turn Chromium asks, when it can; nil from it, or no
+    /// answerer, asks ``pageResources``.
+    @ObservationIgnored public var readyPageResource: (@MainActor (URL) -> CEFPageResponse?)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
@@ -196,7 +200,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// and its file chooser goes back to Chromium.
     public func clearPageHooks() {
         clearPageEventHooks()
-        pageResources = nil
+        (pageResources, readyPageResource) = (nil, nil)
         pageFilesChosen = nil
     }
 
@@ -284,6 +288,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// as its first navigation (no blank entry before it).
     func takeInitialURLString() -> String {
         loadAfterAttach = nil
+        loadSinceCreation = nil
         guard pendingRestore == nil else { return "" }
         if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
             loadAfterAttach = pendingURL
@@ -364,7 +369,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = browser
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
-        let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
+        let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil || loadSinceCreation != nil
         host.lifecycleTrace.record(id, "ready-wait navigates=\(navigates) url=\(pendingURL != nil) restore=\(pendingRestore != nil) agent=\(loadAfterAttach != nil)")
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
         (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
@@ -372,11 +377,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
+        // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
+        if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
+        // An address committed during creation replaces the page creation was started with (and an
+        // agent tab's deferred load of that page): it is the tab's one navigation.
+        let committed = loadSinceCreation
+        loadSinceCreation = nil
+        if committed != nil { (loadAfterAttach, pendingRestore) = (nil, nil) }
         if let url = loadAfterAttach {
             loadAfterAttach = nil
             runtime.shim?.loadURL(browser, url.absoluteString)
         }
+        if let committed { runtime.shim?.loadURL(browser, committed.absoluteString) }
         applyPageBackground()
         // A page following the app needs the theme's appearance before it
         // paints: Chromium's own window never inherits the view's. This
@@ -433,6 +446,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
+        runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
     }
@@ -454,6 +468,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
         agentRelay.browserEnded()
@@ -553,6 +568,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             runtime.shim?.loadURL(browserID, url.absoluteString)
         } else {
             pendingURL = url
+            // Creation already read the URL: `attach` loads this one.
+            if isCreationPending { loadSinceCreation = url }
         }
     }
 
@@ -668,8 +685,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
         if !visible, linkStatus != nil { linkStatus = nil }
-        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
-        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility). A page whose view
+        // appeared earlier in this turn (a tab switch binds it, then reveals it) takes its first-frame hold here.
+        if host.visibleTab === self {
+            if visible { host.hostView.isHidden = false; host.holdFirstFrameIfAppeared(self) } else { host.setNeedsHostVisibility() }
+        }
         // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
         devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
@@ -695,6 +715,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        runtime.arriving.ended(id)
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()

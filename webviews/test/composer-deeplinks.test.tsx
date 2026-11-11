@@ -1,8 +1,10 @@
 // cmux deeplinks in the composer (Leo, 2026-11-03: "hm i wonder if those should be rendered the
-// deeplinks within the composer too..."): a workspace or agent link in the draft draws as a link
-// (composer/deeplinkTokens.ts), its text kept, so Send sends exactly the URL that was typed; a sent
-// prompt draws a cmux app link as a link too (conversation/PromptText.tsx).
+// deeplinks within the composer too..."): a workspace or agent link in the draft that nothing names
+// stays plain text (composer/deeplinkTokens.ts finds it; a known one draws as its chip, which
+// cmux-link-chips.test.tsx covers), so Send sends exactly the URL that was typed; a sent prompt
+// draws a cmux app link as a link (conversation/PromptText.tsx).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -11,6 +13,7 @@ import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
+import { WEB_DEEPLINK_CLASS } from "../src/agent-session/acpmux/composer/deeplinkTokens";
 import { PromptTyped } from "../src/agent-session/acpmux/conversation/PromptText";
 
 const WORKSPACE = "cmux-nightly://workspace/ws_cca525bafd4d2b969dad8fdb549b0c61";
@@ -134,7 +137,8 @@ async function composer(typed: string) {
   return { field, sent };
 }
 
-const linked = () => [...host.querySelectorAll(".acpmux-deeplink.is-link")].map((node) => node.textContent);
+/// The draft's paragraph as markup: plain text has no element around a link.
+const drawn = () => host.querySelector(".acpmux-md p")?.innerHTML;
 
 test("deeplinks finds cmux app links and cmux.com deeplinks, and nothing else", () => {
   const text = `see ${WORKSPACE}, then ${AGENT}. Or ${WEB_AGENT} and https://example.com/deeplink/x`;
@@ -142,10 +146,10 @@ test("deeplinks finds cmux app links and cmux.com deeplinks, and nothing else", 
   expect(deeplinks("cmux:/workspace javascript://x src/cmux://y cmux://nope/x")).toEqual([]);
 });
 
-test("a deeplink in the draft draws as a link and sends exactly as typed", async () => {
+test("a deeplink nothing names stays plain text in the draft and sends exactly as typed", async () => {
   const typed = `Open ${WORKSPACE} and the chat at ${AGENT}.`;
   const { field, sent } = await composer(typed);
-  expect(linked()).toEqual([WORKSPACE, AGENT]);
+  expect(drawn()).toBe(typed);
   await act(async () => {
     field.dispatchEvent(
       new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }),
@@ -154,9 +158,25 @@ test("a deeplink in the draft draws as a link and sends exactly as typed", async
   expect(sent).toEqual([typed]);
 });
 
-test("a draft with no deeplink draws none", async () => {
+test("a cmux.com deeplink nothing names is plain text in the draft, not markdown's underlined autolink", async () => {
+  const typed = `Pick up where ${WEB_AGENT} left off`;
+  const { field, sent } = await composer(typed);
+  const link = host.querySelector<HTMLAnchorElement>(".acpmux-md a")!;
+  expect(link.querySelector(`.${WEB_DEEPLINK_CLASS}`)?.textContent).toBe(WEB_AGENT);
+  const css = readFileSync(new URL("../src/agent-session/acpmux/markdownField.css", import.meta.url), "utf8");
+  expect(css).toMatch(new RegExp(`\\.acpmux-md a:has\\(\\.${WEB_DEEPLINK_CLASS}\\) \\{\\s*text-decoration: none;`));
+  await act(async () => {
+    field.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }),
+    );
+  });
+  expect(sent).toEqual([typed]);
+});
+
+test("a draft with no deeplink draws only its markdown", async () => {
   await composer("Fix https://example.com/x and cmux:/workspace");
-  expect(linked()).toEqual([]);
+  // The web URL is markdown's own autolink; cmux:/workspace is no deeplink and stays text.
+  expect(drawn()).toBe('Fix <a href="https://example.com/x">https://example.com/x</a> and cmux:/workspace');
 });
 
 test("a sent prompt draws a cmux app link as a link the app opens", () => {

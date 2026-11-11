@@ -79,23 +79,11 @@ public struct CloudMachineSecrets: Equatable, Sendable {
 
     /// A value `cmux cloud secret set` would take: at least 8 characters (Unicode scalars: the applier
     /// masks every value wherever setup prints it, so a shorter one would mask ordinary output), at most
-    /// 16 KiB (100 of them fit ``maxPayloadBytes``), one line, no NUL. Scalars, not Characters: "\r\n" is one Character.
+    /// 16 KiB, one line, no NUL. Scalars, not Characters: "\r\n" is one Character.
     public static func isValue(_ value: String) -> Bool {
         value.unicodeScalars.count >= 8 && value.utf8.count <= 16 * 1024
             && !value.unicodeScalars.contains { $0 == "\n" || $0 == "\r" || $0 == "\0" }
     }
-
-    /// The size of the file the receiver writes for `values` (`export NAME='value'`, each `'` as `'\''`):
-    /// the applier reads machine-secrets.env only up to ``maxEnvFileBytes``.
-    static func envFileBytes(_ values: [(name: String, value: String)]) -> Int {
-        values.reduce(0) { total, item in
-            total + "export ".utf8.count + item.name.utf8.count + "=''\n".utf8.count + item.value.utf8.count
-                + 3 * item.value.utf8.reduce(0) { $0 + ($1 == UInt8(ascii: "'") ? 1 : 0) }
-        }
-    }
-
-    /// The largest machine-secrets.env the applier reads (and so masks and sources): 4 MiB.
-    public static let maxEnvFileBytes = 4 << 20
 
     /// `<scope>/<NAME>` as `cmux cloud secret set` writes it: scope `*` or a lowercased `owner/name`.
     static func isAccount(_ account: String) -> Bool {

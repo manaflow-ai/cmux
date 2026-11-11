@@ -58,14 +58,18 @@ assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
 install_client
 cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
 assert_layout "$APP"
-# Release bundles carry no agent screen detector until its notices are mapped
-# (scripts/cmux-next/bundle-cmux-tui.sh places it in dev builds only): an
-# install drops a stale copy, even one beside a local client.
+# The agent screen detector (mapped in bundle-map.json) installs beside a local
+# client as bin/cmux-agent-screen-detection, the name the daemon runs; a local
+# client without one removes a stale copy.
 printf stale > "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
 printf detector > "$TEST_DIR/cmux-agent-screen-detection"
 install_client
-[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+cmp "$TEST_DIR/cmux-agent-screen-detection" "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
+[ -x "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
 rm -f "$TEST_DIR/cmux-agent-screen-detection"
+install_client
+[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+echo "PASS: a local client brings its agent screen detector, and one without it removes a stale copy"
 # A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
 # replaces both files with the symlinks.
 rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"
@@ -593,6 +597,31 @@ install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-gone.log" 2>&1
 [ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
 grep -q 'publishes no cmux-cloud' "$TEST_DIR/cloud-gone.log"
 echo "PASS: the Cloud app server installs from the same build, a wrong sha256 is refused, and a build without one removes it"
+
+# The agent screen detector installs beside the client as
+# bin/cmux-agent-screen-detection (the exact name the daemon runs) from the
+# manifest's cmux-tui-agent-screen-detection-<target> slices, lipo'd like the
+# client; a build that publishes none removes a copy left by an earlier install.
+printf 'detector arm\n' > "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin"
+printf 'detector intel\n' > "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin"
+DETECTOR_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin")"
+DETECTOR_X64_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin")"
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-agent-screen-detection-aarch64-apple-darwin":"$DETECTOR_ARM_SHA","cmux-tui-agent-screen-detection-x86_64-apple-darwin":"$DETECTOR_X64_SHA"}}
+JSON
+DETECTOR_APP="$TEST_DIR/Detector.app"
+install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-arm.log" 2>&1
+cmp "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin" "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection"
+[ -x "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+install_remote "$TEST_DIR/DetectorUniversal.app" > "$TEST_DIR/detector-universal.log" 2>&1
+grep -q '^lipo -create .*cmux-tui-agent-screen-detection-aarch64-apple-darwin' "$EVENTS"
+[ -x "$TEST_DIR/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection" ]
+grep -q '^codesign --force --sign - .*/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection$' "$EVENTS"
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-gone.log" 2>&1
+[ ! -e "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+grep -q 'publishes no cmux-agent-screen-detection' "$TEST_DIR/detector-gone.log"
+echo "PASS: the agent screen detector installs from the same build as bin/cmux-agent-screen-detection, and a build without one removes it"
 
 # Native means the hardware architecture, including an Intel process translated
 # by Rosetta on Apple Silicon. Exercise through the actual installer entry point.

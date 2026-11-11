@@ -917,6 +917,20 @@ def allow_module_refusals(kept: list[tuple[str, str]], allow: dict[str, int], id
     return out
 
 
+def push_refusals(repo: Path, ranges: list,
+                  upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
+    """(refusals, notes) over the pushed RANGES (push_range.OwnRange values or (base, head) pairs): run_push's
+    answer before it prints. Raises on a failure; run_push fails open on it. prepush-gate's advisory mode (CI,
+    never a gate) reads the refusals from here to name each one as a warning."""
+    rules, warnings = load_rules()
+    refusals, notes = [], [f"arch-ratchet: WARNING: {w}" for w in warnings]
+    for own in load_push_range().as_own_ranges(repo, ranges, upstream_ref):
+        got, extra = check_own(repo, *own_pair(own), rules, upstream_ref)
+        refusals += got
+        notes += extra
+    return refusals, notes
+
+
 def run_push(repo: Path, ranges: list, upstream_ref: str = UPSTREAM,
              out: list[str] | None = None) -> bool:
     """Report the ratchet for the pushed RANGES; True when it refuses the push. Fails open.
@@ -936,12 +950,7 @@ def run_push(repo: Path, ranges: list, upstream_ref: str = UPSTREAM,
         return False
     started = time.monotonic()
     try:
-        rules, warnings = load_rules()
-        refusals, notes = [], [f"arch-ratchet: WARNING: {w}" for w in warnings]
-        for own in load_push_range().as_own_ranges(repo, ranges, upstream_ref):
-            got, extra = check_own(repo, *own_pair(own), rules, upstream_ref)
-            refusals += got
-            notes += extra
+        refusals, notes = push_refusals(repo, ranges, upstream_ref)
         text = "\n".join(notes + [t for _, t in refusals])
         if text:
             emit(text)

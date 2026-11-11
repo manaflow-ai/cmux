@@ -489,6 +489,8 @@ mod tests {
             supports_clear_history_key_fallback: false,
             notification: None,
             program_status: None,
+            attention: None,
+            git_branch: None,
         }
     }
 

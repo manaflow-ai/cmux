@@ -13,6 +13,9 @@ extension SidebarModel {
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
     public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
+    /// A row this app is creating (`SidebarRowState.creating`): like a placeholder it is never selected, but it
+    /// drags, and its drop is the slot the create takes once the daemon lists the workspace.
+    public func isCreating(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .creating }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {

@@ -1,10 +1,15 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 
 /// The message and image under the pointer when the agent pane's context menu opened, as the page
 /// reports them on `contextmenu` (webviews conversation/messageMenu.ts), before WebKit asks the host
 /// for the menu.
 struct AgentPaneMessageTarget: Equatable, Sendable {
+    /// The transcript row id, used by the rail-owned Pin as chapter seam.
+    var rowId: String?
+    /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+    var sessionId: String?
     /// The message as a person reads it; empty for an image outside a message (the gallery).
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
@@ -28,8 +33,10 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+    init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
+        self.rowId = rowId
+        self.sessionId = sessionId
         self.text = text
         self.markdown = markdown
         self.replyTime = replyTime
@@ -50,6 +57,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     init?(report body: Any?) {
         guard let object = body as? [String: Any] else { return nil }
         let text = object["text"] as? String ?? ""
+        rowId = (object["rowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        sessionId = (object["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
@@ -73,13 +82,14 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
 /// Back, Look Up, Share...) never shows: on an image Open Image, Copy Image, Save Image As…, Quick Look and Show in Finder; the items
 /// of the code block, command, path or link under the pointer (``AgentPaneMenuPart``, cx-2lm4);
-/// Cut, Copy and Paste where WebKit offers them (Copy on a
-/// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
-/// reply's Markdown) and Copy as Plain Text, Retry on a prompt that was not sent, Edit and Resend
-/// on a prompt, Fork from Here when its turn can be forked, and Open Link for its links and images;
-/// the chat's menu (Change Background, zoom...) on empty space; on selected text Copy, Quote in
-/// Reply, Ask About This, Search the Web and Look Up; and Inspect Element in builds with developer
-/// tools.
+/// Cut, Copy and Paste where WebKit offers them (Copy on a selection, Cut and Paste in the
+/// composer); for the message under the pointer Copy message and Copy message as Markdown,
+/// Retry/Edit and Resend, the rail-owned Pin as chapter seam, Fork from Here and Open Link; the
+/// chat's menu (Change Background, zoom...) on empty space; and on selected text the combined
+/// Copy, Quote in Reply, Attach selection as context, Search the Web and Ask About This rows.
+/// One inspect row: Point at Element… starts the UI pointer picker, and while developer tools for
+/// cmux pages are on (`developerTools.appPages`) holding Option turns it into Inspect Element, the
+/// page's Web Inspector or Chromium DevTools. With only one of the two on, that one shows alone.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
@@ -97,6 +107,8 @@ enum AgentPaneContextMenu {
         var edit: (String) -> Void = { _ in }
         /// Quote in Reply: the Markdown quote goes after the composer's draft, which it keeps.
         var quoteReply: (String) -> Void = { _ in }
+        /// Adds selected transcript text as a composer context chip.
+        var attachSelection: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
         var linkItems: ((URL) -> [NSMenuItem])? = nil
@@ -109,12 +121,17 @@ enum AgentPaneContextMenu {
         /// A chat part's rows after those: the chat's sidebar row menu (``AgentPaneModel/sessionMenuItems``).
         var sessionItems: ((String) -> [NSMenuItem])?
         var search: (String) -> Void = { _ in }
+        /// Toggle the rail-owned bookmark for a transcript row.
+        var pinChapter: (String, String) -> Void = { _, _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
         var pasteTarget: AnyObject?
-        /// The Labs pointer inspector, offered for every app-owned webview element.
+        /// The UI pointer picker, offered for every app-owned webview element (Point at Element…).
         var inspectElement: (() -> Void)? = nil
+        /// Inspect Element: the page's developer tools (``CmuxNextPages/PageDeveloperTools``). Nil
+        /// keeps WebKit's own Inspect Element item, when WebKit offers one.
+        var inspectWithDevTools: (() -> Void)?
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -214,29 +231,27 @@ enum AgentPaneContextMenu {
             paste.target = target
             paste.action = #selector(NSText.paste(_:))
         }
-        // The UI pointer item owns this app surface while enabled. Do not leave WebKit's
-        // browser inspector beside it with the same title.
-        let inspect = devTools && actions.inspectElement == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
+        // "Why is there an Inspect Element AND a Inspect UI [Element]?" (Leo, 2026-11-09): the menu
+        // shows one inspect row. The UI pointer picker (Point at Element…) is the visible row, and
+        // developer tools (Inspect Element, Lawrence, 2026-11-07) are its Option alternate, so they
+        // stay one key away. Either shows alone while the other is off.
+        let webKitInspect = devTools && actions.inspectWithDevTools == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
+        let devToolsRow = devTools ? actions.inspectWithDevTools.map { handler in
+            let item = AgentPaneMenuAction.item(PageDeveloperTools.title, symbol: "cursorarrow.rays", handler: handler)
+            item.identifier = PageDeveloperTools.itemIdentifier
+            return item
+        } : nil
+        let inspect = devToolsRow ?? webKitInspect
         let inspectElement = actions.inspectElement.map {
-            AgentPaneMenuAction.item("Inspect Element", symbol: "scope", handler: $0)
+            AgentPaneMenuAction.item(AgentPaneMenuStrings.pointAtElement, symbol: "scope", handler: $0)
         }
+        let inspectors = inspectRows(picker: inspectElement, devTools: inspect)
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
-        for item in edits + [inspect, lookUp, copyImage].compactMap({ $0 }) where item.image == nil {
+        for item in edits + [webKitInspect, lookUp, copyImage].compactMap({ $0 }) where item.image == nil {
             item.image = webKitSymbols[item.identifier?.rawValue ?? ""].flatMap(icon)
         }
         menu.removeAllItems()
-        if let selection {
-            // Selected text gets the selection menu alone (macOS adds Services last).
-            let quote = Self.quote(selection)
-            let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quote) },
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
-            ]
-            let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
-            add([selected, find, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
-            return
-        }
         var image: [NSMenuItem] = []
         if target?.opensImage == true {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage, symbol: "photo.on.rectangle") { actions.page("chat.menu.openImage", [:]) })
@@ -266,27 +281,53 @@ enum AgentPaneContextMenu {
         let row = session.flatMap { actions.sessionItems?($0) } ?? []
         let part = items(otherPart)
         var copies = edits
+        var selectionActions: [NSMenuItem] = []
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
+        if let selection {
+            let quote = Self.quote(selection)
+            selectionActions.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") {
+                actions.quoteReply(quote)
+            })
+            selectionActions.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.attachSelectionAsContext, symbol: "paperclip") {
+                actions.attachSelection(selection)
+            })
+        }
         if let target, !target.text.isEmpty {
             if let markdown = target.markdown {
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(markdown) })
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsPlainText, symbol: "doc.plaintext") { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.plaintext") { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") { actions.copy(markdown) })
             } else {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
+                if target.isPrompt {
+                    // Prompts are already their Markdown source; keep the distinction from the
+                    // rendered copy without changing isPrompt (which drives Edit and Resend).
+                    copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") {
+                        actions.copy(target.text)
+                    })
+                }
             }
             // Quote in Reply without selecting first (u18673): the whole message, as the reader sees it in Markdown,
             // appended to the draft like the selection's Quote in Reply, never Edit and Resend's replace.
-            let quoted = Self.quote(target.markdown ?? target.text)
-            message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
+            // With a selection, the selection's Quote in Reply stands for the message's.
+            if selection == nil {
+                let quoted = Self.quote(target.markdown ?? target.text)
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
+            }
             if let row = target.retryRowId {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend, symbol: "pencil") { actions.edit(target.text) })
             }
+            if let rowId = target.rowId, let sessionId = target.sessionId {
+                // The rail owns bookmark state; this callback is the menu's explicit seam.
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.pinAsChapter, symbol: "bookmark") {
+                    actions.pinChapter(rowId, sessionId)
+                })
+            }
             if let seq = target.forkSeq {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.branch") { actions.fork(seq) })
                 // The chat menu's New side chat, through this turn (the page's `chat.side`).
                 if target.sideChat {
                     message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat, symbol: "sidebar.right") {
@@ -302,8 +343,7 @@ enum AgentPaneContextMenu {
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
         }
-        // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
-        let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
+        // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]
         if target?.markdown != nil, let time = target?.replyTime {
             let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
@@ -312,10 +352,36 @@ enum AgentPaneContextMenu {
         } else {
             header = []
         }
-        add([header, image, opens, row, part, copies, message, links, chat, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
+        if let selection {
+            // Keep selected-text actions at the end of the native menu, with Ask About This last.
+            // Look Up remains WebKit-owned but precedes the app's web search rows.
+            var find = lookUp.map { [$0] } ?? []
+            find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") {
+                actions.search(selection)
+            })
+            find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") {
+                actions.edit(Self.quote(selection) + AgentPaneMenuStrings.askAboutThisPrompt)
+            })
+            add([image, opens, row, part, copies, selectionActions, message, links, inspectors, find], to: menu)
+            return
+        }
+        // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
+        let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
+        add([header, image, opens, row, part, copies, message, links, chat, inspectors], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.
+    /// The inspect group: the picker row, then developer tools as its Option alternate (one visible
+    /// row); either alone while the other is off.
+    static func inspectRows(picker: NSMenuItem?, devTools: NSMenuItem?) -> [NSMenuItem] {
+        guard let picker, let devTools else { return [picker, devTools].compactMap { $0 } }
+        picker.keyEquivalentModifierMask = []
+        devTools.keyEquivalent = picker.keyEquivalent
+        devTools.keyEquivalentModifierMask = .option
+        devTools.isAlternate = true
+        return [picker, devTools]
+    }
+
     private static func add(_ groups: [[NSMenuItem]], to menu: NSMenu) {
         for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
@@ -354,6 +420,11 @@ enum AgentPaneContextMenu {
 
 /// The context menu's item titles.
 enum AgentPaneMenuStrings {
+    /// The UI pointer picker's row; holding Option shows developer tools' Inspect Element instead.
+    static var pointAtElement: String {
+        String(localized: "agentPane.menu.pointAtElement", defaultValue: "Point at Element…", bundle: .module)
+    }
+
     static var openImage: String {
         String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .module)
     }
@@ -383,11 +454,16 @@ enum AgentPaneMenuStrings {
     }
 
     static var copyMessage: String {
-        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy Message", bundle: .module)
+        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy message", bundle: .module)
     }
 
+    static var copyMessageAsMarkdown: String {
+        String(localized: "agentPane.menu.copyMessageAsMarkdown", defaultValue: "Copy message as Markdown", bundle: .module)
+    }
+
+    /// Compatibility for callers that still refer to the old plain-text key.
     static var copyAsPlainText: String {
-        String(localized: "agentPane.menu.copyAsPlainText", defaultValue: "Copy as Plain Text", bundle: .module)
+        copyMessage
     }
 
     static var retry: String {
@@ -434,6 +510,10 @@ enum AgentPaneMenuStrings {
         String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
     }
 
+    static var attachSelectionAsContext: String {
+        String(localized: "agentPane.menu.attachSelectionAsContext", defaultValue: "Attach selection as context", bundle: .module)
+    }
+
     static var askAboutThis: String {
         String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .module)
     }
@@ -445,6 +525,10 @@ enum AgentPaneMenuStrings {
 
     static var searchTheWeb: String {
         String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
+    }
+
+    static var pinAsChapter: String {
+        String(localized: "agentPane.menu.pinAsChapter", defaultValue: "Pin as chapter", bundle: .module)
     }
 
     static var forkFromHere: String {

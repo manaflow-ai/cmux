@@ -5,8 +5,9 @@ use std::sync::Arc;
 use cmux_tui_core::Mux;
 
 pub(crate) struct DaemonEntryStartup {
+    /// The root parent's lifetime channel, held for the daemon's life.
     #[cfg(target_os = "linux")]
-    root: Option<cmux_link::root_bootstrap::Daemon>,
+    _root: Option<cmux_link::root_bootstrap::Daemon>,
 }
 
 impl DaemonEntryStartup {
@@ -21,7 +22,7 @@ impl DaemonEntryStartup {
         };
         Self {
             #[cfg(target_os = "linux")]
-            root,
+            _root: root,
         }
     }
 
@@ -31,15 +32,6 @@ impl DaemonEntryStartup {
         mux: &Arc<Mux>,
         session: &Path,
     ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
-        #[cfg(target_os = "linux")]
-        if super::native_supervision::attach_native_receiver(
-            self.root.as_mut(),
-            enabled,
-            mux,
-            session,
-        )? {
-            return Ok(None);
-        }
         super::start_link_entry(enabled, mux, session)
     }
 }

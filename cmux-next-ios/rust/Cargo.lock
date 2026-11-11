@@ -543,6 +543,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
+ "cmux-terminal-prediction",
  "serde_json",
  "sha2",
  "tempfile",
@@ -596,8 +597,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-wg"

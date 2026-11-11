@@ -17,17 +17,18 @@ import {
   resetSessionInfoState,
   setSessionInfoMore,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { OutputsSection } from "../src/agent-session/acpmux/session-info/OutputsSection";
 import {
   OUTPUTS_SHOWN,
-  OutputsSection,
   outputArtifacts,
   outputLinks,
-} from "../src/agent-session/acpmux/session-info/OutputsSection";
+} from "../src/agent-session/acpmux/session-info/outputsSectionModel";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
+import { until } from "./support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -153,9 +154,11 @@ test("every Outputs row opens what it names: artifacts in the side panel, made f
 test("a file the agent made, then deleted, drops off Outputs", async () => {
   const container = installDom();
   resetLinkStore();
+  const inspected: string[] = [];
   setChipHost(async (method, params) => {
     if (method !== "link.inspect") return undefined;
     const asked = (params.paths ?? []) as string[];
+    inspected.push(...asked);
     return {
       paths: Object.fromEntries(
         asked.map((path) => [path, { place: path.endsWith("gone.pdf") ? "missing" : "root", folder: false }]),
@@ -174,8 +177,12 @@ test("a file the agent made, then deleted, drops off Outputs", async () => {
         />,
       );
     });
-    // The host answers once the batch flushes.
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    // The host answers once the batch flushes; the act it is asked in returns only after a task
+    // turn, when its answer is in the store and drawn.
+    await until(
+      () => inspected.includes("/tmp/gone.pdf"),
+      () => act(async () => {}),
+    );
     const outputs = container.querySelector<HTMLElement>('ul[data-section="outputs"]')!;
     expect(outputs.textContent).toContain("kept.pdf");
     expect(outputs.textContent).not.toContain("gone.pdf");

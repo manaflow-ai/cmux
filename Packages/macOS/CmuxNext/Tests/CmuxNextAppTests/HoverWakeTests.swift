@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 @testable import CmuxNextSettings
 import CmuxNextHibernation
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -12,32 +13,71 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HoverWakeTests {
     typealias Rig = NeighborTabsWakeTests.Rig
 
+    /// The hover dwell on a clock the test moves (the hibernation's hover gates sleep on it): the pointer
+    /// moves exactly one frame apart and rests exactly the dwell, whatever the runner's load.
+    struct DwellClock {
+        let clock = ManualClock()
+        let start = ContinuousClock.now
+
+        @MainActor func drive(_ hibernation: BrowserHibernation) {
+            let clock = clock, start = start
+            let now: @Sendable () -> ContinuousClock.Instant = { start + clock.now.offset }
+            hibernation.tabHover = HoverWakeGate(owner: "BrowserHoverTab", clock: clock, now: now) { [weak hibernation] in
+                hibernation?.hoverIntent($0)
+            }
+            hibernation.workspaceHover = HoverWakeGate(owner: "BrowserHoverWorkspace", clock: clock, now: now) { [weak hibernation] in
+                hibernation?.hoverIntent($0)
+            }
+        }
+
+        /// The first hover armed the dwell timer: returns once it sleeps on the clock.
+        func armed() async throws { try await clock.waitForSleeper() }
+
+        /// One frame passes before the pointer moves again. A frame that reaches the dwell timer's
+        /// deadline fires it on a pointer that moved within the dwell, so it sleeps again for the time
+        /// left: returns once it does, so the next frame moves that deadline too.
+        func frame(_ length: Duration) async throws {
+            let reached = clock.sleeperDeadlines.contains { $0 <= clock.now.advanced(by: length) }
+            clock.advance(by: length)
+            if reached { try await clock.waitForSleeper() }
+        }
+
+        /// The pointer rests for the dwell on what it last moved to: the timer armed for it fires.
+        func rest() async throws {
+            try await clock.waitForSleeper()
+            clock.advance(by: BrowserHibernation.hoverDwellDelay)
+        }
+    }
+
     /// The pointer sweeps across three frozen far tabs at 120 Hz (one tab per 8 ms frame) and leaves the
-    /// strip: no page thaws, none is kept awake, and nothing counts as prewarmed.
+    /// strip: no page thaws, none is kept awake, and nothing counts as prewarmed. A rest on a fourth tab
+    /// after it wakes that tab: its intent comes after the sweep's timer fired, so the sweep had its say.
     @Test func aSweepAcrossTheStripWakesNothing() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        let keys = try await rig.pages(["a", "b", "c", "d", "e", "f"])
+        let dwell = DwellClock()
+        dwell.drive(rig.hibernation)
+        let keys = try await rig.pages(["a", "b", "c", "d", "e", "f", "g"])
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
-        rig.show(keys[0], order: keys) // b and f are neighbors and thaw
+        rig.show(keys[0], order: keys) // b and g are neighbors and thaw
         let far = [keys[2], keys[3], keys[4]]
+        let rested = keys[5]
         let prewarmed = rig.hibernation.prewarmedCount
 
-        // A runner stall past the dwell between two moves is a real rest on that tab: counted, not failed.
-        var stalls = 0
-        var last = ContinuousClock.now
-        for key in far {
+        for (index, key) in far.enumerated() {
             rig.hibernation.noteHover(key)
-            try await Task.sleep(for: .milliseconds(8))
-            if ContinuousClock.now - last >= .milliseconds(95) { stalls += 1 }
-            last = .now
+            if index == 0 { try await dwell.armed() }
+            try await dwell.frame(.milliseconds(8))
         }
         rig.hibernation.noteHover(nil)
-        try await Task.sleep(for: .milliseconds(400))
+        dwell.clock.advance(by: BrowserHibernation.hoverDwellDelay) // past the dwell with the pointer off the strip
 
+        rig.hibernation.noteHover(rested)
+        try await dwell.rest()
+        try await rig.until("the tab the pointer rested on thaws") { !rig.hibernation.frozen.contains(rested) }
         let woken = far.filter { !rig.hibernation.frozen.contains($0) }
-        #expect(woken.count <= stalls, "tabs the pointer only crossed woke: \(woken.count), runner stalls: \(stalls)")
-        #expect(rig.hibernation.prewarmedCount - prewarmed <= stalls)
+        #expect(woken.isEmpty, "tabs the pointer only crossed woke: \(woken)")
+        #expect(rig.hibernation.prewarmedCount - prewarmed == 1, "only the rested tab counts as prewarmed")
     }
 
     /// (a) The pointer sweeps over 200 sidebar rows at 120 Hz and leaves: no workspace is asked for its
@@ -45,26 +85,29 @@ import Testing
     @Test func aSweepOverTheSidebarWakesNothing() async throws {
         let rig = try Rig()
         defer { rig.close() }
-        var asked = 0
-        rig.hibernation.workspaceTabs = { _, _ in
-            asked += 1
+        let dwell = DwellClock()
+        dwell.drive(rig.hibernation)
+        var asked: [String] = []
+        rig.hibernation.workspaceTabs = { workspace, _ in
+            asked.append(workspace)
             return []
         }
         let clock = ContinuousClock()
-        var stalls = 0
         var slowest: Duration = .zero
-        var last = clock.now
         for index in 0..<200 {
-            let now = clock.now
-            if now - last >= .milliseconds(95) { stalls += 1 } // the test runner itself stalled past the dwell
-            last = now
             let cost = clock.measure { rig.hibernation.noteWorkspaceHover("w\(index)", window: "win") }
             slowest = max(slowest, cost)
-            try await Task.sleep(for: .microseconds(8_333))
+            if index == 0 { try await dwell.armed() }
+            try await dwell.frame(.microseconds(8_333))
         }
         rig.hibernation.noteWorkspaceHover(nil, window: "win")
-        try await Task.sleep(for: .milliseconds(400))
-        #expect(asked <= stalls, "a sweep asked \(asked) workspaces for their pages")
+        dwell.clock.advance(by: BrowserHibernation.hoverDwellDelay) // past the dwell with the pointer off the sidebar
+
+        // A rest on one more row asks its workspace: its intent comes after the sweep's timer fired.
+        rig.hibernation.noteWorkspaceHover("rested", window: "win")
+        try await dwell.rest()
+        try await rig.until("the rested row asks its workspace") { !asked.isEmpty }
+        #expect(asked == ["rested"], "a sweep asked workspaces for their pages: \(asked)")
         #expect(slowest < .milliseconds(2), "one row change cost the main thread \(slowest)")
     }
 
@@ -114,8 +157,8 @@ import Testing
             return keys
         }
         rig.hibernation.noteWorkspaceHover("w", window: "win")
+        // `asked` is set inside the intent, which restores (or not) before it returns on the main actor.
         try await rig.until("the hover intent fires") { asked }
-        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 2)
         #expect(rig.services.cache.phase(of: keys[0]) == .hibernated)
         #expect(rig.hibernation.hoverRestores.pages.isEmpty)
     }
@@ -134,8 +177,8 @@ import Testing
             return keys
         }
         rig.hibernation.noteWorkspaceHover("w", window: "win")
+        // `asked` is set inside the intent, which restores (or not) before it returns on the main actor.
         try await rig.until("the hover intent fires") { asked }
-        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 2)
         for key in keys { #expect(rig.services.cache.phase(of: key) == .hibernated, "a page the person hibernated reloaded on hover") }
     }
 
@@ -177,7 +220,8 @@ import Testing
         }
         #expect(rig.hibernation.hoverBudget.pages == 0, "the default settings let a hover wake pages")
         rig.hibernation.noteWorkspaceHover("w", window: "win")
-        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 4)
+        // With hover preload off the gate arms no dwell; even the intent a dwell would deliver wakes nothing.
+        rig.hibernation.hoverIntent(.workspace("w", window: "win"))
         #expect(asked == 0, "a hover asked a workspace for its pages with hover preload off")
         for key in keys { #expect(rig.services.cache.phase(of: key) == .hibernated, "a hover woke a page with hover preload off") }
     }
@@ -194,8 +238,13 @@ import Testing
         let keys = try await rig.pages(["a", "b", "c"])
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
         #expect(rig.hibernation.hoverBudget.pages == 0)
+        // Hover preload is on, so the hover arms the dwell (on a manual clock: no timer outlives the test);
+        // the intent the dwell delivers wakes nothing, since no neighbor radius leaves a budget of 0.
+        let dwell = DwellClock()
+        dwell.drive(rig.hibernation)
         rig.hibernation.noteHover(keys[1])
-        try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 4)
+        try await dwell.armed()
+        rig.hibernation.hoverIntent(.tab(keys[1]))
         #expect(rig.hibernation.frozen.contains(keys[1]))
     }
 
@@ -220,8 +269,11 @@ import Testing
         rig.hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: nil, wakesOnHover: true))
         #expect(!rig.hibernation.hoverRestores.contains(keys[0]), "a kept page is still a hover restore to send back")
         #expect(!rig.hibernation.probing.contains(keys[0]), "the grace discard probed a page no discard can take")
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(!rig.hibernation.probing.contains(keys[0]))
+        // The next replans (the grace deadline's, a hide's) probe it no more: a probe starts inside replan.
+        for _ in 0..<3 {
+            rig.hibernation.replan()
+            #expect(!rig.hibernation.probing.contains(keys[0]), "a later replan probed the kept page")
+        }
         #expect(rig.services.cache.phase(of: keys[0]) == .mountedHidden)
     }
 }

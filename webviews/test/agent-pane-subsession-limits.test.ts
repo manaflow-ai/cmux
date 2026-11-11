@@ -138,8 +138,18 @@ test("the attach asks for the limit's records, and only one newer than the attac
     await until(() => attached, "the attach");
     const kinds: string[] = daemon.asked.get("_acpmux/attach")?.kinds ?? [];
     expect(kinds).toContain("subsession");
-    // A remote cmux-tui refuses more than 8 kinds; the queue's go only to a local acpmux.
-    expect(kinds.filter((kind) => !["queue_order", "queue_updated", "prompt_refused"].includes(kind)).length).toBe(8);
+    // A remote cmux-tui refuses more than 8 kinds; the queue's, the sudo card's and the preset
+    // approval card's go only to a local acpmux.
+    const localOnly = [
+      "queue_order",
+      "queue_updated",
+      "prompt_refused",
+      "elevation_request",
+      "elevation_decision",
+      "preset_approval_request",
+      "preset_approval_decision",
+    ];
+    expect(kinds.filter((kind) => !localOnly.includes(kind)).length).toBe(8);
     expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "session" });
     // A record at or below the attach's lastSeq (3) is history.
     daemon.push(record([changed(2)], 3));

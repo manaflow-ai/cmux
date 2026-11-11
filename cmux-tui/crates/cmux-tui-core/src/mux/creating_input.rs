@@ -14,6 +14,14 @@
 //! each sending connection gets its own bytes back in one `terminal-input-unclaimed` notice, so
 //! the client can give them to the terminal that has focus. Clients send keys to the new
 //! terminal at once and never hold or replay them.
+//!
+//! A terminal whose surviving host is being adopted (after an update's handoff or a crash, each
+//! host adopts on its own thread after the new owner answers) takes input the same way: it is
+//! listed as adopting but has no live surface yet, and its input was refused as `unknown
+//! terminal`, so keys typed during an update were lost. Input for it is queued once an adoption
+//! of the id runs; the adoption's end ([`Mux::finish_adopting_input`]) writes the queue to the
+//! adopted terminal in order, or gives it back (`reason: "failed"`) when no live terminal has
+//! the id. The expiry bounds it as for a creation.
 
 use super::*;
 
@@ -45,6 +53,9 @@ struct CreatingTerminal {
     expiry_started: bool,
     /// The creation committed and the queue is being written; the entry stays until it is empty.
     flushing: bool,
+    /// The queue belongs to the adoption of a surviving host, not to a creation: the adoption's
+    /// end writes it or gives it back.
+    adopting: bool,
 }
 
 /// The creating terminals of one daemon, keyed by host terminal id (32 hex).
@@ -151,6 +162,7 @@ impl Mux {
                 bytes: 0,
                 expiry_started: false,
                 flushing: false,
+                adopting: false,
             },
         );
         Some(generation)
@@ -170,22 +182,18 @@ impl Mux {
             let mut terminals =
                 self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(creating) = terminals.get_mut(terminal_id) {
-                if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
-                    return Err(InputOverflow { queued: creating.bytes }.into());
-                }
-                creating.bytes += bytes.len();
-                creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
-                if !creating.expiry_started && !creating.flushing {
-                    creating.expiry_started = true;
-                    self.start_creating_input_expiry(terminal_id, creating.generation);
-                }
-                return Ok(TerminalInputTarget::Queued);
+                return self.queue_input(terminal_id, creating, client, bytes, paste, notice);
             }
         }
-        // Live, and no flush is pending: written outside the creating lock.
-        let surface = self
-            .live_surface_for_terminal(terminal_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+        // Live, and no flush is pending: written outside the creating lock. Not live: queued
+        // while the terminal's host adopts.
+        let surface = match self.live_surface_for_terminal(terminal_id) {
+            Some(surface) => surface,
+            None => match self.queue_adopting_input(terminal_id, client, bytes, paste, notice)? {
+                Some(surface) => surface,
+                None => return Ok(TerminalInputTarget::Queued),
+            },
+        };
         if paste {
             surface.write_paste(bytes)?;
         } else {
@@ -195,11 +203,98 @@ impl Mux {
         Ok(TerminalInputTarget::Written)
     }
 
-    /// Whether `terminal_id` names a live or creating terminal.
+    /// Queue input in `creating`'s FIFO (the caller holds the creating lock), or refuse it whole
+    /// past [`CREATING_INPUT_LIMIT`]. The first queued byte starts the expiry.
+    fn queue_input(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        creating: &mut CreatingTerminal,
+        client: u64,
+        bytes: &[u8],
+        paste: bool,
+        notice: UnclaimedNotice,
+    ) -> anyhow::Result<TerminalInputTarget> {
+        if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
+            return Err(InputOverflow { queued: creating.bytes }.into());
+        }
+        creating.bytes += bytes.len();
+        creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
+        if !creating.expiry_started && !creating.flushing {
+            creating.expiry_started = true;
+            self.start_creating_input_expiry(terminal_id, creating.generation);
+        }
+        Ok(TerminalInputTarget::Queued)
+    }
+
+    /// Input for `terminal_id`, which had no live surface: queued (`None`) while an adoption of
+    /// its surviving host runs, the surface to write when it went live meanwhile, else refused.
+    /// The adoption set is read under the creating lock, and an adoption leaves the set before
+    /// its end takes that lock ([`Mux::finish_adopting_input`]), so a queue added here is always
+    /// written or given back. Lock order: creating, then the adoption set.
+    fn queue_adopting_input(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        client: u64,
+        bytes: &[u8],
+        paste: bool,
+        notice: UnclaimedNotice,
+    ) -> anyhow::Result<Option<Arc<Surface>>> {
+        let inputs = &self.creating_inputs;
+        let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        if !terminals.contains_key(terminal_id) {
+            if let Some(surface) = self.live_surface_for_terminal(terminal_id) {
+                return Ok(Some(surface));
+            }
+            if !self.terminal_adoption_runs(terminal_id) {
+                anyhow::bail!("unknown terminal {terminal_id}");
+            }
+            let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
+            inputs.insert(
+                &mut terminals,
+                terminal_id,
+                CreatingTerminal {
+                    generation,
+                    queued: Vec::new(),
+                    bytes: 0,
+                    expiry_started: false,
+                    flushing: false,
+                    adopting: true,
+                },
+            );
+        }
+        let Some(creating) = terminals.get_mut(terminal_id) else {
+            anyhow::bail!("unknown terminal {terminal_id}");
+        };
+        self.queue_input(terminal_id, creating, client, bytes, paste, notice).map(|_| None)
+    }
+
+    /// Whether an adoption thread of `terminal_id`'s surviving host runs.
+    fn terminal_adoption_runs(&self, terminal_id: &str) -> bool {
+        self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id)
+    }
+
+    /// The adoption of `terminal_id` ended and the id left the adoption set: input queued while
+    /// it adopted goes to the adopted terminal in order, or back to its senders when no live
+    /// terminal has the id (the host was lost, the terminal ended or closed).
+    pub(super) fn finish_adopting_input(&self, terminal_id: &str) {
+        let generation = {
+            let terminals =
+                self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            match terminals.get(terminal_id) {
+                Some(creating) if creating.adopting => creating.generation,
+                _ => return,
+            }
+        };
+        self.finish_creating_input(terminal_id, generation, None);
+    }
+
+    /// Whether `terminal_id` names a live, creating or adopting terminal.
     pub(crate) fn knows_terminal_input_target(&self, terminal_id: &str) -> bool {
         let terminals =
             self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-        terminals.contains_key(terminal_id) || self.live_surface_for_terminal(terminal_id).is_some()
+        terminals.contains_key(terminal_id)
+            || self.live_surface_for_terminal(terminal_id).is_some()
+            || self.terminal_adoption_runs(terminal_id)
     }
 
     /// Make sure no queue of live `surface`'s terminal is pending or being written, so input sent

@@ -1,0 +1,158 @@
+/* IMPORT COOKIES CARD (CookieImportCard.tsx). A toast: the toast surface's glass (--surface-toast-*,
+   the toasts' veil, radius and shadow; toasts.css), one row on the design scale (pages/shared/
+   desktop.css): a 20 icon, the one line in the body step, then the answers. In the app the native
+   card draws the glass under the page; the gallery draws its own. */
+.ci-card {
+  --ci-icon: var(--ds-icon-20, 20px);
+  --ci-ink: var(--cmux-text, var(--ds-color-fg));
+  --ci-ink-2: var(--cmux-text-secondary, var(--ds-color-muted));
+  --glass-tint: var(--surface-toast-veil);
+  --glass-elevation: var(--elevation-2);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--ds-space-2);
+  row-gap: var(--ds-space-1);
+  width: 100%;
+  min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--surface-toast-radius);
+  color: var(--ci-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* On the app's glass the card paints no fill: only its contents and the popups' one shadow. */
+.ci-card[data-native-glass] {
+  box-shadow: none;
+}
+.ci-icon {
+  flex: none;
+  width: var(--ci-icon);
+  height: var(--ci-icon);
+  object-fit: contain;
+}
+/* The one line: it takes the room left and wraps to a second line before it ever cuts a word. */
+.ci-title {
+  /* A small basis keeps the line beside the icon in the narrowest pane; it grows to the room left. */
+  flex: 1 1 8em;
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* TOAST LOOK: the toast's clear-text answers (toasts.css .cmux-toast-action) and its close button.
+   Import bold in the ink, Don't Show Again quiet in the secondary ink; the hover fill only under the
+   pointer. The answers stay together at the trailing edge; in a narrow pane they wrap under the line. */
+.ci-action,
+.ci-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ds-control-compact);
+  margin: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--ci-ink);
+  font: inherit;
+  white-space: nowrap;
+}
+.ci-action {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding-inline: var(--ds-space-1);
+  text-overflow: ellipsis;
+  font-weight: var(--weight-emphasis, 600);
+}
+.ci-action[data-quiet] {
+  color: var(--ci-ink-2);
+  font-weight: inherit;
+}
+/* The three answers move as one group: in a narrow pane they wrap under the line together, and in
+   the narrowest (a 200 pt pane) the group wraps inside itself, Import and the close button together
+   at the end; a label too long for the card ends in an ellipsis, never past its edge. */
+.ci-toast-answers {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+.ci-close {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  padding: 0;
+  color: var(--ci-ink-2);
+}
+:is(.ci-action, .ci-close):hover,
+:is(.ci-action, .ci-close):active {
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+}
+:is(.ci-action, .ci-close):focus-visible {
+  outline: 1.5px solid var(--ui-ring, currentColor);
+  outline-offset: 1px;
+}
+
+/* BUTTONS AND STACKED LOOKS: Not Now and Import as compact buttons of one width, Don't Show Again a
+   ghost button of the same height in the faint ink. */
+.ci-row {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding-inline-start: calc(var(--ci-icon) + var(--ds-space-2));
+}
+.ci-card:not(:has(.ci-icon)) .ci-row {
+  padding-inline-start: 0;
+}
+.ci-spacer {
+  flex: 1;
+}
+.ci-answers {
+  display: grid;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-2);
+}
+.ci-answer.ui-btn {
+  min-width: min(calc(var(--ds-space-6) * 2), 100%);
+  overflow: hidden;
+  padding-inline: var(--ds-space-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-never.ui-btn {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ds-color-faint);
+  text-overflow: ellipsis;
+}
+.ci-card[data-look="stacked"] .ci-never.ui-btn {
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.ci-card[data-look="buttons"] .ci-never.ui-btn {
+  margin-inline-start: auto;
+}
+.ci-never.ui-btn:hover:not([data-disabled]) {
+  color: var(--ds-color-muted);
+}

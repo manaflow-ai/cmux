@@ -7,8 +7,11 @@
 // one. Add account (Codex and Claude) signs in a new login in a folder of its own (for Codex a shadow
 // home that shares settings and chats with the CLI's), or adds an API key by its secret reference.
 // An account whose plan usage was read when Settings opened shows its 5-hour and weekly limits under
-// it, in the composer ring's plan usage card (PlanUsageCardBody).
-import { useId, useState } from "react";
+// it, in the composer ring's plan usage card (PlanUsageCardBody); a signed-out one shows none, since
+// usage read before a sign-out no longer belongs to anyone signed in. Remove asks first, in the row
+// (as a team's Delete does): it takes the account out of cmux's list, and its login folder and the
+// CLI's own sign-in stay where they are.
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
@@ -63,6 +66,15 @@ function AccountRow({
   const nameId = useId();
   const switchId = useId();
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const cancelRemoveRef = useRef<HTMLButtonElement>(null);
+  // The question takes focus when it opens (the Remove button it replaces is gone), so Escape closes it.
+  useEffect(() => {
+    if (confirmingRemove) cancelRemoveRef.current?.focus();
+  }, [confirmingRemove]);
+  const escapeRemove = (event: KeyboardEvent) => {
+    if (event.key === "Escape") setConfirmingRemove(false);
+  };
   const folder = accountFolderText(account, all);
   // acpmux keeps no file for the Claude Code login, so it has no name of its own to change.
   const renamable = account.id !== "claude-login";
@@ -168,7 +180,7 @@ function AccountRow({
               {t("settingsWindow.harnesses.accounts.signOut")}
             </Button>
           )}
-          {!account.builtin && (
+          {!account.builtin && !confirmingRemove && (
             <Button
               danger
               type="button"
@@ -176,13 +188,51 @@ function AccountRow({
               data-account-action="remove"
               aria-describedby={nameId}
               disabled={busy}
-              onClick={() => run({ action: "accountRemove", account: account.id })}
+              onClick={() => setConfirmingRemove(true)}
             >
               {t("settingsWindow.remove")}
             </Button>
           )}
         </div>
-        {account.usage && (
+        {!account.builtin && confirmingRemove && (
+          <div className="accounts-form" data-account-remove-confirm="" role="alertdialog" aria-labelledby={nameId}>
+            <span className="row-help">
+              {t(
+                account.key
+                  ? "settingsWindow.harnesses.accounts.removeConfirmKey"
+                  : "settingsWindow.harnesses.accounts.removeConfirm",
+                account.name,
+              )}
+            </span>
+            <div className="accounts-buttons">
+              <Button
+                danger
+                type="button"
+                className="button danger"
+                data-account-action="confirmRemove"
+                disabled={busy}
+                onKeyDown={escapeRemove}
+                onClick={() => {
+                  setConfirmingRemove(false);
+                  run({ action: "accountRemove", account: account.id });
+                }}
+              >
+                {t("settingsWindow.remove")}
+              </Button>
+              <Button
+                type="button"
+                className="button"
+                data-account-action="cancelRemove"
+                ref={cancelRemoveRef}
+                onKeyDown={escapeRemove}
+                onClick={() => setConfirmingRemove(false)}
+              >
+                {t("settingsWindow.cancel")}
+              </Button>
+            </div>
+          </div>
+        )}
+        {account.usage && account.signedIn && (
           <div className="harness-account-usage" data-account-usage="">
             {/* No family: the card's usage-page link opens through the agent pane's browser, which
                 Settings does not have. */}

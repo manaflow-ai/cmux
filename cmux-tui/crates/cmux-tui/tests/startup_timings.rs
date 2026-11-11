@@ -177,8 +177,13 @@ fn each_owner_start_records_its_named_startup_steps() {
     ] {
         assert!(names.iter().any(|name| name == expected), "no {expected} step in {names:?}");
     }
-    // Startup order: the socket first, the attach (the first answer) last.
-    assert_eq!(names.first().map(String::as_str), Some("socket.bind"), "{names:?}");
+    // Startup order: the process's own steps, then the socket, the attach
+    // (the first answer) last.
+    let bind = names.iter().position(|name| name == "socket.bind").unwrap();
+    assert!(names[..bind].iter().all(|name| name.starts_with("process.")), "{names:?}");
+    for expected in ["process.args", "process.owner_prepare", "process.server_setup"] {
+        assert!(names[..bind].iter().any(|name| name == expected), "no {expected} in {names:?}");
+    }
     assert_eq!(names.last().map(String::as_str), Some("server.attach"), "{names:?}");
     let total = line["total_ms"].as_f64().expect("total_ms is a number");
     let sum: f64 = line["steps"]

@@ -494,6 +494,31 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 2);
 }
 
+/// A seed that answered at the chat's head is the send's copy: the chat opens in that
+/// folder while the machine fills the rest, so a retry never pushes a second seed over it.
+#[test]
+fn a_seed_answered_at_its_head_is_the_sends_copy_and_says_filling() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "app/web");
+    let count = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *count.borrow_mut() += 1;
+        Ok(super::pushed_fields(&json!({
+            "ok": true, "mode": "seed", "unchanged": false, "bundle_bytes": 10,
+            "head": null, "work": "w", "skipped_files": [], "filling": true,
+        })))
+    };
+    let first = copy.run(&path, &push);
+    assert_eq!(first["copied"], json!(true), "{first}");
+    assert_eq!(first["filling"], json!(true), "{first}");
+    assert_eq!(first["mode"], json!("seed"));
+    let retry = copy.run(&path, &push);
+    assert_eq!(*count.borrow(), 1, "a retry never seeds over a filling folder");
+    assert_eq!(retry["copied"], json!(false));
+    assert_eq!(retry["chat"], first["chat"]);
+}
+
 #[test]
 fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
     let dir = scratch();
@@ -596,6 +621,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
         record: record.to_path_buf(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let record = home.join("trust.json");
     let folder = project.to_string_lossy().into_owned();
@@ -1472,7 +1498,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .expect("ensure");
     assert_eq!(
         ensure.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV, "projectKey": "git:github.com/manaflow-ai/cmux"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
     );
     let with_ref = Ensure::of(&flags(&[
         "--workspace",
@@ -1487,7 +1513,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .unwrap();
     assert_eq!(
         with_ref.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main", "projectKey": "git:github.com/a/b"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
@@ -1530,19 +1556,22 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
         (json!(false), Value::Null)
     );
     assert_eq!(ensure_answer(Ok(json!({"created": true})))["error_code"], json!("bad_answer"));
-    let not_found =
-        ensure_answer(Err(E::Status { status: 404, code: "cloud_environment.not_found" }));
+    let not_found = ensure_answer(Err(E::Status {
+        status: 404,
+        code: "cloud_environment.not_found",
+        facts: None,
+    }));
     assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "not_found" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "not_found", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 500, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 500, code: "", facts: None }))["error_code"],
         json!("refused")
     );
     assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
@@ -1588,7 +1617,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(
         asked.borrow().as_slice(),
         [(
-            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV, "projectKey": "git:github.com/me/paint"}),
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
             "token-1".to_string()
         )]
     );
@@ -1616,8 +1645,9 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
 
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
-    let no_route =
-        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
+    let no_route = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 404, code: "", facts: None })
+    };
     let fallback =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
     assert_eq!(
@@ -1634,7 +1664,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 
     // A refused environment, or a failure after which the machine may exist, refuses the send.
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
-        Err(E::Status { status: 404, code: "cloud_environment.not_found" })
+        Err(E::Status { status: 404, code: "cloud_environment.not_found", facts: None })
     };
     let refused =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
@@ -1645,9 +1675,99 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
         json!("unreachable")
     );
-    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
-    assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
-    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+    assert!(made_no_machine(&E::Status {
+        status: 503,
+        code: "workspace_machine.unconfigured",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status {
+        status: 503,
+        code: "machine.placement_unavailable",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict", facts: None }));
+
+    // A cap: the App's own create would meet the same cap, so the send is refused with its code.
+    let capped = |_: &Ensure, _: &str| -> Result<Value, E> {
+        let facts = cmux_cloud_machine::refusals::Facts {
+            retryable: Some(false),
+            limit: Some(20),
+            used: Some(20),
+            orphans: Some(3),
+            ..Default::default()
+        };
+        Err(E::Status { status: 403, code: "cloud.quota.vm_limit", facts: Some(facts) })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &capped);
+    assert_eq!(
+        (refused["ok"].clone(), refused["error_code"].clone()),
+        (json!(false), json!("cloud.quota.vm_limit")),
+        "{refused}"
+    );
+    // Shown with its reason, final.
+    let error = refused["error"].as_str().unwrap();
+    assert!(
+        error.contains("20 of 20 machines") && error.contains("3 of them left over"),
+        "{error}"
+    );
+    assert_eq!(
+        (refused["handling"].clone(), refused["retryable"].clone()),
+        (json!("final"), json!(false))
+    );
+
+    // A rate limit: the line says to wait its window.
+    let limited = ensure_answer(Err(E::Status {
+        status: 429,
+        code: "cloud.rate_limited",
+        facts: Some(cmux_cloud_machine::refusals::Facts {
+            retryable: Some(true),
+            retry_after_s: Some(42),
+            ..Default::default()
+        }),
+    }));
+    assert_eq!(
+        (
+            limited["handling"].clone(),
+            limited["retryable"].clone(),
+            limited["retry_after_s"].clone()
+        ),
+        (json!("retry_after"), json!(true), json!(42)),
+        "{limited}"
+    );
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is the platform's answer for
+/// the send: a cap, a plan, a rate limit or a machine's state is shown or retried, never left to
+/// the App's own create, which would meet it again. Only a refused sign-in (`auth.forbidden`,
+/// the case #30574 wrote the fallback for) still falls back.
+#[test]
+fn no_platform_refusal_falls_back_to_the_apps_create() {
+    use crate::cli::PlatformCallError as E;
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        let error = E::Status { status: row.status, code: row.code, facts: None };
+        assert_eq!(
+            made_no_machine(&error),
+            row.code == "auth.forbidden",
+            "{} {}",
+            row.status,
+            row.code
+        );
+    }
+}
+
+/// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has
+/// no Cloud plan"), not a generic `refused`.
+#[test]
+fn a_reservation_plan_refusal_keeps_its_code() {
+    use crate::cli::PlatformCallError as E;
+    let answer = super::reservations::answer(Err(E::Status {
+        status: 403,
+        code: "cloud.plan.required",
+        facts: None,
+    }));
+    assert_eq!(answer["error_code"], json!("cloud.plan.required"));
+    assert_eq!(answer["ok"], json!(false));
 }
 
 #[test]
@@ -1762,8 +1882,10 @@ fn project_folder_identity_survives_relaunch_and_distinguishes_installations() {
     );
 }
 
+/// One workspace per machine (Leo, 2026-11-06): two workspaces on one project each ensure their own machine,
+/// naming no project, and a machine one workspace holds never becomes the other's.
 #[test]
-fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
+fn each_workspace_on_a_project_ensures_its_own_machine() {
     let dir = scratch();
     let ledger = ledger_in(dir.path());
     let folder = dir.path().join("project");
@@ -1776,23 +1898,25 @@ fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
     let asked = RefCell::new(Vec::new());
     let ensure = |ensure: &Ensure, _: &str| {
         asked.borrow_mut().push(ensure.body());
-        Ok(json!({"machine": {"id": "project-machine"}, "created": false}))
+        let id = format!("machine-{}", asked.borrow().len());
+        Ok(json!({"machine": {"id": id}, "created": true}))
     };
-    for workspace in ["ws-a", "ws-b"] {
+    for (workspace, machine) in [("ws-a", "machine-1"), ("ws-b", "machine-2")] {
         let request = json!({"key": key(), "account": "user-leo/", "workspace": workspace,
             "local": folder, "credential_on_stdin": true});
         let answer = plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &ensure);
-        assert_eq!(answer["machine"], json!("project-machine"), "{answer}");
+        assert_eq!(answer["machine"], json!(machine), "{answer}");
+        assert_eq!(answer["project_key"], json!("git:gitlab.com/me/project"), "{answer}");
     }
     assert_eq!(asked.borrow().len(), 2);
     for body in asked.borrow().iter() {
-        assert_eq!(body["projectKey"], json!("git:gitlab.com/me/project"));
+        assert!(body.get("projectKey").is_none(), "{body}");
         assert!(body.get("repo").is_none());
     }
     Ledger::update(&ledger, |pins| {
-        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("project-machine"));
-        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("project-machine"));
-        assert!(!pick::claim_project(pins, "ws-b", "user-leo/", "racing-machine"));
+        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("machine-1"));
+        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("machine-2"));
+        assert!(!pick::claim(pins, "ws-c", "user-leo/", "machine-1"));
     })
     .unwrap();
 }
@@ -1805,7 +1929,7 @@ fn project_ensure_accepts_a_folder_without_a_remote() {
         "local": dir.path(), "credential_on_stdin": true});
     let answer =
         plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &|ensure, _| {
-            assert!(ensure.body()["projectKey"].as_str().unwrap().starts_with("folder:"));
+            assert!(ensure.body().get("projectKey").is_none());
             assert!(ensure.body().get("repo").is_none());
             Ok(json!({"machine": {"id": "folder-machine"}, "created": true}))
         });
@@ -1842,7 +1966,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let send = key();
     let team = "team_0123456789abcdef0123";
     let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
-        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "reservation_key": compose, "credential_on_stdin": true,
         "platform": "https://cmux-platform-development.debussy.workers.dev"})
     .to_string();
     let calls = RefCell::new(Vec::new());
@@ -1860,7 +1984,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let first = super::plan_with_calls(
         &path,
         &request,
-        &mut "stack-session\n".as_bytes(),
+        &mut format!("stack-session\n{}\n", super::spare_warm::install_token(team)).as_bytes(),
         &never_ensure,
         &bind,
     );
@@ -1905,8 +2029,8 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
     for error in [
         E::Unreachable("answer lost".into()),
         E::Unreadable(200),
-        E::Status { status: 500, code: "" },
-        E::Status { status: 409, code: "reservation.bound" },
+        E::Status { status: 500, code: "", facts: None },
+        E::Status { status: 409, code: "reservation.bound", facts: None },
     ] {
         let bind = |call: &Call, _: &str| {
             assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
@@ -1939,9 +2063,9 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
         "vm_0123456789abcdef0123"
     );
     for error in [
-        E::Status { status: 404, code: "lease.not_found" },
-        E::Status { status: 409, code: "reservation.expired" },
-        E::Status { status: 409, code: "reservation.terminal" },
+        E::Status { status: 404, code: "lease.not_found", facts: None },
+        E::Status { status: 409, code: "reservation.expired", facts: None },
+        E::Status { status: 409, code: "reservation.terminal", facts: None },
     ] {
         let request = json!({"key": key(), "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
         let bind = |_: &Call, _: &str| Err(error.clone());

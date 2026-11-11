@@ -95,7 +95,8 @@ async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
 
 test("deny answers with the first deny option, and only its button shows the keycap", async () => {
   const card = await mount();
-  expect(card.keycaps()).toEqual(["Deny: Esc", "Allow once: ⌘ ↩"]);
+  // Each answer leads with its letter (dealbreakers D8: approving is one obvious key), then its keys.
+  expect(card.keycaps()).toEqual(["Deny: N Esc", "Allow once: Y ⌘ ↩"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
   await card.unmount();
@@ -115,16 +116,16 @@ test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, show Esc and ⌘↩ keyca
   });
   // Leo 2026-11-05, on Claude desktop's "Deny Esc" and "Allow for this session ⌘↩": Deny and Allow
   // once show the card's own keys as keycaps; Always allow keeps its light ⌥⌘2 hint. Every button
-  // still answers its app shortcut, listed after the card key.
-  expect(card.keycaps()).toEqual(["Deny: Esc", "Always allow: ⌥⌘2", "Allow once: ⌘ ↩"]);
+  // still answers its app shortcut, listed after the card key. The answer's letter leads (y, a, n).
+  expect(card.keycaps()).toEqual(["Deny: N Esc", "Always allow: A ⌥⌘2", "Allow once: Y ⌘ ↩"]);
   // Leo 2026-10-25, "just make it good? incl. the symbol hints": the hint is decoration, its
   // modifiers a fainter span before the key, and the button's name stays its label.
   const hints = [...card.host.querySelectorAll("button kbd")];
-  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(["true", "true", "true", "true"]);
+  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(Array(7).fill("true"));
   expect(card.host.querySelector(".acpmux-permission-action-modifiers")?.textContent).toBe("⌥⌘");
   expect(
     [...card.host.querySelectorAll("button[aria-keyshortcuts]")].map((b) => b.getAttribute("aria-keyshortcuts")),
-  ).toEqual(["Escape ⌥⌘3", "⌥⌘2", "Meta+Enter ⌥⌘1"]);
+  ).toEqual(["n Escape ⌥⌘3", "a ⌥⌘2", "y Meta+Enter ⌥⌘1"]);
   await card.press("permissionAllowChat");
   expect(card.answers).toEqual(["session"]);
   await card.unmount();

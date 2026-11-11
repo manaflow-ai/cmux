@@ -6,6 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
+    /// A row's content (icon column, title, trailing column) from its fill's edge: the outer inset, or 8 pt at
+    /// Default, where the rows match the Codex sidebar (`SidebarRowTokens.matchesCodex`).
+    static var contentInset: CGFloat { SidebarDensityTokens.contentInset }
     /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
     /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
@@ -18,6 +21,25 @@ enum SidebarStyle {
     /// sidebar's edge, with no resize line or chrome shade in the band.
     static var rowToPaneGap: CGFloat { rowEdgeGap }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
+    /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex sidebar's
+    /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956): `sidebar.surfaceDim.dark` or `.light` for the
+    /// theme. nil when it is 0, or when the chrome around a curved main pane is already shaded (`appearance.sidebarSurface`
+    /// separate), so the sidebar never takes two shades. Call inside the view's theme scope.
+    static var surfaceDim: NSColor? {
+        Palette.sidebarDim(dark: SidebarTunables.surfaceDimDark.value, light: SidebarTunables.surfaceDimLight.value)
+    }
+    /// The sidebar's ground as it shows: its background under ``surfaceDim`` (no dim under a user sidebar color),
+    /// for what paints the ground's own color (a badge's cutout ring, the Needs-You tray's backing, a favicon's
+    /// ground) so it does not show as a lighter patch on the dimmed sidebar. Call inside the view's theme scope.
+    static var ground: NSColor {
+        let base = Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.sidebarBackground
+        guard Palette.surfaceOverride(.sidebar) == nil, let dim = surfaceDim?.alphaComponent, dim > 0 else { return base }
+        // Black at `dim` over `base`, composited (premultiplied), so a translucent ground keeps its color.
+        let a = base.alphaComponent, out = dim + a * (1 - dim)
+        guard out > 0 else { return base }
+        let k = a * (1 - dim) / out
+        return NSColor(srgbRed: base.redComponent * k, green: base.greenComponent * k, blue: base.blueComponent * k, alpha: out) // colour-allow: Palette.sidebarBackground composited under surfaceDim, no raw value
+    }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -38,21 +60,30 @@ enum SidebarStyle {
         guard step != 0 else { return base }
         return Typography.system(.default, size: base.pointSize + step, weight: weight)
     }
-    /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
-    /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
-    /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
+    /// The center x of the one leading icon column (Leo 2026-10-28: "the alignment"), one `iconColumnBox` wide, in a row
+    /// whose leading slot starts at `leading`. A band row's glyph (Home's) and a pinned row's pin center their ink here
+    /// (`bandGlyphX`, #38061), so glyphs of different ink widths share one center x at every density.
     static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
     /// The Debug `sidebar.leadingColumn` look: where a glyph's ink sits in the icon column.
     static var leadingColumnLook: SidebarLeadingColumnLook { SidebarLeadingColumnLook.tunable.value }
     /// A text-only row keeps the icon column empty, so its title starts at the text x (the `slotted` look only).
     static var textOnlyKeepsIconSlot: Bool { leadingColumnLook == .slotted }
-    /// The one rule every leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a glyph
-    /// drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
-    /// `leading`. The ink starts on the box's leading edge, the row inset, so a pin, Home's house, a favicon, an emoji
-    /// and a symbol start on the left edge text-only titles start on; the `centered` look centers it instead. Callers
-    /// snap the result to their pixel grid.
+    /// The rule a workspace row's leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a
+    /// glyph drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
+    /// `leading`. The ink starts on the box's leading edge, the row inset, so a favicon, an emoji and a symbol start on
+    /// the left edge text-only titles start on; the `centered` look centers it instead. Home's glyph and the pin take
+    /// `bandGlyphX`. Callers snap the result to their pixel grid.
     static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
         leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+    }
+    /// The x of a band row's leading glyph (Home's house, another built-in's glyph, a pinned row's pin) drawn with
+    /// `ink`, in the icon column whose box starts at `leading`: its ink centers on the column's center line at every
+    /// look. https://github.com/manaflow-ai/cmux/issues/38061: starting each ink at the inset (`iconColumnGlyphX`) put
+    /// the narrow pin's center about 1.5 pt left of the house's, so the pinned rows' pins did not line up under Home.
+    /// Centered, glyphs of every ink width share one center x, the center of a workspace row's icon box (that box's
+    /// own glyph starts its ink at the inset, `iconColumnGlyphX`).
+    static func bandGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        iconColumnCenterX(leading: leading) - ink.midX
     }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
@@ -61,6 +92,13 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// A leading pin's glyph square (a pinned workspace row's, a pinned group header's): Home's glyph square,
+    /// `kindGlyphSize`, so the pin draws in the box Home's house draws in and centers on the same line under it
+    /// (https://github.com/manaflow-ai/cmux/issues/38061: at `leadingGlyphSide`, 4 pt smaller, its ink was 9 pt across
+    /// under the house's 14.5).
+    static var pinGlyphSide: CGFloat { kindGlyphSize }
+    /// The Debug `sidebar.pinnedRowLeading` look: a pinned row with its own icon or dot draws it in the pin's place.
+    static var pinnedRowLeadsWithOwnIcon: Bool { SidebarPinnedRowLeading.tunable.value == .ownIcon }
     /// A workspace or group icon's glyph square: the leading icon column it sits in, so the icon follows the sidebar
     /// density (16 compact, 20 comfortable, wider with the text size) instead of one size at every density. Leo
     /// 2026-11-03: "generally we can have stuff more dynamically sized for compact/etc rn i think it's just a one size
@@ -89,7 +127,8 @@ enum SidebarStyle {
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
-    static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    /// The +'s side: the top row's one button size, the toolbar band's too (`TopRowSpacing`).
+    static var toolbarButtonSize: CGFloat { TopRowSpacing.buttonSide }
     /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
     /// joined to the + as one split button, not a third square button beside Back and Forward.
     static var toolbarMenuSegmentWidth: CGFloat { (toolbarButtonSize * 0.55).rounded() }
@@ -250,7 +289,11 @@ enum SidebarStyle {
     static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
-    static var headerFont: NSFont { sized(Typography.header, weight: .semibold) }
+    /// A section or list header ("Pinned", "Projects", "Recents", a computer's name): the Codex sidebar's quiet
+    /// heading (https://github.com/manaflow-ai/cmux/issues/39956), the rows' own size at the regular weight in the
+    /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
+    /// the way from its ground to white, which `textSecondary` (62%) matches.
+    static var headerFont: NSFont { sized(Typography.body, weight: .regular) }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }

@@ -26,7 +26,11 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
   area: "New Tab",
   height: 620,
   pane: true,
-  covers: ["agent-session/acpmux/newtab/NewTabScreen.tsx", "agent-session/acpmux/newtab/StageCards.tsx"],
+  covers: [
+    "agent-session/acpmux/newtab/NewTabScreen.tsx",
+    "agent-session/acpmux/newtab/StageCards.tsx",
+    "agent-session/acpmux/newtab/FirstRunStarters.tsx",
+  ],
   load: () => import("./NewTabScreen").then((module) => module.NewTabScreen),
   styles: () => Promise.all([import("../styles.css"), import("./screen.css")]),
   variants: {
@@ -41,6 +45,24 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
     "minimal-projects": {
       note: "The same empty project card when the user enables the Projects widget in Minimal.",
       props: { ...props, template: "minimal", pageWidgets: new Set(["projects"]) },
+    },
+    // An agent is installed and signed in (the catalog is in) and the Mac has no chats yet: the
+    // starters show under the composer. Three looks; rows ship.
+    "starters-rows": {
+      note: "Shipped: three quiet rows with an icon under the composer, a wash only on hover. A pick fills the composer and sends nothing.",
+      props: { ...props, snapshot: noChat([]), template: "minimal" },
+    },
+    "starters-inline": {
+      note: "One centred line of plain text actions. Quietest, but three prompts on one line wrap at narrow widths.",
+      props: { ...props, snapshot: noChat([]), template: "minimal", starterLook: "inline" },
+    },
+    "starters-card": {
+      note: "The rows inside the stage card's surface. Reads as a second composer-weight object on an otherwise empty page.",
+      props: { ...props, snapshot: noChat([]), template: "minimal", starterLook: "card" },
+    },
+    "starters-project-card": {
+      note: "The Default layout with the project card above and the shipped rows under the composer.",
+      props: { ...props, snapshot: noChat([]), template: "default" },
     },
   },
 });

@@ -129,6 +129,7 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        let mut meta = serde_json::Map::new();
         if include_caller
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),
@@ -136,14 +137,21 @@ impl Client {
                 issuer.is_some_and(|socket| Path::new(&socket) == path),
             )
         {
-            let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
-            hello.set("_meta", json!({"acpmux": meta}));
         }
-        let init = client.request(method::INITIALIZE, hello).await?;
+        // Whether it runs in an acpmux session's environment, said positively: only a terminal
+        // declaration may be the owner's own send (`cli_caller.rs`).
+        crate::cli_caller::declare(&mut meta, caller);
+        hello.set("_meta", json!({"acpmux": meta}));
+        // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
+        let init = crate::cli::slow_notice::noted(
+            "the connection's hello",
+            client.request(method::INITIALIZE, hello),
+        )
+        .await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
             let _ = client.proven_caller_session.set(session.to_owned());
@@ -323,7 +331,14 @@ impl Client {
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
-    async fn send_request(&self, m: &str, params: Value) -> Result<Value> {
+    async fn send_request(&self, m: &str, mut params: Value) -> Result<Value> {
+        // Every request leaves here, so none can carry this host's sender token to a daemon
+        // that would keep it: one that did not list the feature at initialize stores and
+        // forwards what it does not know (reviews of #41064 at 8cc17ed2 and 814a7eba).
+        crate::sender_token::withhold_unless(
+            &mut params,
+            self.daemon_lists(crate::sender_token::FEATURE),
+        );
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();

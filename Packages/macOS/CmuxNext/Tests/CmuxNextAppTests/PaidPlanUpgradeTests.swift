@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextAccounts
 import CmuxNextAppCore
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -18,7 +19,7 @@ import Testing
 
     init() {
         let suite = "PaidPlanUpgradeTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)!
+        defaults = UserDefaults(testSuiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
     }
 

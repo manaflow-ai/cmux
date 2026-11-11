@@ -201,13 +201,12 @@ export function ConversationList(props: ConversationListProps) {
       const at = point(event);
       if (!drag && Math.hypot(at.x - start.x, at.y - start.y) < DRAG_THRESHOLD) return;
       const count = pinnedIds.length + (start.fromGrid ? 0 : 1);
-      setDrag({
-        id: start.id,
-        fromGrid: start.fromGrid,
-        x: at.x,
-        y: at.y,
-        index: target(at.x, at.y, start.fromGrid, count),
-      });
+      // A row's lift opens no slot in the grid, so no row moves as a drag starts. The grid opens once the pointer is in
+      // it, or moving up, half a row under it; then it stays open while the pointer is over its open area.
+      const shut = metrics.pinnedHeight(pinnedIds.length);
+      const opens = !!drag && (at.y < shut || (at.y < drag.y && at.y < shut + metrics.rowHeight / 2));
+      const index = start.fromGrid || drag?.index != null || opens ? target(at.x, at.y, start.fromGrid, count) : null;
+      setDrag({ id: start.id, fromGrid: start.fromGrid, x: at.x, y: at.y, index });
     };
     const up = (event: PointerEvent) => {
       const start = pending.current;

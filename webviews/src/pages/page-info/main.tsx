@@ -1,16 +1,13 @@
 // Boots the browser's Page Info bubble (`cmux-page://cmux.page-info/`), a page in the browser
 // chrome's glass panel (CmuxNextBrowser PageInfoController through CmuxNextPages
-// BrowserChromeWebHost). The host pushes the bubble's state on `cmux.page-info.state`; the page
-// sends each control's command and the height its content needs, which places the panel.
+// BrowserChromeWebHost). The host pushes the bubble's state on `cmux.page-info.state`, numbered and
+// with the card's metrics; the page sends each control's command and the height of each state.
 import "../shared/desktop";
-import { useLayoutEffect, useSyncExternalStore } from "react";
-import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { setDocumentLanguage } from "../shared/i18n";
-import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { mountChromePage } from "../../browser-chrome/page-info/mountChromePage";
 import { PageInfoBubble } from "../../browser-chrome/page-info/PageInfoBubble";
 import type { PageInfoCommand, PageInfoModel } from "../../browser-chrome/page-info/model";
-import { pageInfoStrings } from "../../browser-chrome/page-info/strings";
+import { forgetSiteData, withLastSiteData } from "../../browser-chrome/page-info/siteDataMemory";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -24,62 +21,28 @@ type Metrics = { width: number; row: number; rowSubtitle: number; padding: numbe
 type HostState = PageInfoModel & { revision: number; opening: number; metrics?: Metrics };
 
 export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => void {
-  let model: HostState | null = null;
-  const listeners = new Set<() => void>();
-  const store = {
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+  return mountChromePage<HostState, PageInfoCommand & { opening: number }>(root, client, {
+    page: "page-info",
+    onState: (state) => applyMetrics(state.metrics),
+    focus: ".pi-bubble",
+    // The native panel's card is the glass; the page draws only the rows.
+    // A site read in an earlier opening draws its last cookie summary while the host reads it again.
+    render: (pushed, send, strings) => {
+      const model = withLastSiteData(pushed);
+      return (
+        <PageInfoBubble
+          model={model}
+          onCommand={(command) => {
+            // Managing the site's data can change its counts: the next opening waits for the host.
+            if (command.type === "manageSiteData") forgetSiteData(model.site.displayName);
+            send({ ...command, opening: model.opening });
+          }}
+          strings={strings}
+          glass={false}
+        />
+      );
     },
-    get: () => model,
-  };
-  const unsubscribe = client.subscribe<HostState>("cmux.page-info.state", (next) => {
-    model = next;
-    applyMetrics(next.metrics);
-    for (const listener of listeners) listener();
   });
-  const send = (command: PageInfoCommand, opening: number) =>
-    void client.call("cmux.page-info.command", { ...command, opening });
-  // The host places the panel from the height of each state it pushed (a reopen with the same
-  // height too), and resizes an open panel when the content changes height by itself.
-  const report = () => {
-    const height = Math.ceil(root.getBoundingClientRect().height);
-    if (height > 0 && model) void client.call("cmux.page-info.size", { height, revision: model.revision });
-  };
-  const sizes = new ResizeObserver(report);
-  sizes.observe(root);
-
-  const strings = pageInfoStrings();
-  setDocumentLanguage(strings.language);
-  function Bubble() {
-    const current = useSyncExternalStore(store.subscribe, store.get);
-    // After each committed state: report its height, and keep the keys in the card.
-    useLayoutEffect(() => {
-      if (!current) return;
-      report();
-      const card = root.querySelector<HTMLElement>(".pi-bubble");
-      if (card && !card.contains(document.activeElement)) card.focus();
-    }, [current]);
-    return current ? (
-      <PageInfoBubble
-        model={current}
-        onCommand={(command) => send(command, current.opening)}
-        strings={strings}
-        glass={false}
-      />
-    ) : null;
-  }
-  const react = createRoot(root);
-  react.render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <Bubble />
-    </UiProvider>,
-  );
-  return () => {
-    sizes.disconnect();
-    void unsubscribe.then((stop) => stop());
-    react.unmount();
-  };
 }
 
 function applyMetrics(metrics: Metrics | undefined) {

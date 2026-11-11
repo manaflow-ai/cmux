@@ -21,6 +21,13 @@ public enum PushReplyPlan: Equatable, Sendable {
     /// `notification-reply {notification, text}` (PR B; device unlock).
     case terminal(notification: String, text: String)
 
+    /// The `_meta` of a `.prompt` reply's `session/prompt`: it steers a running turn, as Send in
+    /// the chat does (`CmuxMobilePreferences.steersMidTurn`); an idle chat, or an agent that cannot
+    /// steer, runs it as its next turn. `resend`: acpmux runs the reply once, whichever way it came.
+    public static func promptMeta(promptID: String) -> JSONValue {
+        .object(["acpmux": .object(["promptId": .string(promptID), "steer": .bool(true), "resend": .bool(true)])])
+    }
+
     /// The `notification-reply` params for a terminal reply. `reply_id` is the
     /// reply's id, the same one its mailbox copy carries, so the Mac applies a
     /// reply once whichever way it arrives first.

@@ -50,7 +50,12 @@ export async function fixtureSteps(steps: PageFixtureStep[] = []): Promise<void>
     } else if (step.action === "enter")
       node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     else if (step.action === "input" || step.action === "change") {
-      const proto = node instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      const proto =
+        node instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : node instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(node, step.value ?? "");
       node.dispatchEvent(new Event(step.action, { bubbles: true }));
     }
@@ -92,9 +97,15 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   if (state.environments) mock.provider.environments = structuredClone(state.environments);
   if (state.sharedLinks) mock.provider.shares = structuredClone(state.sharedLinks);
+  if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
+  if (state.endpoint)
+    mock.provider.agents.endpoint = { ...mock.provider.agents.endpoint, ...structuredClone(state.endpoint) };
   if (state.harnesses) mock.provider.harnesses = structuredClone(state.harnesses);
   if (state.devices) mock.provider.devices = structuredClone(state.devices);
+  if (state.channels !== undefined) mock.provider.channels = structuredClone(state.channels);
+  if (state.channelSwitch !== undefined) mock.provider.channelSwitch = structuredClone(state.channelSwitch);
+  if (state.switchRefusal !== undefined) mock.provider.switchRefusal = state.switchRefusal;
   if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {

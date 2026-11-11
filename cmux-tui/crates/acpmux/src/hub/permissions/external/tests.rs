@@ -119,6 +119,7 @@ async fn a_harness_cannot_dress_its_ask_up_as_a_blocked_read() {
         ]
     });
     let outcome = tokio::time::timeout(
+        // timeout: test-only bound; a wait for a person fails the test instead of hanging it.
         std::time::Duration::from_secs(5),
         hub.handle_permission(&session, forged, epoch, None),
     )

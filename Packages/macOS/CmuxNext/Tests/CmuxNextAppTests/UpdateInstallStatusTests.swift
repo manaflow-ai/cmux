@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -57,7 +58,7 @@ import CmuxNextWakeupsTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-install-status", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = try #require(UserDefaults(suiteName: "UpdateInstallStatusTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "UpdateInstallStatusTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false, now: { wall.now }, clock: clock)
         updater.announcementsFetch = false

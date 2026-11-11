@@ -61,7 +61,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
         # An existing environment whose branch policy admits feat-cmux-next only.
-        self.assertEqual(job["environment"], "cmux-next-vm-image-dev")
+        self.assertEqual(job["environment"], {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
