@@ -491,7 +491,10 @@ fn changes(old: &Tree, new: &Tree, draft: Option<&Draft>) -> Vec<Change> {
     let agent = draft.is_some_and(|draft| !draft.asks.is_empty());
     let by_hand = |path: &str| match mark {
         Some(mark) => {
-            mark.get(path).map(|entry| &entry.sha) != new.get(path).map(|entry| &entry.sha)
+            // Content or the executable bit: a chmod after the agent's turn
+            // is the person's too.
+            mark.get(path).map(|entry| (&entry.sha, entry.exec))
+                != new.get(path).map(|entry| (&entry.sha, entry.exec))
         }
         None => !agent,
     };

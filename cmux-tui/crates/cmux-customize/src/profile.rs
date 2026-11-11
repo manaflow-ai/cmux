@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use cmux_app_manifest::hidden;
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,6 +90,21 @@ impl Customize {
         let problems = validate::problems(&live);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
+        }
+        // The description is shared with the profile: it is held to the same
+        // scans as a file, and refused rather than left out (it is the one
+        // field the person typed for this save).
+        if let Some((_, what)) = find_secret(description) {
+            return Err(Error::Profile(format!(
+                "the description looks like it holds a secret ({what}); a profile is for sharing"
+            )));
+        }
+        if let Some(mark) = hidden::first_hidden(description, hidden::Context::ManifestString) {
+            return Err(Error::Profile(format!(
+                "the description has {} ({})",
+                mark.describe(),
+                mark.code_point
+            )));
         }
         let mut profile = Profile {
             version: 1,
@@ -266,7 +282,26 @@ impl Customize {
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
             }
+            // A name that reads as something else is refused by position,
+            // never shown: the path would carry the hidden character.
+            if let Some(mark) = hidden::first_hidden(path, hidden::Context::ManifestString) {
+                return Err(Error::Profile(format!(
+                    "a file name in the profile has {} ({}) at character {}",
+                    mark.describe(),
+                    mark.code_point,
+                    mark.column
+                )));
+            }
             files.insert(path.clone(), text.as_bytes().to_vec());
+        }
+        if let Some(mark) =
+            hidden::first_hidden(&profile.description, hidden::Context::ManifestString)
+        {
+            return Err(Error::Profile(format!(
+                "the profile's description has {} ({})",
+                mark.describe(),
+                mark.code_point
+            )));
         }
         let settings_text = if profile.settings.is_empty() {
             None
@@ -293,8 +328,12 @@ impl Customize {
         // Every place this writes is one the draft's base generation holds,
         // or is empty: a file too large to snapshot, one past the count the
         // scan keeps, or one behind a linked folder is never written over.
-        let in_the_way: Vec<_> =
+        let mut in_the_way: Vec<_> =
             files.keys().filter_map(|path| tree::in_the_way(self.roots(), path, &live)).collect();
+        // And what it writes is something the next scan keeps: a file too
+        // large, or one past the count a folder keeps, would be live in no
+        // generation, so no discard or rollback could take it away.
+        in_the_way.extend(tree::not_kept(&files, &live));
         if !in_the_way.is_empty() {
             return Err(Error::Untracked(in_the_way));
         }

@@ -857,3 +857,97 @@ fn a_profile_imported_into_an_open_preview_keeps_what_it_writes_over() {
     assert_eq!(home.read("customize/main.js").unwrap(), "let v = 2; // the preview\n");
     assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
 }
+
+/// Review F1: a new file a profile brings is one the next scan keeps, so
+/// discard and rollback can take it away: never one too large to snapshot,
+/// nor one past the count a folder keeps.
+#[test]
+fn a_profile_never_writes_a_new_file_no_generation_would_hold() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    let big = "x".repeat(2 * 1024 * 1024 + 1);
+    let profile = profile_of(
+        "{}",
+        &serde_json::json!({ "customize/data.js": big, "themes/night.json": "{}\n" }).to_string(),
+    );
+    match customize.preview_profile(&profile, "cli", 1) {
+        Err(Error::Untracked(files)) => {
+            assert_eq!(
+                files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+                ["customize/data.js"]
+            );
+        }
+        other => panic!("a file too large to snapshot was written: {other:?}"),
+    }
+    assert_eq!(home.read("customize/data.js"), None);
+    assert_eq!(home.read("themes/night.json"), None);
+
+    // A folder at its count takes no new file from a profile.
+    for index in 0..2000 {
+        home.write(&format!("themes/t{index:04}.json"), "{}\n");
+    }
+    let profile = profile_of("{}", "{\"themes/zzz.json\":\"{}\\n\"}");
+    match customize.preview_profile(&profile, "cli", 2) {
+        Err(Error::Untracked(files)) => {
+            assert_eq!(files.len(), 1);
+            assert!(files[0].reason.contains("more than 2000 files"), "{files:?}");
+        }
+        other => panic!("a file past the folder's count was written: {other:?}"),
+    }
+    assert_eq!(home.read("themes/zzz.json"), None);
+    assert!(customize.status().unwrap().draft.is_none());
+}
+
+/// Review F2 and F3: the description travels with the profile, so a secret
+/// in it is refused at save; a hidden character in a description or a file
+/// name is refused at save and at import, and the name is never echoed.
+#[test]
+fn a_profile_description_or_file_name_cannot_carry_a_secret_or_a_hidden_character() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    for description in ["token=ghp_0123456789abcdefghijklmnopqrstuvwxyz", "night\u{202E}"] {
+        match customize.save_profile("mine", description, 1) {
+            Err(Error::Profile(message)) => {
+                assert!(!message.contains("ghp_0123"), "{message}");
+            }
+            other => panic!("{description:?} was saved: {other:?}"),
+        }
+    }
+    assert!(customize.profiles().unwrap().is_empty());
+
+    let named = profile_of("{}", "{\"themes/ni\u{200B}ght.json\":\"{}\\n\"}");
+    match customize.preview_profile(&named, "cli", 2) {
+        Err(Error::Profile(message)) => assert!(message.contains("U+200B"), "{message}"),
+        other => panic!("a hidden file name was imported: {other:?}"),
+    }
+    let mut described = profile_of("{}", "{\"themes/night.json\":\"{}\\n\"}");
+    described.description = "small\u{2066} and dark".to_owned();
+    assert!(matches!(customize.preview_profile(&described, "cli", 3), Err(Error::Profile(_))));
+    assert_eq!(home.read("themes/night.json"), None);
+}
+
+/// Review F4: a chmod after the agent's turn is the person's edit too.
+#[cfg(unix)]
+#[test]
+fn a_mode_change_after_an_agents_turn_is_by_hand() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    customize.begin("a script", "cli", 2).unwrap();
+    home.write("customize/run.sh", "#!/bin/sh\n");
+    customize.end_turn().unwrap();
+    assert_eq!(
+        paths(&customize.status().unwrap().changes),
+        [("customize/run.sh", ChangeKind::Added, false)]
+    );
+    fs::set_permissions(home.config("customize/run.sh"), fs::Permissions::from_mode(0o755))
+        .unwrap();
+    assert_eq!(
+        paths(&customize.status().unwrap().changes),
+        [("customize/run.sh", ChangeKind::Added, true)]
+    );
+}

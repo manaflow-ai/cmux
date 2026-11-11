@@ -204,6 +204,37 @@ pub fn in_the_way(roots: &Roots, path: &str, live: &Tree) -> Option<Skipped> {
     }
 }
 
+/// Files about to be written (logical path to bytes) that the next scan
+/// would not keep, given the tree a scan just read: one larger than
+/// [`MAX_FILE_BYTES`], or new files that take a folder part (`themes`,
+/// `customize`) past [`MAX_FILES_PER_PART`].
+pub fn not_kept(files: &BTreeMap<String, Vec<u8>>, live: &Tree) -> Vec<Skipped> {
+    let mut out = Vec::new();
+    for (path, bytes) in files {
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            out.push(Skipped {
+                path: path.clone(),
+                reason: format!("larger than {} MiB", MAX_FILE_BYTES / 1024 / 1024),
+            });
+        }
+    }
+    for prefix in ["themes/", "customize/"] {
+        let kept = live.keys().filter(|path| path.starts_with(prefix)).count();
+        let added: Vec<&String> = files
+            .keys()
+            .filter(|path| path.starts_with(prefix) && !live.contains_key(*path))
+            .collect();
+        if kept + added.len() > MAX_FILES_PER_PART {
+            let folder = prefix.trim_end_matches('/');
+            out.extend(added.into_iter().map(|path| Skipped {
+                path: path.clone(),
+                reason: format!("more than {MAX_FILES_PER_PART} files in {folder}"),
+            }));
+        }
+    }
+    out
+}
+
 /// A name the scan steps over.
 fn hidden_name(name: &str) -> bool {
     name.starts_with('.') || name.ends_with('~') || name == "node_modules"
