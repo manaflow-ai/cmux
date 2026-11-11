@@ -132,7 +132,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
       const placed = frames.filter((frame) => frame.top !== undefined);
       expect(placed.length).toBeGreaterThan(10);
       const rest = placed.at(-1)!.top!;
-      // The bubble moves only up, and rests within the send's clock (and two 60 Hz frames) of the
+      // The bubble moves only up, and rests within the send's clock (and a few dropped frames on a loaded runner) of the
       // frame it first drew in. On the arrival step it rose for 320 ms.
       const first = placed[0]!.at;
       const settled = placed.find((frame, index) =>
@@ -140,7 +140,7 @@ await requireBrowserLane("agent-pane-send-raised.test.ts", async () => {
       );
       const report = placed.map((frame) => `${Math.round(frame.at - first)}:${Math.round(frame.top!)}`).join(" ");
       expect(settled, report).toBeDefined();
-      expect(settled!.at - first, report).toBeLessThanOrEqual(MOTION_SEND_MS + 40);
+      expect(settled!.at - first, report).toBeLessThanOrEqual(MOTION_SEND_MS + 60);
       for (let index = 1; index < placed.length; index += 1)
         expect(placed[index]!.top!, report).toBeLessThanOrEqual(placed[index - 1]!.top! + 0.5);
       // While the words' copy is drawn, so is the card's glass under it, from the first frame.

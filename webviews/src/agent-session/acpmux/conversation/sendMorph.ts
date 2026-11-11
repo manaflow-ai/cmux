@@ -372,6 +372,9 @@ class Flight {
       this.frame = view.requestAnimationFrame(() => {
         this.frame = view.requestAnimationFrame(() => {
           if (this.row || this.done) return;
+          // Only the words fade where they are: the card's glass under a raised draft (above) would
+          // fade over the queue and the transcript as a box with nothing in it.
+          if (this.glassFrom > 0) this.glass.style.opacity = "0";
           this.fade = this.layer.animate([{ opacity: 1 }, { opacity: 0 }], {
             duration: this.duration,
             easing: "ease-out",
