@@ -39,9 +39,11 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run; a scheduled, push or dispatched run is never cut
+# short, and at most one waits (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: cloud-vm-image-reachability-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   reachable:

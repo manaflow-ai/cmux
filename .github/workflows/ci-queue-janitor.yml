@@ -107,11 +107,13 @@ env:
 # One sweep at a time; a second sweep waits rather than racing the first
 # one's cancellations, and never cancels it. GitHub keeps one run waiting per
 # group and cancels it for each newer arrival, so a run whose job's `if` starts
-# no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
-# own: in the shared group those runs cancelled the waiting sweep, often within
-# seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# no sweep (a CI run of a pull request into feat-cmux-next) gets a group apart
+# from the sweeps: in the shared group those runs cancelled the waiting sweep,
+# often within seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# The no-op runs share one group of their own, so after an outage they collapse
+# to one waiting run instead of queueing one each (tests/test_ci_cron_concurrency.py).
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor' }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && 'ci-queue-janitor-noop' || 'ci-queue-janitor' }}
   cancel-in-progress: false
 
 jobs:

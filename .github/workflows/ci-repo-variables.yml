@@ -37,9 +37,12 @@ on:
 permissions:
   contents: read
 
+# One run at a time and at most one waiting (GitHub replaces an older waiting run with a newer one),
+# so scheduled runs never pile up after an outage; a running one is never cut short
+# (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: ci-repo-variables-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
