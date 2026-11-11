@@ -15,7 +15,7 @@ export const ANSWER_HOLD_MS = 10_000;
 /// first can take that long before its attempt reaches the chat.
 export const RETRY_HOLD_MS = 30_000;
 
-type Mark<T> = { value: T; serial: number };
+type Mark<T> = { value: T };
 
 /// One held value: `set(value)` holds it for `ms`, `set(undefined)` lets go at once. Past `ms`
 /// with no newer `set` it lets go on its own and calls `onRelease` with the value it held (a
@@ -24,10 +24,12 @@ export function useAnswerHold<T>(
   ms: number = ANSWER_HOLD_MS,
   onRelease?: (value: T) => void,
 ): [T | undefined, (next: T | undefined | ((current: T | undefined) => T | undefined)) => void] {
+  // Each set is a new mark object, so a newer set of any value starts its own deadline.
   const [mark, setMark] = useState<Mark<T>>();
-  const serial = useRef(0);
   const release = useRef(onRelease);
-  release.current = onRelease;
+  useEffect(() => {
+    release.current = onRelease;
+  }, [onRelease]);
   useEffect(() => {
     if (!mark) return;
     const timer = setTimeout(() => {
@@ -41,8 +43,7 @@ export function useAnswerHold<T>(
       const value = typeof next === "function" ? (next as (c: T | undefined) => T | undefined)(current?.value) : next;
       if (value === undefined) return undefined;
       if (current && Object.is(current.value, value)) return current;
-      serial.current += 1;
-      return { value, serial: serial.current };
+      return { value };
     });
   }, []);
   return [mark?.value, set];

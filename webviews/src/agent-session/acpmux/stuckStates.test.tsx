@@ -7,7 +7,7 @@
 //   phase, so it never shows beside "Reconnecting…" or under a turn that ended (turnPhase.ts);
 // - Restart acpmux never holds the pane on "Restarting…" when the app never answers (hostRetry.ts).
 import { afterEach, expect, jest, test } from "bun:test";
-import { act } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ANSWER_HOLD_MS, RETRY_HOLD_MS, useAnswerHold, useAnswerHoldSet } from "./answerHold";
@@ -59,65 +59,72 @@ async function mount(container: HTMLElement, node: React.ReactNode) {
 
 // --- Answered asks and Retry: a mark its owner never clears ----------------------------------------
 
-let hold: { set(value: string | undefined): void; released: string[] } | undefined;
-function HoldProbe({ ms }: { ms: number }) {
-  const released: string[] = hold?.released ?? [];
+type Hold = { set(value: string | undefined): void; released: string[] };
+const hold: { current?: Hold } = {};
+function HoldProbe({ ms, out }: { ms: number; out: { current?: Hold } }) {
+  const [released] = useState<string[]>(() => []);
   const [value, set] = useAnswerHold<string>(ms, (gone) => released.push(gone));
-  hold = { set, released };
+  useEffect(() => {
+    out.current = { set, released };
+  }, [out, set, released]);
   return <span>{value ?? "none"}</span>;
 }
 
 test("an answered ask whose owner never takes it away takes an answer again", async () => {
   // Order: the person answers (the card dims), the agent exits before the ask is cleared.
   jest.useFakeTimers();
-  hold = undefined;
+  hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={ANSWER_HOLD_MS} />);
-  await act(async () => hold!.set("ask-1"));
+  await mount(container, <HoldProbe ms={ANSWER_HOLD_MS} out={hold} />);
+  await act(async () => hold.current!.set("ask-1"));
   expect(container.textContent).toBe("ask-1");
   await wait(ANSWER_HOLD_MS - 1);
   expect(container.textContent).toBe("ask-1");
   await wait(1);
   expect(container.textContent).toBe("none");
   // The card's same-frame guard (a ref) lets go with it.
-  expect(hold!.released).toEqual(["ask-1"]);
+  expect(hold.current!.released).toEqual(["ask-1"]);
 });
 
 test("a refusal lets go at once, and a newer answer starts its own deadline", async () => {
   jest.useFakeTimers();
-  hold = undefined;
+  hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={1_000} />);
-  await act(async () => hold!.set("ask-1"));
-  await act(async () => hold!.set(undefined));
+  await mount(container, <HoldProbe ms={1_000} out={hold} />);
+  await act(async () => hold.current!.set("ask-1"));
+  await act(async () => hold.current!.set(undefined));
   expect(container.textContent).toBe("none");
-  await act(async () => hold!.set("ask-1"));
+  await act(async () => hold.current!.set("ask-1"));
   await wait(600);
-  await act(async () => hold!.set("ask-2"));
+  await act(async () => hold.current!.set("ask-2"));
   await wait(600);
   expect(container.textContent).toBe("ask-2");
   await wait(400);
   expect(container.textContent).toBe("none");
-  expect(hold!.released).toEqual(["ask-2"]);
+  expect(hold.current!.released).toEqual(["ask-2"]);
 });
 
 test("a Retry acpmux took whose attempt never shows stops saying Retrying…", async () => {
   // Order: Retry clicked, acpmux accepts, the link drops before the attempt's rows arrive.
   jest.useFakeTimers();
-  hold = undefined;
+  hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={RETRY_HOLD_MS} />);
-  await act(async () => hold!.set("went"));
+  await mount(container, <HoldProbe ms={RETRY_HOLD_MS} out={hold} />);
+  await act(async () => hold.current!.set("went"));
   await wait(RETRY_HOLD_MS - 1);
   expect(container.textContent).toBe("went");
   await wait(1);
   expect(container.textContent).toBe("none");
 });
 
-let set: ReturnType<typeof useAnswerHoldSet> | undefined;
-function SetProbe({ items }: { items: string[] }) {
-  set = useAnswerHoldSet(1_000);
-  const shown = items.filter((id) => !set!.held.has(id));
+type HoldSet = ReturnType<typeof useAnswerHoldSet>;
+const holdSet: { current?: HoldSet } = {};
+function SetProbe({ items, out }: { items: string[]; out: { current?: HoldSet } }) {
+  const ids = useAnswerHoldSet(1_000);
+  useEffect(() => {
+    out.current = ids;
+  }, [out, ids]);
+  const shown = items.filter((id) => !ids.held.has(id));
   return <span>{`${shown.length}:${shown.join(",")}`}</span>;
 }
 
@@ -126,11 +133,11 @@ test("a Needs you row answered but never taken off the list comes back, so its c
   jest.useFakeTimers();
   const container = installDom();
   const items = ["a", "b"];
-  await mount(container, <SetProbe items={items} />);
-  await act(async () => set!.add("a"));
+  await mount(container, <SetProbe items={items} out={holdSet} />);
+  await act(async () => holdSet.current!.add("a"));
   expect(container.textContent).toBe("1:b");
   await wait(500);
-  await act(async () => set!.add("b"));
+  await act(async () => holdSet.current!.add("b"));
   expect(container.textContent).toBe("0:");
   // `a`'s deadline is its own: `b`'s answer does not push it back.
   await wait(500);
@@ -138,8 +145,8 @@ test("a Needs you row answered but never taken off the list comes back, so its c
   await wait(500);
   expect(container.textContent).toBe("2:a,b");
   // A refusal shows its row again at once.
-  await act(async () => set!.add("a"));
-  await act(async () => set!.remove("a"));
+  await act(async () => holdSet.current!.add("a"));
+  await act(async () => holdSet.current!.remove("a"));
   expect(container.textContent).toBe("2:a,b");
 });
 

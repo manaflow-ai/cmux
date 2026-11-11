@@ -126,7 +126,7 @@ export function HatQuestions({
     setDraft("");
     setReplying(false);
     setWhole(false);
-  }, [shown?.id]);
+  }, [shown?.id, setSending]);
   // Revealed by a click (the `reveal` look), the field takes the cursor; drawn from the start, it
   // waits for one.
   const fieldRef = useRef<HTMLInputElement>(null);

@@ -220,21 +220,24 @@ function PendingQuestion({
   const item = activeItem(state);
   const highlighted = highlightedRow(state, item);
 
-  const refuseReply = useCallback((askId: string, error: unknown) => {
-    // The ask stays pending: say why on the card and take input again.
-    if (sending.current === askId) sending.current = undefined;
-    setSentFor((current) => (current === askId ? undefined : current));
-    if (isHostRefusal(error)) {
-      setRefused({ reason: errorMessage(error) });
-      return;
-    }
-    const reason = localizedMessage(error);
-    if (reason) setRefused({ reason });
-    else {
-      console.warn("agent pane: an answer was refused", error);
-      setRefused({});
-    }
-  }, []);
+  const refuseReply = useCallback(
+    (askId: string, error: unknown) => {
+      // The ask stays pending: say why on the card and take input again.
+      if (sending.current === askId) sending.current = undefined;
+      setSentFor((current) => (current === askId ? undefined : current));
+      if (isHostRefusal(error)) {
+        setRefused({ reason: errorMessage(error) });
+        return;
+      }
+      const reason = localizedMessage(error);
+      if (reason) setRefused({ reason });
+      else {
+        console.warn("agent pane: an answer was refused", error);
+        setRefused({});
+      }
+    },
+    [setSentFor],
+  );
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent || sending.current === question.id) return;
     sending.current = question.id;
@@ -279,7 +282,7 @@ function PendingQuestion({
       currentRequest = undefined;
       view.removeEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
     };
-  }, [question.id, question.source.session, question.source.permission, refuseReply]);
+  }, [question.id, question.source.session, question.source.permission, refuseReply, setKeyPendingFor, setSentFor]);
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
     const card = group.current;
