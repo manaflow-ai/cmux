@@ -409,7 +409,7 @@ impl Desktop for MacDesktop {
             accepted = app.set("AXFrontmost", &yes).is_ok() || workspace::activate(pid);
         }
         let window = match prior.window_id.as_deref().and_then(|w| w.parse::<u32>().ok()) {
-            Some(id) => app.elements("AXWindows").into_iter().find(|w| w.window_id() == Some(id)),
+            Some(id) => app.windows().into_iter().find(|w| w.window_id() == Some(id)),
             None => app.element("AXFocusedWindow"),
         };
         if let Some(window) = window {

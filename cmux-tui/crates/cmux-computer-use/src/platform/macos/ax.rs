@@ -163,6 +163,14 @@ impl Ax {
     }
 
     /// The CGWindowID of a window element.
+    /// The app's AXWindows that are windows (role AXWindow).
+    pub fn windows(&self) -> Vec<Ax> {
+        self.elements("AXWindows")
+            .into_iter()
+            .filter(|w| w.string("AXRole").as_deref() == Some("AXWindow"))
+            .collect()
+    }
+
     pub fn window_id(&self) -> Option<u32> {
         let f = get_window_fn()?;
         let mut id = 0u32;
@@ -267,7 +275,11 @@ pub fn find_window(pid: i32, id: u32, frame: &Rect, title: &str) -> DResult<(Ax,
     if !trusted() {
         return Err(DesktopError::PermissionMissing("accessibility".into()));
     }
-    let windows = app.elements("AXWindows");
+    // Only real windows: some apps list other elements in AXWindows (Safari
+    // lists an image and a text area of its Start Page), and
+    // _AXUIElementGetWindow answers the containing window's id for any
+    // element, so the first of those "matched" and every call acted on it.
+    let windows = app.windows();
     if get_window_fn().is_some() {
         if let Some(w) = windows.iter().find(|w| w.window_id() == Some(id)) {
             return Ok((app, w.clone()));
@@ -296,7 +308,7 @@ pub fn window_states(pid: i32) -> HashMap<u32, (String, bool)> {
         return out;
     }
     let Some(app) = Ax::application(pid) else { return out };
-    for w in app.elements("AXWindows") {
+    for w in app.windows() {
         if let Some(id) = w.window_id() {
             let title = w.string("AXTitle").unwrap_or_default();
             let minimized = w.bool("AXMinimized").unwrap_or(false);

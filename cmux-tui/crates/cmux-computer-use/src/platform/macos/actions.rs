@@ -82,7 +82,7 @@ impl MacDesktop {
         // Apps keep hidden helper windows (Safari lists 8 with one visible),
         // and counting those refused keys to an app's only real window.
         let windows = app
-            .elements("AXWindows")
+            .windows()
             .iter()
             .filter(|w| {
                 w.string("AXSubrole").as_deref() == Some("AXStandardWindow")
