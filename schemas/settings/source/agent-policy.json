@@ -1288,6 +1288,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether the person's Command Palette lists the debug commands: the person's call.",
+      "keys": [
+        "app.internalDeveloperMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a key is taken from every other app system-wide.",
       "keys": [
         "app.globalHotKey",
