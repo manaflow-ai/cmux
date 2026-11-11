@@ -36,10 +36,10 @@ class AllowlistRatchet(unittest.TestCase):
 
     def test_no_rule_is_over_its_ceiling(self):
         entries = sorted(determinism.load_allowlist(ALLOWLIST))
-        counts = Counter(rule for _path, rule in entries)
+        counts = Counter(rule for _path, _function, rule in entries)
         for rule, ceiling in CEILING.items():
             with self.subTest(rule):
-                listed = [path for path, entry_rule in entries if entry_rule == rule]
+                listed = [f"{path} {function}" for path, function, entry_rule in entries if entry_rule == rule]
                 self.assertLessEqual(counts[rule], ceiling,
                                      f"{rule}: {counts[rule]} allowlist entries, at most {ceiling} allowed; fix "
                                      f"the test (a private mkdtemp / mktemp -d folder) instead: {listed}")

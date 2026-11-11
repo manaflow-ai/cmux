@@ -76,7 +76,7 @@ Detectors (all line/regex heuristics, never an AST):
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
-    check-test-determinism.py --strict        # exit 1 on any non-allowlisted finding
+    check-test-determinism.py --strict        # exit 1 on any non-allowlisted finding or stale entry
     check-test-determinism.py --write-allowlist
     check-test-determinism.py --roots ...     # override scan roots
     check-test-determinism.py --json
@@ -90,7 +90,7 @@ import json
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Iterable, Optional
 
@@ -174,18 +174,22 @@ class Finding:
     line: int  # 1-based
     rule: str
     snippet: str
+    # The qualified name of the function the line sits in (`TestX.test_y`, `SuiteTests.testZ`, a JS test's
+    # title path), or MODULE_SCOPE outside any. The allowlist keys an entry by (path, function, rule).
+    function: str = ""
 
-    def key(self) -> tuple[str, str]:
-        return (self.path, self.rule)
+    def key(self) -> tuple[str, str, str]:
+        return (self.path, self.function or MODULE_SCOPE, self.rule)
 
     def format(self) -> str:
-        return f"{self.path}:{self.line}: {self.rule}: {self.snippet}"
+        return f"{self.path}:{self.line}: {self.rule} in {self.function or MODULE_SCOPE}: {self.snippet}"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "path": self.path,
             "line": self.line,
             "rule": self.rule,
+            "function": self.function or MODULE_SCOPE,
             "snippet": self.snippet,
         }
 
@@ -4453,6 +4457,161 @@ def _logical_network_chunks(
     return chunks
 
 
+# ---------------------------------------------------------------------------
+# The function a finding sits in (the allowlist's key)
+# ---------------------------------------------------------------------------
+
+MODULE_SCOPE = "<module>"
+
+_PY_SCOPE = re.compile(r"^(\s*)(?:async\s+def|def|class)\s+(\w+)")
+_SWIFT_DECLARATION = re.compile(
+    r"\bfunc\s+([^\s(<]+)"
+    r"|(?<![.\w])(init|deinit)\b"
+    r"|\b(?:class|struct|enum|extension|actor|protocol)\s+([\w.]+)"
+    r"|\b(?:static\s+)?var\s+(\w+)\s*:[^=]*$"
+)
+_JS_DECLARATION = re.compile(
+    r"\bfunction\s*\*?\s*([\w$]+)"
+    r"|\bclass\s+([\w$]+)"
+    r"|\b(?:const|let|var)\s+([\w$]+)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|\([^;]*?\)\s*(?::[^=;]+)?=>|[\w$]+\s*=>)"
+    r"|(?:^|\n)\s*(?:(?:public|private|protected|static|async|override|readonly|get|set)\s+)*"
+    r"(?!(?:if|for|while|switch|catch|function|return|with|else|do|try|finally)\b)([\w$]+)\s*\([^;]*\)\s*(?::[^{;=]+)?\s*$"
+)
+_JS_TEST_CALL = re.compile(
+    r"\b(?:it|test|describe|suite|bench)(?:\.(?:only|skip|todo|concurrent|serial|sequential|fails))*\s*\(\s*(?=[\"'`])"
+)
+_SHELL_DECLARATION = re.compile(r"^\s*(?:function\s+)?([\w.:-]+)\s*\(\)\s*$|^\s*function\s+([\w.:-]+)\s*$")
+_HEADER_LIMIT = 2000
+
+
+def _mask_one_line_strings(line: str) -> str:
+    """LINE with each one-line string literal's contents blanked, so positions still line up with LINE."""
+    return _ONE_LINE_STRING.sub(lambda m: m.group(0)[0] + " " * (len(m.group(0)) - 2) + m.group(0)[-1], line)
+
+
+def _block_name(header: str, masked: str, path_suffix: str) -> Optional[str]:
+    """The name a block opened after HEADER declares (a function, a type, a JS test's title), or None."""
+    if path_suffix == ".swift":
+        pattern = _SWIFT_DECLARATION
+    elif path_suffix in _JAVASCRIPT_SUFFIXES:
+        pattern = _JS_DECLARATION
+    else:
+        pattern = _SHELL_DECLARATION
+    best: Optional[tuple[int, str]] = None
+    for match in pattern.finditer(masked.rstrip()):
+        name = next((group for group in match.groups() if group), None)
+        if name:
+            best = (match.start(), name)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        for match in _JS_TEST_CALL.finditer(masked):
+            if best is None or match.start() >= best[0]:
+                quote_at = match.end()
+                quote = header[quote_at]
+                close = quote_at + 1
+                while close < len(header) and header[close] != quote:
+                    close += 2 if header[close] == "\\" else 1
+                title = " ".join(header[quote_at + 1:close].split())
+                best = (match.start(), title)
+    if best is None:
+        return None
+    return best[1].replace("\t", " ") or None
+
+
+def _python_line_functions(code_lines: list[str], text: Optional[str] = None) -> list[str]:
+    """Python by its syntax tree when it parses (a multi-line string never ends a scope), else by indentation."""
+    if text is not None:
+        import ast
+
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            names = [MODULE_SCOPE] * len(code_lines)
+
+            def visit(node: "ast.AST", prefix: str) -> None:
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        qualified = f"{prefix}.{child.name}" if prefix else child.name
+                        first = min([child.lineno, *(d.lineno for d in child.decorator_list)])
+                        for line in range(first, (child.end_lineno or child.lineno) + 1):
+                            if line <= len(names):
+                                names[line - 1] = qualified
+                        visit(child, qualified)
+                    else:
+                        visit(child, prefix)
+
+            visit(tree, "")
+            return names
+    names: list[str] = []
+    stack: list[tuple[int, str]] = []
+    for line in code_lines:
+        if line.strip():
+            indent = len(line) - len(line.lstrip())
+            while stack and indent <= stack[-1][0]:
+                stack.pop()
+            scope = _PY_SCOPE.match(line)
+            if scope:
+                stack.append((indent, scope.group(2)))
+        names.append(".".join(name for _, name in stack) or MODULE_SCOPE)
+    return names
+
+
+def _brace_line_functions(code_lines: list[str], path_suffix: str) -> list[str]:
+    names: list[str] = []
+    stack: list[Optional[str]] = []
+    header = ""
+    masked_header = ""
+
+    def qualified() -> str:
+        return ".".join(name for name in stack if name) or MODULE_SCOPE
+
+    for line in code_lines:
+        masked = _mask_one_line_strings(line)
+        deepest = qualified()
+        deepest_depth = len(stack)
+        start = 0
+        for index, character in enumerate(masked):
+            if character not in "{};":
+                continue
+            header += line[start:index]
+            masked_header += masked[start:index]
+            start = index + 1
+            if character == "{":
+                stack.append(_block_name(header, masked_header, path_suffix))
+                if len(stack) > deepest_depth:
+                    deepest, deepest_depth = qualified(), len(stack)
+            elif character == "}" and stack:
+                stack.pop()
+            header = masked_header = ""
+        header = (header + line[start:] + "\n")[-_HEADER_LIMIT:]
+        masked_header = (masked_header + masked[start:] + "\n")[-_HEADER_LIMIT:]
+        names.append(deepest)
+    return names
+
+
+def line_functions(code_lines: list[str], path_suffix: str, text: Optional[str] = None) -> list[str]:
+    """For each line, the qualified name of the innermost function (or type, or JS test) holding it.
+
+    Python by its syntax tree (`TestX.test_y`); Swift, JavaScript/TypeScript and shell by braces, each named block
+    joining the path (`FooTests.testBar`, `describe title.test title`). An unnamed block (a closure, an `if`)
+    adds nothing. Outside every named block: MODULE_SCOPE.
+    """
+    if path_suffix == ".py":
+        return _python_line_functions(code_lines, text)
+    return _brace_line_functions(code_lines, path_suffix)
+
+
+def _with_functions(findings: list[Finding], code_lines: list[str], path_suffix: str, text: str) -> list[Finding]:
+    if not findings:
+        return findings
+    names = line_functions(code_lines, path_suffix, text)
+    return [
+        replace(finding, function=names[finding.line - 1] if 0 < finding.line <= len(names) else MODULE_SCOPE)
+        for finding in findings
+    ]
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
@@ -4515,7 +4674,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
-    return findings
+    return _with_functions(findings, code_lines, suffix, text)
 
 
 def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4551,41 +4710,83 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
 # ---------------------------------------------------------------------------
 
 
-def load_allowlist(path: pathlib.Path) -> set[tuple[str, str]]:
-    allow: set[tuple[str, str]] = set()
+ALLOWLIST_HEADER = (
+    "# Test-determinism gate allowlist, one entry per function.\n"
+    "# Format: relpath<TAB>function<TAB>rule<TAB>reason\n"
+    "# An entry suppresses the findings of RULE inside FUNCTION of RELPATH only: a new finding in another\n"
+    "# function of the same file still fails. `function` is what --json and each finding line print after\n"
+    "# 'in' (Python `Class.method`, Swift `Type.method`, a JS test's title path, or <module>).\n"
+    "# --strict fails on an entry that no longer matches any finding (\"stale entry\"): delete it.\n"
+    "# A reason that starts with 'hang guard:' marks a deadline-only bound, well above any normal run, that\n"
+    "# exists so a hang fails instead of stalling CI; it says what would hang. Every other entry is old debt:\n"
+    "# tests/test_determinism_allowlist_ratchet.py lets that debt only shrink. Fix a new finding (a recorded\n"
+    "# clock, a real completion signal, or the n-vs-4n scaling ratio) instead of listing it.\n"
+)
+HANG_GUARD_PREFIX = "hang guard:"
+
+
+@dataclass(frozen=True)
+class AllowlistEntry:
+    path: str
+    function: str
+    rule: str
+    reason: str
+    line: int  # 1-based line in the allowlist file
+
+    def key(self) -> tuple[str, str, str]:
+        return (self.path, self.function, self.rule)
+
+    @property
+    def is_hang_guard(self) -> bool:
+        return self.reason.lower().startswith(HANG_GUARD_PREFIX)
+
+
+def load_allowlist_entries(path: pathlib.Path) -> list[AllowlistEntry]:
+    entries: list[AllowlistEntry] = []
     if not path.exists():
-        return allow
+        return entries
+    seen: dict[tuple[str, str, str], int] = {}
     with path.open("r", encoding="utf-8") as handle:
         for line_number, raw in enumerate(handle, start=1):
             line = raw.rstrip("\n")
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                raise ValueError(
-                    f"{path}:{line_number}: expected 'relpath<TAB>rule[<TAB>reason]'"
-                )
-            rel_path, rule = parts[0].strip(), parts[1].strip()
+            parts = [part.strip() for part in line.split("\t")]
+            if len(parts) != 4 or not all(parts):
+                hint = ""
+                if len(parts) in (2, 3) and parts[1] in ALL_RULES:
+                    hint = " (a per-file entry: name the function its findings sit in)"
+                raise ValueError(f"{path}:{line_number}: expected 'relpath<TAB>function<TAB>rule<TAB>reason'{hint}")
+            rel_path, function, rule, reason = parts
             if rule not in ALL_RULES:
                 raise ValueError(f"{path}:{line_number}: unknown rule {rule!r}")
-            allow.add((rel_path, rule))
-    return allow
+            entry = AllowlistEntry(rel_path, function, rule, reason, line_number)
+            if entry.key() in seen:
+                raise ValueError(f"{path}:{line_number}: duplicate of line {seen[entry.key()]}")
+            seen[entry.key()] = line_number
+            entries.append(entry)
+    return entries
 
 
-def write_allowlist(path: pathlib.Path, findings: list[Finding]) -> None:
+def load_allowlist(path: pathlib.Path) -> set[tuple[str, str, str]]:
+    return {entry.key() for entry in load_allowlist_entries(path)}
+
+
+def write_allowlist(
+    path: pathlib.Path, findings: list[Finding], reasons: Optional[dict[tuple[str, str, str], str]] = None
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     keys = sorted({f.key() for f in findings})
     with path.open("w", encoding="utf-8") as handle:
-        handle.write("# Test-determinism gate allowlist (grandfathered legacy debt).\n")
-        handle.write("# Format: relpath<TAB>rule<TAB>short reason\n")
-        handle.write("# A finding whose (path, rule) appears here is suppressed.\n")
-        handle.write("# Remove a line once the underlying test is determinized.\n")
-        for rel_path, rule in keys:
-            handle.write(f"{rel_path}\t{rule}\tgrandfathered\n")
+        handle.write(ALLOWLIST_HEADER)
+        for key in keys:
+            rel_path, function, rule = key
+            reason = (reasons or {}).get(key, "grandfathered")
+            handle.write(f"{rel_path}\t{function}\t{rule}\t{reason}\n")
 
 
 def filter_allowlisted(
-    findings: list[Finding], allow: set[tuple[str, str]]
+    findings: list[Finding], allow: set[tuple[str, str, str]]
 ) -> tuple[list[Finding], list[Finding]]:
     active: list[Finding] = []
     suppressed: list[Finding] = []
@@ -4595,6 +4796,35 @@ def filter_allowlisted(
         else:
             active.append(finding)
     return active, suppressed
+
+
+def _tracked_but_absent(repo_root: pathlib.Path, paths: list[str]) -> set[str]:
+    """Of PATHS (missing on disk), those git still tracks: a sparse checkout left them out, they are not gone."""
+    if not paths:
+        return set()
+    import subprocess
+
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--", *paths],
+            capture_output=True, check=True, timeout=60,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set(paths)  # no git to ask: judge none of them stale
+    return {item.decode("utf-8", "replace") for item in listed.split(b"\0") if item}
+
+
+def stale_entries(
+    entries: list[AllowlistEntry], findings: list[Finding], repo_root: Optional[pathlib.Path] = None
+) -> list[AllowlistEntry]:
+    """Entries no finding matches. A file a sparse checkout left out is not judged (its findings were not seen)."""
+    found = {finding.key() for finding in findings}
+    stale = [entry for entry in entries if entry.key() not in found]
+    if repo_root is None:
+        return stale
+    absent = [entry.path for entry in stale if not (repo_root / entry.path).exists()]
+    unseen = _tracked_but_absent(repo_root, sorted(set(absent)))
+    return [entry for entry in stale if entry.path not in unseen]
 
 
 # ---------------------------------------------------------------------------
@@ -4637,6 +4867,87 @@ def _isolated_import_self_test() -> list[str]:
                 failures.append(f"ISOLATED {rel}: expected {RULE_ISOLATED_IMPORT}")
             if not flagged and finding is not None:
                 failures.append(f"ISOLATED {rel}: unexpected {finding.format()}")
+    return failures
+
+
+def _allowlist_self_test() -> list[str]:
+    """The per-function allowlist: an entry hides its own function's findings only, and a stale one fails."""
+    import contextlib
+    import io
+    import tempfile
+
+    failures: list[str] = []
+    source = (
+        "import time\n"
+        "import unittest\n"
+        "class Waits(unittest.TestCase):\n"
+        "    def test_listed(self):\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n"
+        "    def test_new(self):\n"
+        "        time.sleep(0.5)\n"
+        "        self.assertTrue(done())\n"
+    )
+    swift = (
+        "final class PaneTests: XCTestCase {\n"
+        "    func testA() async throws {\n"
+        "        Task {\n"
+        "            try await Task.sleep(for: .milliseconds(5))\n"
+        "            XCTAssertTrue(done)\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    script = (
+        "describe('pane', () => {\n"
+        "  it('draws', async () => {\n"
+        "    await new Promise((r) => setTimeout(r, 200));\n"
+        "    expect(drawn).toBe(true);\n"
+        "  });\n"
+        "});\n"
+    )
+    names = {
+        ("tests/test_waits.py", source): {5: "Waits.test_listed", 8: "Waits.test_new"},
+        ("cmuxTests/PaneTests.swift", swift): {4: "PaneTests.testA"},
+        ("web/tests/pane.test.ts", script): {3: "pane.draws"},
+    }
+    for (rel, text), want in names.items():
+        got = {f.line: f.function for f in scan_text(rel, text) if f.rule == RULE_SLEEP_THEN_ASSERT}
+        if got != want:
+            failures.append(f"ALLOWLIST naming {rel}: expected {want}, got {got}")
+
+    def run(allowlist: str, *flags: str) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/test_waits.py").write_text(source)
+            (root / "allow.txt").write_text(allowlist)
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["--repo-root", tmp, "--allowlist", "allow.txt", "--strict", *flags])
+            return code, out.getvalue() + err.getvalue()
+
+    listed = f"tests/test_waits.py\tWaits.test_listed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    new = f"tests/test_waits.py\tWaits.test_new\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    # 1. A per-function entry hides its function's finding only.
+    code, output = run(listed)
+    if code != 1 or "in Waits.test_listed" in output or "1 active finding(s), 1 allowlisted" not in output:
+        failures.append(f"ALLOWLIST per-function: expected test_new active and test_listed allowlisted, got {output!r}")
+    # 2. A second function of the same file is not hidden by the first one's entry (the per-file gap).
+    if "tests/test_waits.py:8: sleep-then-assert in Waits.test_new" not in output:
+        failures.append(f"ALLOWLIST second function: test_new's finding was hidden: {output!r}")
+    code, output = run(listed + new)
+    if code != 0 or "0 active finding(s), 2 allowlisted" not in output:
+        failures.append(f"ALLOWLIST both listed: expected exit 0, got {code}: {output!r}")
+    # 3. An entry no finding matches fails --strict as a stale entry.
+    gone = f"tests/test_waits.py\tWaits.test_fixed\t{RULE_SLEEP_THEN_ASSERT}\told debt\n"
+    code, output = run(listed + new + gone)
+    if code != 1 or "stale entry: tests/test_waits.py Waits.test_fixed sleep-then-assert" not in output:
+        failures.append(f"ALLOWLIST stale entry: expected a 'stale entry' failure, got {code}: {output!r}")
+    # 4. An old per-file entry is refused, so no entry hides a whole file again.
+    code, output = run(f"tests/test_waits.py\t{RULE_SLEEP_THEN_ASSERT}\told debt\n")
+    if code != 2 or "per-file entry" not in output:
+        failures.append(f"ALLOWLIST per-file entry: expected it refused, got {code}: {output!r}")
     return failures
 
 
@@ -6771,6 +7082,7 @@ def _self_test() -> int:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
 
     failures += _isolated_import_self_test()
+    failures += _allowlist_self_test()
     isolated_fixtures = 6
 
     if failures:
@@ -6780,8 +7092,8 @@ def _self_test() -> int:
         return 1
 
     total = len(positives) + len(negatives) + isolated_fixtures
-    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures and "
-          f"{isolated_fixtures} isolated-import fixtures passed ({total} total)")
+    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures, "
+          f"{isolated_fixtures} isolated-import fixtures and the per-function allowlist cases passed ({total} total)")
     return 0
 
 
@@ -6806,7 +7118,7 @@ def main(argv: list[str]) -> int:
         "--allowlist",
         default=pathlib.Path(DEFAULT_ALLOWLIST),
         type=pathlib.Path,
-        help="allowlist file of grandfathered (path, rule) findings",
+        help="allowlist file of (path, function, rule) entries",
     )
     parser.add_argument(
         "--roots",
@@ -6856,26 +7168,37 @@ def main(argv: list[str]) -> int:
         if args.strict:
             findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
-    if args.write_allowlist:
-        write_allowlist(allowlist_path, findings)
-        print(f"Wrote {allowlist_path} with {len({f.key() for f in findings})} entr(ies)")
-        return 0
-
     try:
-        allow = load_allowlist(allowlist_path)
+        entries = load_allowlist_entries(allowlist_path)
     except ValueError as exc:
         print(f"Error reading allowlist: {exc}", file=sys.stderr)
         return 2
 
+    if args.write_allowlist:
+        write_allowlist(allowlist_path, findings, {entry.key(): entry.reason for entry in entries})
+        print(f"Wrote {allowlist_path} with {len({f.key() for f in findings})} entr(ies)")
+        return 0
+
+    allow = {entry.key() for entry in entries}
     active, suppressed = filter_allowlisted(findings, allow)
+    # Only a full scan sees every finding an entry could match (--roots narrows it; isolated-import runs with
+    # --strict only), so only a full scan judges an entry stale.
+    stale: list[AllowlistEntry] = []
+    if args.roots is None:
+        judged = [entry for entry in entries if args.strict or entry.rule != RULE_ISOLATED_IMPORT]
+        stale = stale_entries(judged, findings, repo_root)
 
     if args.json:
         payload = {
             "active": [f.to_dict() for f in active],
             "suppressed": [f.to_dict() for f in suppressed],
+            "stale": [
+                {"path": e.path, "function": e.function, "rule": e.rule, "allowlist_line": e.line} for e in stale
+            ],
             "counts": {
                 "active": len(active),
                 "suppressed": len(suppressed),
+                "stale": len(stale),
                 "total": len(findings),
             },
         }
@@ -6883,15 +7206,20 @@ def main(argv: list[str]) -> int:
     else:
         for finding in active:
             print(finding.format())
+        for entry in stale:
+            print(
+                f"{allowlist_path.name}:{entry.line}: stale entry: {entry.path} {entry.function} {entry.rule} "
+                "matches no finding; delete it"
+            )
         print("")
         print(
             f"test-determinism: {len(active)} active finding(s), "
-            f"{len(suppressed)} allowlisted, {len(findings)} total"
+            f"{len(suppressed)} allowlisted, {len(findings)} total, {len(stale)} stale allowlist entr(ies)"
         )
-        if active and not args.strict:
+        if (active or stale) and not args.strict:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
-    if args.strict and active:
+    if args.strict and (active or stale):
         return 1
     return 0
 
