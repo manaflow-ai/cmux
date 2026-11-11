@@ -183,8 +183,13 @@ CALLER_PATTERNS = {
         'source "$1"\n'
     ),
 }
-# Two ways a test fails with status 7: `exit 7`, and a command that fails with 7 under errexit.
-FAILURES = {"exit 7": "exit 7\n", "errexit": "sh -c 'exit 7'\necho unreachable\n"}
+# Ways a test body fails under `set -e`, with the status the script must keep: `exit 7`, `false` (errexit, 1), and
+# a command that fails with 7 under errexit.
+FAILURES = {
+    "exit 7": ("exit 7\n", 7),
+    "false": ("false\necho unreachable\n", 1),
+    "errexit 7": ("sh -c 'exit 7'\necho unreachable\n", 7),
+}
 
 
 class FailedTestCleanup(unittest.TestCase):
@@ -210,15 +215,15 @@ class FailedTestCleanup(unittest.TestCase):
                               capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
         return done, marker
 
-    def test_every_caller_pattern_cleans_up_and_keeps_exit_7(self):
+    def test_every_caller_pattern_cleans_up_and_keeps_the_failing_status(self):
         for pattern, setup in CALLER_PATTERNS.items():
-            for failure, tail in FAILURES.items():
+            for failure, (body, status) in FAILURES.items():
                 with self.subTest(pattern=pattern, failure=failure):
-                    done, marker = self.run_case(setup + tail)
-                    self.assertEqual(done.returncode, 7, done.stderr)
+                    done, marker = self.run_case(setup + body)
+                    self.assertEqual(done.returncode, status, done.stderr)
                     self.assertNotIn("unreachable", done.stdout)
                     self.assertTrue(marker.exists(), f"the chained cleanup never ran: {done.stderr}")
-                    self.assertEqual(marker.read_text().strip(), "ran 7")
+                    self.assertEqual(marker.read_text().strip(), f"ran {status}")
                     self.assertEqual(sorted(os.listdir(self.scratch)), [], "the caller's temp dir was left")
                     self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "the fixture folder was left")
 
