@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
-import { isGoPlanEnabled } from "./goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "./goPlanFlag";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
@@ -16,6 +16,7 @@ import {
 } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import type { TeamBillingAccessUser, TeamBillingRole } from "./teamBillingAccess";
+import type { TeamEnterpriseDeal } from "./teamEnterprise";
 import {
   listBillingTeams,
   loadTeamBillingView,
@@ -78,6 +79,7 @@ export type ReadyTeamBillingViewJson = {
   readonly memberCount: number | null;
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
+  readonly enterprise: TeamEnterpriseDeal | null;
 };
 
 /** `TeamBillingView` on the wire: dates are ISO strings. */

@@ -120,6 +120,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    "scripts/ci/delivery_workflows.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
@@ -175,6 +176,10 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Data tables that name helpers only to describe them; nothing executes them.
+# .github/warm-sources.json lists which helper wires each warm source for
+# tests/test_ci_warm_sources.py, which runs in the Linux guards.
+_DESCRIPTIVE_TABLES = frozenset({".github/warm-sources.json"})
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -706,7 +711,7 @@ def ci_helper_areas(
             referenced = True
             if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if referrer == ".gitattributes":
+            if referrer == ".gitattributes" or referrer in _DESCRIPTIVE_TABLES:
                 continue
             if referrer.startswith(("scripts/", ".github/actions/")):
                 try:

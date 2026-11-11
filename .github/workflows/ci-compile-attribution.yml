@@ -53,9 +53,10 @@ jobs:
   analyze:
     name: Analyze
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && contains(fromJSON('[".github/workflows/seed-derived-data.yml",".github/workflows/main-compile-probe.yml"]'), github.event.workflow_run.path)) }}
-    # Analysis only reads trusted main history and the Actions/PR APIs. It
-    # needs no secret or write token, so use the shared Linux runner pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Analysis only reads trusted main history and the Actions/PR APIs, but it
+    # mints App tokens to read on their budget, so it runs on a literal
+    # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -99,6 +100,7 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main with history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -106,6 +108,20 @@ jobs:
           fetch-depth: 60
           filter: blob:none
           persist-credentials: false
+
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Analyze
         id: analyze
@@ -123,6 +139,17 @@ jobs:
           python3 scripts/ci/main_compile_attribution.py "${args[@]}"
           cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -135,7 +162,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       actions: write # dispatches main-compile-probe.yml
@@ -211,7 +238,7 @@ jobs:
     name: Fix forward or revert
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 30
     concurrency:
       group: ci-compile-attribution-fix
@@ -285,13 +312,39 @@ jobs:
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
+          # Every file under .git, by name and bytes (the check step below repeats it).
+          git_dir_digest() {
+            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
+          }
+          # First, so a step that fails before the fixer starts (npm, the prompt) still leaves the check a digest.
+          git_dir_digest > "$RUNNER_TEMP/git-dir.before"
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 scripts/ci/main_compile_attribution.py prompt --report "$REPORT" --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
-          claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
-            --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
-            --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
-          python3 - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
+          # .git is never the fixer's: a .git/config key (core.fsmonitor, a filter, http.proxy, url.*.insteadOf) or
+          # a hook would run or redirect the git commands after it, which hold APP_TOKEN (and actions/checkout's post
+          # step, which holds github.token). So the fixer works in a copy of the tracked files with no .git, its
+          # tools may not touch a .git, only its edits to tracked files come back, and the next step fails the run
+          # (and removes .git) when .git changed anyway.
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+          tree="$RUNNER_TEMP/fixer-tree"
+          rm -rf "$tree"
+          mkdir -p "$tree"
+          git ls-files -z > "$RUNNER_TEMP/tracked.z"
+          tar --null -T "$RUNNER_TEMP/tracked.z" -cf - | tar -xf - -C "$tree"
+          touch "$RUNNER_TEMP/fixer-start"
+          (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
+            --allowedTools "Read,Edit,Glob,Grep" \
+            --disallowedTools "Bash,WebFetch,WebSearch,Edit(.git/**),Write(.git/**)" \
+            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json"
+          (cd "$tree" && find . -type f -newer "$RUNNER_TEMP/fixer-start" -print0) | while IFS= read -r -d '' path; do
+            path="${path#./}"
+            grep -qxzF -- "$path" "$RUNNER_TEMP/tracked.z" || continue
+            [ -f "$path" ] && [ ! -L "$path" ] || continue
+            cp -- "$tree/$path" "$path"
+          done
+          # Isolated (-I): the root, where the fixer writes, is not on the import path.
+          python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
           data = json.load(open(sys.argv[1]))
           out = data.get("structured_output") or {}
@@ -306,15 +359,40 @@ jobs:
           print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
           PY
 
+      # Runs whenever the fixer ran, even when it failed or timed out: a .git that
+      # changed while it ran is removed (actions/checkout's post step then
+      # leaves it alone), and the run uses nothing the fixer did.
+      - name: Check that the fixer left .git alone
+        id: gitdir
+        if: ${{ always() && steps.fixer.outcome != 'skipped' && steps.fixer.outcome != '' }}
+        run: |
+          set -euo pipefail
+          git_dir_digest() {
+            (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
+          }
+          if [ ! -s "$RUNNER_TEMP/git-dir.before" ] || [ "$(git_dir_digest)" != "$(cat "$RUNNER_TEMP/git-dir.before")" ]; then
+            rm -rf .git
+            echo "::error::.git changed while the fixer ran (or was never measured); nothing the fixer did is used."
+            exit 1
+          fi
+
       # A fixer that did not finish (no token, an outage) decides nothing:
       # no fix and no revert, and the culprit comment still stands.
+      # Every file git does not track goes first: a fix commits tracked files
+      # only (commit -a), and a module the fixer added (json.py at the root or
+      # beside a script) must not be imported by the python3 runs below, which
+      # hold APP_TOKEN. They also run isolated (-I).
+      # Every git command from here on runs with no fsmonitor, no hook and no
+      # global or system config, whatever .git or HOME holds.
       - name: Keep only a small mechanical diff
         id: diff
-        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
+        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.gitdir.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
         env:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
           set -euo pipefail
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+          git clean -ffdxq
           changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
           files="$(git diff --name-only | wc -l | tr -d ' ')"
           echo "The fixer changed $changed lines in $files files (mechanical: ${MECHANICAL:-unknown})." >> "$GITHUB_STEP_SUMMARY"
@@ -356,9 +434,11 @@ jobs:
           REVERT_LABEL: compile-revert
         run: |
           set -euo pipefail
-          python3 scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
+          # No fsmonitor and no hook in any git command here (the diff step above says why).
+          git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+          python3 -I scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
             --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
-          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
+          field() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
           branch="$(field branch)"
           git config user.name "cmux compile attribution"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -410,5 +490,5 @@ jobs:
           FIX_PR: ${{ steps.pr.outputs.fix }}
           REVERT_PR: ${{ steps.pr.outputs.revert }}
         run: |
-          python3 scripts/ci/main_compile_attribution.py report \
+          python3 -I scripts/ci/main_compile_attribution.py report \
             --report "$RUNNER_TEMP/compile-report/compile-report.json" --fix-pr "$FIX_PR" --revert-pr "$REVERT_PR"

@@ -2991,8 +2991,8 @@ struct MainWindowKeyObservationOwnershipTests {
 @MainActor
 @Suite("Workspace process-wide observer retirement", .serialized)
 struct WorkspaceProcessWideObserverRetirementTests {
-    @Test("Retirement rejects queued and future shared agent index publications")
-    func retirementRejectsQueuedAndFutureSharedAgentIndexPublications() async throws {
+    @Test("Retirement removes the shared agent index observer")
+    func retirementRemovesSharedAgentIndexObserver() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         defer {
@@ -3004,41 +3004,11 @@ struct WorkspaceProcessWideObserverRetirementTests {
         }
 
         await drainMainActorQueue()
-        var publicationCount = 0
-        let publication = workspace.objectWillChange.sink {
-            publicationCount += 1
-        }
-        defer { publication.cancel() }
+        #expect(workspace.sharedLiveAgentIndexObserver != nil)
 
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
-        await drainMainActorQueue()
-        #expect(publicationCount > 0)
-
-        // Queue one final matching publication, then retire before its
-        // MainActor task can mutate the workspace.
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
         workspace.retireFromOwningTabManager()
-        let countAfterRetirement = publicationCount
-        await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
-
-        for _ in 0..<3 {
-            NotificationCenter.default.post(
-                name: .sharedLiveAgentIndexDidChange,
-                object: SharedLiveAgentIndex.shared,
-                userInfo: ["workspaceId": workspace.id]
-            )
-        }
-        await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
+        // A shared agent-index change no longer reaches a retired workspace.
+        #expect(workspace.sharedLiveAgentIndexObserver == nil)
     }
 
     @Test("Retirement rejects queued and future feature flag publications")

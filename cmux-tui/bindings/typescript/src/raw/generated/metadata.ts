@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298" as const;
+export const SDK_IR_SHA256 = "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -38,6 +38,16 @@ export const PROFILES = {
   }
 } as const;
 export const COMMAND_METADATA = {
+  "ack-tab-notifications": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "apply-layout": {
     "authority": "control",
     "since": 6,
@@ -1917,6 +1927,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "state": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentState"
+        }
+      },
+      "status": {
+        "description": "What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "ref",
           "name": "AgentState"
@@ -7686,6 +7706,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   }
 };
 export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
+  "ack-tab-notifications": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "apply-layout": {
     "request": {
       "additional_properties": false,

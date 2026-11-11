@@ -236,8 +236,12 @@ diagnosis. It resolves an exact terminal ID or title through `terminal.list`,
 then reads `terminal.process.get` and `terminal.screen.read` and evaluates the
 same userland manifests as the scanner. It rejects duplicate titles and emits
 the process identity source, screen revision, matched rule, evidence, and
-manifest provenance. This diagnostic command does not add an agent-specific
-daemon operation.
+manifest provenance. `--session NAME` reads that local session at the socket
+the `cmux` CLI derives for it (an inherited `CMUX_TUI_SOCKET` does not
+redirect it), and `--socket PATH` reads the daemon at an exact socket. Without
+either, it reads the inherited `CMUX_TUI_SOCKET` (then `CMUX_MUX_SOCKET`) and
+its `CMUX_TUI_SESSION_ID`, else the `main` session's socket. This diagnostic
+command does not add an agent-specific daemon operation.
 
 The reducer clamps `normalized.observed_at_ms` to the journal commit time when
 the plugin clock is ahead. Older observation times remain unchanged, so a

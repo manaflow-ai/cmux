@@ -180,6 +180,9 @@ pub struct TabView {
 pub struct TabNotificationView {
     pub unread: bool,
     pub level: &'static str,
+    /// The daemon's notification number (ascending in posting order), so
+    /// the attention queue puts the oldest unread tab first.
+    pub sequence: u64,
 }
 
 impl TreeView {
@@ -667,6 +670,7 @@ pub fn tree_from_state_with_notifications(
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
+                        sequence: notification.notification,
                     }),
                 })
                 .collect(),
@@ -842,6 +846,7 @@ fn parse_notification(value: &Value) -> Option<TabNotificationView> {
     Some(TabNotificationView {
         unread: value.get("unread").and_then(|v| v.as_bool()).unwrap_or(false),
         level,
+        sequence: value.get("notification").and_then(Value::as_u64).unwrap_or(0),
     })
 }
 
@@ -973,6 +978,17 @@ pub(super) fn parse_tree_with_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A remote tab's notification keeps the daemon's notification number,
+    /// which orders unread tabs oldest first in the attention queue.
+    #[test]
+    fn attention_remote_tab_notification_keeps_its_sequence() {
+        let value = serde_json::json!({"notification": 7, "unread": true, "level": "error"});
+        let marker = parse_notification(&value).unwrap();
+        assert_eq!((marker.sequence, marker.unread, marker.level), (7, true, "error"));
+        let older = serde_json::json!({"unread": true});
+        assert_eq!(parse_notification(&older).unwrap().sequence, 0, "an older server");
+    }
     use serde_json::json;
 
     #[test]

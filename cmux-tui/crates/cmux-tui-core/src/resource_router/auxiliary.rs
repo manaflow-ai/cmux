@@ -402,13 +402,17 @@ fn execute_sidebar_input(mux: &Arc<Mux>, prepared: PreparedEffect) -> Result<Val
         Ok(snapshot) => snapshot,
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
-    if surface.write_bytes(&data).is_err() {
-        return Err(effects::mark_indeterminate(mux, prepared));
+    if let Err(error) = surface.write_bytes(&data) {
+        let cause = format!("sidebar input write failed: {:?}", error.kind());
+        return Err(effects::mark_indeterminate(mux, prepared, &cause));
     }
     let value = json!({});
     let after = match current_sidebar_snapshot(mux, &sidebar_id, &session_id) {
         Ok(snapshot) => snapshot,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
+        Err(error) => {
+            let cause = format!("the sidebar snapshot after input failed: {}", error.code);
+            return Err(effects::mark_indeterminate(mux, prepared, &cause));
+        }
     };
     match sidebar_input_lifecycle_delta(&sidebar_id, &before, &after) {
         Some(changes) => effects::commit_success(mux, prepared, value, changes),

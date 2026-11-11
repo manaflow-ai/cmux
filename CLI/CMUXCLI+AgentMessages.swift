@@ -228,60 +228,6 @@ extension CMUXCLI {
         return "\(state) \(id)  \(sender): \(clipped)"
     }
 
-    // MARK: - Hooks
-
-    /// Handles `hooks <claude|codex> inbox-*`. Returns false for any other
-    /// hook subcommand. Every path fails open: a missing surface, a disabled
-    /// integration or a socket error prints the agent's no-op answer.
-    func runAgentInboxHookIfMatched(
-        agent: String,
-        commandArgs: [String],
-        client: SocketClient
-    ) throws -> Bool {
-        guard let subcommand = commandArgs.first?.lowercased(),
-              subcommand.hasPrefix("inbox-") else { return false }
-        let env = ProcessInfo.processInfo.environment
-        let input = Self.agentInboxHookInput()
-        let disabledKey = agent == "claude" ? "CMUX_CLAUDE_HOOKS_DISABLED" : "CMUX_CODEX_HOOKS_DISABLED"
-        // Headless `claude -p` and `codex exec` runs share the pane's surface
-        // id with the interactive session there; they must not claim its
-        // messages.
-        let headlessKey = agent == "claude" ? "CMUX_CLAUDE_HEADLESS" : "CMUX_CODEX_HEADLESS"
-        let headless = env[headlessKey] == "1"
-        guard let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty, env[disabledKey] != "1", !headless else {
-            if subcommand != "inbox-wait" { print("{}") }
-            return true
-        }
-        switch (agent, subcommand) {
-        case ("claude", "inbox-wait"):
-            runClaudeInboxWait(surfaceId: surfaceId, input: input, client: client, env: env)
-        case (_, "inbox-drain"):
-            // UserPromptSubmit: attach pending messages to the prompt the
-            // human just sent.
-            let text = Self.agentInboxClaim(
-                surfaceId: surfaceId,
-                via: "\(agent).prompt-submit",
-                markDeliveredRead: false,
-                client: client
-            )
-            print(Self.agentInboxPromptSubmitOutput(text: text))
-        case ("codex", "inbox-stop"):
-            // Codex Stop: continue the turn with pending messages instead of
-            // going idle. Codex can't be woken once idle.
-            let text = Self.agentInboxClaim(
-                surfaceId: surfaceId,
-                via: "codex.stop",
-                markDeliveredRead: true,
-                client: client
-            )
-            print(Self.agentInboxStopOutput(text: text))
-        default:
-            print("{}")
-        }
-        fflush(stdout)
-        return true
-    }
-
     /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
     /// this surface every ``agentInboxPollInterval``; when one is waiting it
     /// claims it, writes it to stderr and exits 2, which wakes Claude with the
@@ -292,7 +238,7 @@ extension CMUXCLI {
     /// idle session never holds one of the app's socket connection slots.
     /// Every Stop starts a new hook; the newest registers as the surface's
     /// poller and the older ones exit when told they are superseded.
-    private func runClaudeInboxWait(
+    func runClaudeInboxWait(
         surfaceId: String,
         input: [String: Any],
         client: SocketClient,
@@ -403,56 +349,5 @@ extension CMUXCLI {
             ],
             responseTimeout: 3
         )) != nil
-    }
-
-    private static func agentInboxClaim(
-        surfaceId: String,
-        via: String,
-        markDeliveredRead: Bool,
-        client: SocketClient
-    ) -> String {
-        guard let payload = try? client.sendV2(
-            method: "agent.message.claim",
-            params: [
-                "surface_id": surfaceId,
-                "via": via,
-                "mark_delivered_read": markDeliveredRead,
-            ],
-            responseTimeout: 3
-        ) else { return "" }
-        return payload["text"] as? String ?? ""
-    }
-
-    static func agentInboxPromptSubmitOutput(text: String) -> String {
-        guard !text.isEmpty else { return "{}" }
-        return agentInboxJSON([
-            "hookSpecificOutput": [
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": text,
-            ],
-        ])
-    }
-
-    static func agentInboxStopOutput(text: String) -> String {
-        guard !text.isEmpty else { return "{}" }
-        return agentInboxJSON(["decision": "block", "reason": text])
-    }
-
-    private static func agentInboxJSON(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else { return "{}" }
-        return string
-    }
-
-    /// Reads the hook's stdin JSON, bounded to 1 MiB.
-    private static func agentInboxHookInput() -> [String: Any] {
-        var data = Data()
-        let handle = FileHandle.standardInput
-        while data.count < 1_048_576 {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }
-            data.append(chunk)
-        }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 }

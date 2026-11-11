@@ -3,21 +3,16 @@ name: macOS Compatibility
 on:
   workflow_dispatch:
 
+# No real-Intel leg: GitHub-hosted macos-15-intel is the only Intel image and no
+# job runs on a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+# A real-Intel check returns only on an owned Intel Mac.
+
 jobs:
   compat-tests:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15-intel
-            timeout: 90
-            run_unit_tests: false
-            run_mobile_transport_tests: true
-            startup_smoke: true
-            virtual_display: true
-            skip_zig: false
-            expected_arch: x86_64
-            expected_os_major: "15"
           - os: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
             timeout: 120
             run_unit_tests: false
@@ -129,7 +124,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          # Prefixed, not bare `spm-`: this matrix includes an x86_64 leg and an
+          # Prefixed, not bare `spm-`: this matrix once had an x86_64 leg and an
           # older-Xcode macOS 14 leg, and the arm64 pools restore with a bare
           # `spm-` prefix. Sharing the `spm-` namespace would let those pools
           # prefix-match an Intel-produced entry. r2-cache.sh namespaces this

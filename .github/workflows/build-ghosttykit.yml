@@ -15,10 +15,11 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    # Background lane: dispatch-only and off the PR critical path, so it runs
-    # on free GitHub-hosted capacity instead of the shared paid macOS pool.
-    # See docs/ci-runners.md "Background lane".
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+    # Dispatch-only and off the PR critical path. It holds GHOSTTY_RELEASE_TOKEN,
+    # so it runs on a literal ephemeral label, not the MACOS_RUNNER_BACKGROUND
+    # lane a variable could point at a reused machine
+    # (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash

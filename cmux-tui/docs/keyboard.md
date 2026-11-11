@@ -52,6 +52,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
+| `Ctrl-b a` | Go to the next tab that needs you: a blocked agent, then an unread error or warning, then another unread tab |
+| `Ctrl-b A` | Open a searchable list of the tabs that need you; Enter goes to the selected tab |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -62,13 +64,16 @@ These defaults come from `Keys::default`.
 | `Alt-j` or `Alt-Down` | Focus down |
 | `Ctrl-b +` or `Alt-=` | Grow the focused split, or its horizontal viewport column |
 | `Ctrl-b -` or `Alt--` | Shrink the focused split, or its horizontal viewport column |
-| `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
-| `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
-| `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
+| `Ctrl-b [` | Enter copy mode on the active terminal |
+| `Ctrl-b /` | Enter copy mode and search the scrollback backward |
+| `Ctrl-b PageUp` | Scroll the active PTY viewport up one page |
+| `Ctrl-b PageDown` | Scroll the active PTY viewport down one page |
 | `Cmd-k` / `Super-k` | Clear retained PTY history and completed visible rows while preserving active input |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
+`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
@@ -87,6 +92,95 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 `Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Rebind either action independently with `keys.close-tab` and `keys.close-pane`.
 
 `Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
+
+## Copy Mode
+
+`Ctrl-b [` enters copy mode on the active terminal. `Ctrl-b /` enters copy mode with the backward search prompt open. A copy cursor starts at the terminal cursor, and the status row shows the mode, the search count, the cursor row out of all retained rows, and short key hints. Copy mode moves only this client's view of the terminal. Keys that copy mode does not bind are discarded, so nothing reaches the shell until copy mode ends. The prefix still works, so `Ctrl-b ?` and other prefix commands stay available. Mouse wheel scrolling stays passive and does not enter copy mode.
+
+| Key | Command |
+|---|---|
+| `h` `j` `k` `l` or arrows | Move the cursor one cell or row |
+| `w` `b` `e` | Next word start, previous word start, word end |
+| `W` `B` `E` | The same motions over whitespace-separated words |
+| `0` or `Home`, `^`, `$` or `End` | Line start, first non-blank character, line end |
+| `g` `G` | Top of history, bottom of the terminal |
+| `H` `M` `L` | Top, middle, bottom row of the view |
+| `Ctrl-u` `Ctrl-d` | Half page up, half page down |
+| `PageUp`, `PageDown` or `Ctrl-f` | Page up, page down |
+| `Ctrl-y` `Ctrl-e` | Scroll the view one row and keep the cursor in view |
+| `v` or `Space`, `V`, `Ctrl-v` | Start or stop a character, line, or block selection |
+| `o` | Move the cursor to the other end of the selection |
+| `y` or `Enter` | Copy the selection and leave copy mode |
+| `Y` | Copy the logical line under the cursor and leave copy mode |
+| `/` `?` | Search forward, search backward |
+| `n` `N` | Next match, previous match in the search direction |
+| `Esc` | Clear the selection, then the search, then leave copy mode |
+| `q` or `Ctrl-c` | Leave copy mode |
+
+Motions treat a wide character as one cell. A copy joins soft-wrapped rows into one line and keeps hard line breaks. A block selection copies the same columns from each row. The copy goes to the system clipboard through OSC 52, as a mouse selection does. Leaving copy mode returns the view to the live bottom.
+
+Search is smart-case: a needle with no uppercase letter matches any case, and a needle with an uppercase letter matches case exactly. Search covers all retained scrollback, highlights every match in the view, marks the current match, and shows its position as `3/17`. `n` and `N` wrap around at the ends of history. Pressing `Enter` on an empty prompt repeats the previous search in the prompt's direction. A count ends in `+` when more than 10,000 matches exist; only the newest 10,000 are kept.
+
+Search matches the text as it shows on the screen. When a search ignores case, only ASCII letters fold; other characters match exactly. A match can continue across a soft-wrapped row, but never across a hard line break. Each search reads the retained screen once when you press `Enter`, `n`, or `N`; it does not run while you type in the prompt or while the terminal draws. This build reads the screen text in Rust because its libghostty-vt has no search API. The `feat-cmux-next` builds use libghostty-vt's own search; the keys, highlights, and counts are the same.
+
+Remap copy-mode commands with the `keys.copy_mode` object. Each command accepts a string, an array of strings, or `"none"`, and replaces that command's default keys. A chord given to one command is removed from every other copy-mode command. A copy-mode chord equal to the prefix is ignored.
+
+```json
+{
+  "keys": {
+    "copy-mode": "[",
+    "search-scrollback": "/",
+    "copy_mode": {
+      "select-char": ["v", "space"],
+      "yank": ["y", "enter", "ctrl+w"],
+      "exit": ["q", "ctrl+c"]
+    }
+  }
+}
+```
+
+Copy-mode command names are:
+
+```text
+cursor-left
+cursor-right
+cursor-up
+cursor-down
+word-next
+word-prev
+word-end
+bigword-next
+bigword-prev
+bigword-end
+line-start
+line-first-non-blank
+line-end
+history-top
+history-bottom
+view-top
+view-middle
+view-bottom
+half-page-up
+half-page-down
+page-up
+page-down
+scroll-line-up
+scroll-line-down
+select-char
+select-line
+select-block
+swap-selection-end
+yank
+yank-line
+search-forward
+search-backward
+search-next
+search-prev
+cancel
+exit
+```
+
+`scroll-page-up`, `scroll-page-down`, `scroll-half-page-up`, and `scroll-half-page-down` scroll the active terminal outside copy mode by one or half a visible page. `scroll-up` and `scroll-down` still scroll 10 rows and are unbound by default.
 
 ## Focused Sidebar
 
@@ -213,12 +307,20 @@ resize-grow
 resize-shrink
 scroll-up
 scroll-down
+scroll-page-up
+scroll-page-down
+scroll-half-page-up
+scroll-half-page-down
+copy-mode
+search-scrollback
 clear-history
 browser-back
 browser-forward
 browser-reload
 browser-edit-url
 show-shortcuts
+next-attention
+attention-list
 detach
 ```
 

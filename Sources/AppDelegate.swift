@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+    private(set) lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel
@@ -1933,6 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // built-in defaults.
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
+        } else if !isRunningUnderXCTest {
+            // Still load local overrides into the off-main snapshot that
+            // `ChiefSettings.isAvailable` reads before session restore.
+            _ = CmuxFeatureFlags.shared
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -4331,6 +4335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        // A snapshot saved with Chief on carries its Home; with Chief off, drop it.
+        ChiefHomeNavigation.removeHome(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -7740,16 +7746,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        func toggle(_ context: MainWindowContext) -> Bool {
-            guard let window = resolvedWindow(for: context) else {
-                discardOrphanedMainWindowContext(context)
-                return false
-            }
-            setActiveMainWindow(window)
-            context.sidebarState.toggle()
-            return true
-        }
-
         if let preferredWindow {
             guard let preferredContext = prepareSenderRelativeMainWindowAction(
                 in: preferredWindow
@@ -7759,25 +7755,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredContext.sidebarState.toggle()
             return true
         }
+        guard let target = sidebarToggleTarget() else {
+            return false
+        }
+        setActiveMainWindow(target.window)
+        target.context.sidebarState.toggle()
+        return true
+    }
+
+    /// The window whose left sidebar ⌘B toggles: the key window, then the main
+    /// window, then the active manager's, then any window. Contexts whose
+    /// window is gone are discarded along the way. `cmux left-sidebar` uses it
+    /// too, so a command without a target acts on the same window as ⌘B
+    /// without making that window key.
+    func sidebarToggleTarget() -> (context: MainWindowContext, window: NSWindow)? {
+        func windowedTarget(_ context: MainWindowContext) -> (context: MainWindowContext, window: NSWindow)? {
+            guard let window = resolvedWindow(for: context) else {
+                discardOrphanedMainWindowContext(context)
+                return nil
+            }
+            return (context, window)
+        }
+
         if let keyWindow = shortcutRoutingKeyWindow,
            let keyContext = contextForMainTerminalWindow(keyWindow),
-           toggle(keyContext) {
-            return true
+           let target = windowedTarget(keyContext) {
+            return target
         }
         if let mainWindow = NSApp.mainWindow,
            let mainContext = contextForMainTerminalWindow(mainWindow),
-           toggle(mainContext) {
-            return true
+           let target = windowedTarget(mainContext) {
+            return target
         }
         if let activeManager = tabManager,
            let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
-           toggle(activeContext) {
-            return true
+           let target = windowedTarget(activeContext) {
+            return target
         }
-        for fallbackContext in Array(mainWindowContexts.values) where toggle(fallbackContext) {
-            return true
+        for fallbackContext in Array(mainWindowContexts.values) {
+            if let target = windowedTarget(fallbackContext) {
+                return target
+            }
         }
-        return false
+        return nil
     }
 
     @discardableResult
@@ -7808,9 +7828,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
-        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+        target: SidebarRemoteTarget = SidebarRemoteTarget()
     ) -> RightSidebarRemoteApplyResult {
-        let context = rightSidebarRemoteContext(target: target)
+        let context = sidebarRemoteContext(target: target)
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
@@ -7936,7 +7956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registry: DeviceSurfaceProviderRegistry
     ) -> RightSidebarRemoteApplyResult? {
         guard let context = preferredRegisteredMainWindowContext() else { return nil }
-        let target = RightSidebarRemoteTarget(windowId: context.windowId)
+        let target = SidebarRemoteTarget(windowId: context.windowId)
         let result = applyRightSidebarRemoteCommand(.setMode(.machines, focus: true), target: target)
         switch result {
         case .ok, .state:
@@ -7947,7 +7967,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
-    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+    func sidebarRemoteContext(target: SidebarRemoteTarget) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }
@@ -16251,10 +16271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for visible workspace rows (9 = last visible row).
-        // Always consume the event when the digit matches to prevent Ghostty's
-        // goto_tab fallback from creating a new window when the index is out of bounds.
+        // Numeric shortcuts for visible workspace rows (9 = last visible row). Always consume a matching
+        // digit so Ghostty's goto_tab fallback cannot create a new window for an out-of-bounds index.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if openNotificationsPopoverRow(forDigit: digit, event: event) { return true }
             if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG

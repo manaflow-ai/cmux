@@ -7,6 +7,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
 
+mod attention;
+pub(crate) use attention::AttentionMessages;
+mod copy_mode;
+pub(crate) use copy_mode::CopyModeMessages;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -942,6 +947,8 @@ pub(crate) struct SidebarMessages {
     pub idle: &'static str,
     pub done: &'static str,
     pub unknown: &'static str,
+    /// A workspace row's screen count after its pane title; `{count}`.
+    pub screens_count: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
     pub connecting_to: &'static str,
@@ -1251,6 +1258,41 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
+/// `cmux identify` and `cmux skill`: the identity labels and the help; and
+/// other lines the CLI prints itself.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PaneCliMessages {
+    pub session: &'static str,
+    pub machine: &'static str,
+    pub workspace: &'static str,
+    pub screen: &'static str,
+    pub pane: &'static str,
+    pub tab: &'static str,
+    pub terminal: &'static str,
+    pub socket: &'static str,
+    pub outer_app: &'static str,
+    pub guide: &'static str,
+    /// The terminal row when the caller is not placed; `{why}` is the reason.
+    pub not_found: &'static str,
+    /// Why there is no caller when `CMUX_TUI_TERMINAL_ID` is not set.
+    pub outside_terminal: &'static str,
+    /// The caller's `{terminal}` has no tab, pane, screen or workspace.
+    pub not_in_workspace: &'static str,
+    /// The session `{socket}` refused the connection with `{error}`.
+    pub unreachable: &'static str,
+    /// Usage error for words after `identify`; `{words}` are the words.
+    pub identify_arguments: &'static str,
+    /// Usage error for words after `skill` other than `show`.
+    pub skill_arguments: &'static str,
+    /// The `AGENT COMMANDS` block at the end of the root help.
+    pub root_agent_commands: &'static str,
+    pub identify_help: &'static str,
+    pub skill_help: &'static str,
+    /// What `cmux agent|sidebar plugin list` prints when no plugin is
+    /// installed; `{command}` is `cmux agent plugin` or `cmux sidebar plugin`.
+    pub no_plugins_installed: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
@@ -1266,6 +1308,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -1277,6 +1320,8 @@ pub(crate) struct Catalog {
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub attention: AttentionMessages,
+    pub pane_cli: PaneCliMessages,
 }
 
 impl Catalog {
@@ -1288,10 +1333,54 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    attention: attention::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
         agent_start_failed: "cmux: the agent could not be started",
+    },
+    pane_cli: PaneCliMessages {
+        session: "session",
+        machine: "machine",
+        workspace: "workspace",
+        screen: "screen",
+        pane: "pane",
+        tab: "tab",
+        terminal: "terminal",
+        socket: "socket",
+        outer_app: "outer app",
+        guide: "agent guide",
+        not_found: "not found ({why})",
+        outside_terminal: "this process does not run in a cmux-tui terminal (CMUX_TUI_TERMINAL_ID is not set)",
+        not_in_workspace: "the caller's terminal {terminal} is not in a workspace",
+        unreachable: "cannot connect to session socket {socket}: {error}",
+        identify_arguments: "identify takes no arguments: {words}",
+        skill_arguments: "skill takes one action, show: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify           Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show         Print the agent guide for this cmux build
+  agent start NAME   Start a coding agent in a tab named NAME and wait until it is ready
+  agent resume NAME  Start an agent that exited again, in the same conversation
+",
+        identify_help: "USAGE
+  cmux identify
+
+Print where this process runs: the session, machine, workspace, screen, pane,
+tab and terminal of the cmux-tui terminal it runs in (CMUX_TUI_TERMINAL_ID),
+read from that terminal's session. Outside a cmux-tui terminal, caller.found
+is false. Pass --json for the record (kind, session, machine, caller,
+outer_app, guide).
+",
+        skill_help: "USAGE
+  cmux skill show
+
+Print the agent guide for this cmux build as Markdown: where you run, the
+rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
+Pass --json for {name, version, markdown}.
+",
+        no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -1954,6 +2043,7 @@ socket.
         idle: "idle",
         done: "done",
         unknown: "unknown",
+        screens_count: "({count} screens)",
         connect_prompt: "Host address or pairing code",
         connect_host_prompt: "SSH host or user@host",
         connecting_to: "Connecting to {target}…",
@@ -2036,10 +2126,54 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    attention: attention::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
         agent_start_failed: "cmux: エージェントを起動できませんでした",
+    },
+    pane_cli: PaneCliMessages {
+        session: "セッション",
+        machine: "マシン",
+        workspace: "ワークスペース",
+        screen: "スクリーン",
+        pane: "ペイン",
+        tab: "タブ",
+        terminal: "ターミナル",
+        socket: "ソケット",
+        outer_app: "外側のアプリ",
+        guide: "エージェントガイド",
+        not_found: "見つかりません（{why}）",
+        outside_terminal: "このプロセスは cmux-tui ターミナルで動いていません（CMUX_TUI_TERMINAL_ID が設定されていません）",
+        not_in_workspace: "呼び出し元のターミナル {terminal} はワークスペースにありません",
+        unreachable: "セッションソケット {socket} に接続できません: {error}",
+        identify_arguments: "identify は引数を取りません: {words}",
+        skill_arguments: "skill のアクションは show だけです: {words}",
+        root_agent_commands: "
+AGENT COMMANDS
+  identify           このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
+  skill show         この cmux ビルドのエージェントガイドを表示
+  agent start NAME   NAME という名前のタブでコーディングエージェントを起動し、準備ができるまで待つ
+  agent resume NAME  終了したエージェントを同じ会話のまま再び起動
+",
+        identify_help: "使用方法
+  cmux identify
+
+このプロセスが動いている場所を表示します。実行中の cmux-tui ターミナル
+（CMUX_TUI_TERMINAL_ID）のセッション、マシン、ワークスペース、スクリーン、
+ペイン、タブ、ターミナルを、そのターミナルのセッションから読み取ります。
+cmux-tui ターミナルの外では caller.found が false になります。--json で
+レコード（kind、session、machine、caller、outer_app、guide）を表示します。
+",
+        skill_help: "使用方法
+  cmux skill show
+
+この cmux ビルドのエージェントガイドを Markdown で表示します。現在の場所、
+ルール、レシピ、待機、エラー、スコープ、terminal・pane・tab のパスを含みます。
+--json で {name, version, markdown} を表示します。
+",
+        no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
@@ -2698,6 +2832,7 @@ SIGTERM または SIGINT で終了し、ソケットを削除します。
         idle: "待機中",
         done: "完了",
         unknown: "不明",
+        screens_count: "({count} 画面)",
         connect_prompt: "ホストアドレスまたはペアリングコード",
         connect_host_prompt: "SSH ホストまたは user@host",
         connecting_to: "{target} に接続中…",

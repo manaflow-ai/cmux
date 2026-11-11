@@ -20,12 +20,20 @@
 //   POST /v1/sync/vms                     backend-only Cloud machine list
 //                                         publication ({teamId, ops}); the
 //                                         DO broadcasts `vms` sync deltas
+//   GET  /releases/v1/socket?feed=<id>    PUBLIC release push WebSocket: the
+//                                         newest build of one allowlisted
+//                                         appcast, then one frame per new build
+//   POST /releases/v1/poke?feed=<id>      PUBLIC: re-read that appcast (coalesced)
+//   GET  /releases/v1/latest?feed=<id>    PUBLIC: the current release frame
+//   cron (every minute)                   pokes every release feed (self-heal)
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
 // same way web/app/api verifies native callers. The worker resolves the team,
 // derives the per-team Durable Object from the VERIFIED team id, and forwards;
-// the DO never sees unauthenticated input.
+// the DO never sees unauthenticated input. The /releases/v1 routes are the one
+// exception: public, carrying only what the public appcasts already show
+// (releaseFeedRoute.ts).
 
 import {
   bearerToken,
@@ -64,13 +72,16 @@ import { captureSentryException } from "./sentry";
 import { rateLimitedJson } from "./retryAfterResponse";
 import { WorkspacePresence } from "./workspacePresenceDo";
 import { workspacePresenceRoute } from "./workspacePresenceRoute";
+import { ReleaseFeed } from "./releaseFeedDo";
+import { RELEASE_ROUTE_PREFIX, pokeAllReleaseFeeds, releaseFeedRoute } from "./releaseFeedRoute";
 
-export { TeamPresence, AccountControlPlane, WorkspacePresence };
+export { TeamPresence, AccountControlPlane, WorkspacePresence, ReleaseFeed };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
+  RELEASE_FEED: DurableObjectNamespace<ReleaseFeed>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
   /** Service secret for `POST /v1/sync/vms`; must equal the web backend's
    * `CMUX_PRESENCE_VMS_PUBLISHER_SECRET`. */
@@ -125,6 +136,10 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    if (url.pathname.startsWith(RELEASE_ROUTE_PREFIX)) {
+      return releaseFeedRoute(request, env);
     }
 
     if (url.pathname === "/v1/workspace-presence") {
@@ -456,5 +471,11 @@ export default {
       });
       return json({ error: "internal_error" }, 500);
     }
+  },
+
+  // The minute cron (wrangler.toml [triggers]): each tick pokes every release
+  // feed once and ends; the feed objects coalesce it with publisher pokes.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(pokeAllReleaseFeeds(env));
   },
 } satisfies ExportedHandler<Env>;

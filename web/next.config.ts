@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { isPlatformDownloadAvailable } from "./app/lib/download";
 import {
   isDocsZoneDeployment,
   nightlyDocsOrigin as configuredNightlyDocsOrigin,
@@ -115,6 +116,11 @@ const nextConfig: NextConfig = {
     }
     return {
       beforeFiles: [
+        // Universal links for the cmux iOS app (app/api/apple-app-site-association).
+        {
+          source: "/.well-known/apple-app-site-association",
+          destination: "/api/apple-app-site-association",
+        },
         {
           source: "/_docs-assets/release/:path*",
           destination: `${releaseDocsOrigin}/:path*`,
@@ -186,7 +192,25 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    // While Linux is waitlist-only, /linux (linked from older posts and the
+    // cmux Browser README) is a real 307 to /browser, whose Linux card takes
+    // waitlist signups. Temporary, so it lifts when Linux ships again.
+    const linuxWaitlistRedirects = isPlatformDownloadAvailable("linux")
+      ? []
+      : exts.flatMap((ext) => [
+          { source: `/linux${ext}`, destination: "/browser", permanent: false },
+          { source: `/en/linux${ext}`, destination: "/browser", permanent: false },
+          {
+            source: `/${localePrefix}/linux${ext}`,
+            destination: "/:locale/browser",
+            permanent: false,
+          },
+        ]);
+    return [
+      ...(isDocsZone ? [] : baseNightlyMoves),
+      ...agentRedirects,
+      ...(isDocsZone ? [] : linuxWaitlistRedirects),
+    ];
   },
   async headers() {
     const channelSecurityHeaders =

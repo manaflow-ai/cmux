@@ -2,9 +2,17 @@
 
 use std::fs;
 use std::net::TcpListener;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
+
+/// The binary as the npm `cmux` launcher runs it, so output names `cmux`.
+/// Tests that check the installed `cmux-tui` name run `bin()` directly.
+fn cmux_command() -> Command {
+    let mut command = Command::new(bin());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+    command
+}
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
@@ -12,8 +20,7 @@ fn bin() -> &'static str {
 
 fn write_tool(dir: &Path, name: &str, body: &str) {
     let path = dir.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    cmux_test_exec::write_executable(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
 }
 
 fn doctor(tools: &Path, args: &[&str]) -> Output {
@@ -24,7 +31,7 @@ fn doctor(tools: &Path, args: &[&str]) -> Output {
 /// tries when `tailscale` isn't on PATH. Without it a runner with the app
 /// installed would answer for the real tailnet.
 fn doctor_with_app_cli(tools: &Path, app_cli: &Path, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(["remote", "doctor"])
         .args(args)
         .env("PATH", tools)

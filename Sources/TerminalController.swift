@@ -568,11 +568,14 @@ class TerminalController {
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
+            customClaudePath: {
+                AgentIntegrationSettingsStore(defaults: .standard).customClaudePath
+            }
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
-        agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
+        agentHookDeliveryQueue: AgentHookDeliveryQueue? = nil,
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -583,9 +586,16 @@ class TerminalController {
             FileWatcher(path: $0.path)
         }
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
-        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        let socketCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientCapabilityAuthority = socketCapabilityAuthority
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
-        self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.agentHookDeliveryQueue = agentHookDeliveryQueue ?? AgentHookDeliveryQueue(
+            process: AgentHookDeliveryProcess(
+                socketCapabilityProvider: {
+                    socketCapabilityAuthority.issueDeliveryCapability()
+                }
+            )
+        )
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
@@ -804,10 +814,22 @@ class TerminalController {
         if isV2 {
             return commandHasFocusIntent(commandKey: commandKey, isV2: true, params: params)
         }
+        if commandKey == "left_sidebar" {
+            return leftSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
+        }
         if commandKey == "right_sidebar" {
             return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
         }
         return focusIntentV1Commands.contains(commandKey)
+    }
+
+    /// Only `left_sidebar focus` may move focus. Unlike `right_sidebar`,
+    /// `toggle` and `show` change visibility without it.
+    nonisolated static func leftSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
+        guard case .success(let request) = LeftSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args)) else {
+            return false
+        }
+        return request.command.allowsInAppFocusMutations
     }
 
     private nonisolated static func rightSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
@@ -2317,7 +2339,7 @@ class TerminalController {
 #endif
         case "current.list":
             return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
-        case "surface.catalog", "surface.project", "surface.new_terminal":
+        case "surface.catalog", "surface.project", "surface.new_terminal", "surface.new_display":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             // The CLI's own wait (cloud_client_timeout_ms) is transport
@@ -3104,7 +3126,7 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        let policyParams = cmd == "right_sidebar" ? ["args": args] : [:]
+        let policyParams = cmd == "left_sidebar" || cmd == "right_sidebar" ? ["args": args] : [:]
         return withSocketCommandPolicy(commandKey: cmd, isV2: false, params: policyParams) {
             // V1 domains migrated into CmuxControlSocket's ControlCommandCoordinator
             // (the sidebar metadata/pane/surface commands and the browser panel
@@ -3220,7 +3242,8 @@ class TerminalController {
         // agent_hibernation/clear_agent_pid/log/clear_log/list_log/set_progress/
         // clear_progress/report_git_branch/clear_git_branch/report_pr/report_review/
         // clear_pr/report_ports/clear_ports/report_tty/ports_kick/report_shell_state/
-        // report_pr_action/report_pwd/sidebar_state/reset_sidebar/right_sidebar)
+        // report_pr_action/report_pwd/sidebar_state/reset_sidebar/left_sidebar/
+        // right_sidebar)
         // handled by ControlCommandCoordinator.
 
         case "read_screen":
@@ -4329,6 +4352,7 @@ class TerminalController {
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         daemonUnavailableMessage: String? = nil,
+        mapError: (Error) -> String? = { _ in nil },
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4361,6 +4385,8 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            // A caller's own error codes come first; the timeout above never reaches them.
+            if let mapped = mapError(error) { return mapped }
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
@@ -12557,6 +12583,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          left_sidebar <toggle|show|hide|focus|mode> [--tab=X] [--window=Y] - Control left sidebar visibility and focus
           right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
