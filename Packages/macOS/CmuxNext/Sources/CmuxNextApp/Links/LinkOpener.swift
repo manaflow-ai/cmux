@@ -93,10 +93,14 @@ final class LinkOpener {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
+        // A terminal or browser joins the nearest pane on the right already holding its kind, whichever
+        // pane the person or a link focused last (Leo 2026-11-11, a third column past the browser beside the chat).
+        let holder = kind.flatMap { kind in content.flatMap { Self.nearestHolder(of: kind, beside: source.layoutPaneID, in: $0) } }
         if let services, let side = besideChat ? ChatColumnPlacement.resolve(from: source, services: services)
             : (mainPane ? MainPaneLayout.side(from: source, services: services) : nil) {
             switch side {
             case .tab(let pane):
+                if let holder, holder != source.layoutPaneID { return .pane(holder) }
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { Self.rightPanes(beside: source.layoutPaneID, in: $0) } ?? []
                 return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: Self.width(of: source), width: width,
@@ -123,7 +127,8 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) },
+            holder: holder)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
@@ -529,8 +534,13 @@ extension LinkOpener {
     }
 
     /// Whether `pane` holds a tab of `kind` (``RightColumnPlacement/Kind/isHeld(by:document:)``).
-    static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool {
-        pane.pane.tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) }
+    static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool { holds(tabs: pane.pane.tabs, kind) }
+
+    /// Whether `tabs` hold one of `kind`. The GitHub page is a browser page here (design/pane-placement.md: "A browser
+    /// page or link is browser-kind"): a chat's pull request link opens there, so its pane is the browser beside the chat.
+    static func holds(tabs: [TabModel], _ kind: RightColumnPlacement.Kind) -> Bool {
+        tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue)
+            || (kind == .browser && $0.page == InternalPageID.github.rawValue) }
     }
 
     /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
@@ -541,6 +551,17 @@ extension LinkOpener {
     /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
         pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
+    }
+
+    /// The nearest pane right of `source` in `content` that takes new tabs and already holds `kind`
+    /// (``LinkOpenPlacement/nearestHolder(of:source:columns:frames:holds:)``): the screen's columns in layout
+    /// order, so a strip column scrolled away or not laid out yet still counts, and its pane frames.
+    static func nearestHolder(of kind: RightColumnPlacement.Kind, beside source: LayoutPaneID, in content: WorkspaceContentController) -> LayoutPaneID? {
+        guard let screen = content.layoutModel.screen(containing: source) else { return nil }
+        return LinkOpenPlacement<LayoutPaneID>.nearestHolder(
+            of: kind, source: source, columns: screen.layout.visualColumns.map(\.root.panes),
+            frames: content.layoutView.navigationFrames(ofScreenContaining: source),
+            holds: { id, kind in content.panes[id].map { $0.stripModel.showsNewTabButton && holds($0, kind) } ?? false })
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen

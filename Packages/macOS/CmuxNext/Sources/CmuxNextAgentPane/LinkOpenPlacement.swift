@@ -65,10 +65,14 @@ package struct LinkOpenPlacement<Pane: Equatable> {
     /// a page, never a terminal or a chat): with nothing on the source's right, the open is a tab in
     /// the source, which is already the side pane (Leo 2026-11-07: "it's already in the second pane,
     /// and it therefore doesn't need to open the right split").
+    /// `holder`: the nearest pane on the source's right that already holds `kind`
+    /// (``nearestHolder(of:source:columns:frames:holds:)``); it gets the tab whatever pane `right` names.
     package func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
-                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, left: Pane? = nil) -> Target {
+                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }, left: Pane? = nil,
+                holder: Pane? = nil) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
+        if let holder, holder != source { return .pane(holder) }
         if let right, right != source {
             return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds)
         }
@@ -111,6 +115,47 @@ package struct LinkOpenPlacement<Pane: Equatable> {
         case .tab(let pane): return .pane(pane ?? right)
         case .splitRight: return .pane(right)
         }
+    }
+
+    /// The pane a terminal or browser opened from `source` joins: of the panes on the source's right
+    /// that already hold that kind (`holds`), the nearest in reading order. `columns` are the screen's
+    /// columns in layout order (docks and strip, left to right); every pane of a column after the
+    /// source's is on its right, drawn or not (a strip column scrolled away, a pane restored from the
+    /// last launch before its first layout). In the source's own column only panes whose frame starts
+    /// at or past the source's right edge count (a plain split with no strip). The nearest such column
+    /// answers with its lowest pane holding the kind, as ``RightColumnPlacement`` reuses one. Nil when
+    /// no pane on the right holds it: the open splits or takes a column as before.
+    ///
+    /// Leo 2026-11-11: "idk why those github links opened in a 3rd col instead of just to the right...";
+    /// "i think it forgot that there was browser on the right side". The chat's right side was the most
+    /// recently focused strip pane (the chat dock's rule for a new tab), and every link's tab takes the
+    /// focus, so once one link had opened a far column every later one went there, past the browser
+    /// right beside the chat.
+    package static func nearestHolder(of kind: RightColumnPlacement.Kind, source: Pane, columns: [[Pane]],
+                                      frames: [Pane: CGRect], holds: (Pane, RightColumnPlacement.Kind) -> Bool) -> Pane?
+    where Pane: Hashable {
+        guard let index = columns.firstIndex(where: { $0.contains(source) }) else { return nil }
+        if let origin = frames[source] {
+            let beside = columns[index].filter { $0 != source }.compactMap { pane in
+                frames[pane].flatMap { $0.minX >= origin.maxX - 1 ? (pane, $0) : nil }
+            }
+            if let found = lowestHolder(inNearest: beside, kind: kind, holds: holds) { return found }
+        }
+        for column in columns[(index + 1)...] {
+            let drawn = column.compactMap { pane in frames[pane].map { (pane, $0) } }
+            // A column drawn in full reads by its frames (a column split side by side); else tree order.
+            if drawn.count == column.count, let found = lowestHolder(inNearest: drawn, kind: kind, holds: holds) { return found }
+            if drawn.count != column.count, let found = column.last(where: { holds($0, kind) }) { return found }
+        }
+        return nil
+    }
+
+    /// Of `panes` (with frames), the lowest holding `kind` in the nearest left edge that has one.
+    private static func lowestHolder(inNearest panes: [(Pane, CGRect)], kind: RightColumnPlacement.Kind,
+                                     holds: (Pane, RightColumnPlacement.Kind) -> Bool) -> Pane? {
+        let holding = panes.filter { holds($0.0, kind) }
+        guard let nearest = holding.map(\.1.minX).min() else { return nil }
+        return holding.filter { abs($0.1.minX - nearest) <= 1 }.max { $0.1.minY < $1.1.minY }?.0
     }
 
     /// The pane right of `source` by layout order: `columns` are the screen's columns as the

@@ -216,4 +216,122 @@ struct LinkOpenPlacementTests {
         #expect(Rule.paneRight(of: "home", columns: [["home"]], takesTabs: { $0 != "home" }, recency: []) == nil)
         #expect(Rule.paneRight(of: "home", columns: [["left"], ["home"]], takesTabs: { $0 != "home" }, recency: []) == nil)
     }
+
+    // MARK: The nearest browser on the right (Leo 2026-11-11)
+
+    /// Leo 2026-11-11: "idk why those github links opened in a 3rd col instead of just to the right..."; "i think it
+    /// forgot that there was browser on the right side"; "like the opened github generated thing then github then blah
+    /// etc idk". A link from the chat joins the nearest pane on its right that already holds a browser, whichever pane
+    /// was focused last; only with none there does it split.
+    private static func frames(_ columns: [[String]]) -> [String: CGRect] {
+        var frames: [String: CGRect] = [:]
+        for (x, column) in columns.enumerated() {
+            for (y, pane) in column.enumerated() { frames[pane] = CGRect(x: x * 500, y: y * 400, width: 480, height: 380) }
+        }
+        return frames
+    }
+
+    private static func nearest(_ columns: [[String]], browsers: Set<String>, frames: [String: CGRect]? = nil,
+                                from source: String = "chat") -> String? {
+        Rule.nearestHolder(of: .browser, source: source, columns: columns, frames: frames ?? Self.frames(columns),
+                           holds: { pane, kind in kind == .browser && browsers.contains(pane) })
+    }
+
+    @Test func aChatWithABrowserOnItsRightOpensTheLinkThere() {
+        let columns = [["chat"], ["browser"]]
+        let holder = Self.nearest(columns, browsers: ["browser"])
+        #expect(holder == "browser")
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: "browser", column: ["browser"],
+                                                   sourceWidth: 1400, width: { _ in 700 }, kind: .browser, holder: holder)
+                == .pane("browser"))
+    }
+
+    /// The history Leo hit: an earlier link made a far column and took the focus, so it was the chat's "right side"
+    /// (the most recently focused strip pane); the browser right beside the chat still wins.
+    @Test func anEarlierLinksFarColumnNeverWinsOverTheBrowserBesideTheChat() {
+        let columns = [["chat"], ["middle"], ["far"]]
+        let holder = Self.nearest(columns, browsers: ["middle", "far"])
+        #expect(holder == "middle")
+        // `right` is what recency picked (the far column); the holder overrides it.
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: "far", column: ["middle"],
+                                                   sourceWidth: 1400, width: { _ in 700 }, kind: .browser, holder: holder)
+                == .pane("middle"))
+        // A terminal beside the chat: the nearest browser is the far one, never a split below the terminal.
+        #expect(Self.nearest(columns, browsers: ["far"]) == "far")
+    }
+
+    @Test func aChatWithATerminalOnItsRightKeepsTheLowerSplit() {
+        let columns = [["chat"], ["terminal"]]
+        let holder = Self.nearest(columns, browsers: [])
+        #expect(holder == nil)
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: "terminal", column: ["terminal"],
+                                                   sourceWidth: 1400, width: { _ in 700 }, kind: .browser, holder: holder)
+                == .splitBelow(of: "terminal"))
+    }
+
+    @Test func aChatAloneSplitsRight() {
+        let holder = Self.nearest([["chat"]], browsers: [])
+        #expect(holder == nil)
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil, sourceWidth: 1400, kind: .browser, holder: holder)
+                == .splitRight(of: "chat"))
+    }
+
+    @Test func aChatBetweenTwoBrowsersOpensInTheOneOnItsRight() {
+        #expect(Self.nearest([["left"], ["chat"], ["right"]], browsers: ["left", "right"]) == "right")
+    }
+
+    @Test func aBrowserOnlyOnTheLeftIsNotUsed() {
+        let holder = Self.nearest([["browser"], ["chat"]], browsers: ["browser"])
+        #expect(holder == nil)
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil, sourceWidth: 1400, kind: .browser, holder: holder)
+                == .splitRight(of: "chat"))
+    }
+
+    /// A browser pane restored from the last launch, before its first layout (no frame yet), or a strip column scrolled
+    /// out of view: the layout's column order still finds it.
+    @Test func aRestoredBrowserPaneWithNoFrameYetIsStillFound() {
+        let columns = [["chat"], ["restored"], ["far"]]
+        var frames = Self.frames(columns)
+        frames["restored"] = nil
+        #expect(Self.nearest(columns, browsers: ["restored", "far"], frames: frames) == "restored")
+        #expect(Self.nearest(columns, browsers: ["restored", "far"], frames: [:]) == "restored")
+    }
+
+    /// No strip: one column split side by side. Frames order it; a pane below the chat is not on its right.
+    @Test func aPlainSplitReadsByFrames() {
+        let frames: [String: CGRect] = [
+            "chat": CGRect(x: 0, y: 0, width: 480, height: 380), "below": CGRect(x: 0, y: 400, width: 480, height: 380),
+            "middle": CGRect(x: 500, y: 0, width: 480, height: 780), "far": CGRect(x: 1000, y: 0, width: 480, height: 780),
+        ]
+        let columns = [["chat", "below", "middle", "far"]]
+        #expect(Self.nearest(columns, browsers: ["below", "middle", "far"], frames: frames) == "middle")
+        #expect(Self.nearest(columns, browsers: ["below", "far"], frames: frames) == "far")
+        #expect(Self.nearest(columns, browsers: ["below"], frames: frames) == nil)
+    }
+
+    /// Within the nearest column, the lowest pane holding a browser, as design/pane-placement.md's same-kind reuse.
+    @Test func theNearestColumnAnswersWithItsLowestBrowser() {
+        #expect(Self.nearest([["chat"], ["top", "low"], ["far"]], browsers: ["top", "low", "far"]) == "low")
+        #expect(Self.nearest([["chat"], ["terminal", "browser"]], browsers: ["browser"]) == "browser")
+    }
+
+    /// Same Pane keeps its tab in the source.
+    @Test func samePaneStillOpensInTheSource() {
+        #expect(Rule(setting: .samePane).target(source: "chat", takesTabs: true, right: "browser", kind: .browser, holder: "browser")
+                == .pane("chat"))
+    }
+
+    /// The GitHub page (a chat's pull request link) is a browser page: its pane is the browser beside the chat.
+    @MainActor @Test func theGitHubPageCountsAsABrowserPane() {
+        func tab(_ kind: TabKind, page: String? = nil) -> TabModel {
+            var snapshot = TabSnapshot(surface: 1, kind: kind, cwd: nil)
+            if let page { snapshot.conversation = ConversationTabRef(page: page, route: "https://github.com/o/r/pull/1") }
+            return TabModel(snapshot)
+        }
+        #expect(LinkOpener.holds(tabs: [tab(.conversation, page: "github")], .browser))
+        #expect(LinkOpener.holds(tabs: [tab(.browser)], .browser))
+        #expect(!LinkOpener.holds(tabs: [tab(.conversation, page: "files")], .browser))
+        #expect(!LinkOpener.holds(tabs: [tab(.pty)], .browser))
+        #expect(!LinkOpener.holds(tabs: [tab(.conversation, page: "github")], .terminal))
+    }
 }
