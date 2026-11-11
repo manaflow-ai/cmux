@@ -1424,6 +1424,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
 
+      - name: Validate the App Review gate's lint and report
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_app_review_gate.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
