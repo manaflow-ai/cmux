@@ -36,7 +36,10 @@ struct LayoutHiddenMotionTests {
         func tearDown() { window.closeAfterTest() }
     }
 
-    @Test func showingAfterAnInterruptedScreenSwitchFinishesTheTransition() throws {
+    /// A workspace hidden in the turn of a screen switch, before any frame or layout pass, shows the new screen when
+    /// it comes back: the switch is complete in its own turn (no transition is left in flight), so the hide has
+    /// nothing to land and the show schedules no frame.
+    @Test func showingAfterAScreenSwitchFindsTheNewScreenInPlace() throws {
         let fixture = Screens()
         defer { fixture.tearDown() }
         let root = fixture.root
@@ -44,27 +47,20 @@ struct LayoutHiddenMotionTests {
         let outgoing = try #require(root.screenViews["s1"])
         fixture.model.selectScreen("s2")
         root.syncWithModel()
-        #expect(incoming.alphaValue == 0)
+        #expect(!incoming.isHidden && incoming.alphaValue == 1 && incoming.frame == root.bounds, "the switch is not complete in its turn")
         #expect(!incoming.hasMotion)
-        #expect(root.driver.isRunning)
+        #expect(outgoing.isHidden)
+        #expect(!root.driver.isRunning, "the switch asked for display frames")
 
-        // No frame or layout pass ran before the workspace parks. The park lands the switch in flight with the panes
-        // (c5a36a3fe86, LayoutParkedLiveTests), so the show finds nothing left to slide and schedules no frame.
         root.isHidden = true
         #expect(!root.driver.isRunning)
         root.isHidden = false
         #expect(root.isLive)
-        #expect(!root.driver.isRunning, "the show restarted a screen switch the park already landed")
-        let scheduler = FrameScheduler.forWindow(fixture.window)
-        for tick in 0..<240 {
-            if !root.driver.isRunning { break }
-            scheduler.frameDidFire(timestamp: Double(tick) / 120)
-        }
+        #expect(!root.driver.isRunning, "the show started a frame for a switch that was complete")
         #expect(!incoming.isHidden)
         #expect(incoming.alphaValue == 1)
-        #expect(incoming.frame.origin == root.bounds.origin)
+        #expect(incoming.frame == root.bounds)
         #expect(outgoing.isHidden)
-        #expect(!root.driver.isRunning)
     }
 
     @Test func showingAnUnchangedSettledRootLeavesTheDriverIdle() {

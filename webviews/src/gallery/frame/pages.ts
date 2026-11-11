@@ -380,6 +380,11 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
+  if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
+  if (state.freeUp) provider.freeUp = state.freeUp;
+  if (state.idle) provider.idle = [...state.idle];
+  if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
@@ -417,6 +422,16 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "create-at-cap") {
+    clickLater(".cloud-create-button");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-create-submit")?.click(), 320);
+  }
+  if (state.action === "cleanup-team") {
+    setTimeout(() => {
+      const team = document.querySelector<HTMLDetailsElement>(".cloud-cleanup-team");
+      if (team) team.open = true;
+    }, 240);
+  }
   // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
   if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {

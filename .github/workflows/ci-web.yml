@@ -461,7 +461,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -1319,20 +1319,27 @@ jobs:
 
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
+          # One call with every result (scripts/ci/needs_verdict.py): a broken route or subarea is a red, a job that judged
+          # nothing is no verdict, and a failure anywhere wins.
+          results = {}
           for route in ("web", "macos", "agent_session_web"):
               if inputs.get(route) not in {"true", "false"}:
-                  print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
-                  sys.exit(1)
+                  results[route] = f"invalid route {route}={inputs.get(route)!r}"
 
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
-          if scope_required:
-              exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
-              subareas = scope.get("outputs", {})
-              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
+          subarea_names = ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")
+          if scope_required and scope.get("outputs"):
+              subareas = scope["outputs"]
+              for name in subarea_names:
                   if subareas.get(name) not in {"true", "false"}:
-                      print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
-                      sys.exit(1)
+                      results[f"subarea {name}"] = f"invalid web subarea {name}={subareas.get(name)!r}"
+          elif scope_required:
+              # A scope that wrote no outputs names no job as required: each may skip, and its failure is still a red.
+              # Succeeding without them is a red of its own; any other result says why in the call below.
+              subareas = {name: "unknown" for name in subarea_names}
+              results["subareas"] = {"success": "invalid: web-subarea-scope succeeded with no outputs"}.get(
+                  scope["result"], "success")
           else:
               subareas = {
                   "db": "false",
@@ -1344,18 +1351,20 @@ jobs:
                   "unit_tests": "false",
               }
 
+          # .get: a scope with partial outputs leaves some names out (each is an invalid entry above), and the call below
+          # still has to name every failed child.
           required = {
               "web-subarea-scope": scope_required,
-              "web-typecheck": inputs["web"] == "true" and subareas["typecheck"] == "true",
-              "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
-              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
-              "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
-              "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
-              "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
-              "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
+              "web-typecheck": inputs["web"] == "true" and subareas.get("typecheck") == "true",
+              "web-production-build": inputs["web"] == "true" and subareas.get("production_build") == "true",
+              "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
+              "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
+              "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
+              "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }
-          exit_with_verdict({job: needs[job]["result"] for job in sorted(required)}, "Web status",
-                            {job for job, is_required in required.items() if not is_required})
+          results.update({job: needs[job]["result"] for job in sorted(required)})
+          exit_with_verdict(results, "Web status", {job for job, is_required in required.items() if not is_required})
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY

@@ -378,6 +378,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerTurnCheckpoint
+        | ResourceOperation::CloudOwnerTurnRewind
+        | ResourceOperation::CloudOwnerTurns
         | ResourceOperation::CloudPreviewsRefresh
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink

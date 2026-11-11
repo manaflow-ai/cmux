@@ -66,8 +66,7 @@ public final class AppSectionProvider {
     private func resolve(_ contribution: String) -> (app: String, section: AppImplementation)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
         guard parts.count == 2, isPresented(parts[0]), let app = client.app(parts[0]) else { return nil }
-        let sections = app.manifest.sections.filter(\.hasScene)
-        guard let section = sections.first(where: { $0.id == parts[1] }) ?? (sections.count == 1 ? sections.first : nil) else { return nil }
+        guard let section = app.manifest.sceneSection(parts[1]) else { return nil }
         return (app.id, section)
     }
 

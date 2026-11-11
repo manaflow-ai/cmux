@@ -190,27 +190,55 @@ import Testing
         #expect(store.messages.isEmpty)
     }
 
-    /// Two conversations never share a kept-transcript file (CMUX-281): every character but ASCII
-    /// letters, digits and `-` became `_`, so `mac:a.b`, `mac:a/b` and `mac_a_b` read one file.
-    @Test func distinctKeysKeepDistinctFiles() async throws {
+    /// Two conversations never share kept history (CMUX-281): the JSON files once mapped every
+    /// character but ASCII letters, digits and `-` to `_`, so `mac:a.b`, `mac:a/b` and `mac_a_b`
+    /// read one file. History is in SQLite now, keyed by the exact conversation key.
+    @Test func distinctKeysKeepDistinctHistory() async throws {
         let keys = ["mac:a.b", "mac:a/b", "mac_a_b", "mac:a_b", "mac:a b", "mac:é", "mac:è", "", "_", "default",
                     String(repeating: "x", count: 300), String(repeating: "x", count: 299) + "y"]
-        let names = keys.map(ConversationTranscriptCache.fileName(for:))
-        #expect(Set(names).count == keys.count, "two keys share a file: \(names)")
-        for name in names {
-            #expect(name.utf8.count <= 200)
-            #expect(name.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || "-_~".unicodeScalars.contains($0)) })
-        }
-        #expect(ConversationTranscriptCache.fileName(for: "mac:m1") == "mac_3Am1")
-
         let directory = Self.directory()
         let first = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
-        first.save("mac:a.b", info: nil, meID: "dot", messages: [])
-        first.save("mac:a/b", info: nil, meID: "slash", messages: [])
+        for (index, key) in keys.enumerated() { first.save(key, info: nil, meID: "me\(index)", messages: []) }
         first.flush()
         let relaunched = ConversationTranscriptCache(directory: directory)
         defer { relaunched.removeAll() }
-        #expect(await relaunched.load("mac:a.b")?.meID == "dot")
-        #expect(await relaunched.load("mac:a/b")?.meID == "slash")
+        for (index, key) in keys.enumerated() {
+            #expect(await relaunched.load(key)?.meID == "me\(index)", "key \(key)")
+        }
+    }
+
+    /// Chats are kept up to a storage limit, latest kept (the user, 2026-11-09): over the limit,
+    /// the conversation written longest ago loses its oldest messages first, never its newest
+    /// `limit`, and the conversations written since keep everything.
+    @Test func theOldestConversationsShrinkFirstAtTheByteLimit() async throws {
+        let directory = Self.directory()
+        let messages = (1...600).map { ConversationMessage(id: "m\($0)", seq: $0, clientMessageID: nil, senderID: "lc",
+                                                           sentAt: Date(timeIntervalSince1970: Double($0)),
+                                                           text: String(repeating: "message \($0) ", count: 20)) }
+        let cache = ConversationTranscriptCache(directory: directory, limit: 100, byteLimit: 600 * 1024, writeDelay: .milliseconds(0))
+        defer { cache.removeAll() }
+        cache.save("old", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        cache.save("new", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        let old = await cache.storedCount("old"), new = await cache.storedCount("new")
+        #expect(old < 600 && old >= 100)
+        #expect(new == 600)
+        // The newest messages of the trimmed one are the ones kept, and its range says so.
+        #expect(await cache.syncedRange("old")?.newestSeq == 600)
+        #expect(await cache.syncedRange("old")?.complete == false)
+
+        // The static file trim other caches use: the file written longest ago goes first.
+        let files = Self.directory()
+        try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: files) }
+        for (name, age) in [("a", 1000.0), ("b", 500.0), ("c", 0.0)] {
+            let url = files.appending(path: name)
+            try Data(count: 1000).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path(percentEncoded: false))
+        }
+        ConversationTranscriptCache.trim(files, to: 2500, keeping: files.appending(path: "c"))
+        #expect(!FileManager.default.fileExists(atPath: files.appending(path: "a").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: files.appending(path: "b").path(percentEncoded: false)))
     }
 }

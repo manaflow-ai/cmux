@@ -135,15 +135,30 @@ fn install_panic_log() {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
-    #[allow(
-        clippy::panic,
-        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
-    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
-            // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
+            .spawn(|| test_panic("acpmux test panic"));
+    }
+}
+
+/// Debug builds only: the one panic the test triggers below raise.
+#[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+)]
+fn test_panic(message: &str) -> ! {
+    // crash-allow: debug-only test trigger for the acpmux panic log
+    panic!("{message}");
+}
+
+/// Debug builds only: `ACPMUX_TEST_PANIC=<task>` makes that task of the daemon panic
+/// (tests/panic_log.rs).
+#[cfg(debug_assertions)]
+fn test_panic_in(task: &str) {
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok(task) {
+        test_panic(&format!("acpmux test panic in {task}"));
     }
 }
 
@@ -514,10 +529,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // outbox is set aside (kept for a look, never read again) and this one starts empty.
         if cloned {
             let path = home().join("outbox.json");
-            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
-                && e.kind() != std::io::ErrorKind::NotFound
+            let journal = crate::hub::outbox::journal_path(&path);
+            // The journal first: a start cut short between the two never reads the copied
+            // journal over an empty snapshot.
+            for (from, to) in
+                [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                tracing::warn!("copied machine's outbox not set aside: {e}");
+                if let Err(e) = std::fs::rename(&from, home().join(to))
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!("copied machine's outbox not set aside: {e}");
+                }
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
@@ -528,7 +550,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
         hub.watches.open(&home().join("watches.json"));
     }
-    crate::hub::watches::Watches::start(&hub);
+    hub.start_watches();
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
@@ -569,7 +591,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+        let catalog = hub.catalog.clone();
+        crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -581,6 +604,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             record: none.join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -609,6 +633,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
+    // The host's sender token, which our own tools present to be named verified
+    // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
+    // as before, so a failure is only logged.
+    if let Err(e) = crate::sender_token::ensure(&home()) {
+        tracing::warn!("the host sender token: {e}");
+    }
     // The pid file only explains a dropped connection (`client::closed_error`):
     // a daemon that cannot write it (a full disk) serves without it and tries
     // again, never exits (`daemon/persist_retry.rs`).
@@ -763,14 +793,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_watch();
     // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
     let metadata = {
-        let hub = hub.clone();
-        tokio::spawn(async move { hub.load_store_async().await })
+        let loading = hub.clone();
+        crate::supervise::once("store load", &hub.fatal, async move {
+            loading.load_store_async().await;
+        })
     };
     hub.begin_startup_work();
     let startup = {
-        let hub = hub.clone();
-        tokio::spawn(async move {
+        let (hub, fatal) = (hub.clone(), hub.fatal.clone());
+        // A startup that panicked can never finish: the daemon stops for a restart.
+        crate::supervise::once("startup", &fatal, async move {
             hub.wait_store().await;
+            #[cfg(debug_assertions)]
+            test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.
@@ -812,12 +847,23 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.run_after_startup().await;
         })
     };
-    tokio::spawn(notify::notify_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("notify", &hub.fatal.clone(), move || {
+            notify::notify_loop(hub.clone())
+        });
+    }
+    let weak = Arc::downgrade(&hub);
     // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
-    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
+    }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
-    tokio::spawn(Hub::desktop_bridge_loop(Arc::downgrade(&hub)));
+    crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
+        Hub::desktop_bridge_loop(weak.clone())
+    });
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
@@ -1031,6 +1077,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
+    hub.close_owned_tasks().await;
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.

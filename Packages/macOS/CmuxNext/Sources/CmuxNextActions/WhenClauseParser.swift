@@ -12,7 +12,7 @@ public nonisolated struct WhenClauseParseError: Error, Equatable, Sendable {
 
 extension WhenClause {
     /// Parses `text`. Throws ``WhenClauseParseError``.
-    public static func parse(_ text: String) throws(WhenClauseParseError) -> WhenClause {
+    public nonisolated static func parse(_ text: String) throws(WhenClauseParseError) -> WhenClause {
         var parser = WhenClauseParser(Array(text.utf8))
         let clause = try parser.parseOr()
         parser.skipSpace()

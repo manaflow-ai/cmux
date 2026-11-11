@@ -213,6 +213,8 @@ fn the_action_and_trace_id_follow_the_message() {
             message: Some("It failed.".into()),
             action: Some("Run `cmux vm ls`.".into()),
             trace_id: Some("t-1".into()),
+            retryable: None,
+            retry_after_s: None,
         }
     );
     // A blank action is none; the ui block's message and trace id win or fill in.
@@ -1419,4 +1421,471 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         .unwrap_err();
         assert_eq!(failure, Failure::http(500, None, None));
     });
+}
+
+// MARK: turn checkpoints ("back to before this turn")
+
+mod turn_checkpoints {
+    use std::future::Future;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::super::turns::{self, Pace, auto_turn_seq, refusal, retryable};
+    use super::*;
+
+    const CARRIER: &str = "vm_carrier0000000000001";
+    const RESTORED: &str = "vm_restored000000000001";
+
+    fn fast() -> Pace {
+        Pace { pause: Duration::from_millis(10), deadline: Duration::from_secs(5) }
+    }
+
+    fn block<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(future)
+    }
+
+    fn capture(session: &str, turn: &str, created: i64) -> Value {
+        json!({
+            "id": format!("cap-{turn}"), "workspace": "ws-1", "session": session, "turn": turn,
+            "machineId": "wm-1", "machineGeneration": 1, "snapshotId": format!("snap-{session}-{turn}"),
+            "status": "ready", "createdAt": created, "updatedAt": created,
+        })
+    }
+
+    fn connection(generation: i64, carrier: &str) -> Reply {
+        ok(&json!({ "machineId": "wm-1", "generation": generation, "provider": "clouddo", "connectionMachine": carrier }).to_string())
+    }
+
+    fn ready(generation: i64) -> Reply {
+        ok(&json!({ "id": "cap-1", "snapshotId": "snap-1", "status": "ready", "machineGeneration": generation }).to_string())
+    }
+
+    fn args(extra: Value) -> Value {
+        let mut base =
+            json!({ "workspace": "ws-1", "session": "sess-1", "turnSeq": 4, "clientKey": "ck-1" });
+        if let (Some(base), Value::Object(extra)) = (base.as_object_mut(), extra) {
+            base.extend(extra);
+        }
+        base
+    }
+
+    #[test]
+    fn a_first_checkpoint_binds_the_chats_machine_then_snapshots_and_finishes() {
+        let connections = Arc::new(AtomicUsize::new(0));
+        let reads = Arc::clone(&connections);
+        let (origin, seen) = fake(move |s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => {
+                if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Some((404, r#"{"_tag":"MachineNotFound","code":"workspace_machine.not_found","message":"this workspace has no machine"}"#.into()))
+                } else {
+                    connection(0, CARRIER)
+                }
+            }
+            "POST /v1/workspaces/ws-1/machine/import" => connection(0, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/snapshot" => ready(0),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/finish" => ready(0),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(r#"{"captures":[]}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turn_checkpoint",
+            args(json!({ "carrierMachine": CARRIER })),
+        ))
+        .unwrap();
+        assert_eq!(answer["turn"], "auto-t4-g0");
+        assert_eq!(answer["snapshotId"], "snap-1");
+        assert_eq!(answer["imported"], true);
+        assert_eq!(answer["machineId"], "wm-1");
+        assert_eq!(answer["generation"], 0);
+        let seen = seen.lock().unwrap();
+        let targets: Vec<String> = seen.iter().map(Seen::target).collect();
+        assert_eq!(
+            targets,
+            [
+                "GET /v1/workspaces/ws-1/machine/connection",
+                "POST /v1/workspaces/ws-1/machine/import",
+                "GET /v1/workspaces/ws-1/machine/connection",
+                "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/snapshot",
+                "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/finish",
+                "GET /v1/workspaces/ws-1/machine/turns",
+            ]
+        );
+        assert_eq!(
+            seen[1].json(),
+            json!({ "carrierMachine": CARRIER, "expectedGeneration": 0, "clientKey": "ck-1-import" })
+        );
+        assert_eq!(seen[1].header("authorization").as_deref(), Some("Bearer access"));
+    }
+
+    #[test]
+    fn a_checkpoint_fences_on_the_live_machine_and_generation() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(3, RESTORED),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/finish" => ready(3),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(r#"{"captures":[]}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turn_checkpoint",
+            args(json!({ "carrierMachine": CARRIER })),
+        ))
+        .unwrap();
+        assert_eq!(answer["imported"], false);
+        assert_eq!(answer["generation"], 3);
+        assert_eq!(answer["connectionMachine"], RESTORED);
+        let seen = seen.lock().unwrap();
+        assert_eq!(
+            seen[1].json(),
+            json!({ "session": "sess-1", "clientKey": "ck-1-g3", "expectedMachine": "wm-1", "expectedGeneration": 3 })
+        );
+        assert_eq!(answer["turn"], "auto-t4-g3");
+        assert_eq!(seen[2].target(), "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/finish");
+        assert_eq!(
+            seen[2].json(),
+            json!({ "session": "sess-1", "expectedMachine": "wm-1", "expectedGeneration": 3 })
+        );
+    }
+
+    #[test]
+    fn a_workspace_with_no_machine_and_no_carrier_is_the_platforms_refusal() {
+        let (origin, seen) = fake(|_| {
+            Some((404, r#"{"_tag":"MachineNotFound","code":"workspace_machine.not_found","message":"no machine"}"#.into()))
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({}))));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                404,
+                Some("workspace_machine.not_found".into()),
+                Some("no machine".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_refused_snapshot_is_answered_at_once_and_never_finished() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            _ => Some((503, r#"{"_tag":"MachineUnavailable","code":"machine.snapshot_unsupported","message":"no turns here"}"#.into())),
+        }
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({}))));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                503,
+                Some("machine.snapshot_unsupported".into()),
+                Some("no turns here".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_rewind_retries_the_same_key_while_the_restore_is_pending() {
+        let rewinds = Arc::new(AtomicUsize::new(0));
+        let tries = Arc::clone(&rewinds);
+        let reads = Arc::new(AtomicUsize::new(0));
+        let reads_seen = Arc::clone(&reads);
+        let (origin, seen) = fake(move |s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => {
+                if reads_seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                    connection(2, CARRIER)
+                } else {
+                    connection(3, RESTORED)
+                }
+            }
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t4-g0", 100), capture("sess-1", "auto-t4-g1", 300),
+                capture("sess-2", "auto-t4-g2", 900), capture("sess-1", "auto-t5-g2", 800),
+            ]})
+            .to_string()),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/rewind" => {
+                if tries.fetch_add(1, Ordering::SeqCst) < 2 {
+                    Some((503, r#"{"_tag":"MachineUnavailable","code":"machine.turn_restore_pending","message":"retry"}"#.into()))
+                } else {
+                    ok(r#"{"machine":{"id":"wm-1"},"capture":{},"generation":3,"rewindId":"rw-1"}"#)
+                }
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::rewind(&http, &request.args, fast())).unwrap();
+        assert_eq!(answer["generation"], 3);
+        assert_eq!(answer["connectionMachine"], RESTORED);
+        assert_eq!(answer["rewindId"], "rw-1");
+        assert_eq!(
+            answer["turn"], "auto-t4-g1",
+            "the newest checkpoint before turn 4 of this session"
+        );
+        assert_eq!(rewinds.load(Ordering::SeqCst), 3);
+        let seen = seen.lock().unwrap();
+        let bodies: Vec<Value> =
+            seen.iter().filter(|s| s.line.contains("/rewind")).map(Seen::json).collect();
+        let want = json!({ "session": "sess-1", "clientKey": "ck-1", "expectedMachine": "wm-1", "expectedGeneration": 2 });
+        assert!(bodies.iter().all(|b| *b == want), "{bodies:?}");
+    }
+
+    #[test]
+    fn a_rewind_takes_the_checkpoint_nearest_before_the_prompt() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t3-g0", 100), capture("sess-1", "auto-t7-g1", 300),
+                capture("sess-1", "auto-t12-g2", 900), capture("sess-2", "auto-t9-g2", 950),
+            ]})
+            .to_string()),
+            target if target.ends_with("/rewind") => ok(r#"{"generation":3,"rewindId":"rw-2"}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let request =
+            request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({ "turnSeq": 10 })));
+        let answer = go(&request).unwrap();
+        assert_eq!(answer["turn"], "auto-t7-g1");
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|s| s.target() == "POST /v1/workspaces/ws-1/machine/turns/auto-t7-g1/rewind")
+        );
+    }
+
+    #[test]
+    fn a_rewind_refused_for_good_is_not_retried() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => {
+                ok(&json!({ "captures": [capture("sess-1", "auto-t4-g1", 1)] }).to_string())
+            }
+            _ => Some((400, r#"{"_tag":"MachineBadRequest","code":"machine.turn_generation_conflict","message":"stale"}"#.into())),
+        }
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::rewind(&http, &request.args, fast()));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                400,
+                Some("machine.turn_generation_conflict".into()),
+                Some("stale".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_rewind_to_a_turn_with_no_checkpoint_is_refused_before_any_rewind() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => {
+                ok(&json!({ "captures": [capture("sess-2", "auto-t4-g1", 1)] }).to_string())
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({}))));
+        assert!(
+            matches!(answer, Err(Failure::Http { status: 404, code: Some(ref c), .. }) if c == "machine.turn_capture_not_found")
+        );
+        assert!(seen.lock().unwrap().iter().all(|s| !s.line.contains("/rewind")));
+    }
+
+    #[test]
+    fn retention_deletes_only_this_sessions_oldest_automatic_checkpoints() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/finish" => ready(1),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t2-g1", 200),
+                capture("sess-1", "auto-t1-g0", 100),
+                capture("sess-1", "auto-t4-g1", 400),
+                capture("sess-2", "auto-t1-g0", 50),
+                capture("sess-1", "manual-checkpoint", 10),
+            ]})
+            .to_string()),
+            target if target.starts_with("DELETE /v1/workspaces/ws-1/machine/turns/") => {
+                ok(r#"{"deleted":true}"#)
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::checkpoint(&http, &request.args, fast(), Some(2))).unwrap();
+        assert_eq!(
+            answer["retention"],
+            json!({ "kept": 2, "deleted": ["auto-t1-g0"], "failed": [] })
+        );
+        let seen = seen.lock().unwrap();
+        let deletes: Vec<String> =
+            seen.iter().map(Seen::target).filter(|t| t.starts_with("DELETE")).collect();
+        assert_eq!(deletes, ["DELETE /v1/workspaces/ws-1/machine/turns/auto-t1-g0?session=sess-1"]);
+    }
+
+    #[test]
+    fn retention_off_or_a_refused_delete_never_fails_the_checkpoint() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/finish" => ready(1),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t4-g1", 400), capture("sess-1", "auto-t3-g1", 300),
+            ]}).to_string()),
+            _ => Some((404, r#"{"_tag":"MachineNotFound","code":"machine.snapshot_not_found","message":"no snapshot"}"#.into())),
+        }
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::checkpoint(&http, &request.args, fast(), Some(1))).unwrap();
+        assert_eq!(answer["retention"]["deleted"], json!([]));
+        assert_eq!(answer["retention"]["failed"][0]["turn"], "auto-t3-g1");
+        assert_eq!(answer["retention"]["failed"][0]["error"]["status"], 404);
+        let off = block(turns::checkpoint(&http, &request.args, fast(), None)).unwrap();
+        assert_eq!(off["retention"], json!({ "kept": null, "deleted": [], "failed": [] }));
+        let lists =
+            seen.lock().unwrap().iter().filter(|s| s.target().ends_with("/machine/turns")).count();
+        assert_eq!(lists, 1, "retention off reads no list");
+    }
+
+    #[test]
+    fn the_turns_list_answers_ready_checkpoints_newest_first() {
+        let (origin, _) = fake(|_| {
+            let mut capturing = capture("sess-1", "auto-t9-g1", 900);
+            capturing["status"] = json!("capturing");
+            ok(&json!({ "machineId": "wm-1", "generation": 1, "revision": 4, "gate": { "phase": "idle" },
+                "captures": [capture("sess-1", "auto-t2-g1", 200), capture("sess-1", "auto-t5-g1", 500), capturing, capture("sess-2", "x", 1)] })
+            .to_string())
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turns",
+            json!({ "workspace": "ws-1", "session": "sess-1" }),
+        ))
+        .unwrap();
+        let turns: Vec<&str> = answer["captures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["turn"].as_str().unwrap())
+            .collect();
+        assert_eq!(turns, ["auto-t5-g1", "auto-t2-g1"]);
+        assert_eq!(answer["captures"][0]["turnSeq"], 5);
+        assert_eq!(answer["captures"][0]["snapshotId"], "snap-sess-1-auto-t5-g1");
+    }
+
+    #[test]
+    fn bad_ids_are_refused_before_any_request() {
+        let (origin, seen) = fake(|_| ok("{}"));
+        for (call, bad) in [
+            ("owner.turn_checkpoint", json!({ "workspace": "ws/../x" })),
+            ("owner.turn_checkpoint", json!({ "turnSeq": 0 })),
+            ("owner.turn_checkpoint", json!({ "clientKey": "a b" })),
+            ("owner.turn_checkpoint", json!({ "carrierMachine": "vm_short" })),
+            ("owner.turn_rewind", json!({ "session": "s/x" })),
+            ("owner.turns", json!({ "workspace": "" })),
+        ] {
+            assert!(
+                matches!(
+                    go(&request(&origin, Auth::Owner, call, args(bad.clone()))),
+                    Err(Failure::Transport(_))
+                ),
+                "{call} {bad}"
+            );
+        }
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_engines_turn_ids_and_the_retryable_answers() {
+        assert_eq!(auto_turn_seq("auto-t12-g0"), Some(12));
+        assert_eq!(auto_turn_seq("auto-t12-g7"), Some(12));
+        for not_ours in [
+            "auto-t12",
+            "auto-t-g1",
+            "auto-t0-g1",
+            "auto-t01-g1",
+            "auto-t1-g01",
+            "auto-t1-g",
+            "t12-g1",
+            "auto-t1x-g1",
+            "manual",
+        ] {
+            assert_eq!(auto_turn_seq(not_ours), None, "{not_ours}");
+        }
+        let pending = refusal(
+            503,
+            Some(
+                &json!({ "_tag": "MachineUnavailable", "code": "machine.turn_restore_pending", "message": "m" }),
+            ),
+        );
+        assert!(retryable(&pending));
+        let worker = refusal(
+            503,
+            Some(&json!({ "error": { "code": "machine.rewind_pause_pending", "message": "m" } })),
+        );
+        assert!(retryable(&worker));
+        assert!(retryable(&Failure::http(502, None, None)));
+        assert!(!retryable(&Failure::http(503, Some("machine.rewind_not_admitted".into()), None)));
+        assert!(!retryable(&Failure::http(
+            404,
+            Some("machine.turn_capture_not_found".into()),
+            None
+        )));
+    }
+
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192) as a turn's step
+    /// handles it: the body's `retryable` decides (a busy machine's 409 and an outage's 503 are
+    /// sent again, a cap's 403 and a final 503 are not), and a rate limit's 429 is retried too.
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for row in PLATFORM {
+            let body = json!({
+                "_tag": "MachineRefusal", "code": row.code, "message": "m",
+                "retryable": row.retryable,
+            });
+            assert_eq!(
+                retryable(&refusal(row.status, Some(&body))),
+                row.handling() != Handling::Final,
+                "{} {}",
+                row.status,
+                row.code
+            );
+        }
+        // An outage on a workspace machine route: #1192's MachineUnavailable says retry.
+        let outage = json!({
+            "_tag": "MachineUnavailable", "code": "machine.placement_unavailable",
+            "message": "Placement could not finish. Retry with the same client key.",
+            "retryable": true, "cause": "cloud.provider.unavailable: down",
+        });
+        assert!(retryable(&refusal(503, Some(&outage))));
+        // A rate limit waits its own window, not the pace's pause.
+        let limited = refusal(
+            429,
+            Some(&json!({
+                "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "message": "m",
+                "retryable": true, "retryAfterSeconds": 3,
+            })),
+        );
+        assert_eq!(turns::wait(&limited, fast()), Duration::from_secs(3));
+        assert_eq!(turns::wait(&Failure::http(503, None, None), fast()), fast().pause);
+        // A 429 whose window is only in its Retry-After header waits that window, not the default.
+        let header_only = turns::refusal_with(
+            429,
+            Some(
+                &json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true }),
+            ),
+            Some("120"),
+        );
+        assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));
+    }
 }

@@ -15,8 +15,10 @@ public import CmuxNextDesign
 @MainActor
 public final class HomeNativeFixture {
     public let container = NSView()
-    /// The view the transcript fills.
-    private var host: NSView { container }
+    /// With `compose`, the Home split's chat column the transcript sits in, under its compose button.
+    private let column: HomeChatColumnView?
+    /// The view the transcript fills: the container, or with `compose` the chat column's content.
+    private var host: NSView { column?.content ?? container }
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
@@ -64,10 +66,18 @@ public final class HomeNativeFixture {
     }
     #endif
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
+    /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
+    /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
+        column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
         store = HomeStore(source: source)
+        if let column {
+            column.autoresizingMask = [.width, .height]
+            column.showsCompose = true
+            container.addSubview(column)
+        }
         store.start()
         loading = Task { [weak self] in await self?.load() }
     }

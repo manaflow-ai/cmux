@@ -200,9 +200,10 @@ public final class SetupCardPageProvider: PageProvider {
         default: break
         }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
-            // A VoiceOver press reaches this WebKit page with no click or key (manaflow-ai/cmux#37809), so it is
-            // refused here; with VoiceOver on, a press on a row opens the Agents window, a Chromium page where the
-            // same press counts (`ChromiumAccessibilityPress`), and Hide only takes the card away.
+            // A VoiceOver press reaches a WebKit page with no click or key; it counts once its trusted click is seen
+            // (`PageAccessibilityPress`, manaflow-ai/cmux#37809). A press that still has no gesture with VoiceOver on
+            // opens the Agents window from a row, a Chromium page where the same press counts
+            // (`ChromiumAccessibilityPress`), and Hide only takes the card away.
             if environment.screenReader(), !context.userGesture {
                 switch op {
                 case "cmux.setup.run": environment.openAgents()

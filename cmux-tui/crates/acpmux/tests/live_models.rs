@@ -44,7 +44,7 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
         .unwrap_or_else(|e| panic!("{e:#}"));
     eprintln!("live claude probe (cold): {} ms", started.elapsed().as_millis());
     // No "default" row, no disabled model, no update notice.
-    assert_eq!(ids(&models), ["opus", "sonnet[1m]", "claude-opus-5"]);
+    assert_eq!(ids(&models), ["opus", "sonnet[1m]", "claude-opus-5", "claude-fable-5-2"]);
     let opus = &models[0];
     assert_eq!(opus.name, "Opus 5.5", "a description that extends the name wins");
     assert_eq!(opus.efforts, ["low", "medium", "high", "xhigh", "max"]);
@@ -53,6 +53,8 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
     assert_eq!(models[1].efforts, ["low", "medium", "high", "max"]);
     assert_eq!(models[1].name, "Sonnet (1M context)");
     assert_eq!(models[2].fast, Some(false));
+    // A gateway row names the vendor ("Claude Fable 5.2"); the picker's rows do not.
+    assert_eq!(models[3].name, "Fable 5.2");
 }
 
 #[tokio::test]

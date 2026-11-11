@@ -66,7 +66,7 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 layer.transform = prototypeTransform(scale: 0.86)
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(scale: 0.86)))
@@ -74,7 +74,7 @@ extension TabCell: StatusIndicatorConfigClient {
                 layer.transform = CATransform3DIdentity
             }
         case .fadeSlide:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 layer.transform = prototypeTransform(y: 2)
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(y: 2)))
@@ -111,11 +111,11 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(scale: 0.86)), movementFade: .fadeOut)
             }
         case .fadeSlide:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(y: 2)), movementFade: .fadeOut)
             }
         case .instant:

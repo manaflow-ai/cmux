@@ -1,7 +1,5 @@
 import AppKit
 import CmuxHomeCore
-import CmuxNextHome
-import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextSettings
 
@@ -9,6 +7,11 @@ import CmuxNextSettings
 /// window shows it (sections, rows, the shown conversation), the user's
 /// Chiefs and team size, for preflights on a never-key test window.
 extension DebugHome {
+    static func frame(_ rect: NSRect) -> CmuxNextSettings.JSONValue {
+        .object(["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
+                 "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
+    }
+
     /// Contacts the user has no direct conversation with.
     static func teammatesWithoutDM(rows: [InboxRow], contacts: [HomeContact]) -> Int {
         let peers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
@@ -18,10 +21,8 @@ extension DebugHome {
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
-        // The Messages page of the active window (classic Home's, else the docked one): its list draws these lines.
-        let view = AppActions.listedPage(services)
-        let listed = HomeArchivedChiefs(home.directory.archivedChiefs, me: store.me?.id).visible(store.rows)
-        let lines: [CmuxNextSettings.JSONValue] = listed.homeLines.map { line in
+        let view = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView // as the fixture finds it
+        let lines: [CmuxNextSettings.JSONValue] = (view?.lines ?? []).map { line in
             switch line {
             case .header(let kind): return .object(["header": .string(String(describing: kind))])
             case .row(let row):
@@ -55,15 +56,45 @@ extension DebugHome {
             } ?? .null,
             // Teammates with no DM yet (the search's Teammates section draws from these).
             "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
+            // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
+            "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),
-            // Every Home tab (`home.tab`): its key, window and shown conversation.
-            "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
+            // The Messages-style sidebar as drawn: pinned grid, rows, its width.
+            "sidebar": view.map { page in
                 .object([
+                    "pinned": .array(page.list.model.pinned.map { .string($0.id.rawValue) }),
+                    "rows": .array(page.list.model.rows.map { .string($0.id.rawValue) }),
+                    "selected": page.list.selection.map { .string($0.rawValue) } ?? .null,
+                    "width": .number(Double(page.split.sidebarWidth)),
+                    "window": page.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
+                        .map { .string($0) } ?? .null,
+                    "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
+                    // Tiles then rows as drawn (window points from the top-left), for debug.mouse drags.
+                    "items": .array(page.list.itemFramesInWindow.map { item in
+                        .object(["id": .string(item.id.rawValue), "pinned": .bool(item.pinned), "frame": Self.frame(item.frame)])
+                    }),
+                ])
+            } ?? .null,
+            // Every window's Home sidebar: its width and divider (window points from the top-left).
+            "sidebar_windows": .array(services.windows.controllers.compactMap { controller -> JSONValue? in
+                guard let page = controller.topPages.views[.home] as? TopHomePageView else { return nil }
+                return .object([
+                    "window": .string(controller.state.id),
+                    "width": .number(Double(page.split.sidebarWidth)),
+                    "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
+                ])
+            }),
+            // Every native Home tab (`home.tab`): its key, window, shown conversation and the
+            // newest texts its own transcript view holds.
+            "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
+                let transcript = tab.view.host.flatMap(HomePageTab.transcript(in:))
+                return .object([
                     "key": .string(tab.key),
                     "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
                         .map { .string($0) } ?? .null,
                     "visible": .bool(tab.view.window != nil && !tab.view.isHiddenOrHasHiddenAncestor),
                     "shown": tab.view.shown.map { .string($0.rawValue) } ?? .null,
+                    "transcript_tail": .array((transcript?.debugMessageTexts() ?? []).map { .string($0) }),
                 ])
             }),
             "chiefs": .array(home.directory.chiefs.map { chief -> JSONValue in

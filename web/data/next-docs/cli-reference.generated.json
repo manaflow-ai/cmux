@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 860,
-    "mcp": 774
+    "verbs": 862,
+    "mcp": 778
   },
   "nouns": [
     {
@@ -1806,6 +1806,32 @@
           "id": "device.add",
           "mcp": true,
           "mcpTool": "app_device_add"
+        }
+      ]
+    },
+    {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
         }
       ]
     },
@@ -3861,20 +3887,6 @@
           "mcpTool": null
         },
         {
-          "command": "cmux settings use-animations-without-bounce",
-          "title": "Use Animations Without Bounce",
-          "id": "appearance.animations.bounce.none",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-bouncy-animations",
-          "title": "Use Bouncy Animations",
-          "id": "appearance.animations.bounce.subtle",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
           "command": "cmux settings use-chromium-by-default",
           "title": "Use Chromium for New Browser Tabs",
           "id": "browser.defaultEngine.chromium",
@@ -4352,6 +4364,13 @@
           "id": "sidebar.spaces.show",
           "mcp": true,
           "mcpTool": "app_sidebar_show_spaces"
+        },
+        {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
         },
         {
           "command": "cmux sidebar toggle-item-archive",
@@ -6259,6 +6278,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 75
+    "systemChange": 73
   }
 }

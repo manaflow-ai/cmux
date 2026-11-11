@@ -36,11 +36,12 @@ JOBS = "ci-guard-group tooling-tests release-notary"
 
 
 def load():
-    spec = importlib.util.spec_from_file_location("portable_job_placement", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["portable_job_placement"] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(SCRIPT.parent) not in sys.path:
+        sys.path.insert(0, str(SCRIPT.parent))
+    import portable_job_placement
+    return portable_job_placement
 
 
 placement = load()

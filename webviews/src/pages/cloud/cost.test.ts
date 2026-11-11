@@ -44,6 +44,36 @@ describe("Cloud page cost line (the sidebar's wording)", () => {
     expect(costTicks(m)).toBe(false);
   });
 
+  test("a paused machine with a paused rate also says what the pause costs a month", () => {
+    const m = machine({
+      status: "paused",
+      hourly_rate_usd: 0.1322,
+      paused_hourly_rate_usd: 0.001376,
+      running_since: null,
+    });
+    expect(costLine(m, NOW, t, "en")).toBe("$0.13/h when running · About $1.00 a month while paused");
+    expect(costTicks(m)).toBe(false);
+    const tiny = machine({ status: "paused", hourly_rate_usd: 0.1322, paused_hourly_rate_usd: 0.00001 });
+    expect(costLine(tiny, NOW, t, "en")).toBe("$0.13/h when running · Under $0.01 a month while paused");
+    const free = machine({ status: "paused", paused_hourly_rate_usd: 0 });
+    expect(costLine(free, NOW, t, "en")).toBe("Under $0.01 a month while paused");
+  });
+
+  test("the paused rate shows only on a paused machine, and only when it is a real number", () => {
+    const running = machine({
+      hourly_rate_usd: 0.2645,
+      paused_hourly_rate_usd: 0.001376,
+      running_since: NOW - 3_600_000,
+    });
+    expect(costLine(running, NOW, t, "en")).toBe("$0.26/h · Running 1h · About $0.26 so far");
+    const pausing = machine({ status: "pausing", hourly_rate_usd: 0.1322, paused_hourly_rate_usd: 0.001376 });
+    expect(costLine(pausing, NOW, t, "en")).toBe("$0.13/h when running");
+    for (const rate of [null, "NaN", "Infinity", -1] as const) {
+      const m = machine({ status: "paused", hourly_rate_usd: 0.1322, paused_hourly_rate_usd: rate });
+      expect(costLine(m, NOW, t, "en")).toBe("$0.13/h when running");
+    }
+  });
+
   test("no rate: the running time alone; nothing at all while paused", () => {
     expect(costLine(machine({ running_since: NOW - 3_600_000 }), NOW, t, "en")).toBe("Running 1h");
     expect(costLine(machine({ status: "paused" }), NOW, t, "en")).toBeUndefined();

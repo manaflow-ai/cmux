@@ -78,6 +78,10 @@ const SCHEMA: &str = "acpmux.kind-index.v4";
 /// A scan that read this many bytes of a segment past its copy saves the copy again.
 pub(super) const COPY_AFTER: u64 = 1 << 20;
 
+/// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
+/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+const TAIL_SEEK_BYTES: u64 = 256 * 1024;
+
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -198,6 +202,88 @@ impl Scan<'_> {
 }
 
 impl LocalStore {
+    /// `scan_back` (`indexed`: `scan_back_indexed`, whose `skip` passes only [`INDEXED_KINDS`]).
+    /// Segments are read newest first; an indexed read takes a segment's copy where it is of that
+    /// very file and whole ([`Self::read_kind_index`]): the segment's bytes past the copy back from
+    /// the end, then the copy's lines newest first. Anywhere else (no copy yet, a copy a
+    /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
+    /// back from its end, as `scan_back` does. It never writes a copy: the log load does.
+    pub(super) fn scan_back_in(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let done = std::cell::Cell::new(false);
+        // One line, newest first: false once the read is over (`visit` stopped, or `after`).
+        let mut line = |line: &[u8]| {
+            match record_seq(line) {
+                Some(seq) if seq >= before => return true,
+                Some(seq) if seq <= after => {
+                    done.set(true);
+                    return false;
+                }
+                _ => {}
+            }
+            if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                && skip(dir, kind)
+            {
+                return true;
+            }
+            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            if rec.seq >= before {
+                return true;
+            }
+            if rec.seq <= after || !visit(rec) {
+                done.set(true);
+                return false;
+            }
+            true
+        };
+        for (index, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let copy =
+                if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
+            match copy {
+                // A copy covers the segment's first `from` bytes, whole lines: what was written
+                // after them (none in a segment a log load sealed and copied, at most the segment
+                // in the one being written) is read from the segment, then the copy. A long tail
+                // is first cut at `before`, as `scan_back` cuts the segment; a short one is read
+                // whole, which costs less than the seek's probes.
+                Some((lines, from, _)) => {
+                    let len = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+                    let end = if before != u64::MAX && len.saturating_sub(from) > TAIL_SEEK_BYTES {
+                        offset_of_seq(&mut file, before)?.max(from)
+                    } else {
+                        u64::MAX
+                    };
+                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
+                    if !done.get() {
+                        for copied in lines.split(|b| *b == b'\n').rev() {
+                            if !copied.is_empty() && !line(copied) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                None => {
+                    let end = offset_of_seq(&mut file, before)?;
+                    for_each_line_rev_from(&mut file, end, &mut line)?;
+                }
+            }
+            if done.get() {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }

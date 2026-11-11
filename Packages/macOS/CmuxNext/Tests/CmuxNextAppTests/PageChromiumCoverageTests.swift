@@ -6,6 +6,7 @@ import CmuxNextHome
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 import Testing
 
@@ -26,7 +27,7 @@ import Testing
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
         (.serverCards, WebCardPanel.engineOptions),
     ]
 

@@ -74,8 +74,8 @@ export type CloudStartProgress = {
   /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
   refusedHere?: boolean;
   /// The host has said nothing about this start for CLOUD_START_STALL_MS (no push, no answer) while
-  /// nothing waits on the person: the card says so and the composer takes input again
-  /// (cloudStartLocksComposer). It holds until the start ends, so the composer is never locked again.
+  /// nothing waits on the person: the card says so. The composer is open throughout a start and what
+  /// is typed moves to the chat as a draft. It holds until the start ends.
   stalled?: true;
 };
 
@@ -216,8 +216,7 @@ export function cloudStartPushed(
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
-  // A stalled start stays stalled until it ends: the composer it gave back is never taken away
-  // again mid-typing; the steps still move.
+  // A stalled start stays stalled until it ends; the steps still move.
   const next = { ...current };
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
@@ -501,19 +500,13 @@ const REFUSED_HERE = new Set([
 ]);
 
 /// How long a start may go with no word from the host (no progress push, no answer) before the card
-/// says it stalled and the composer takes input again. Nothing on the host bounds a whole start
+/// says it stalled. Nothing on the host bounds a whole start
 /// (CloudStartChat `reply`: a Codex sign-in broker, the approvals prep and a tab open's hand-off wait
 /// have no deadline, and each CLI step may take 30 minutes), so without this a start that never
-/// answers locked the composer for good (Leo, 2026-11-09: "I can't click into the composer at all").
+/// answers showed "Starting in Cloud" for good.
 /// A folder copy pushes about 4 lines a second; a new machine's boot says nothing for up to its 180 s
 /// link wait (CloudStartSession.connectWait) after its create, so this is longer than that.
 export const CLOUD_START_STALL_MS = 5 * 60_000;
-
-/// The composer takes no input while a start is out (on success the host closes this tab with only
-/// the sent prompt), unless the start stalled: then it is the person's again.
-export function cloudStartLocksComposer(start: CloudStartProgress | undefined): boolean {
-  return start?.state === "starting" && start.stalled !== true;
-}
 
 /// Start `key` had no word from the host for CLOUD_START_STALL_MS: stalled, unless it waits on the
 /// person (a question in the card, a browser sign-in), already ended, or is another start.

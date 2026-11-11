@@ -10,7 +10,7 @@ const GROUP: &str = "NotificationActionCatalog";
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item itself is read
-    // from the daemon's feed client, never taken from the caller. Open Feed Item without an item opens the Inbox.
+    // from the daemon's feed client, never taken from the caller. Open Feed Item without an item does nothing (the Inbox page is gone).
     Action {
         id: "feed.openItem",
         group: GROUP,

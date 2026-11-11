@@ -107,7 +107,9 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -232,13 +234,16 @@ jobs:
             exit 1
           fi
 
+      # The instant-list bench runs on its own below (no other suite on the cores).
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests
+
 
       # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
       # their tests run only here. A simulator destination builds the arm64 slice
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
+        id: ios-sim
         working-directory: cmux-next-ios/CmuxMobileKit
         run: |
           set -euo pipefail
@@ -262,8 +267,10 @@ jobs:
           # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit
           # (TerminalDevProbe, SILProfiler in emitIsolatingDestructor); the app builds
           # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
             -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -skip-testing:CmuxMobileInstantPerfTests \
             -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
           # -quiet drops Swift Testing's output: report from the result bundle (counts,
           # suites that did not pass, #23829's banner suite, and every failure).
@@ -289,3 +296,92 @@ jobs:
           print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
           ' || echo "::warning::could not read the result bundle"
           exit "$status"
+
+      # The bench runs after both test runs, so a bench red never skips the iOS tests.
+      # Small vs god fixtures, budgets and the 1.2x rule: cmux-next-ios/design/instant-perf.md.
+      - name: Instant list bench (macOS swift test)
+        if: ${{ !cancelled() }}
+        env:
+          CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
+
+      # The same bench on the simulator, alone, on the build above when there is one (TEST_RUNNER_ passes the
+      # variable through to the test process).
+      - name: Instant list bench (iOS simulator)
+        if: ${{ !cancelled() }}
+        working-directory: cmux-next-ios/CmuxMobileKit
+        env:
+          TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
+          UDID: ${{ steps.ios-sim.outputs.udid }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/instant-perf"
+          # A red macOS test step skips the simulator test step above, and with it the
+          # simulator choice: the bench then picks its own, so its numbers never go missing.
+          if [[ -z "$UDID" ]]; then
+            UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-26" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          fi
+          if [[ -z "$UDID" ]]; then
+            echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
+            exit 1
+          fi
+          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -only-testing:CmuxMobileInstantPerfTests \
+            -resultBundlePath "$RUNNER_TEMP/instant-perf-ios.xcresult" && status=0 || status=$?
+          out="$RUNNER_TEMP/instant-perf/ios-simulator.jsonl"
+          if [[ ! -s "$out" ]]; then
+            # The simulator could not write the host file: take the lines from the console log.
+            xcrun xcresulttool get log --path "$RUNNER_TEMP/instant-perf-ios.xcresult" --type console 2>/dev/null |
+              sed -n 's/.*INSTANTPERF \({.*}\)$/\1/p' > "$out" || true
+          fi
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/instant-perf-ios.xcresult" --compact 2>/dev/null |
+            python3 -c '
+          import json, sys
+          def walk(node, path):
+              if node.get("nodeType") == "Test Case":
+                  print(node.get("result"), " / ".join(path))
+              for child in node.get("children", []):
+                  if child.get("nodeType") == "Failure Message":
+                      print("   ", child.get("name"))
+                  else:
+                      walk(child, path + [child.get("name", "")])
+          for root in json.load(sys.stdin).get("testNodes", []):
+              walk(root, [root.get("name", "")])
+          ' || echo "::warning::could not read the bench result bundle"
+          exit "$status"
+
+      - name: Instant list bench report
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 cmux-next-ios/scripts/instant_perf_table.py "$RUNNER_TEMP/instant-perf" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # One `INSTANTPERF {json}` line per metric and platform in the job log, for readers of the log.
+      - name: Instant perf lines
+        if: ${{ !cancelled() }}
+        run: |
+          for file in "$RUNNER_TEMP"/instant-perf/*.jsonl; do
+            [[ -f "$file" ]] || continue
+            sed -e 's/^INSTANTPERF //' -e 's/^/INSTANTPERF /' "$file"
+          done
+
+      - name: Upload the instant list bench report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: instant-perf-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/instant-perf/*.jsonl
+          if-no-files-found: warn
+          retention-days: 3

@@ -539,6 +539,8 @@ final class RowCell: UICollectionViewCell {
     /// (a highlight over the rows landed at the row's end place at once while the row sprang there: Lawrence
     /// 2026-10-19, "a layout shift for the highlight thing ... janky and disjoint"). Joins the tree on first use.
     let selectionHighlight = CAShapeLayer()
+    /// cmux: the style `selectionHighlight` draws in now (nil: none set yet).
+    private(set) var selectionHighlightStyle: SelectionHighlightStyle?
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
@@ -654,8 +656,7 @@ final class RowCell: UICollectionViewCell {
             l.actions = noActions
             l.contentsScale = renderScale
         }
-        selectionHighlight.fillColor = TranscriptSelection.highlightFill
-        selectionHighlight.compositingFilter = "screenBlendMode"
+        // cmux: the fill and blend follow the surface under the row (setSelectionHighlight, SelectionHighlightStyle).
         // Over the bitmap, the long-text tiles, the markdown blocks and the receipt (added after it or not).
         selectionHighlight.zPosition = 100
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
@@ -733,10 +734,16 @@ final class RowCell: UICollectionViewCell {
     }
 
     /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
-    /// coordinates.
-    func setSelectionHighlight(_ path: CGPath?) {
+    /// coordinates; `style` is its fill and blend for the surface under it (SelectionHighlightStyle: a screen
+    /// blend shows nothing on a light bubble or page, issue 38145).
+    func setSelectionHighlight(_ path: CGPath?, style: SelectionHighlightStyle = .screen) {
         if path == nil, selectionHighlight.path == nil { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        if path != nil, selectionHighlightStyle != style {
+            selectionHighlightStyle = style
+            selectionHighlight.fillColor = style.cgFill
+            selectionHighlight.compositingFilter = style.blend.rawValue
+        }
         if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
         selectionHighlight.path = path
         CATransaction.commit()
@@ -1292,11 +1299,14 @@ final class RowCell: UICollectionViewCell {
 
     /// Messages' pop of my new tapback (macOS 27, lossless tapback-menu-heart-take1, times from
     /// our react commit, which Messages' rows follow 90 ms later): the badge grows from a dot at
-    /// +86 ms (spring 0.247 s, bounce 0.087; rms 0.025 of full size), with the glyph inside it;
-    /// at +136 ms the glyph starts again from nothing and grows with an overshoot to 1.24 and
-    /// back (spring 0.63 s, bounce 0.596; rms 0.016). Keyframes sampled at 240 Hz.
-    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2466, bounce: 0.087))
-    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
+    /// +86 ms, with the glyph inside it; at +136 ms the glyph starts again from nothing and grows
+    /// to its size. Keyframes sampled at 240 Hz.
+    /// cmux: no bounce (2026-11-10). Both springs are critically damped (bounce 0) and never pass
+    /// full size; each keeps its time to 95 % of full size (disc 161 ms, glyph 206 ms): duration =
+    /// that time / 0.75501. Messages' fits were 0.2466 s with bounce 0.087 (0.09 % past full size)
+    /// and 0.6298 s with bounce 0.596 (the glyph grew to 1.25 and came back).
+    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2134, bounce: 0))
+    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.2731, bounce: 0))
     private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
         func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
             let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range

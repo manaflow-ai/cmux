@@ -6,7 +6,13 @@
 # proxy with the checksum database on: nothing is installed on the host.
 ensure_tailnet_go() {
   local root=${1:?checkout root}
-  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
+  # GOFLAGS drops any host flags; -modcacherw keeps the modules Go fetches removable. Go writes
+  # its module cache read-only, and the warm nightly builder's `git clean -ffdxq` then failed on
+  # it ("failed to remove .build/go-path/pkg/mod/...: Permission denied", run 42940891027). Same
+  # as cmux-tui-rust-check.sh's go_caches. A GOTOOLCHAIN=auto switch (host Go older than
+  # libtailscale's) reads GOFLAGS too late and still writes golang.org/toolchain read-only, so
+  # workflows that clean a kept clone run `chmod -R u+w .build/go-path` before `git clean`.
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=-modcacherw
   export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
   local os arch sum dir="$root/.build/go-1.27.1" tmp
   local installed=""

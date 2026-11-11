@@ -14,7 +14,7 @@ extension SidebarStyle {
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: LayoutGrid.sidebarLead - horizontalInset,
+                       leadingInset: LayoutGrid.sidebarLead - contentInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
                        minTrailingCenterInset: minTrailingCenterInset)
     }
@@ -32,7 +32,7 @@ extension SidebarStyle {
     /// old floor below, left a compact 10 pt glyph's box 8 pt short of the fill's end against 6 at its start (the running
     /// app's spinner ink 9 vs 6). Leo 2026-11-04 replaced the grid's fixed 24 pt line from the sidebar edge with the
     /// inset rule.
-    static var trailingCenterInset: CGFloat { horizontalInset + statusGlyphSize / 2 }
+    static var trailingCenterInset: CGFloat { contentInset + statusGlyphSize / 2 }
 
     /// The trailing column center's distance from the sidebar's edge, past the row's gap; the resize clearance
     /// below still wins if a larger control needs more room.

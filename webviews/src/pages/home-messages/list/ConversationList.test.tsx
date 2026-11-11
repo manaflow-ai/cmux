@@ -105,13 +105,13 @@ test("Up and Down select through the grid then the rows; Return opens", async ()
   expect(calls).toEqual(["select:c-design", "select:c-morgan", "open:c-casey"]);
 });
 
-test("a letter typed in the list starts no search (it goes to the message box, as natively)", async () => {
+test("typing a letter in the list starts a search", async () => {
   const { element, calls } = await mount(3);
   const list = element.querySelector<HTMLElement>("[role='listbox']")!;
   await act(async () => {
     list.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "t", bubbles: true }));
   });
-  expect(calls).toEqual([]);
+  expect(calls).toEqual(["query:t"]);
 });
 
 test("a click opens; a Command-click only selects", async () => {

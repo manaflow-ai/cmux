@@ -6,6 +6,7 @@ scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
 `origin` through the real `git push`, so the installed trusted hook copy is what
 runs. The base already carries a `try!` (base debt): only what a push adds counts.
 """
+import contextlib
 import importlib.util
 import sys
 import os
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 import urllib.request
 
 
@@ -190,8 +192,7 @@ class PrePushGateTests(unittest.TestCase):
                         HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
         git_fixture_env.without_auto_maintenance(self.env)
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -215,6 +216,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            "scripts/ci/deadline_http.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -226,10 +228,17 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/swift_source_mask.py",
             # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
             "scripts/whats-new/digest.py",
             "scripts/whats-new/validate.py",
+            # Context files two scanners read (the gate's CONTEXT): without them "Motion and colour tokens" and
+            # "Browser chrome icons" crashed alike in both trees, which the gate used to subtract as no finding. It
+            # now refuses a check that gave no verdict, so the fixture gives them their inputs.
+            "schemas/motion-scale/motion-scale.json",
+            f"{PKG}/Sources/CmuxNextIcons/IconName+Members.swift",
+            f"{PKG}/Sources/CmuxNextIcons/Resources/icon-catalog.json",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -380,6 +389,92 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertTrue(runs.exists(), "a push that changes check-ui-font.py must run it\n"
                         + result.stdout + result.stderr)
+
+    def test_ci_advisory_names_an_arch_and_a_guardrails_violation_as_warnings_and_keeps_the_exit_code(self):
+        # CI never runs the arch ratchet or the guardrails line rules (CLAUDE.md: no new CI gates), so a push that
+        # skipped the hook landed them unseen. --advisory (the fast gates' prepush gate) names each finding as a
+        # ::warning on its file and line and a summary row; the gate's exit code is what it is without it.
+        self.copy_arch_rules()
+        self.kit("Cache", "final class Cache {\n    var hits = 0\n    static let shared = Cache()\n}\n")
+        self.kit("Hop", MAIN_HOP)
+        self.commit("adds a stateful singleton and a main hop")
+        summary = self.root / "step-summary.md"
+        env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
+        args = ["--base", "origin/feat-cmux-next", "--head", "HEAD"]
+        plain = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=env, text=True, capture_output=True)
+        advised = subprocess.run(["python3", "-I", GATE, *args, "--advisory"], cwd=self.repo, env=env, text=True,
+                                 capture_output=True)
+        output = advised.stdout + advised.stderr
+        self.assertEqual(advised.returncode, 0, output)
+        self.assertEqual(advised.returncode, plain.returncode, plain.stdout + plain.stderr)
+        self.assertNotIn("::warning", plain.stdout, "without --advisory CI shows nothing new")
+        kit = f"{PKG}/Sources/CmuxNextKit"
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Cache\.swift,line=3,title=prepush advisory \(arch "
+                                         r"ratchet\) \[stateful_singletons\]::", output)
+        self.assertRegex(advised.stdout, rf"::warning file={kit}/Hop\.swift,line=2,title=prepush advisory \(guardrails "
+                                         r"line rules\) \[main-async\]::", output)
+        table = summary.read_text()
+        self.assertIn("| arch ratchet | 1 finding(s)", table)
+        self.assertIn("| guardrails line rules | 1 finding(s)", table)
+        self.assertIn("| What's New pictures | clean", table)
+        self.assertRegex(table, r"\| SwiftFormat \| (clean|skipped: |\d+ finding)")
+
+    def copy_arch_rules(self):
+        """The checkout's arch_rules/ (copy_sources copies only the top-level checks): without it the ratchet warns that
+        no rule module ran, which the advisory rightly reports as incomplete."""
+        shutil.copytree(SOURCE / "scripts/cmux-next/arch_rules", self.repo / "scripts/cmux-next/arch_rules",
+                        dirs_exist_ok=True)
+
+    def advisory_run(self, deadline=None):
+        summary = self.root / "step-summary.md"
+        env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
+        if deadline is not None:
+            env["CMUX_PREPUSH_ADVISORY_SECONDS"] = str(deadline)
+        started = time.monotonic()
+        result = subprocess.run(["python3", "-I", GATE, "--base", "origin/feat-cmux-next", "--head", "HEAD", "--advisory"],
+                                cwd=self.repo, env=env, text=True, capture_output=True, timeout=300)
+        return result, time.monotonic() - started, (summary.read_text() if summary.exists() else "")
+
+    def test_ci_advisory_that_stalls_is_killed_at_its_deadline_with_its_process_group_and_the_gate_passes(self):
+        # Codex review of #40811 (F1): the advisory ran on a daemon thread, but a stalled check's executor workers are
+        # joined at interpreter exit, so the gate's 600 s watchdog failed a gate that had passed. The advisory is a
+        # child in its own process group: at its deadline the whole group is killed and the gate's exit code stands.
+        mark = self.root / "stalled-pgid"
+        self.write("scripts/cmux-next/arch-ratchet.py",
+                   "import concurrent.futures, os, subprocess\n"
+                   "def push_refusals(repo, ranges, upstream_ref=None):\n"
+                   "    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)\n"
+                   "    pool.submit(subprocess.run, ['sleep', '300'])\n"
+                   f"    open({str(mark)!r}, 'w').write(str(os.getpgrp()))\n"
+                   "    subprocess.run(['sleep', '300'])\n"
+                   "    return [], []\n")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        result, elapsed, table = self.advisory_run(deadline=3)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3 + 60, output)
+        self.assertIn("::warning title=prepush advisory timed out::", result.stdout, output)
+        self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
+        pgid = int(mark.read_text())
+        self.assertNotEqual(pgid, os.getpgrp(), "the advisory runs in its own process group")
+        with self.assertRaises(ProcessLookupError, msg=f"process group {pgid} outlived the gate"):
+            os.killpg(pgid, 0)
+
+    def test_ci_advisory_marks_a_layer_whose_rule_failed_incomplete_and_names_the_failure(self):
+        # Codex review of #40811 (F2): the checkers' own failure notes were dropped, so a broken rule read "clean".
+        self.copy_arch_rules()
+        self.write("scripts/cmux-next/arch_rules/fixture_boom.py",
+                   "def check(base, head, changes):\n    raise RuntimeError('fixture boom')\n")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        result, _, table = self.advisory_run()
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertRegex(table, r"\| arch ratchet \| incomplete: 0 finding\(s\), 1 check\(s\) did not run", output)
+        self.assertNotIn("| arch ratchet | clean", table)
+        self.assertIn("::warning title=prepush advisory (arch ratchet) incomplete::arch-ratchet: WARNING: arch rule "
+                      "fixture_boom failed (RuntimeError: fixture boom)", result.stdout, output)
 
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
@@ -978,7 +1073,7 @@ class PrePushGateTests(unittest.TestCase):
         # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
         # commits are not on origin, so they are the push's own.
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "contrib")
         self.kit("ForkDebt", self.with_try("ForkDebt"))
@@ -1578,6 +1673,35 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
 
+    def test_a_manifest_change_that_leaves_another_workspaces_lock_stale_is_refused(self):
+        # 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only; cmux-app-ffi, a workspace
+        # of its own that builds cmux-tui's crates by path, kept a stale lock and every --locked step there stopped.
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\na = { path = "../a" }\n\n[workspace]\n')
+        self.write("cmux-tui/crates/ffi/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui/crates/ffi",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("ffi workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with cmux-tui's lock only")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/crates/ffi/Cargo.lock: does not match its manifests", output)
+        self.assertNotIn("cmux-tui/Cargo.lock: does not match", output)
+        self.assertIn("cargo-locks.py fix", output)
+
     def test_a_cargo_dependency_with_its_lock_pushes(self):
         env = self.cargo_workspace()
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
@@ -2001,7 +2125,7 @@ mod tests {
         self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
-            "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
+            "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -2431,29 +2555,33 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
         asked = []
 
-        def urlopen(request, timeout=None):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, **options):
+            # The helper's one HTTP call (deadline_http.stream); an error status raises, as raise_errors does.
+            self.assertTrue(options.get("raise_errors"))
             target = request.full_url if hasattr(request, "full_url") else request
             asked.append(target)
             if target == url:
                 raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
             if target == tag:
-                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
-                                                            {"name": "tool-linux.zip", "url": asset}]}).encode())
+                yield io.BytesIO(jsonlib.dumps({"assets": [{"name": "other.zip", "url": asset + "0"},
+                                                           {"name": "tool-linux.zip", "url": asset}]}).encode())
+                return
             if target == asset:
                 self.assertEqual(request.get_header("Accept"), "application/octet-stream")
-                return io.BytesIO(archive)
+                yield io.BytesIO(archive)
+                return
             raise AssertionError(f"unexpected fetch {target}")
 
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "lint-tools.lock"
             lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
-            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), urllib.request.urlopen
+            old_dir = os.environ.get("CMUX_LINT_TOOLS_DIR")
             os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
-            urllib.request.urlopen = urlopen
             try:
-                path = gate.ensure_tool(lock, "tool")
+                with unittest.mock.patch.object(gate.release_download().deadline_http, "stream", stream):
+                    path = gate.ensure_tool(lock, "tool")
             finally:
-                urllib.request.urlopen = old_open
                 if old_dir is None:
                     os.environ.pop("CMUX_LINT_TOOLS_DIR")
                 else:
@@ -2476,22 +2604,24 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         asset = "https://api.github.com/repos/acme/tool/releases/assets/42"
         requests = {}
 
-        def urlopen(request, timeout=None):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, **options):
+            self.assertTrue(options.get("follow_redirects", True), "the asset's storage redirect is followed")
             requests[request.full_url] = request
             if request.full_url == url:
                 raise urllib.error.HTTPError(url, 504, "Gateway Time-out", {}, None)
             if request.full_url == tag:
-                return io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
-            return io.BytesIO(b"archive")
+                yield io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
+                return
+            yield io.BytesIO(b"archive")
 
-        old_open, old_token = urllib.request.urlopen, os.environ.get("GH_TOKEN")
+        old_token = os.environ.get("GH_TOKEN")
         os.environ["GH_TOKEN"] = "token-for-test"
-        urllib.request.urlopen = urlopen
         try:
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory() as tmp, \
+                    unittest.mock.patch.object(gate.release_download().deadline_http, "stream", stream):
                 gate.download(url, Path(tmp) / "tool.zip")
         finally:
-            urllib.request.urlopen = old_open
             if old_token is None:
                 os.environ.pop("GH_TOKEN")
             else:
@@ -2539,6 +2669,50 @@ class ToolDownloadFallbackTests(unittest.TestCase):
                 sys.modules.pop("cmux_github_release_download", None)
                 if stashed is not None:
                     sys.modules["cmux_github_release_download"] = stashed
+            self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
+        self.assertEqual(asked, [url])
+
+    def test_a_hook_copy_with_the_helper_but_not_its_transport_still_downloads_directly(self):
+        # An install from before deadline_http.py has the old refresh_checks.py, which rewrites the gate and
+        # github_release_download.py from feat-cmux-next but not deadline_http.py, which the helper imports. That gate
+        # must still fetch a tool directly, not fail on the import.
+        import io
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            asked.append(getattr(request, "full_url", request))
+            return io.BytesIO(b"archive")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp) / "hooks"
+            hook_dir.mkdir()
+            shutil.copyfile(SOURCE / GATE, hook_dir / "cmux_next_prepush_gate.py")
+            shutil.copyfile(SOURCE / "scripts/cmux-next/git_batch.py", hook_dir / "git_batch.py")
+            shutil.copyfile(SOURCE / "scripts/ci/github_release_download.py", hook_dir / "github_release_download.py")
+            spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_no_transport",
+                                                          hook_dir / "cmux_next_prepush_gate.py")
+            gate = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = gate
+            stashed = {name: sys.modules.pop(name, None) for name in ("cmux_github_release_download", "deadline_http")}
+            old_path = list(sys.path)
+            # Only the hook folder offers deadline_http, and it has none.
+            ci = (SOURCE / "scripts/ci").resolve()
+            sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != ci]
+            old_open = urllib.request.urlopen
+            urllib.request.urlopen = urlopen
+            try:
+                spec.loader.exec_module(gate)
+                self.assertIsNone(gate.release_download())
+                gate.download(url, Path(tmp) / "tool.zip")
+            finally:
+                urllib.request.urlopen = old_open
+                sys.path[:] = old_path
+                sys.modules.pop(spec.name, None)
+                for name, module in stashed.items():
+                    sys.modules.pop(name, None)
+                    if module is not None:
+                        sys.modules[name] = module
             self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
         self.assertEqual(asked, [url])
 
@@ -2750,6 +2924,43 @@ class StopCleanlyTests(unittest.TestCase):
             code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
             self.assertEqual(code, 124, out)
             self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
+
+
+class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
+    """advisory_guardrails keeps check_own's own failure warnings (kind "guardrails") as diagnostics (F2, #40811)."""
+
+    def test_a_guardrails_rule_that_raised_is_a_diagnostic_not_clean(self):
+        gate = load_gate_tools()
+
+        class Own:
+            base, head, before = "b", "h", ()
+
+        class PushRange:
+            @staticmethod
+            def as_own_ranges(repo, ranges):
+                return ranges
+
+        class Guardrails:
+            @staticmethod
+            def load_push_range():
+                return PushRange
+
+            @staticmethod
+            def check_own(repo, base, head, before):
+                return [], [("main-async", "a warning hit"), ("guardrails", "rule app-type failed (KeyError: x)")]
+
+            @staticmethod
+            def ghostty_pin_problem(repo, base, head, before):
+                return None
+
+        original = gate.load_guardrails
+        gate.load_guardrails = lambda repo, trusted: Guardrails
+        try:
+            found, diagnostics = gate.advisory_guardrails(Path("."), [Own()])
+        finally:
+            gate.load_guardrails = original
+        self.assertEqual(found, [])
+        self.assertEqual(diagnostics, ["rule app-type failed (KeyError: x)"])
 
 
 if __name__ == "__main__":

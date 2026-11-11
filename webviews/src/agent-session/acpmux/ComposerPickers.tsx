@@ -5,6 +5,7 @@ import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
+import { chipFace as faceFor } from "./chipFace";
 import {
   isDefaultChoice,
   loadResolvedAlias,
@@ -94,6 +95,7 @@ import {
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
+  remoteStartMode,
   shownModes,
 } from "./harnessModes";
 import {
@@ -829,13 +831,25 @@ export function ComposerPickers({
   // The model the chip names before the session reports one: the model menu checks it.
   const predictedModel =
     shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
-  const modelName =
-    listedName ??
-    (opensListed
-      ? (harnessOnly ?? t(PICKER_LABELS.model))
+  // The model the chip names, with its name: one pair, so the chip's logo (that model's provider,
+  // chipFace.ts) never names another model than its text. No id: the chip names the harness only.
+  const startingPick = starting && chipHarness ? startingId(chipHarness) : undefined;
+  const named: { id?: string; name: string | undefined } = listedName
+    ? { id: listedModel, name: listedName }
+    : opensListed
+      ? { name: harnessOnly ?? t(PICKER_LABELS.model) }
       : defaulted || unreported
-        ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
-        : (runningName ?? starting ?? harnessOnly));
+        ? starting
+          ? { id: startingPick, name: starting }
+          : resolvedName
+            ? { id: resolvedId, name: resolvedName }
+            : { name: harnessOnly ?? t(PICKER_LABELS.model) }
+        : runningName
+          ? { id: runningModel ?? shown, name: runningName }
+          : starting
+            ? { id: startingPick, name: starting }
+            : { name: harnessOnly };
+  const modelName = named.name;
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -960,7 +974,35 @@ export function ComposerPickers({
   // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
   // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
   // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  // A new chat whose first send starts it on a Cloud machine (`startsOnCloud`) begins in the
+  // harness's asking mode there (Claude's Manual, the Codex bridge's Ask: acpmux sets no start mode
+  // on a remote start and holds the `ask` policy, web_modes.rs). The chip names that mode, as the
+  // model chip names its model, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird").
+  // A mode the person picked for that start (`cloudStartMode`, cloudModePick.ts) is what the
+  // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
+  // allowed to just go through with stuff?"); with no pick, the asking mode above.
+  const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  const cloudAsking =
+    awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
+      ? remoteStartMode(chipFamily, chipHarness)
+      : undefined;
+  const cloudPick = cloudAsking && snapshot.cloudStartMode;
+  const cloudStart = cloudPick
+    ? {
+        id: cloudPick,
+        name:
+          harnessFamilyMenu(chipFamily, chipHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
+          (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
+      }
+    : cloudAsking;
+  // The modes a Cloud start can be picked into: the asking mode it starts in and the harness's
+  // highest level. acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
+  // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
+  const cloudPickable = cloudAsking
+    ? [cloudAsking.id, highestMode(chipFamily, chipHarness)?.id].filter((id): id is string => id !== undefined)
+    : undefined;
   const startMode: KeptStartMode | undefined =
+    (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
     (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
     (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
@@ -976,7 +1018,8 @@ export function ComposerPickers({
   // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
   // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
   // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
-  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  // sets none here (the harness's own mode applies) and for a chat on another machine (a peer, a
+  // remote host) or a harness whose Cloud start mode cmux does not know.
   const shownStart: StartMode | undefined = startMode?.borrowed
     ? startMode.modeId
       ? startMode
@@ -1013,7 +1056,7 @@ export function ComposerPickers({
     const known = shownModes(
       menu,
       rows
-        .filter((choice) => !isPlan(choice.id))
+        .filter((choice) => !isPlan(choice.id) && (cloudPickable === undefined || cloudPickable.includes(choice.id)))
         .map((choice) => ({
           id: choice.id,
           name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,
@@ -1142,6 +1185,16 @@ export function ComposerPickers({
           : {}),
       }
     : undefined;
+  // The chip's logo, name and effort, made once from the model it names (chipFace.ts): a held pick
+  // of another harness's model names that model with its level; else the model this chat runs, or
+  // will start on, with this chat's level.
+  const chipMark = chipHarness;
+  const chipFace = held
+    ? faceFor(held.model, heldName ?? held.harness, held.harness, heldDetail ? { detail: heldDetail } : {})
+    : faceFor(named.id, modelName ?? t(PICKER_LABELS.model), chipMark, {
+        ...(quickDetail ? { detail: quickDetail } : {}),
+        ...(quickShort ? { detailShort: quickShort } : {}),
+      });
   const picksModel =
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
@@ -1153,6 +1206,7 @@ export function ComposerPickers({
           model={shown}
           {...(predictedModel ? { predictedModel } : {})}
           label={heldName ?? modelName ?? t(PICKER_LABELS.model)}
+          face={chipFace}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
           onSessionAuthRefresh={signIn?.recheckSession}
