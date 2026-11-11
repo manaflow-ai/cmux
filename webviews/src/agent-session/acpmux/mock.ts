@@ -19,6 +19,7 @@ import {
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
+import { longLogKind, longLogOwner, longLogRecord } from "./mockLongLog";
 
 /** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
 export type MockSessionAuth = {
@@ -53,6 +54,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** Records of history the first chat attached has (mockLongLog.ts), made on demand. */
+  cmuxAcpmuxMockLongLog?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -307,6 +310,11 @@ export class MockAcpmuxSocket {
   private events: EventRecord[] = [];
   /// Light load sessions (`seedLoadSession` `light`): attach answers their whole log.
   private openWhole = new Set<string>();
+  /// The chat whose history is `cmuxAcpmuxMockLongLog` records long (mockLongLog.ts): the first one
+  /// attached. Its records through `longLog` are made when a page reads them; later ones are held.
+  private longTarget: string | undefined;
+  private longLog = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockLongLog ?? 0);
+  private longEnd = Date.now();
   private seq = 0;
   /// The images prompts sent, by id, as acpmux keeps them (`_acpmux/attachment`).
   private promptImages = new Map<string, { mimeType: string; data: string }>();
@@ -332,6 +340,8 @@ export class MockAcpmuxSocket {
     if (script) this.sessions = [{ ...scriptSession }];
     else this.seed(Date.now());
     MockAcpmuxSocket.live = this;
+    // scripts/agent-pane/session-list-cpu-bench.mjs drives this daemon's notices from the page.
+    (globalThis as { cmuxAcpmuxMockLive?: MockAcpmuxSocket }).cmuxAcpmuxMockLive = this;
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
@@ -618,6 +628,11 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/attach": {
         this.attached = target;
+        if (this.longLog > 0 && this.longTarget === undefined) {
+          this.longTarget = target;
+          this.events = this.events.filter((event) => event.sessionId !== target);
+          this.seq = Math.max(this.seq, this.longLog);
+        }
         const page = this.page(target, params, true);
         // A chat whose last turn left a suggestion: acpmux sends it live, never in a page.
         const suggestion = mockSessions.find((entry) => entry.sessionId === target)?.suggestion;
@@ -1165,6 +1180,7 @@ export class MockAcpmuxSocket {
 
   /// The newest record's seq in `target`'s log, 0 when it has none.
   private lastSeqOf(target: string): number {
+    if (target === this.longTarget && !this.events.some((event) => event.sessionId === target)) return this.longLog;
     for (let index = this.events.length - 1; index >= 0; index -= 1)
       if (this.events[index]!.sessionId === target) return this.events[index]!.seq;
     return 0;
@@ -1214,10 +1230,25 @@ export class MockAcpmuxSocket {
       events.push(event);
       return true;
     };
+    // The long chat's history (mockLongLog.ts): a record is made only when the read wants it.
+    const long = target === this.longTarget ? this.longLog : 0;
+    const takeLong = (seq: number) => {
+      const { kind } = longLogKind(seq);
+      if (subagent !== undefined && longLogOwner(target, seq) !== subagent) return true;
+      if (kinds.length > 0 && !kinds.includes(kind) && !kinds.includes("transcript")) return true;
+      return take(longLogRecord(target, seq, long, this.longEnd));
+    };
     if (newest) {
-      for (let index = this.events.length - 1; index >= 0 && take(this.events[index]!); index -= 1);
+      let index = this.events.length - 1;
+      for (; index >= 0 && take(this.events[index]!); index -= 1);
+      if (index < 0) for (let seq = Math.min(long, before - 1); seq > after && takeLong(seq); seq -= 1);
       events.reverse();
-    } else for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
+    } else {
+      let seq = Math.max(1, after + 1);
+      for (; seq <= long && seq < before && takeLong(seq); seq += 1);
+      if (seq > long || seq >= before)
+        for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
+    }
     return { events, hasMore };
   }
 
