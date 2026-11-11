@@ -6,6 +6,13 @@
 //! value that `state::values::workspace_value` reads from the rows after the close, with the
 //! state fields (`extra`) as they are THEN, not as they were when the workspace was made.
 //!
+//! NOT COVERED HERE, on purpose: a child workspace that sits BEFORE its creator. In this session
+//! the creator is before its child, so the close of the creator states the child again. A close
+//! does not state a workspace before the closed one, so such a child keeps
+//! `created_by.workspace` = the closed id in the journal and in the fold until something states
+//! it again. That is an older defect (since #37515) that gets its own red test and its own fix;
+//! for that child the sentence above is false today.
+//!
 //! The session is made with the operations that a client sends:
 //! - `workspace.create`, five times; one create has `created_by` (an agent in the workspace
 //!   "creator"), so that workspace names its creator while the creator lives;

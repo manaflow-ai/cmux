@@ -192,6 +192,13 @@ pub(super) fn session(workspaces: usize) -> Arc<Mux> {
 
 /// Runs `request` and counts what the registry connection ran for it on this thread (the close
 /// commits on its caller's thread; a background writer on the same connection is not counted).
+///
+/// THE LIMIT OF THE SELECT COUNT: the SQLite authorizer speaks when a statement is PREPARED, not
+/// each time it runs. A read that is prepared one time and then run for each workspace, or a
+/// `prepare_cached` statement that is already in the cache, counts as one or as none. So this
+/// count proves "no statement is prepared for each workspace"; it does not prove "no statement
+/// runs for each workspace". The batch read of the state fields uses a plain `prepare`
+/// (`state/workspace_extras.rs`), so it is seen here.
 fn counted(mux: &Arc<Mux>, request: impl FnOnce()) -> Sql {
     let log = Arc::new(Mutex::new(Sql::default()));
     let (selects, rows) = (log.clone(), log.clone());
