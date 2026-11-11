@@ -2266,7 +2266,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 7200
           fi
           work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
           /bin/mkdir "$work/home" "$work/code"

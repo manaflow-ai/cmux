@@ -140,6 +140,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "route",
     "senderHarness",
     "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",

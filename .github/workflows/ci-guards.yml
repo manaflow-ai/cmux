@@ -1077,6 +1077,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
+      - name: Validate the App Store signing ensure step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_appstore_ensure_signing.py
+
       - name: Validate the INTERNAL iOS archive never waits on the dedicated mini
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
@@ -1423,6 +1427,10 @@ jobs:
       - name: Validate the cmux.app upload marker follows the receipt
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
+
+      - name: Validate the App Review gate's lint and report
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_app_review_gate.py
 
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
