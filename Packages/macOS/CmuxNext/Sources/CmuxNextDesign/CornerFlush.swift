@@ -14,9 +14,12 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// Compact density keeps today's look under every value. The default, `off`, changes nothing.
+/// The default is `flush-goo` (Leo, 2026-11-10: in light mode the selected tab should be white,
+/// the content's own color, not a gray highlight that reads as backgrounded; "morph it in as like,
+/// you know how folder tabs look"), over the stock chrome (``defaultFits``). Compact density keeps
+/// the pill under every value. `off` keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's corner.
+    /// The older corner: the selected tab is a gray pill on the frame.
     case off
     /// The card sits one grid step (4 pt) inside the frame on every side.
     case flush
@@ -28,7 +31,7 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public var tunableTitle: String {
         switch self {
-        case .off: "Off (today)"
+        case .off: "Off: a gray pill on the frame"
         case .flush: "Flush: the first tab rises from the card's edge"
         case .tight: "Flush, tight: the card meets the sidebar"
         case .goo: "Flush, goo: the selected tab flows into the card"
@@ -37,14 +40,37 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps today's look. Off: today's.",
-        default: .off, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is goo, a folder tab, over the stock chrome. Off: the gray pill.",
+        default: .goo, code: "CornerFlush.tunable")
 
-    /// The value in effect: the Debug Settings value, except at compact density, which keeps
-    /// today's corner.
+    /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
+    /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
     @MainActor public static var current: CornerFlush {
-        Metrics.density == .compact ? .off : tunable.value
+        if Metrics.density == .compact { return .off }
+        if let chosen = tunable.override { return chosen }
+        return defaultFits ? tunable.defaultValue : .off
     }
+
+    /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
+    /// `appearance.chromeStyle` fallback, or `default`), tabs on top and above a page's toolbar (a strip
+    /// below it is not the card's top row), no vertical tabs, no
+    /// `layout.*` pane padding, corner or border the user set, and no Debug Settings main pane
+    /// override. Any of those keeps its own look (floating and blocks panes keep their cards, a set
+    /// padding or radius still applies, bottom and vertical tabs have no top strip to run into the card).
+    @MainActor static var defaultFits: Bool {
+        let design = DesignSettings.shared
+        let chrome = design.paneChrome
+        guard [.flat, .default].contains(design.chromeStyle), design.tabBarPosition == .top, design.tabBarOrder == .aboveToolbar,
+              !design.verticalTabs else { return false }
+        guard chrome.padding == nil, chrome.cornerRadius == nil, chrome.cornerPadding == nil, chrome.border == nil,
+              chrome.borderColor == nil, chrome.borderWidth == nil, chrome.separation == nil else { return false }
+        return ChromeTunables.mainPaneCurved.override == nil && ChromeTunables.mainPaneGutter.override == nil
+            && ChromeTunables.mainPaneCornerRadius.override == nil
+    }
+
+    /// The flush corner was picked in Debug Settings, not taken by default, and draws (compact keeps
+    /// the pill): only then does it replace the sidebar's edge line, which `sidebar.border` sets otherwise.
+    @MainActor public static var isChosen: Bool { tunable.override != nil && current.isOn }
 
     public var isOn: Bool { self != .off }
 
@@ -76,6 +102,10 @@ public protocol TabStripCorner: AnyObject {
     var cornerFrameInWindow: CGRect { get }
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
+    /// Whether the strip is on the card's top row, where the frame's shade is behind it: only there does
+    /// its selected tab run into the card. A strip inside the card (a lower split pane's) keeps the pill,
+    /// which a tab in the card's own color would hide on the card.
+    func setRunsIntoCard(_ runs: Bool)
 }
 
 extension Metrics {
@@ -97,9 +127,12 @@ public final class CornerFlushChrome: NSView {
     /// report while hidden too.
     private let strips = NSHashTable<AnyObject>.weakObjects()
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
+    /// `card` is the content's whole frame; the card below the tab row is its top less a strip.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat, sidebarOnLeft: Bool)?
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
+    /// The content the card holds, whose top corners round again while no strip shows.
+    private weak var content: NSView?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -124,7 +157,7 @@ public final class CornerFlushChrome: NSView {
         while let ancestor = view {
             if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
                 chrome.strips.add(strip)
-                if !chrome.isHidden { chrome.redraw() }
+                if chrome.isHidden { strip.setRunsIntoCard(false) } else { chrome.redraw() }
                 return true
             }
             view = ancestor.superview
@@ -152,7 +185,7 @@ public final class CornerFlushChrome: NSView {
     public func apply(content: NSView, radius: CGFloat, isDark: Bool, page: Bool, sidebarOnLeft: Bool,
                       shade: MainPaneChromeShadeView, in root: NSView) {
         let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
-        var card = content.frame
+        let card = content.frame
         let on = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
         Self.roundBottomOnly(content, on)
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
@@ -160,14 +193,15 @@ public final class CornerFlushChrome: NSView {
         }
         guard on, alpha > 0, radius > 0, superview === root else {
             isHidden = true
+            markTopRow(card: nil, in: root)
             shade.update(card: card, radius: radius, alpha: alpha)
             return
         }
-        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
         frame = root.bounds
         isHidden = false
         drawn = (card, radius, alpha, sidebarOnLeft)
         self.shade = shade
+        self.content = content
         redraw()
     }
 
@@ -177,11 +211,51 @@ public final class CornerFlushChrome: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         wedges.frame = bounds
-        let square = leadingTabSelected(card: drawn.card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
-        wedges.path = Self.wedgePath(card: drawn.card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
+        var card = drawn.card
+        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
+        // A top pane hid its strip or its strip left the top (vertical tabs, a hidden tab bar, a canvas
+        // pan): no whole tab row, so the card is the whole content, rounded on every corner, with no
+        // wedges and no shade band over that pane's content.
+        guard hasTopStrip(card: card, in: root) else {
+            wedges.path = nil
+            markTopRow(card: nil, in: root)
+            if let content { Self.roundBottomOnly(content, false) }
+            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
+            return
+        }
+        if let content { Self.roundBottomOnly(content, true) }
+        markTopRow(card: card, in: root)
+        let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
+        wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
-        shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+    }
+
+    /// Whether the window's tab row is whole: some shown pane's strip sits on the card's top, and every
+    /// shown pane that reaches above it (a pane in the top row, a canvas pane panned up) shows its strip
+    /// right there. A pane that hid its strip (vertical tabs, a hidden tab bar) or whose strip left the
+    /// top (a canvas pan) has its own content at the card's top, where a wedge or the tab row's shade
+    /// would cover it. The frames are fresh: a strip reports whenever its frame in the window changes
+    /// (``TabStripView``'s layout and pane moves), after its pane took the frame. O(strips).
+    private func hasTopStrip(card: CGRect, in root: NSView) -> Bool {
+        var onTop = false
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            guard let pane = strip.superview, !pane.isHiddenOrHasHiddenAncestor else { continue }
+            guard root.convert(pane.bounds, from: pane).maxY > card.maxY + 2 else { continue } // below the top row
+            guard !strip.isHidden, abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2 else { return false }
+            onTop = true
+        }
+        return onTop
+    }
+
+    /// Tells each strip of this window whether it is on the top row of `card` (nil: no tab row, so none
+    /// is), so only those run their selected tab into the card. O(strips); a strip relays out only on a change.
+    private func markTopRow(card: CGRect?, in root: NSView) {
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            let onTop = card.map { !strip.isHidden && abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - $0.maxY) < 2 } ?? false
+            strip.setRunsIntoCard(onTop)
+        }
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.

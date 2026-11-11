@@ -122,9 +122,27 @@ fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
 /// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
 /// never calls it (a CLI command) checks no identity.
 pub fn hold_home() {
-    if let Some(identity) = folder_identity(&home()) {
+    let home = home();
+    if let Some(identity) = folder_identity(&home) {
         let _ = HELD_HOME.set(identity);
     }
+    if let Ok(Some(dir)) = crate::artifacts_fs::Dir::open(&home, Path::new("")) {
+        let _ = HELD_HOME_DIR.set(dir);
+    }
+}
+
+/// The held home ([`hold_home`]) as the open folder, not its path.
+static HELD_HOME_DIR: std::sync::OnceLock<crate::artifacts_fs::Dir> = std::sync::OnceLock::new();
+
+/// The held home as the folder this daemon locked, with `path` relative to it: a write made
+/// through it ([`crate::artifacts_fs::Dir::write`]) lands in that folder wherever it is now, so a
+/// home replaced after [`refuse_lost_home`] passed and before the write never gets it (the
+/// window that check leaves open by path). `None`: this process holds no home (a CLI command)
+/// or `path` is not under it; such a write goes by path.
+pub(crate) fn held_home_dir(path: &Path) -> Option<(&'static crate::artifacts_fs::Dir, PathBuf)> {
+    let dir = HELD_HOME_DIR.get()?;
+    let relative = path.strip_prefix(home()).ok()?;
+    Some((dir, relative.to_path_buf()))
 }
 
 /// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
