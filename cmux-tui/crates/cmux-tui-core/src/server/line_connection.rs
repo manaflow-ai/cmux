@@ -128,17 +128,38 @@ pub(super) fn serve_line_connection(
                         token: stream.peer_token(),
                     }
                 };
-                match hello.observe(&mux, client, &line, peer) {
-                    Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
-                        &mux,
-                        client,
-                        transport,
-                        &line,
-                        &writer,
-                        &surface_scheduler,
-                    ),
-                }
+                // A handler that panics on this reader ends the connection
+                // through the normal close below (its registration, writer
+                // and queued requests go) instead of unwinding past it.
+                let handled =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        match hello.observe(&mux, client, &line, peer) {
+                            Some(reply) => writer.send_control(&reply).is_ok(),
+                            None => {
+                                #[cfg(test)]
+                                connection_scheduler::panic_seam::check(
+                                    &mux,
+                                    client,
+                                    connection_scheduler::panic_seam::Site::Reader,
+                                );
+                                handle_connection_frame(
+                                    &mux,
+                                    client,
+                                    transport,
+                                    &line,
+                                    &writer,
+                                    &surface_scheduler,
+                                )
+                            }
+                        }
+                    }));
+                handled.unwrap_or_else(|_| {
+                    eprintln!(
+                        "cmux-tui: a request on connection {client} panicked; closing the \
+                         connection"
+                    );
+                    false
+                })
             }
         };
         zeroize_string(&mut line);

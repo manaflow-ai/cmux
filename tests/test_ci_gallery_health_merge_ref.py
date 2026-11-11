@@ -53,6 +53,23 @@ class GalleryHealthMergeRef(unittest.TestCase):
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
+    def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
+        # cmuxterm-hq#9131: the upload carried a screenshot of every passing state, ~190 MB a shard on a
+        # full render, and nothing read them. upload-set.ts drops them first (upload-set.test.ts holds what
+        # it keeps); it runs after the base replay has read health.json, on the folder the upload takes.
+        names = [entry.get("name") for entry in steps()]
+        trim = step("Keep only the screenshots a reader needs")
+        upload = step("Upload the health run")
+        self.assertLess(names.index("Judge the red states against the base"), names.index(trim["name"]))
+        self.assertEqual(names.index(trim["name"]) + 1, names.index(upload["name"]))
+        self.assertIn("always()", trim["if"])
+        self.assertIn('upload-set.ts --dir "$RUNNER_TEMP/health"', trim["run"])
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/health")
+        # More screenshots only on an explicit dispatch input, empty by default.
+        inputs = triggers()["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["screenshots"]["default"], "")
+        self.assertEqual(trim["env"]["KEEP"], "${{ inputs.screenshots }}")
+
     def test_reports_keep_the_pull_request_head(self) -> None:
         # The artifact names the head the pull request shows, beside the merge commit rendered.
         record = step("Record what was rendered")
@@ -257,6 +274,7 @@ RENDER_SCRIPTS = (
     "webviews/scripts/gallery/touched.ts",
     "scripts/gallery-matrix/health.ts",
     "scripts/gallery-matrix/unplaced.py",
+    "scripts/gallery-matrix/upload-set.ts",
 )
 _RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
 _SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")
