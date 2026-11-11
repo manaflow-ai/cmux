@@ -7397,6 +7397,117 @@ class StepOwnershipCallers(unittest.TestCase):
                                                         framed_log(lines, columns=columns), {"sometimes()": "hq#1"}))
 
 
+class NamedRunStepHeader(unittest.TestCase):
+    """A step named "Run ..." by its workflow's author is a named step: its header (`Run <its script's first line>`)
+    cannot be read off its name, so only its stamp places its header, as for any other named step. Whether a step has
+    a `name:` is read from its workflow at the job's head, matched to the jobs API's steps by order; an unnamed step's
+    header must still be its name. #40542's sixth Codex BLOCK (F1): cmux-next.yml's "Run package tests (changed suites
+    first, then selected targets)" opens with `##[group]Run set -euo pipefail`, and its red, excused on base, was
+    refused on head as a log that does not map one to one."""
+
+    NAME = "cmux-next swift checks"
+    PATH = ".github/workflows/cmux-next.yml"
+    CHECKOUT = "Run actions/checkout@v6"
+    BUILD = "Build package and tests"
+    TESTS = "Run package tests (changed suites first, then selected targets)"
+    RED = "swift: error: Sources/Old.swift:3 blocks the main thread"
+
+    def workflow(self, tests_named=True):
+        tests = (f"      - name: {self.TESTS}\n        run: |\n" if tests_named else "      - run: |\n")
+        return ("name: cmux-next\non: push\njobs:\n  swift-checks:\n"
+                f"    name: {self.NAME}\n    runs-on: macos-26\n    steps:\n"
+                "      - uses: actions/checkout@v6\n"
+                f"      - name: {self.BUILD}\n        run: swift build\n"
+                + tests + "          set -euo pipefail\n          swift test\n")
+
+    def steps(self, tests_name=None):
+        found = framed_steps([(self.CHECKOUT, "success", 3, 4), (self.BUILD, "success", 5, 9),
+                              (tests_name or self.TESTS, "failure", 10, 20),
+                              (f"Post {self.CHECKOUT}", "success", 21, 22)])
+        return found
+
+    def lines(self):
+        return [(self.CHECKOUT, 3, f"##[group]{self.CHECKOUT}"), (self.CHECKOUT, 3, "##[endgroup]"),
+                (self.BUILD, 5, "##[group]Run swift build"), (self.BUILD, 5, "swift build"),
+                (self.BUILD, 5, "##[endgroup]"),
+                (self.TESTS, 10, "##[group]Run set -euo pipefail"), (self.TESTS, 10, "set -euo pipefail"),
+                (self.TESTS, 10, "swift test"), (self.TESTS, 10, "##[endgroup]"),
+                (self.TESTS, 19, self.RED), (self.TESTS, 19, EXIT),
+                (f"Post {self.CHECKOUT}", 21, "Post job cleanup.")]
+
+    def github(self, fmt, workflow, tests_name=None):
+        test = self
+        log_text = fmt(self.lines(), self.NAME)
+
+        class Fake(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                found = super().json(route, paginate=paginate)
+                if (isinstance(found, dict) and "/actions/runs/" in route and "/jobs" not in route
+                        and "workflow_id" in found):
+                    found["path"] = test.PATH
+                return found
+
+            def blob(self, repo, ref, path):
+                self.blobs.append((repo, ref, path))
+                if workflow is None or path != test.PATH:
+                    raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+                return workflow
+
+        github = Fake()
+        github.blobs = []
+        github.base_runs = [{**run, "path": self.PATH} for run in github.base_runs]
+        github.jobs = {1: {"id": 1, "run_id": 10, "head_sha": HEAD, "name": self.NAME, "status": "completed",
+                           "conclusion": "failure", "steps": self.steps(tests_name)},
+                       2: {"id": 2, "run_id": 20, "head_sha": BASE_SHA, "name": self.NAME, "status": "completed",
+                           "conclusion": "failure", "steps": self.steps(tests_name)}}
+        github.logs = {1: log_text, 2: log_text}
+        return github
+
+    def formats(self):
+        return (("raw", lambda lines, name: framed_log(lines, name)),
+                ("columns", lambda lines, name: framed_log(lines, name, columns=True)))
+
+    def test_a_step_its_workflow_names_run_something_is_placed_by_its_stamp(self):
+        # Codex's repro: the same red on head and base, one header per step, the named step's header its script's.
+        for label, fmt in self.formats():
+            with self.subTest(log=label):
+                github = self.github(fmt, self.workflow())
+                text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                self.assertIn(f"excused '{self.NAME}'", text)
+                self.assertIn("Old.swift", text)
+                self.assertIn((REPO, HEAD, self.PATH), github.blobs)
+                self.assertIn((REPO, BASE_SHA, self.PATH), github.blobs)
+
+    def test_an_unnamed_step_whose_header_is_not_its_name_still_places_nothing(self):
+        # The workflow gives the step no name: the jobs API names it by its script (`Run swift test` here, its
+        # header's text in a real log), and a header that is not that name is not proven its own.
+        for label, fmt in self.formats():
+            with self.subTest(log=label):
+                github = self.github(fmt, self.workflow(tests_named=False), tests_name="Run swift test")
+                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_an_unread_workflow_leaves_a_run_named_step_unproven(self):
+        for label, fmt in self.formats():
+            with self.subTest(log=label):
+                github = self.github(fmt, None)
+                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_workflow_whose_steps_do_not_match_the_jobs_steps_proves_nothing(self):
+        # A step the workflow does not list (a `Pre` step, a container step) or a name that is not the workflow's
+        # leaves the order unproven: the "Run ..." name is not taken for a named step's.
+        extra = self.workflow().replace("      - uses: actions/checkout@v6\n",
+                                        "      - uses: actions/checkout@v6\n      - name: Lint\n        run: lint\n")
+        renamed = self.workflow().replace(f"name: {self.BUILD}", "name: Build the package")
+        for label, fmt in self.formats():
+            for workflow in (extra, renamed):
+                with self.subTest(log=label, workflow=workflow):
+                    github = self.github(fmt, workflow)
+                    with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+                        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
 # The step-name detector. A line of step_lines' callers and owner, or of anything else in base_red_excuse.py and
 # test_reds.py, never places or looks up a log line by a step's name: a read of a jobs-API step's "name" (`step["name"]`,
 # `step.get("name")`, on a step or a name bound from a job's steps[]) and a read of `gh run view --log`'s step column
