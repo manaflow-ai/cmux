@@ -140,14 +140,15 @@ export default componentEntry<Props>({
             <span className="ahf-list-row">chat-export-anywhere</span>
           </div>
           {showing && placement === "overlay" && head && (
-            <span className="ahf-overlay" data-tone={head.tone} role="button">
+            <span className="ahf-overlay" data-tone={head.tone}>
               <AppHealthDot tone={head.tone} />
               <span className="ahf-text">{head.text}</span>
             </span>
           )}
           <Row line={showing && placement === "before" ? old : null} />
           {showing && placement === "badge" && head && (
-            <span className="ahf-badge" title={head.text} aria-label={head.text} role="button">
+            /* tooltip-allow: the badge has no text; the tooltip is its one line */
+            <span className="ahf-badge" title={head.text}>
               <AppHealthDot tone={head.tone} />
             </span>
           )}

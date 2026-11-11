@@ -167,16 +167,6 @@ struct AppHealthTests {
         #expect(published.value == 3)
         #expect(Self.state(health.snapshot, "page:1") == nil)
     }
-}
-
-/// A value a `@Sendable` closure writes and the test reads.
-final class AppHealthTestBox<Value: Sendable>: Sendable {
-    private let state: Mutex<Value>
-    init(_ value: Value) { state = Mutex(value) }
-    var value: Value {
-        get { state.withLock { $0 } }
-        set { state.withLock { $0 = newValue } }
-    }
 
     /// A part that is only slow (a busy Mac late on a page's heartbeat) gives the indicator no line: it still
     /// answers, and if it stops it turns stuck and is repaired (Leo, 2026-11-11: "slow indicator on the
@@ -193,4 +183,15 @@ final class AppHealthTestBox<Value: Sendable>: Sendable {
         let queued = AppHealth.headline(of: snapshot([part("page:1", "slow")], pending: [["id": "i", "label": "close Background task", "sinceMs": 1]]))
         #expect(queued?.partID == nil && queued?.pending == "close Background task")
     }
+}
+
+/// A value a `@Sendable` closure writes and the test reads.
+final class AppHealthTestBox<Value: Sendable>: Sendable {
+    private let state: Mutex<Value>
+    init(_ value: Value) { state = Mutex(value) }
+    var value: Value {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
+    }
+
 }
