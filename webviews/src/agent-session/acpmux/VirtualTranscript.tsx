@@ -2449,9 +2449,9 @@ function TranscriptView({
         live.at = now;
         clearTimeout(live.timer);
         live.timer = setTimeout(() => {
-          if (!live.live) return;
           live.live = false;
-          settleResize();
+          // Settle whatever left a partial layout, even a step that came late enough to end the drag.
+          if (lastEstimate.current?.partial) settleResize();
         }, LIVE_RESIZE_MS);
       }
       widthRef.current = nextWidth;
@@ -2802,7 +2802,8 @@ function TranscriptView({
     const placedRange = lastPlaced.current;
     const from = placedRange ? Math.max(0, placedRange.first - LIVE_RESIZE_ROWS) : 0;
     const to = placedRange ? placedRange.last + LIVE_RESIZE_ROWS : 0;
-    // A chat whose rows all sit in that window is measured whole: that layout is not partial.
+    // A chat that window covers half of or more is measured whole (a short chat costs less measured
+    // whole than placed again from row 0 over a partial layout): that layout is not partial.
     const resizing =
       !fresh &&
       liveResize.current.live &&
@@ -2810,7 +2811,7 @@ function TranscriptView({
       last.width !== rowWidth &&
       last.sessionId === sessionId &&
       placedRange &&
-      (from > 0 || to < rows.length)
+      (to - from) * 2 < rows.length
         ? { rows: last.rows, layout: last.layout, from, to }
         : undefined;
     const layout = layoutConversation(

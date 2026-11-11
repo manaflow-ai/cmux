@@ -3204,6 +3204,7 @@ export function layoutConversation(
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
       resizing &&
+      (resizing.layout.scale ?? 1) === scale &&
       (index < resizing.from || index >= resizing.to) &&
       index < resizing.layout.heights.length &&
       resizing.rows[index] === row
