@@ -354,7 +354,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.take(BrowserVimKeysSetting.parse(root), \.browserVimKeys)
+        snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
         snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)
