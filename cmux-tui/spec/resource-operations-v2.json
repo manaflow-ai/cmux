@@ -10683,7 +10683,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The removed worktree's folder."
+          "description": "The removed worktree's folder, as git.worktree.create printed it: under ~/.cmux/worktrees, not the ~/.cmux/worktrees.noindex folder that link resolves to on macOS. Once the worktree is gone, its project folder in cmux's worktree root goes too when it is empty."
         },
         "main_root": {
           "required": true,
