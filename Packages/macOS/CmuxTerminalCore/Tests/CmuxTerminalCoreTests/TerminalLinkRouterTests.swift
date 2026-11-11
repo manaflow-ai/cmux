@@ -138,6 +138,19 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(try #require(tlds.resolveOpenURLTarget("example.com/docs")).url.host == "example.com")
     }
 
+    /// An app link that mixes raw Unicode and `%2F` opens with the escape
+    /// intact, not double-encoded to `%252F` (manaflow-ai/cmux#40300).
+    @Test func customSchemeLinkKeepsPercentEscapesNextToRawUnicode() throws {
+        let target = try #require(
+            router.resolveOpenURLTarget("obsidian://open?vault=メモ&file=2026%2F11%2F5")
+        )
+        guard case let .external(url) = target else {
+            Issue.record("Expected a custom-scheme link to open externally")
+            return
+        }
+        #expect(url.absoluteString == "obsidian://open?vault=%E3%83%A1%E3%83%A2&file=2026%2F11%2F5")
+    }
+
     @Test func emptyTextResolvesToNil() {
         #expect(router.resolveOpenURLTarget("") == nil)
         #expect(router.resolveOpenURLTarget("   \n") == nil)
