@@ -1289,6 +1289,11 @@ cmux agents events --until agent.state --match state=idle --match terminal_id=te
   `null`). Every condition must hold. Either flag alone starts a wait.
 - `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
 
+A change to one tab's record (`tab.update`: an unread mark, an attention
+mark, a zoom, an icon; `browser.tab.emulate`) is one `tab.changed` event for
+that tab and no `workspace.changed` event, so a wait for `workspace.changed`
+does not end on it; wait for `tab.changed` with `--match id=TAB`.
+
 A wait prints only the matching event and exits 0. When the time runs out it
 exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
 true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
