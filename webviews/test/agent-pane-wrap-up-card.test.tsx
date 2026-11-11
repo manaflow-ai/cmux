@@ -237,7 +237,12 @@ describe("a finished wrap-up's Try", () => {
   });
 
   test("a target the tool refuses draws no button, and its steps still draw", () => {
-    for (const bad of [{ url: "javascript:alert(1)" }, { url: "file:///etc/passwd" }, { command: "ls\nrm -rf ~" }, { url: "https://a.b", command: "ls" }]) {
+    for (const bad of [
+      { url: "javascript:alert(1)" },
+      { url: "file:///etc/passwd" },
+      { command: "ls\nrm -rf ~" },
+      { url: "https://a.b", command: "ls" },
+    ]) {
       const tryIt = wrapUpAsk(call({ recap: RECAP, try: bad, verify: ["Look."] }).tool!)?.tryIt;
       expect(tryIt?.label).toBeUndefined();
       expect(tryIt?.url).toBeUndefined();
@@ -248,7 +253,9 @@ describe("a finished wrap-up's Try", () => {
 
   test("the box draws Try, Report, the target and the steps; a click opens the target", () => {
     const ask = wrapUpAsk(call(TRY).tool!)!;
-    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onTry: () => undefined, onReport: () => undefined }));
+    const html = renderToStaticMarkup(
+      createElement(NextStepCard, { ask, onTry: () => undefined, onReport: () => undefined }),
+    );
     expect(html).toContain("acpmux-next-step__try-button");
     expect(html).toContain("Open try-agent-work build");
     expect(html).toContain("acpmux-next-step__report");

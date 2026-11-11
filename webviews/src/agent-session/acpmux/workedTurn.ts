@@ -222,6 +222,14 @@ export function workedTurnTryRows(at: number): AcpmuxRow[] {
       ],
     },
     summary,
-    { id: "worked-turn-summary", version: 1, at: at + 50_000, kind: "turnSummary", status: "completed", durationMs: 50_000, toolCount: 4 },
+    {
+      id: "worked-turn-summary",
+      version: 1,
+      at: at + 50_000,
+      kind: "turnSummary",
+      status: "completed",
+      durationMs: 50_000,
+      toolCount: 4,
+    },
   ] as AcpmuxRow[];
 }

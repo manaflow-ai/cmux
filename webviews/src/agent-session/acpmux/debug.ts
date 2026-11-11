@@ -193,21 +193,21 @@ export function createAcpmuxDebug(
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "worked-turn-try"
               ? workedTurnTryRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
-                : fixture === "organization"
-                  ? organizationRows(Date.now() - 120_000)
-                  : fixture === "tool-summary"
-                    ? toolSummaryRows(Date.now() - 60_000)
-                    : fixture === "shared"
-                      ? sharedRows(Date.now() - 1_020_000)
-                      : fixture === "waiting-steers"
-                        ? waitingSteersRows(Date.now() - 90_000)
-                        : fixture === "subagent-report"
-                          ? subagentReportRows(Date.now() - 5_000_000)
-                          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+              : fixture === "incoming"
+                ? incomingRows(Date.now() - 120_000)
+                : fixture === "link"
+                  ? linkRows(Date.now() - 30_000)
+                  : fixture === "organization"
+                    ? organizationRows(Date.now() - 120_000)
+                    : fixture === "tool-summary"
+                      ? toolSummaryRows(Date.now() - 60_000)
+                      : fixture === "shared"
+                        ? sharedRows(Date.now() - 1_020_000)
+                        : fixture === "waiting-steers"
+                          ? waitingSteersRows(Date.now() - 90_000)
+                          : fixture === "subagent-report"
+                            ? subagentReportRows(Date.now() - 5_000_000)
+                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);

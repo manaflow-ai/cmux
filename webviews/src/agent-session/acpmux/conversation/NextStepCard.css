@@ -129,14 +129,14 @@
   overflow: hidden;
   color: var(--agent-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-caption, 12px);
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .acpmux-next-step__verify-head {
   margin: 0;
   color: var(--agent-muted);
-  font-size: var(--text-caption, 12px);
+  font-size: var(--text-caption);
 }
 .acpmux-next-step__verify ul {
   display: flex;
@@ -153,7 +153,7 @@
   overflow-wrap: anywhere;
 }
 .acpmux-next-step__verify input {
-  margin: 3px 0 0;
+  margin: var(--ds-space-1, 4px) 0 0;
 }
 .acpmux-next-step__verify input:checked + span {
   color: var(--agent-muted);

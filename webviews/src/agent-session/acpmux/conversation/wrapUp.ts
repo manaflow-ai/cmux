@@ -107,8 +107,7 @@ export function tryOf(args: Record<string, unknown>): WrapUpTry | undefined {
   const command = words(target?.command);
   const safeUrl =
     url && !command && /^https?:\/\//i.test(url) && url.length <= MAX_TRY_URL && !/\s/.test(url) ? url : undefined;
-  const safeCommand =
-    command && !url && command.length <= MAX_TRY_COMMAND && plainLine(command) ? command : undefined;
+  const safeCommand = command && !url && command.length <= MAX_TRY_COMMAND && plainLine(command) ? command : undefined;
   const label = safeUrl || safeCommand ? (words(target?.label)?.slice(0, MAX_TRY_LABEL) ?? "Try it") : undefined; // l10n-allow: the tool's own default label
   const verify = Array.isArray(args.verify)
     ? args.verify
@@ -148,7 +147,14 @@ function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI
         ];
   }
-  return { tag: WRAP_UP, question: question ?? "", options, rest: "", ...(recap && { recap }), ...(tryIt && { tryIt }) };
+  return {
+    tag: WRAP_UP,
+    question: question ?? "",
+    options,
+    rest: "",
+    ...(recap && { recap }),
+    ...(tryIt && { tryIt }),
+  };
 }
 
 /// The last wrap-up call among a turn's rows, read as its card.

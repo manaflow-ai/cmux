@@ -205,12 +205,7 @@ function TryBlock({
             {tryIt.verify.map((step, index) => (
               <li key={index}>
                 <label>
-                  <input
-                    type="checkbox"
-                    aria-label={step}
-                    checked={ticked.has(index)}
-                    onChange={() => tick(index)}
-                  />
+                  <input type="checkbox" aria-label={step} checked={ticked.has(index)} onChange={() => tick(index)} />
                   <span>{inlineText(step)}</span>
                 </label>
               </li>
