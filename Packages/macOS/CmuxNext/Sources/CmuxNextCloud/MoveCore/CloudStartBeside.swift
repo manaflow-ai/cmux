@@ -13,7 +13,7 @@ public import Foundation
     }
 
     /// A start that ends before the step that needs the work (a failure, a cancellation) ends the work with it.
-    deinit { task.cancel() }
+    nonisolated deinit { task.cancel() }
 
     /// What the work answered, once it has.
     public var value: Value { get async { await task.value } }
