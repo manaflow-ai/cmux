@@ -29,14 +29,8 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var linkEndedDetail: String?
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
-    /// The ended link failed in a way no new connect changes (``CloudLinkError/endsWaits(_:)``: this Mac's
-    /// connection helper refused to start): a start's or a move's wait (``linkUp(within:)``) ends on it with
-    /// ``linkFailureReason`` instead of connecting again until its deadline. False again once a connect or a
-    /// resume starts.
-    private(set) var linkRefused = false
-    /// Why the last connect failed, in the link's own words (``CloudLinkError/failureReason(_:)``), until
-    /// the next connect: a start that did not connect says it.
-    @ObservationIgnored private(set) var linkFailureReason: String?
+    /// The last connect failed for good, and why (``CloudLinkRefusal``): a start's or a move's wait ends on it.
+    let linkRefusal = CloudLinkRefusal()
     /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
     /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
     @ObservationIgnored let linkEndRead = CloudLinkEndRead()
@@ -135,10 +129,9 @@ final class CloudMachineSession {
         guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
         appConnecting = true
         connects += 1
-        // A resume that failed earlier says nothing about this connect, nor does a refused one: a wait that
-        // begins now waits for this connect's answer.
+        // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
-        linkRefused = false
+        linkRefusal.connecting()
         let previous = linkTransition
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
@@ -170,7 +163,6 @@ final class CloudMachineSession {
         guard !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
-        linkRefused = false
         // task-owner: one resume per attach; a second attach while it runs waits on it
         Task {
             defer { resuming = false }
@@ -210,8 +202,6 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         linkEnded = nil
         linkDropped = false
-        linkRefused = false
-        linkFailureReason = nil
         // A new connect is this link's answer: the ended link's list read no longer holds it.
         linkEndRead.confirming = false
         resumeFailure = nil
@@ -312,8 +302,7 @@ final class CloudMachineSession {
         daemon.store.markFailed(message)
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
-        linkFailureReason = CloudLinkError.failureReason(error)
-        linkRefused = CloudLinkError.endsWaits(error)
+        linkRefusal.ended(error)
         linkPhase = .failed(message)
         guard let refresher else { return }
         linkEndRead.ended(dropped: linkDropped, paused: machine.status == .paused, connects: connects,
@@ -394,24 +383,16 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers, a resume failed, or the link failed in a
-    /// way no new connect changes (``linkRefused``); a paused machine resumes once, an ended link redials.
+    /// A start's or a move's wait: true once the daemon answers, a resume failed or the link is refused for good; a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
-        forgetStaleRefusal()
         let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
+        linkRefusal.waitBegins(connecting: appConnecting)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
-            guard !linkRefused else { return }
+            guard !linkRefusal.refused else { return }
             beats.beat(ended: linkEnded != nil && !appConnecting, status: machine.status, resume: { attach(origin: .script) }, connect: { connect() })
         }) { [daemon] in
-            self.resumeFailure != nil || self.linkRefused || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
+            self.resumeFailure != nil || self.linkRefusal.refused || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
-    }
-
-    /// A refusal with no connect in flight is an earlier connect's: a wait that begins now does not end on
-    /// it (its first beat connects again, which asks the helper anew). A connect a guard skipped (a script's on a
-    /// machine that is not live) would otherwise leave it set, and the wait would end at once on an old answer.
-    func forgetStaleRefusal() {
-        if !appConnecting { linkRefused = false }
     }
 
     /// The link a wait brought up holds: a live daemon and no failed resume (``linkUp(within:)`` also ends on one).

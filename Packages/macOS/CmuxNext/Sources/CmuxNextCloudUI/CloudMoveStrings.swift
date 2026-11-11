@@ -54,9 +54,10 @@ public struct CloudMoveStrings {
     public static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .module), machine)
     }
-    /// The machine did not connect, and its last connect said why (the link's own words).
-    public static func notConnected(_ machine: String, because reason: String) -> String {
-        String(format: String(localized: "cloud.move.notConnectedBecause", defaultValue: "%1$@ didn't connect: %2$@. Retry when that's fixed.", table: "Cloud", bundle: .module), machine, reason)
+    /// The machine did not connect, and its last connect said why (the link's own words); no reason: ``notConnected(_:)``.
+    public static func notConnected(_ machine: String, because reason: String?) -> String {
+        guard let reason else { return notConnected(machine) }
+        return String(format: String(localized: "cloud.move.notConnectedBecause", defaultValue: "%1$@ didn't connect: %2$@. Retry when that's fixed.", table: "Cloud", bundle: .module), machine, reason)
     }
     public static func syncFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.syncFailed", defaultValue: "Couldn't copy the folder to %1$@: %2$@", table: "Cloud", bundle: .module),

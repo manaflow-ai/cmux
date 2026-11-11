@@ -44,7 +44,7 @@ struct CloudConnectRefusedStartTests {
         // Without the fix the wait connects again for its whole 180 s (the suite's time limit fails it first).
         #expect(began.duration(to: clock.now) < .seconds(30))
         #expect(await resolver.opens == 1, "a helper that cannot start is not started again by the wait")
-        #expect(session.linkRefused)
+        #expect(session.linkRefusal.refused)
 
         // A Retry (a new connect) asks the link again: the refusal is that connect's, not kept for good.
         do {
