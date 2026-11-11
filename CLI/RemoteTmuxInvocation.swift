@@ -134,7 +134,7 @@ struct RemoteTmuxInvocation: Equatable {
                       !commandArgs[index + 1].hasPrefix("-") else {
                     throw CLIError(message: String(
                         localized: "cli.sshTmux.error.socketNameRequired",
-                        defaultValue: "ssh-tmux: --socket-name requires a tmux server name (the value of tmux -L)"
+                        defaultValue: "ssh-tmux: --socket-name requires a tmux server name"
                     ))
                 }
                 let name = commandArgs[index + 1]

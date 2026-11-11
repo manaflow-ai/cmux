@@ -103,7 +103,7 @@ extension RemoteTmuxError {
         case let .socketPathTooLong(destination):
             let format = String(
                 localized: "remoteTmux.error.socketPathTooLong",
-                defaultValue: "The tmux socket path on %@ is too long for the host to open. Use a shorter --socket-name, or a shorter tmux socket directory on the host, then try again."
+                defaultValue: "The tmux socket path on %@ is too long for the host to open. To mirror that server, make its socket available at a shorter path on the host. A different --socket-name or socket directory selects a different server."
             )
             return String(format: format, Self.sanitizedDetail(destination))
         case let .tmuxNotFound(destination):

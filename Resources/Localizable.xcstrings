@@ -674322,121 +674322,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name requires a tmux server name (the value of tmux -L)"
+            "value": "ssh-tmux: --socket-name requires a tmux server name"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: يتطلب --socket-name اسم خادم tmux (قيمة tmux -L)"
+            "value": "ssh-tmux: يتطلب --socket-name اسم خادم tmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name zahtijeva ime tmux servera (vrijednost tmux -L)"
+            "value": "ssh-tmux: --socket-name zahtijeva ime tmux servera"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name kræver et tmux-servernavn (værdien af tmux -L)"
+            "value": "ssh-tmux: --socket-name kræver et tmux-servernavn"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name benötigt einen tmux-Servernamen (den Wert von tmux -L)"
+            "value": "ssh-tmux: --socket-name benötigt einen tmux-Servernamen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name requiere un nombre de servidor tmux (el valor de tmux -L)"
+            "value": "ssh-tmux: --socket-name requiere un nombre de servidor tmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux : --socket-name requiert un nom de serveur tmux (la valeur de tmux -L)"
+            "value": "ssh-tmux : --socket-name requiert un nom de serveur tmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name richiede un nome di server tmux (il valore di tmux -L)"
+            "value": "ssh-tmux: --socket-name richiede un nome di server tmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name には tmux サーバー名（tmux -L の値）が必要です"
+            "value": "ssh-tmux: --socket-name には tmux サーバー名が必要です"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name ត្រូវការឈ្មោះម៉ាស៊ីនមេ tmux (តម្លៃនៃ tmux -L)"
+            "value": "ssh-tmux: --socket-name ត្រូវការឈ្មោះម៉ាស៊ីនមេ tmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name에는 tmux 서버 이름(tmux -L의 값)이 필요합니다"
+            "value": "ssh-tmux: --socket-name에는 tmux 서버 이름이 필요합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name krever et tmux-servernavn (verdien av tmux -L)"
+            "value": "ssh-tmux: --socket-name krever et tmux-servernavn"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name wymaga nazwy serwera tmux (wartości tmux -L)"
+            "value": "ssh-tmux: --socket-name wymaga nazwy serwera tmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name exige um nome de servidor tmux (o valor de tmux -L)"
+            "value": "ssh-tmux: --socket-name exige um nome de servidor tmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: для --socket-name требуется имя сервера tmux (значение tmux -L)"
+            "value": "ssh-tmux: для --socket-name требуется имя сервера tmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name ต้องระบุชื่อเซิร์ฟเวอร์ tmux (ค่าของ tmux -L)"
+            "value": "ssh-tmux: --socket-name ต้องระบุชื่อเซิร์ฟเวอร์ tmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: --socket-name bir tmux sunucu adı gerektirir (tmux -L değeri)"
+            "value": "ssh-tmux: --socket-name bir tmux sunucu adı gerektirir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux: для --socket-name потрібне ім'я сервера tmux (значення tmux -L)"
+            "value": "ssh-tmux: для --socket-name потрібне ім'я сервера tmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux：--socket-name 需要 tmux 服务器名称（tmux -L 的值）"
+            "value": "ssh-tmux：--socket-name 需要 tmux 服务器名称"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-tmux：--socket-name 需要 tmux 伺服器名稱（tmux -L 的值）"
+            "value": "ssh-tmux：--socket-name 需要 tmux 伺服器名稱"
           }
         }
       }
@@ -674697,121 +674697,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The tmux socket path on %@ is too long for the host to open. Use a shorter --socket-name, or a shorter tmux socket directory on the host, then try again."
+            "value": "The tmux socket path on %@ is too long for the host to open. To mirror that server, make its socket available at a shorter path on the host. A different --socket-name or socket directory selects a different server."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسار مقبس tmux على %@ أطول من أن يتمكن المضيف من فتحه. استخدم --socket-name أقصر، أو مجلد مقابس tmux أقصر على المضيف، ثم حاول مرة أخرى."
+            "value": "مسار مقبس tmux على %@ أطول من أن يتمكن المضيف من فتحه. لعكس ذلك الخادم، اجعل مقبسه متاحًا في مسار أقصر على المضيف. استخدام --socket-name مختلف أو مجلد مقابس مختلف يحدد خادمًا آخر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Putanja tmux socketa na %@ je preduga da bi je host mogao otvoriti. Koristite kraći --socket-name ili kraći direktorij tmux socketa na hostu, a zatim pokušajte ponovo."
+            "value": "Putanja tmux socketa na %@ je preduga da bi je host mogao otvoriti. Da biste zrcalili taj server, učinite njegov socket dostupnim na kraćoj putanji na hostu. Drugi --socket-name ili drugi direktorij socketa bira drugi server."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stien til tmux-socketen på %@ er for lang til, at værten kan åbne den. Brug et kortere --socket-name eller en kortere tmux-socketmappe på værten, og prøv igen."
+            "value": "Stien til tmux-socketen på %@ er for lang til, at værten kan åbne den. Hvis du vil spejle den server, skal du gøre dens socket tilgængelig på en kortere sti på værten. Et andet --socket-name eller en anden socketmappe vælger en anden server."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der tmux-Socket-Pfad auf %@ ist zu lang, als dass der Host ihn öffnen könnte. Verwende einen kürzeren --socket-name oder ein kürzeres tmux-Socket-Verzeichnis auf dem Host und versuche es dann erneut."
+            "value": "Der tmux-Socket-Pfad auf %@ ist zu lang, als dass der Host ihn öffnen könnte. Um diesen Server zu spiegeln, mache seinen Socket auf dem Host unter einem kürzeren Pfad verfügbar. Ein anderer --socket-name oder ein anderes Socket-Verzeichnis wählt einen anderen Server aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La ruta del socket de tmux en %@ es demasiado larga para que el host pueda abrirla. Usa un --socket-name más corto, o un directorio de sockets de tmux más corto en el host, y vuelve a intentarlo."
+            "value": "La ruta del socket de tmux en %@ es demasiado larga para que el host pueda abrirla. Para replicar ese servidor, haz que su socket esté disponible en una ruta más corta en el host. Otro --socket-name u otro directorio de sockets selecciona un servidor distinto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le chemin du socket tmux sur %@ est trop long pour que l’hôte puisse l’ouvrir. Utilisez un --socket-name plus court, ou un répertoire de sockets tmux plus court sur l’hôte, puis réessayez."
+            "value": "Le chemin du socket tmux sur %@ est trop long pour que l’hôte puisse l’ouvrir. Pour mettre ce serveur en miroir, rendez son socket accessible à un chemin plus court sur l’hôte. Un autre --socket-name ou un autre répertoire de sockets sélectionne un serveur différent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il percorso del socket tmux su %@ è troppo lungo perché l’host possa aprirlo. Usa un --socket-name più corto, o una directory dei socket tmux più corta sull’host, quindi riprova."
+            "value": "Il percorso del socket tmux su %@ è troppo lungo perché l’host possa aprirlo. Per eseguire il mirroring di quel server, rendi disponibile il suo socket in un percorso più corto sull’host. Un altro --socket-name o un’altra directory dei socket seleziona un server diverso."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の tmux ソケットのパスが長すぎるため、ホストで開けません。より短い --socket-name を使うか、ホスト上の tmux ソケットディレクトリを短くしてから、もう一度お試しください。"
+            "value": "%@ の tmux ソケットのパスが長すぎるため、ホストで開けません。そのサーバーをミラーリングするには、ホスト上のより短いパスでそのソケットを使えるようにしてください。別の --socket-name やソケットディレクトリを指定すると、別のサーバーが選択されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្លូវ socket របស់ tmux នៅលើ %@ វែងពេក ដែលម៉ាស៊ីនមិនអាចបើកបាន។ សូមប្រើ --socket-name ខ្លីជាងនេះ ឬថត socket របស់ tmux ខ្លីជាងនេះនៅលើម៉ាស៊ីន រួចព្យាយាមម្ដងទៀត។"
+            "value": "ផ្លូវ socket របស់ tmux នៅលើ %@ វែងពេក ដែលម៉ាស៊ីនមិនអាចបើកបាន។ ដើម្បីឆ្លុះបញ្ចាំងម៉ាស៊ីនបម្រើនោះ សូមធ្វើឱ្យ socket របស់វាអាចប្រើបាននៅផ្លូវខ្លីជាងនេះនៅលើម៉ាស៊ីន។ --socket-name ផ្សេង ឬថត socket ផ្សេង នឹងជ្រើសម៉ាស៊ីនបម្រើផ្សេង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@의 tmux 소켓 경로가 너무 길어 호스트에서 열 수 없습니다. 더 짧은 --socket-name을 사용하거나 호스트에서 더 짧은 tmux 소켓 디렉터리를 사용한 다음 다시 시도하세요."
+            "value": "%@의 tmux 소켓 경로가 너무 길어 호스트에서 열 수 없습니다. 해당 서버를 미러링하려면 호스트에서 더 짧은 경로로 그 소켓을 사용할 수 있게 하세요. 다른 --socket-name이나 소켓 디렉터리를 지정하면 다른 서버가 선택됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Banen til tmux-socketen på %@ er for lang til at verten kan åpne den. Bruk et kortere --socket-name eller en kortere tmux-socketmappe på verten, og prøv igjen."
+            "value": "Banen til tmux-socketen på %@ er for lang til at verten kan åpne den. Hvis du vil speile den serveren, må du gjøre socketen tilgjengelig på en kortere bane på verten. Et annet --socket-name eller en annen socketmappe velger en annen server."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ścieżka gniazda tmux na %@ jest zbyt długa, aby host mógł je otworzyć. Użyj krótszej wartości --socket-name albo krótszego katalogu gniazd tmux na hoście, a następnie spróbuj ponownie."
+            "value": "Ścieżka gniazda tmux na %@ jest zbyt długa, aby host mógł je otworzyć. Aby odzwierciedlić ten serwer, udostępnij jego gniazdo pod krótszą ścieżką na hoście. Inna wartość --socket-name lub inny katalog gniazd wybiera inny serwer."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O caminho do socket do tmux em %@ é longo demais para o host abrir. Use um --socket-name mais curto, ou um diretório de sockets do tmux mais curto no host, e tente novamente."
+            "value": "O caminho do socket do tmux em %@ é longo demais para o host abrir. Para espelhar esse servidor, disponibilize o socket dele em um caminho mais curto no host. Outro --socket-name ou outro diretório de sockets seleciona um servidor diferente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Путь к сокету tmux на %@ слишком длинный, и хост не может его открыть. Используйте более короткий --socket-name или более короткий каталог сокетов tmux на хосте, затем повторите попытку."
+            "value": "Путь к сокету tmux на %@ слишком длинный, и хост не может его открыть. Чтобы зеркалировать этот сервер, сделайте его сокет доступным по более короткому пути на хосте. Другой --socket-name или другой каталог сокетов выбирает другой сервер."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พาธซ็อกเก็ตของ tmux บน %@ ยาวเกินกว่าที่โฮสต์จะเปิดได้ ให้ใช้ --socket-name ที่สั้นลง หรือไดเรกทอรีซ็อกเก็ตของ tmux ที่สั้นลงบนโฮสต์ แล้วลองอีกครั้ง"
+            "value": "พาธซ็อกเก็ตของ tmux บน %@ ยาวเกินกว่าที่โฮสต์จะเปิดได้ หากต้องการมิเรอร์เซิร์ฟเวอร์นั้น ให้ทำให้ซ็อกเก็ตของเซิร์ฟเวอร์ใช้งานได้ที่พาธที่สั้นลงบนโฮสต์ การใช้ --socket-name อื่นหรือไดเรกทอรีซ็อกเก็ตอื่นจะเลือกเซิร์ฟเวอร์อื่น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ üzerindeki tmux soket yolu, ana makinenin açamayacağı kadar uzun. Daha kısa bir --socket-name veya ana makinede daha kısa bir tmux soket dizini kullanın, ardından yeniden deneyin."
+            "value": "%@ üzerindeki tmux soket yolu, ana makinenin açamayacağı kadar uzun. O sunucuyu yansıtmak için soketini ana makinede daha kısa bir yoldan erişilebilir yapın. Farklı bir --socket-name veya soket dizini farklı bir sunucu seçer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шлях до сокета tmux на %@ задовгий, і хост не може його відкрити. Використайте коротший --socket-name або коротший каталог сокетів tmux на хості, а потім спробуйте ще раз."
+            "value": "Шлях до сокета tmux на %@ задовгий, і хост не може його відкрити. Щоб віддзеркалити цей сервер, зробіть його сокет доступним за коротшим шляхом на хості. Інший --socket-name або інший каталог сокетів вибирає інший сервер."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 上的 tmux 套接字路径过长，主机无法打开。请使用更短的 --socket-name，或在主机上使用更短的 tmux 套接字目录，然后重试。"
+            "value": "%@ 上的 tmux 套接字路径过长，主机无法打开。要镜像该服务器，请在主机上通过更短的路径提供它的套接字。使用其他 --socket-name 或套接字目录会选择另一台服务器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 上的 tmux socket 路徑過長，主機無法開啟。請使用較短的 --socket-name，或在主機上使用較短的 tmux socket 目錄，然後再試一次。"
+            "value": "%@ 上的 tmux socket 路徑過長，主機無法開啟。若要鏡像該伺服器，請在主機上透過較短的路徑提供它的 socket。使用其他 --socket-name 或 socket 目錄會選取另一個伺服器。"
           }
         }
       }
