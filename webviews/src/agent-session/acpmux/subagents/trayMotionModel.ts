@@ -151,10 +151,12 @@ const FRAME_MS = 1000 / 60;
 /// quarter. So a stall early in the fold (a slow commit, a slow first paint) drew its next frame most
 /// of the way down, one jump: a headless WebKit drew one frame, then nothing for about 200 ms, then
 /// the hat gone. On its first frame, and after a gap of `FOLD_DROP_MS` or more while the fold is in
-/// its first half, the clock goes back to one frame in, so the frame after the stall is near the start
-/// and the whole fold plays. At most `RESTARTS` restarts after the first frame, so a page that keeps
-/// stalling still ends; the frame loop stops then, past the first half, or once the copy is gone.
-/// `restarted` re-arms the fallback.
+/// its first half, the clock is held to one frame past what the page last painted, so the frame after
+/// the stall goes on from the height the person last saw and the whole fold plays. The hold never
+/// moves the clock back: a hold to one frame in, whatever was painted, drew a hat that was 95% folded
+/// (75 ms in) at its first frame's height again, and the fold played a second time. At most `RESTARTS`
+/// holds after the first frame, so a page that keeps stalling still ends; the frame loop stops then,
+/// past the first half, or once the copy is gone. `restarted` re-arms the fallback.
 function startOnFirstFrames(
   ghost: HTMLElement,
   view: Window | null | undefined,
@@ -162,12 +164,13 @@ function startOnFirstFrames(
   restarted: () => void,
 ): void {
   if (!view?.requestAnimationFrame || typeof ghost.getAnimations !== "function") return;
-  const restart = () => {
+  /// Holds the copy's clock to `to` ms where it has run past that.
+  const hold = (to: number) => {
     let moved = false;
     for (const animation of ghost.getAnimations()) {
       const at = animation.currentTime;
-      if (typeof at !== "number" || at <= FRAME_MS) continue;
-      animation.currentTime = FRAME_MS;
+      if (typeof at !== "number" || at <= to) continue;
+      animation.currentTime = to;
       moved = true;
     }
     if (moved) restarted();
@@ -176,16 +179,19 @@ function startOnFirstFrames(
   const played = () =>
     Math.max(0, ...ghost.getAnimations().map((animation) => Number(animation.currentTime ?? 0) || 0));
   let last: number | undefined;
+  /// The clock of the last frame the page painted (0 before the first: the copy at its full height).
+  let painted = 0;
   let restarts = 0;
   const step = (now: number) => {
     if (!leaving.has(ghost)) return;
-    if (last === undefined) restart();
+    if (last === undefined) hold(painted + FRAME_MS);
     else if (now - last >= FOLD_DROP_MS) {
-      restart();
+      hold(painted + FRAME_MS);
       restarts += 1;
     }
     last = now;
-    if (restarts < RESTARTS && played() < ms / 2) view.requestAnimationFrame(step);
+    painted = played();
+    if (restarts < RESTARTS && painted < ms / 2) view.requestAnimationFrame(step);
   };
   view.requestAnimationFrame(step);
 }
