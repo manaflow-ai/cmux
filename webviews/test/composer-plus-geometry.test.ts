@@ -528,12 +528,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const glyph = m.plus.glyphBox;
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
-    // The suggestions' popover frosts what is under it: the menus' tint (78%) and a blur.
+    // The suggestions' popover frosts what is under it: every popup's one material, the menu
+    // level's tint (78%) and blur (glass.css GLASS LEVELS; Leo 2026-11-11, "the styles mix").
     if (layout.expect?.includes("suggestions")) {
       if (!m.popover) out.push("the suggestions' popover is not drawn");
       else {
-        if (m.popover.alpha < 0.85)
-          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the + menu's 0.86`);
+        if (m.popover.alpha < 0.77)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menu level's 0.78`);
         if (!/blur\(/.test(m.popover.backdrop))
           out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
       }
