@@ -79,8 +79,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/webviews_bun_version.py",
+            "scripts/check-webviews-bun-version.sh",
         ):
             source, target = SOURCE / relative, root / relative
+            if not source.exists():
+                continue  # a tree from before the file; the installer then fails on it if it needs it
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
                 shutil.copytree(source, target)
@@ -649,6 +653,60 @@ mkdir -p node_modules/.bin
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("inside this checkout", result.stderr)
         self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    # devEngines shapes where the first "version" is not bun's (#41001 review, F1): the hook took
+    # the first version inside devEngines, so an npm entry listed first, or a runtime engine before
+    # packageManager, picked the bun it installed with, while check-webviews-bun-version.sh read
+    # another. Both now read scripts/webviews_bun_version.py; on each shape they give one answer.
+    BUN_PIN_SHAPES = {
+        "plain": ({"packageManager": {"name": "bun", "version": "1.4.4", "onFail": "error"}}, "1.4.4"),
+        "npm listed first": ({"packageManager": [
+            {"name": "npm", "version": "10.9.2", "onFail": "ignore"},
+            {"name": "bun", "version": "1.4.4", "onFail": "error"},
+        ]}, "1.4.4"),
+        "runtime engine listed first": ({
+            "runtime": {"name": "node", "version": "24.22.1"},
+            "packageManager": {"name": "bun", "version": "1.4.4", "onFail": "error"},
+        }, "1.4.4"),
+        "no bun entry": ({"packageManager": {"name": "npm", "version": "10.9.2", "onFail": "error"}}, None),
+    }
+
+    def test_hook_and_version_checker_read_one_bun_pin(self):
+        self.assertEqual(self.install().returncode, 0)
+        old_bun = self.root / "old-bun"
+        old_bun.write_text("#!/bin/sh\necho 0.0.1\n")
+        old_bun.chmod(0o755)
+        for shape, (dev_engines, expected) in self.BUN_PIN_SHAPES.items():
+            with self.subTest(shape=shape):
+                env = self.bootstrap_env()
+                (self.repo / "webviews/package.json").write_text(
+                    json.dumps({"name": "webviews", "devEngines": dev_engines}, indent=2) + "\n")
+                # A bun at every version these shapes name, and an older one on PATH.
+                installed = {version: self.fake_bun(self.root / f"mise/installs/bun/{version}/bin/bun", version)
+                             for version in ("1.4.4", "10.9.2", "24.22.1")}
+                path_bun = self.fake_bun(Path(env["PATH"]) / "bun", "0.0.1")
+                (self.root / "bun.log").unlink(missing_ok=True)
+                try:
+                    result = self.run_pre_commit(env)
+                finally:
+                    path_bun.unlink()
+                ran = (self.root / "bun.log").read_text().splitlines() if (self.root / "bun.log").exists() else []
+                self.assertEqual(len(ran), 1, result.stderr)
+                hook = next((version for version, bun in installed.items() if ran[0] == str(bun)), None)
+                if hook is None:
+                    self.assertEqual(ran[0], str(path_bun), result.stderr)
+                # The checker, on the same package.json, against a bun older than any pin: its
+                # install command names the version it wants, or it refuses the declaration.
+                checked = subprocess.run(["sh", str(self.repo / "scripts/check-webviews-bun-version.sh"), str(old_bun)],
+                                         cwd=self.repo, env=self.env, text=True, capture_output=True)
+                self.assertNotEqual(checked.returncode, 0, checked.stderr)
+                wanted = re.search(r"bun-v([0-9.]+)", checked.stderr)
+                checker = wanted.group(1) if wanted else None
+                self.assertEqual((hook, checker), (expected, expected),
+                                 f"hook stderr: {result.stderr}\nchecker stderr: {checked.stderr}")
+                if expected is None:
+                    self.assertIn("no bun in devEngines.packageManager", result.stderr)
+                    self.assertIn("no bun in devEngines.packageManager", checked.stderr)
 
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
