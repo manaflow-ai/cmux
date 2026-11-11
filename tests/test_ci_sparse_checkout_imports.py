@@ -1033,6 +1033,26 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ),
             "scripts/a/rbmod.py": "",
             "scripts/ab/rbmod.py": "",
+            # Follow-ups to #40876: call order, scope and a search that does not settle.
+            "scripts/ci/fnorder.py": (
+                "import sys\n"
+                "def add_b():\n    sys.path.insert(0, 'scripts/b')\n"
+                "def add_a():\n    sys.path.insert(0, 'scripts/a')\n"
+                "add_a()\nadd_b()\nimport ordmod2\n"
+            ),
+            "scripts/a/ordmod2.py": "",
+            "scripts/b/ordmod2.py": "",
+            "scripts/ci/xfile.py": "import sys\nimport xside\nsys.path.insert(0, 'scripts/a')\nimport ordmod2\n",
+            "scripts/ci/xside.py": "import sys\nsys.path.insert(0, 'scripts/b')\n",
+            "scripts/ci/star.py": (
+                "import sys\nfrom starconf import *\n"
+                "def f():\n    P = 'scripts/a'\n    return P\n"
+                "sys.path.insert(0, P)\nimport ordmod2\n"
+            ),
+            "scripts/ci/starconf.py": "P = 'scripts/b'\n",
+            "scripts/ci/osc_entry.py": "import oschelper\n",
+            "scripts/ci/oschelper.py": "import sys\nsys.path.insert(0, 'scripts/alternate')\n",
+            "scripts/alternate/oschelper.py": "",
         }
         for rel, body in files.items():
             (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -1382,6 +1402,52 @@ class SparseCheckoutImportTests(unittest.TestCase):
             [
                 "w.yml run Check out: scripts/ci/pp_user.py runs in a step that sets or reads PYTHONPATH where "
                 "this check cannot follow it"
+            ],
+        )
+
+    def test_fixture_codex_path_ops_in_functions_have_no_proven_order(self) -> None:
+        # add_b is defined first but add_a() runs first: Python searches scripts/b first. Calls inside
+        # functions have no order this check can prove, so they are unverifiable, not learned.
+        unverifiable = "which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/fnorder.py", "scripts/b/ordmod2.py")),
+            [
+                f"w.yml run Check out: scripts/ci/fnorder.py calls sys.path.insert(0, 'scripts/b') (line 3), {unverifiable}",
+                f"w.yml run Check out: scripts/ci/fnorder.py calls sys.path.insert(0, 'scripts/a') (line 5), {unverifiable}",
+            ],
+        )
+        # Module-level inserts in two files: their relative order depends on where the import runs.
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/xfile.py", "scripts/ci/xside.py", "scripts/a/ordmod2.py")),
+            [
+                f"w.yml run Check out: scripts/ci/xfile.py calls sys.path.insert(0, 'scripts/a') (line 3), {unverifiable}",
+                f"w.yml run Check out: scripts/ci/xside.py calls sys.path.insert(0, 'scripts/b') (line 2), {unverifiable} "
+                "(via scripts/ci/xfile.py)",
+            ],
+        )
+
+    def test_fixture_codex_a_star_import_makes_module_names_unprovable(self) -> None:
+        # P at module level comes from `from starconf import *` (scripts/b); f()'s local P = 'scripts/a'
+        # is another scope and must not stand in for it.
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/star.py", "scripts/ci/starconf.py", "scripts/b/ordmod2.py")),
+            [
+                "w.yml run Check out: scripts/ci/star.py calls sys.path.insert(0, P) (line 6), which this check "
+                "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+            ],
+        )
+
+    def test_fixture_codex_a_search_that_does_not_settle_is_reported(self) -> None:
+        # scripts/ci/oschelper.py inserts scripts/alternate, whose own oschelper.py inserts nothing: each
+        # search path picks the other file. One named finding, and the rest of the scan still runs.
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/osc_entry.py", "scripts/ci/oschelper.py", "scripts/ci/runner.py")),
+            [
+                "w.yml run Check out: scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse "
+                "checkout (via scripts/ci/runner.py)",
+                "w.yml run Check out: scripts/ci/runner.py imports scripts/ci/helper.py, not in its sparse checkout",
+                "w.yml run Check out: scripts/ci/osc_entry.py unverifiable: path search does not settle "
+                "(scripts/ci/oschelper.py <-> scripts/alternate/oschelper.py)",
             ],
         )
 
