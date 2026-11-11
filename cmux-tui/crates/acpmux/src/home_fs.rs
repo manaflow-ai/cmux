@@ -448,7 +448,8 @@ pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u
         // The first block, then the rest: a test fails the copy in between.
         let mut block = vec![0; 64 << 10];
         let first = source.read(&mut block)?;
-        target.write_all(&block[..first])?;
+        block.truncate(first);
+        target.write_all(&block)?;
         #[cfg(test)]
         crate::config::seams::mid_write(tmp)?;
         let _ = tmp;
