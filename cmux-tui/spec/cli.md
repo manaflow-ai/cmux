@@ -1495,9 +1495,10 @@ dialog only when all of these hold: the harness's hooks are verified to report
 its dialogs (today Claude Code and Codex, whose `PermissionRequest` fires at
 the dialog; their installed hooks must still have it, and none may be a
 `Notification` that ends a turn); the
-newest own report of that agent's live session (its hook records of the same
-harness and session, then its OSC 7501 records newer than those) is idle or
-working; and the bottom 16 non-blank rows of the screen show its input box,
+newest own report of that agent's live session (its hook record of the same
+harness and session, then its OSC 7501 records newer than that; the daemon
+keeps one agent record per terminal, so after a plugin guess only the OSC
+7501 report is left) is idle or working; and the bottom 16 non-blank rows of the screen show its input box,
 with no dialog options and no startup dialog. The plugin can read a screen
 just before the agent redraws it and then not read it again. Then `wait
 --until idle` is idle and `send` is not refused; `agent list` and the

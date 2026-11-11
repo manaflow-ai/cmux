@@ -188,14 +188,16 @@ fn record_session(record: &Value) -> Option<&str> {
 
 /// The state of the newest report the `harness` agent in `terminal` gave
 /// of itself in its live session, or `None` when it gave none there:
-/// - its own daemon agent records ([`reported_by_agent`]: hooks or the
-///   socket, not the screen-detection plugin) of that harness and of the
-///   session of the terminal's newest record of that harness; records of
-///   an earlier agent or session never count;
+/// - its own daemon agent record ([`reported_by_agent`]: hooks or the
+///   socket, not the screen-detection plugin) of that harness, of the
+///   session of the terminal's newest record of that harness;
 /// - its program status records (OSC 7501 whose `app` is that harness),
-///   only when newer than that newest own record.
+///   newer than that own record, or the newest of them when it has none.
+///   The daemon keeps one agent record per terminal, so a plugin guess
+///   replaces the hook's record and only the OSC 7501 report is left.
 ///
-/// An own record that says the session ended (`done`) is `Ended`.
+/// An own record that says the session ended (`done`) is `Ended`. Records
+/// of another harness never count.
 pub(in crate::cli) fn own_report_state(
     terminal: &Value,
     agents: &[Value],
@@ -214,14 +216,13 @@ pub(in crate::cli) fn own_report_state(
         .filter(same)
         .filter(|record| reported_by_agent(record))
         .filter(|record| live.is_none_or(|live| record_session(record) == Some(live)))
-        .max_by_key(|record| at(record))?;
-    let own_state = match own.get("state").and_then(Value::as_str)? {
-        "done" => AgentState::Ended,
-        word => AgentState::from_record(word)?,
+        .max_by_key(|record| at(record));
+    let own_state = match own.and_then(|own| own.get("state")).and_then(Value::as_str) {
+        Some("done") => return Some(AgentState::Ended),
+        Some(word) => AgentState::from_record(word),
+        None => None,
     };
-    if own_state == AgentState::Ended {
-        return Some(own_state);
-    }
+    let since = own.map_or(0, at);
     let status = terminal
         .pointer("/extra/program_status")
         .and_then(Value::as_array)
@@ -232,14 +233,12 @@ pub(in crate::cli) fn own_report_state(
             app.map(super::super::agent_vocabulary::harness_name).as_deref()
                 == Some(harness.as_str())
         })
-        .filter(|record| at(record) > at(own))
+        .filter(|record| own.is_none() || at(record) > since)
         .max_by_key(|record| at(record));
-    match status {
-        Some(status) => {
-            status.get("state").and_then(Value::as_str).and_then(AgentState::from_record)
-        }
-        None => Some(own_state),
-    }
+    status
+        .and_then(|status| status.get("state").and_then(Value::as_str))
+        .and_then(AgentState::from_record)
+        .or(own_state)
 }
 
 /// Harnesses whose approval hook is verified to fire when the permission
