@@ -1613,10 +1613,9 @@ impl LocalStore {
         w.used = clock;
         #[cfg(test)]
         let wrote = match test_write_fault::take() {
-            Some(kept) => w
-                .file
-                .write_all(&line[..kept.min(line.len())])
-                .and(Err(std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"))),
+            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
+                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
+            )),
             None => w.file.write_all(line),
         };
         #[cfg(not(test))]
