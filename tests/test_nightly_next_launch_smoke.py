@@ -514,10 +514,13 @@ class GateScriptTests(unittest.TestCase):
             shutil.copy(ROOT / "scripts" / "ci" / "lib" / "signing-runtime-guard.sh", ci / "lib")
             (ci / "frame-pacing" / "console-session.sh").write_text('#!/usr/bin/env bash\nexec "$@"\n')
             (ci / "frame-pacing" / "console-session.sh").chmod(0o755)
-            # The stub harness: attempt N follows PLAN[N-1] (pass, crash, cannot-run or hang).
+            # The stub harness: attempt N follows PLAN[N-1] (pass, crash, cannot-run or hang; seeded-crash
+            # and seeded-not-run are what the real harness reports of its second arm). It refuses a call
+            # that does not ask for both arms.
             (ci / "fresh_home_launch_smoke.py").write_text(
                 "import json, os, signal, sys, time\n"
                 "out = sys.argv[sys.argv.index('--out') + 1]\n"
+                "if sys.argv[sys.argv.index('--arms') + 1:][:1] != ['empty,seeded']:\n    sys.exit(2)\n"
                 "n = int(out.rsplit('-', 1)[1])\n"
                 "kind = os.environ['STUB_PLAN'].split(',')[n - 1]\n"
                 "if kind == 'hang':\n"
@@ -528,11 +531,20 @@ class GateScriptTests(unittest.TestCase):
                 "        sys.exit(1)\n"
                 "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
                 "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
-                "report = {'pass': {'verdict': 'pass', 'pid': 1}, 'crash': {'verdict': 'fail', 'pid': 1,"
-                " 'exit': -11, 'failures': ['the app exited (signal 11)']}, 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
+                "empty = {'verdict': 'pass', 'exit': None}\n"
+                "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
+                " 'crash': {'verdict': 'fail', 'pid': 1, 'exit': -11, 'arm': 'empty',"
+                " 'failures': ['the app exited (signal 11)']},"
+                " 'seeded-crash': {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',"
+                " 'failures': ['seeded home: the app exited (signal 11) 2.5s after launch'],"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': -11}}},"
+                " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'not-run'}}},"
+                " 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
-                "sys.exit({'pass': 0, 'crash': 1, 'cannot-run': 3}[kind])\n")
+                "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
             (root / "runner").mkdir()
@@ -552,6 +564,25 @@ class GateScriptTests(unittest.TestCase):
         status, output, _ = self.run_gate(["crash", "crash"])
         self.assertEqual(status, 1, output)
         self.assertIn("not published", output)
+
+    def test_a_crash_from_the_seeded_home_on_both_attempts_holds_the_build_and_names_that_home(self) -> None:
+        status, output, _ = self.run_gate(["seeded-crash", "seeded-crash"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("from a seeded home (imported-cookie sync on) on both attempts", output)
+        self.assertIn("not published", output)
+        self.assertNotIn("from a seeded home", self.run_gate(["crash", "crash"])[1])
+
+    def test_one_seeded_crash_or_a_seeded_home_that_did_not_run_never_holds_the_build(self) -> None:
+        self.assertEqual(self.run_gate(["seeded-crash", "pass"])[0], 0)
+        self.assertEqual(self.run_gate(["seeded-crash", "cannot-run"])[0], 0)
+        status, output, _ = self.run_gate(["seeded-not-run"])
+        self.assertEqual(status, 0, output)
+        self.assertIn("launch smoke passed", output)
+
+    def test_the_gate_asks_the_harness_for_both_homes_in_its_one_call(self) -> None:
+        text = GATE.read_text()
+        self.assertEqual(text.count("fresh_home_launch_smoke.py\" \\\n"), 1)  # one call: no second launch step
+        self.assertIn('--dmg "$dmg" --out "$out" --arms empty,seeded &', text)
 
     def test_what_could_not_run_never_holds_the_build(self) -> None:
         status, output, _ = self.run_gate(["cannot-run"])
