@@ -16,6 +16,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -6749,6 +6750,7 @@ class GalleryBaseLoadCrash(unittest.TestCase):
             gh.chmod(0o755)
             with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}):
                 reader = excuse.GitHub()
+                reader.artifact_file = reader.artifact_file_whole  # the download the range read falls back to
                 self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
                                  GALLERY_STATE)
                 self.assertIsNone(reader.artifact_file(REPO, 7, "missing.json"))
@@ -6796,11 +6798,131 @@ class GalleryBaseLoadCrash(unittest.TestCase):
                 unittest.mock.patch.object(excuse.os, "killpg", lambda pid, sig: killed.append((pid, sig))), \
                 unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
             with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
-                excuse.GitHub().artifact_file(REPO, 7, "health.json")
+                excuse.GitHub().artifact_file_whole(REPO, 7, "health.json")
         self.assertEqual(timers, [0.2])
         self.assertTrue(started[0].options.get("start_new_session"))  # gh in a group of its own
         self.assertEqual(killed[0], (4242, excuse.signal.SIGKILL))
 
+
+
+class ArtifactReadByRange(unittest.TestCase):
+    """A gallery-health shard zip is read by range: its end record, central directory and health.json, never the
+    whole zip. The shards grew from 18 MB (2026-11-07) to 170-190 MB (feat-cmux-next run 42938607208), past the
+    64 MiB whole-download cap, and every gallery-health red was refused with "artifact N is over 67108864 bytes"
+    (cmux#40955). A local server plays GitHub's API (a redirect) and the blob host (ranges); a fake gh on PATH
+    serves the same zip whole, which is what the classifier read before."""
+
+    BIG = 70 * 1024 * 1024
+
+    def serve(self, archive: Path, *, ranges: bool = True):
+        import http.server
+        import threading as _threading
+        seen = self.seen = {"api_auth": [], "blob_auth": [], "blob_bytes": 0, "blob_requests": 0}
+        data = archive.read_bytes()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                if self.path == f"/repos/{REPO}/actions/artifacts/7/zip":
+                    seen["api_auth"].append(self.headers.get("Authorization"))
+                    self.send_response(302)
+                    self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/blob/7?sig=x")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if self.path.startswith("/blob/7"):
+                    seen["blob_auth"].append(self.headers.get("Authorization"))
+                    seen["blob_requests"] += 1
+                    spec = self.headers.get("Range", "")
+                    # Like the real blob host: an explicit range is served, a suffix range (bytes=-N) whole.
+                    found = re.fullmatch(r"bytes=(\d+)-(\d*)", spec)
+                    if not ranges or not found:
+                        body, status = data, 200
+                    else:
+                        first, last = found.groups()
+                        start, end = int(first), min(len(data) - 1, int(last) if last else len(data) - 1)
+                        body, status = data[start:end + 1], 206
+                    self.send_response(status)
+                    if status == 206:
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(body)
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
+                    seen["blob_bytes"] += len(body)
+                    return
+                self.send_error(404)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        _threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_port}"
+
+    def shard(self, where: Path, big: int) -> Path:
+        archive = where / "gallery-health-1.zip"
+        with zipfile.ZipFile(archive, "w") as out:
+            out.writestr("health.json", health(GALLERY_STATE))
+            with out.open(zipfile.ZipInfo("shots/everything.bin"), "w") as shots:
+                chunk = os.urandom(1 << 20)
+                for _ in range(big >> 20):
+                    shots.write(chunk)
+        return archive
+
+    def environment(self, where: Path, archive: Path, api: str) -> dict:
+        gh = where / "gh"
+        gh.write_text(f"#!/bin/sh\ncat '{archive}'\n")
+        gh.chmod(0o755)
+        return {"PATH": f"{where}:{os.environ['PATH']}", "GH_TOKEN": "test-token", "GITHUB_API_URL": api}
+
+    def test_a_shard_past_the_whole_download_cap_reads_its_health_by_range(self):
+        with tempfile.TemporaryDirectory() as where:
+            where = Path(where)
+            archive = self.shard(where, self.BIG)
+            self.assertGreater(archive.stat().st_size, 64 * 1024 * 1024)
+            api = self.serve(archive)
+            with unittest.mock.patch.dict(os.environ, self.environment(where, archive, api)):
+                text = excuse.GitHub().artifact_file(REPO, 7, "health.json")
+            self.assertEqual(json.loads(text)["fresh"][0]["state"], GALLERY_STATE)
+            # Constant cost: the end record, the central directory and one small member, not the 70 MiB zip.
+            self.assertLess(self.seen["blob_bytes"], 1024 * 1024)
+            self.assertEqual(self.seen["api_auth"], ["Bearer test-token"])
+            self.assertEqual(set(self.seen["blob_auth"]), {None})  # the token never reaches the blob host
+
+    def test_a_missing_member_is_none_and_reads_no_more(self):
+        with tempfile.TemporaryDirectory() as where:
+            where = Path(where)
+            archive = self.shard(where, self.BIG)
+            api = self.serve(archive)
+            with unittest.mock.patch.dict(os.environ, self.environment(where, archive, api)):
+                self.assertIsNone(excuse.GitHub().artifact_file(REPO, 7, "missing.json"))
+            self.assertLess(self.seen["blob_bytes"], 1024 * 1024)
+
+    def test_a_blob_that_answers_ranges_whole_falls_back_to_the_capped_download(self):
+        with tempfile.TemporaryDirectory() as where:
+            where = Path(where)
+            archive = self.shard(where, 2 * 1024 * 1024)
+            api = self.serve(archive, ranges=False)
+            with unittest.mock.patch.dict(os.environ, self.environment(where, archive, api)):
+                reader = excuse.GitHub()
+                self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
+                                 GALLERY_STATE)
+                with unittest.mock.patch.object(excuse, "ARTIFACT_MAX_BYTES", 100):
+                    with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
+                        reader.artifact_file(REPO, 7, "health.json")
+
+    def test_a_shard_past_both_caps_with_no_range_is_still_refused(self):
+        with tempfile.TemporaryDirectory() as where:
+            where = Path(where)
+            archive = self.shard(where, self.BIG)
+            api = self.serve(archive, ranges=False)
+            with unittest.mock.patch.dict(os.environ, self.environment(where, archive, api)):
+                with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
+                    excuse.GitHub().artifact_file(REPO, 7, "health.json")
 
 
 class FailingStepLogOnly(unittest.TestCase):

@@ -64,6 +64,7 @@ CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
 import argparse
 import bisect
 import importlib.util
+import io
 import json
 import os
 import re
@@ -74,10 +75,15 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, NamedTuple
+
+_http_spec = importlib.util.spec_from_file_location("deadline_http", Path(__file__).with_name("deadline_http.py"))
+deadline_http = importlib.util.module_from_spec(_http_spec)
+_http_spec.loader.exec_module(deadline_http)
 
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
@@ -247,8 +253,21 @@ class GitHub(_evidence.GitHub):
         return run if isinstance(run, int) else None
 
     def artifact_file(self, repo: str, artifact: int, member: str) -> str | None:
-        """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file. Refused when the download
-        fails, passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
+        """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file.
+
+        It reads only the zip's end record, its central directory and MEMBER, by HTTP range from the artifact's blob
+        (artifact_member_by_range): a few hundred KB however large the zip is. The gallery-health shards grew from
+        18 MB to 170-190 MB between 2026-11-07 and 11-11, past the whole-download cap, which refused every
+        gallery-health red, base or not (cmux#40955). When the blob cannot be read by range (no token, no redirect,
+        a server that answers ranges whole) it downloads the zip whole, as before, under ARTIFACT_MAX_BYTES."""
+        try:
+            return artifact_member_by_range(repo, artifact, member)
+        except RangeUnavailable:
+            return self.artifact_file_whole(repo, artifact, member)
+
+    def artifact_file_whole(self, repo: str, artifact: int, member: str) -> str | None:
+        """MEMBER's text in Actions ARTIFACT's zip, downloaded whole through gh. Refused when the download fails,
+        passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             # gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole group
             # ends the read.
@@ -3775,6 +3794,148 @@ GALLERY_FALLBACK_RUNS = 6  # base runs whose jobs and artifacts are read, newest
 COMMITS_PAGES = 3
 ARTIFACT_MAX_BYTES = 64 * 1024 * 1024  # a shard's zip, screenshots included, was 18 MB on 2026-11-07
 ARTIFACT_SECONDS = 120
+# What one artifact read by range may fetch in all: the end record, the central directory and one member, in
+# RANGE_BLOCK pieces. A shard zip of 190 MB with about 2,000 screenshots reads about 300 KB.
+RANGE_MAX_BYTES = 16 * 1024 * 1024
+RANGE_BLOCK = 256 * 1024
+# The zip end record with the longest comment a zip may carry.
+ZIP_TAIL_BYTES = 22 + 65535
+
+
+class RangeUnavailable(Exception):
+    """The artifact's blob cannot be read by range here; the caller downloads it whole."""
+
+
+def github_token() -> str | None:
+    """A token for the one REST call that names the artifact's blob: GH_TOKEN or GITHUB_TOKEN (Actions), else gh's
+    own (an agent host). None when there is none."""
+    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if os.environ.get(name, "").strip():
+            return os.environ[name].strip()
+    try:
+        said = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    token = said.stdout.strip()
+    return token if said.returncode == 0 and token else None
+
+
+def artifact_blob_url(repo: str, artifact: int, deadline) -> str:
+    """The signed blob URL GitHub redirects ARTIFACT's zip download to. The token rides only this call
+    (an unredirected header): it never reaches the blob host."""
+    token = github_token()
+    if not token:
+        raise RangeUnavailable("no GitHub token")
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    request = urllib.request.Request(f"{api}/repos/{repo}/actions/artifacts/{int(artifact)}/zip")
+    request.add_unredirected_header("Authorization", f"Bearer {token}")
+    request.add_unredirected_header("Accept", "application/vnd.github+json")
+    try:
+        status, _, headers = deadline_http.request(request, deadline=deadline, follow_redirects=False,
+                                                   max_bytes=1 << 16)
+    except (OSError, ValueError, deadline_http.RequestTimeout) as error:
+        raise RangeUnavailable(f"artifact redirect: {error}") from None
+    location = headers.get("Location") or ""
+    parts = urllib.parse.urlsplit(location)
+    loopback = parts.hostname in ("127.0.0.1", "localhost", "::1")
+    if status not in (301, 302, 303, 307, 308) or not (parts.scheme == "https" or (parts.scheme == "http" and loopback)):
+        raise RangeUnavailable(f"artifact {artifact} did not redirect to a blob (HTTP {status})")
+    return location
+
+
+class RangeFile(io.RawIOBase):
+    """A read-only, seekable view of URL that fetches RANGE_BLOCK-aligned pieces on demand and keeps them, so
+    zipfile reads the end record, the central directory and one member without the rest. Every fetch shares
+    DEADLINE, and all of them together stay under RANGE_MAX_BYTES (Refused past it)."""
+
+    def __init__(self, url: str, artifact: int, deadline):
+        super().__init__()
+        self.url, self.artifact, self.deadline = url, artifact, deadline
+        self.blocks: dict[int, bytes] = {}
+        self.fetched = 0
+        self.position = 0
+        # The blob host (Azure) answers a suffix range (bytes=-N) whole, so the size comes from a one-byte read
+        # and the tail is read by its offsets.
+        self.size = self._fetch("bytes=0-0")[0]
+        start = max(0, self.size - ZIP_TAIL_BYTES)
+        self.blocks_tail = (start, self._fetch(f"bytes={start}-{self.size - 1}")[1] if self.size else b"")
+
+    def _fetch(self, spec: str) -> tuple[int, bytes]:
+        request = urllib.request.Request(self.url, headers={"Range": spec})
+        try:
+            status, body, headers = deadline_http.request(request, deadline=self.deadline,
+                                                          max_bytes=RANGE_BLOCK + ZIP_TAIL_BYTES)
+        except deadline_http.AnswerTooLarge:
+            raise RangeUnavailable(f"artifact {self.artifact}: the blob answered a range whole") from None
+        except deadline_http.RequestTimeout:
+            raise Refused(f"artifact {self.artifact} took over {ARTIFACT_SECONDS} seconds to read") from None
+        except (OSError, ValueError) as error:
+            raise RangeUnavailable(f"artifact {self.artifact}: range read failed ({error})") from None
+        total = re.fullmatch(r"bytes \d+-\d+/(\d+)", (headers.get("Content-Range") or "").strip())
+        if status != 206 or not total:
+            raise RangeUnavailable(f"artifact {self.artifact}: the blob answered HTTP {status}, not a range")
+        self.fetched += len(body)
+        if self.fetched > RANGE_MAX_BYTES:
+            raise Refused(f"artifact {self.artifact}: reading {RANGE_MAX_BYTES} bytes by range did not reach the file")
+        return int(total.group(1)), body
+
+    def _block(self, index: int) -> bytes:
+        if index not in self.blocks:
+            start = index * RANGE_BLOCK
+            tail_start, tail = self.blocks_tail
+            end = min(start + RANGE_BLOCK, self.size)
+            if start >= tail_start:
+                self.blocks[index] = tail[start - tail_start:end - tail_start]
+            else:
+                self.blocks[index] = self._fetch(f"bytes={start}-{end - 1}")[1]
+        return self.blocks[index]
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.position
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self.position, io.SEEK_END: self.size}[whence]
+        self.position = max(0, base + offset)
+        return self.position
+
+    def readinto(self, buffer) -> int:
+        view = memoryview(buffer).cast("B")
+        done = 0
+        while done < len(view) and self.position < self.size:
+            index, within = divmod(self.position, RANGE_BLOCK)
+            piece = self._block(index)[within:within + len(view) - done]
+            if not piece:
+                break
+            view[done:done + len(piece)] = piece
+            done += len(piece)
+            self.position += len(piece)
+        return done
+
+
+def artifact_member_by_range(repo: str, artifact: int, member: str) -> str | None:
+    """MEMBER's text in ARTIFACT's zip, read by range (GitHub.artifact_file); RangeUnavailable when it can't be."""
+    deadline = deadline_http.Deadline(ARTIFACT_SECONDS)
+    view = RangeFile(artifact_blob_url(repo, artifact, deadline), artifact, deadline)
+    try:
+        with zipfile.ZipFile(view) as archive:
+            if member not in archive.namelist():
+                return None
+            info = archive.getinfo(member)
+            if info.file_size > ARTIFACT_MAX_BYTES or info.compress_size > RANGE_MAX_BYTES:
+                raise Refused(f"artifact {artifact}: {member} unpacks past the cap")
+            with archive.open(info) as found:
+                raw = found.read(ARTIFACT_MAX_BYTES + 1)
+    except zipfile.BadZipFile as error:
+        raise Refused(f"artifact {artifact} is not a zip ({error})") from None
+    if len(raw) > ARTIFACT_MAX_BYTES:
+        raise Refused(f"artifact {artifact}: {member} unpacks past the cap")
+    return raw.decode(errors="replace")
 
 
 def gallery_replay_crash(job: dict, head_log: str) -> tuple[str, str] | None:
