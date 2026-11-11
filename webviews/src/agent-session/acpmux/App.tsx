@@ -1258,7 +1258,7 @@ const hatActions = (
         : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];
-    if (question.source === "nextStep" || !asked || !item) return Promise.reject(new Error("unanswerable"));
+    if (!asked || !item) return Promise.reject(new Error("unanswerable"));
     const sent = questionReply(asked, { selections: { [item.id]: selection([answer.id]) } });
     // A started chat's question is answered as its own card would answer it, sent by the host for
     // the chat this pane does not show; a host that can't opens that chat (`replyElsewhere`).

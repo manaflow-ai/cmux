@@ -196,7 +196,7 @@ describe("the questions the composer hat holds", () => {
       at: 1,
     });
     const recommended = fixture("pending-single");
-    recommended.items[0]!.options[1]!.label = "API keys (Recommended)";
+    recommended.items[0]!.options[1] = { ...recommended.items[0]!.options[1]!, id: "API keys (Recommended)", label: "API keys (Recommended)" };
     const [named, longer, generated] = hatQuestions({
       sessionId: "chat",
       rows: [],
