@@ -39162,6 +39162,107 @@
       "args" : [
 
       ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-blocking-calls-copy",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.blockingCalls.copy",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Main-Thread Blocking Sites",
+      "title_key" : "action.debug.blockingCalls.copy",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "icon",
+          "required" : true
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-sidebar-toggle-icon",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.sidebarToggleIcon",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Toggle Icon…",
+      "title_key" : "action.debug.sidebarToggleIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "set",
+          "required" : true
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-status-icon-set",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.statusIconSet",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Status Icons…",
+      "title_key" : "action.debug.statusIconSet",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "guiOnly",
       "cli_name" : "settings customize-appearance",
       "context_menu" : "noObject",
@@ -46955,6 +47056,44 @@
       "palette_suggested" : null,
       "title" : "Never Float Hidden Sidebar",
       "title_key" : "action.sidebar.floatOnHover.off",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "sidebar toggle-custom",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "b",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "sidebar.custom.toggle",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Custom Sidebar",
+      "title_key" : "action.sidebar.custom.toggle",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -56403,14 +56542,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.custom.toggle",
+              "kind" : "action",
+              "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

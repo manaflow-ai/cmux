@@ -19,17 +19,29 @@ import urllib.parse
 import unittest.mock
 import zipfile
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
-excuse = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(excuse)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import base_red_excuse as excuse  # noqa: E402
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
 # The fleet's compile receipt is a network read too: tests see no receipt unless they fake one; CompileReceiptRead and
 # FfiPinCompileReceipt run the real reader against a faked urlopen.
 REAL_COMPILE_RECEIPT = excuse.compile_receipt
+# StaleFfiPinOfAStepARustChange's setUp patches excuse.ffi_release_file; the release-file tests call the real one.
+REAL_FFI_RELEASE_FILE = excuse.ffi_release_file
 # HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
 os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
@@ -775,7 +787,7 @@ class PortableGhLog(unittest.TestCase):
         gh.chmod(0o755)
         self.calls = Path(self.dir.name) / "calls"
         self.calls.write_text("")
-        env = {"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_CALLS": str(self.calls)}
+        env = git_fixture_env.fixture_env({"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_CALLS": str(self.calls)})
         patch = unittest.mock.patch.dict(os.environ, env)
         patch.start()
         self.addCleanup(patch.stop)
@@ -5999,6 +6011,13 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
 
+    @staticmethod
+    def real_release_reader():
+        """`excuse` with its real ffi_release_file (setUp patches it), not a second copy of the module."""
+        import types
+        return types.SimpleNamespace(ffi_release_file=REAL_FFI_RELEASE_FILE, release_download=excuse.release_download,
+                                     Refused=excuse.Refused)
+
     def setUp(self):
         self.gh = self.GitHub(self)
         self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
@@ -6332,9 +6351,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     def test_the_release_files_are_read_anonymously_and_a_404_is_unpublished(self):
         import io
         import urllib.error
-        # setUp replaced the reader in `excuse`; a fresh copy of the module has the real one.
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # setUp replaced the reader in `excuse`; the real one, saved before any patch, reads through the same module.
+        module = self.real_release_reader()
         urls = []
 
         def answer(code):
@@ -6368,8 +6386,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # files, and every published base pin was refused as unread, which held every merge.
         import io
         import urllib.error
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = self.real_release_reader()
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
         download = f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA"
         listing = f"https://api.github.com/repos/{REPO}/releases/tags/{tag}"
