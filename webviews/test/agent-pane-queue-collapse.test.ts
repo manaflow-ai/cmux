@@ -372,7 +372,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           const box = list?.getBoundingClientRect();
           const last = rows.at(-1)?.getBoundingClientRect();
           frames.push({
-            text: ("value" in field ? String((field as HTMLTextAreaElement).value) : (field.textContent ?? "")).trim(),
+            text: field.innerText,
             rows: rows.length,
             height: box?.height ?? 0,
             cut: Boolean(box && last && last.bottom > box.bottom + 0.5),
@@ -385,8 +385,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const frames = await page.evaluate(
         () => (window as { queueFrames?: { text: string; rows: number; height: number; cut: boolean }[] }).queueFrames!,
       );
-      const cleared = frames.findIndex((frame) => frame.text === "");
-      expect(cleared).toBeGreaterThanOrEqual(0);
+      // The first frame whose field no longer holds the sent words.
+      const cleared = frames.findIndex((frame) => !frame.text.includes("two"));
+      expect(cleared).toBeGreaterThan(0);
       // No frame with the field cleared and the prompt nowhere.
       expect(frames.slice(cleared).every((frame) => frame.rows === 2)).toBe(true);
       // The list is at its new height in that first frame, the new row whole: no frame in between.
