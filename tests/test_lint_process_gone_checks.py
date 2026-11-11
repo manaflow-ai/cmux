@@ -6,7 +6,8 @@ still in the process table for a moment, and signal 0 still reaches a zombie, so
 runs" passes on a dead one. A loop around the probe is no proof of a wait (one with a single pass, or no sleep, checks
 once). So every raw probe in a test file (test_*.py, *_test.py, *-test.py, *.test.py, or anything under a tests/
 folder) is flagged, in any form: the test uses process_gone.died(pid), running(pid) or group_died(pgid), and ALLOWED,
-with a reason, is the only escape.
+with a reason, is the only escape. A file that cannot load the helper carries a copy of its functions (COPIES), and the
+copy must match the helper.
 
 Runs under plain python3: `python3 -I tests/test_lint_process_gone_checks.py`.
 """
@@ -33,11 +34,12 @@ SPEC.loader.exec_module(process_gone)
 died, running, group_died = process_gone.died, process_gone.running, process_gone.group_died
 
 # "path::function": why its raw signal-0 probe is right as it is.
-ALLOWED: dict = {
-    "cmux-tui/crates/acpmux/tests/fake_claude_auto.py::peers":
-        "a stand-in Claude Code, not a test: it lists registry peers whose pid answers signal 0, as Claude Code's "
-        "own registry does, and asserts nothing; cmux-tui/crates/acpmux/tests/cpu_class.rs copies it into a "
-        "scratch dir to run it under another name, where tests/process_gone.py cannot be loaded by path",
+ALLOWED: dict = {}
+# A file that cannot load tests/process_gone.py (it runs from a scratch copy) carries a copy of these helper
+# functions instead. Their probes are the helper's, and each must match the helper's own, so a change to one fails here
+# until the other follows.
+COPIES = {
+    "cmux-tui/crates/acpmux/tests/fake_claude_auto.py": ("_state", "_exited"),
 }
 HELPER = "tests/process_gone.py"
 THIS = "tests/test_lint_process_gone_checks.py"
@@ -110,11 +112,38 @@ def scan(root=ROOT):
         except OSError:  # a sparse checkout leaves tracked files out
             continue
         for func, line in find_source(source, rel):
+            if func in COPIES.get(rel, ()):
+                continue  # a copy of the helper, held to it by copy_drift()
             found.setdefault("%s::%s" % (rel, func), []).append(line)
     return found
 
 
+def _functions(source, name):
+    """{function name: its AST without the docstring} for SOURCE's top-level functions."""
+    out = {}
+    for node in ast.parse(source, name).body:
+        if isinstance(node, ast.FunctionDef):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant):
+                body = body[1:]
+            out[node.name] = ast.dump(ast.Module(body=body, type_ignores=[]))
+    return out
+
+
+def copy_drift(root=ROOT, copies=None):
+    """["path::function"] for each copied helper function that is missing from its copy or differs from the helper."""
+    helper = _functions((root / HELPER).read_text(encoding="utf-8"), HELPER)
+    drift = []
+    for rel, names in sorted((COPIES if copies is None else copies).items()):
+        copy = _functions((root / rel).read_text(encoding="utf-8"), rel)
+        drift += ["%s::%s" % (rel, n) for n in names if n not in helper or copy.get(n) != helper[n]]
+    return drift
+
+
 class NoRawSignalZeroProbe(unittest.TestCase):
+    def test_every_copy_of_the_helper_matches_it(self):
+        self.assertEqual(copy_drift(), [], "a copy of tests/process_gone.py differs from it: change both together")
+
     def test_no_test_probes_a_process_with_signal_zero(self):
         new = sorted("%s (line %s)" % (k, ", ".join(map(str, v))) for k, v in scan().items() if k not in ALLOWED)
         self.assertEqual(new, [], "a killed process is not gone yet: use process_gone.died(pid), running(pid) or "
@@ -140,6 +169,20 @@ class TheScannerFindsTheForms(unittest.TestCase):
             (Path(d) / "tests" / "test_x.py").write_text("import os\ndef test_a():\n    os.kill(1, 0)\n")
             (Path(d) / "tool.py").write_text("import os\ndef alive(p):\n    os.kill(p, 0)\n")  # not a test
             self.assertEqual(sorted(scan(Path(d))), ["tests/test_x.py::test_a"])
+
+    def test_a_copy_that_drifts_from_the_helper_is_red(self):
+        import tempfile
+        helper = "import os\ndef _exited(pid):\n    \"\"\"doc\"\"\"\n    os.kill(pid, 0)\n    return True\n"
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "tests").mkdir()
+            (Path(d) / HELPER).write_text(helper)
+            (Path(d) / "tests" / "fake.py").write_text(helper.replace('"""doc"""', '"""other doc"""'))
+            copies = {"tests/fake.py": ("_exited",)}
+            self.assertEqual(copy_drift(Path(d), copies), [])  # the same code under another docstring
+            (Path(d) / HELPER).write_text(helper.replace("return True", "return False"))
+            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::_exited"])  # the helper changed alone
+            (Path(d) / "tests" / "fake.py").write_text("import os\n")
+            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::_exited"])  # the copy was dropped
 
     def test_every_signal_zero_probe_is_found(self):
         src = ("import os, time\nclass T:\n"
