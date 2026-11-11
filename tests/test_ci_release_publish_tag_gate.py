@@ -985,5 +985,25 @@ class WriteFirstRealMutations(RealStepMutation, unittest.TestCase):
         self.assert_escape_caught(WRITE_FIRST_ESCAPES)
 
 
+# #41398 review (reviewer's rows): the subcommand is the first operand after the tool's options, and -m counts only
+# before python's script operand. Each read has a near-miss counterpart that does publish.
+REVIEWER_SUBCOMMAND_ROWS = {
+    "gh release view create": ("gh release view create", False),
+    "gh release download upload": ("gh release download upload", False),
+    "npm view publish": ("npm view publish", False),
+    "python3 build.py -m twine upload": ("python3 build.py -m twine upload", False),
+    "gh release create v1": ("gh release create v1", True),
+    "npm publish": ("npm publish", True),
+    "python3 -m twine upload dist/*": ("python3 -m twine upload dist/*", True),
+}
+
+
+class ReviewerSubcommandRows(RealStepMutation, unittest.TestCase):
+    def test_each_row_has_the_verdict_by_position(self) -> None:
+        for label, (run, publishes_) in REVIEWER_SUBCOMMAND_ROWS.items():
+            with self.subTest(label):
+                self.assertEqual(publishing_command(run.split()), publishes_, run)
+                self.assertEqual(len(self.mutate(run, keep_gate=False)), 1 if publishes_ else 0, run)
+
 if __name__ == "__main__":
     unittest.main()
