@@ -319,6 +319,10 @@ path = "tests/test_ci_no_single_size_pins.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_noclobber_sweep.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
