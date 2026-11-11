@@ -66,9 +66,13 @@ struct CmdNTopInGroupFramesTests {
         controller.showWorkspace(requested: state.workspaceID)
         let known = Set(store.workspaces.map(\.id))
         var frames: [[String]] = []
-        list.onApply = { frames.append(Self.rows($0, model: model, home: home)) }
-        _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
         func created() -> String? { store.workspaces.first { !known.contains($0.id) }?.id }
+        list.onApply = {
+            frames.append(Self.rows($0, model: model, home: home))
+            let doc = services.sidebarDoc
+            print("frame-debug: active \(String(describing: doc.store?.isActive)) item \(created().map { doc.item(workspace: $0) ?? "none" } ?? "-") store \(store.workspaces.map(\.id))")
+        }
+        _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && created() != nil }
         try? await Task.sleep(for: .seconds(2))
         list.onApply = nil
