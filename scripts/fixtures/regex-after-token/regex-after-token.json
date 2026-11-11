@@ -1,7 +1,7 @@
 {
   "about": [
     "A / in JS or TS starts a regex literal or divides, by the token before it. A tokenizer that guesses division where a regex starts reads a regex's \\/ and closing / as //, takes the rest of the line for a comment, and a lint reading the code drops what is written there. The rule: after the ) of an if, while, for or with head, a / starts a regex; after any other ), after ], ++, --, a word, a number, a string, a template or a regex, it divides (after a postfix ++ or -- the expression is complete, and a prefix one cannot take a regex); after (, [, a comma, an operator, ;, :, {, the } of a block, or a keyword such as return or typeof, it starts a regex. Where the tokenizer cannot decide (a ) or } whose opener it has not seen or cannot classify), it scans both readings and keeps the union of what each reads as code, so it fails closed.",
-    "rows: each source, as a whole file, and whether the unsafe text after the slash is code (hit) or a comment.",
+    "rows: each source, as a whole file read as TSX (a .tsx file: TypeScript with JSX), and whether the unsafe text after the slash is code (hit) or a comment.",
     "generate: regex_line over regex_before and undecided_before x bodies is always a hit; division_line over division_before is never one, and over undecided_before always one (the union). Run by manaflow-ai/cmux-platform test/node/no-guessable-temp-names.test.ts; written so any other hand-rolled JS tokenizer (manaflow-ai/cmux scripts/check-test-determinism.py) can run it as is, where a case its lexer reports as unresolved counts as failing closed."
   ],
   "rows": [
@@ -164,6 +164,51 @@
       "source": "f({} / 2) // echo > /tmp/out.$$",
       "hit": false,
       "why": "after the } of an object literal that follows (, a / divides"
+    },
+    {
+      "source": "run(`echo ${/[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1271 follow-up, F1: ${ starts an expression, so a / right after it starts a regex; its // is no comment"
+    },
+    {
+      "source": "run(`echo ${a} ${/[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "the same after the } ... ${ of a later substitution"
+    },
+    {
+      "source": "run(`echo ${`x${/[//]/.source}`} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "the same in a template nested in a substitution"
+    },
+    {
+      "source": "const s = `${a / 2}` // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "inside ${ }, a / after a name still divides"
+    },
+    {
+      "source": "const el = <div></div>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux-platform#1271 follow-up, F2: </div> is a JSX closing tag, not < then a regex; the // after it is a comment"
+    },
+    {
+      "source": "const el = <></>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a fragment's closing tag </>"
+    },
+    {
+      "source": "const el = <div><span a=\"x\">t</span><b /></div>; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "nested elements: the element ends at its own closing tag"
+    },
+    {
+      "source": "const el = <a>http://x</a>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "JSX text is no comment: a // in it is text, and what follows the element is code"
+    },
+    {
+      "source": "const f = <T extends U>(x: T) => x / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "<T extends U>( is a generic arrow's type parameters, not a JSX tag: the arrow's body is code and its // a comment"
     }
   ],
   "generate": {

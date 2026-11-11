@@ -719,6 +719,11 @@ def _javascript_identifier_character(character: str) -> bool:
     return character in "_$" or character.isalnum() or ("a" + character).isidentifier()
 
 
+def _javascript_identifier_start(character: str) -> bool:
+    """Whether CHARACTER starts a JavaScript identifier (Unicode ID_Start, `$` or `_`)."""
+    return character in "_$" or character.isidentifier()
+
+
 def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
     """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
     ("", END) when there is none."""
@@ -949,6 +954,14 @@ def _javascript_regex_literal_starts_at(
 # text or comment), marked in one step. Without these the lexer is a Python loop over every character.
 _LEXER_CODE_STOP = re.compile(r"[/#'\"`\\$]")
 _LEXER_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}]")
+# In a .tsx or .jsx file a `<` may open a JSX element, so code also stops there.
+_LEXER_JSX_CODE_STOP = re.compile(r"[/#'\"`\\$<]")
+_LEXER_JSX_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}<]")
+# A JSX element's children are text up to a `{` hole of code or a `<` (a nested element or the closing tag).
+_LEXER_JSX_CHILDREN_STOP = re.compile(r"[{<]")
+# Inside a JSX open tag: names, `=`, `.`, `:`, `-` and blanks carry on; anything else is decided one at a time.
+_LEXER_JSX_TAG_STOP = re.compile(r"[^A-Za-z0-9_$\s=.:\-]")
+_JSX_SUFFIXES = frozenset({".jsx", ".tsx"})
 _LEXER_TEMPLATE_STOP = re.compile(r"[\\`$]")
 _LEXER_SHELL_DOUBLE_STOP = re.compile(r'[\\"$`]')
 _LEXER_REGEX_STOP = re.compile(r"[\\\r\n\[\]/]")
@@ -1004,12 +1017,21 @@ def _lexical_positions_and_unresolved(
     # opening hash count there. Nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     is_shell = path_suffix == ".sh"
+    # Only a .tsx or .jsx file holds JSX: in a .ts file `<T,>(x) => x / 2` and `a < b > c` are generics and
+    # comparisons.
+    is_jsx = path_suffix in _JSX_SUFFIXES
+    code_stop = _LEXER_JSX_CODE_STOP if is_jsx else _LEXER_CODE_STOP
+    expression_stop = _LEXER_JSX_EXPRESSION_STOP if is_jsx else _LEXER_EXPRESSION_STOP
     index = 0
     length = len(line)
     while index < length:
         kind, brace_depth, delimiter = contexts[-1]
         if kind == "code":
-            stop = _LEXER_CODE_STOP.search(line, index)
+            stop = code_stop.search(line, index)
+        elif kind == "jsx-children-text":
+            stop = _LEXER_JSX_CHILDREN_STOP.search(line, index)
+        elif kind == "jsx-tag":
+            stop = _LEXER_JSX_TAG_STOP.search(line, index)
         elif kind in ("string-text", "f-string-text"):
             stop = _lexer_string_stop(kind, delimiter).search(line, index)
         elif kind == "template-text":
@@ -1021,8 +1043,16 @@ def _lexical_positions_and_unresolved(
         elif kind == "block-comment":
             stop = _LEXER_BLOCK_COMMENT_STOP.search(line, index)
         else:
-            stop = _LEXER_EXPRESSION_STOP.search(line, index)
+            stop = expression_stop.search(line, index)
         run_end = stop.start() if stop else length
+        if kind == "jsx-tag" and run_end > index:
+            # `<T extends U>(x: T) => ...` is a generic arrow's type parameters, never a tag: read it as code.
+            extends = re.search(r"(?<![\w$])extends(?![\w$])", line[index:run_end])
+            if extends:
+                executable[index : index + extends.start()] = b"\x01" * extends.start()
+                index += extends.start()
+                contexts.pop()
+                continue
         if run_end > index:
             if kind == "block-comment":
                 comments[index:run_end] = b"\x01" * (run_end - index)
@@ -1031,6 +1061,51 @@ def _lexical_positions_and_unresolved(
             index = run_end
             continue
         character = line[index]
+
+        if kind == "jsx-children-text":
+            # A JSX element's children: text (a `//`, `/*` or quote in it is text), `{ }` holes of code, nested
+            # elements, and the closing tag (`</name>` or `</>`), after which the element is a complete expression.
+            if character == "{":
+                executable[index] = True
+                contexts.append(("jsx-expression", 1, ""))
+                index += 1
+            elif line.startswith("</", index):
+                close = line.find(">", index)
+                close = length - 1 if close == -1 else close
+                executable[index:close] = b"\x01" * (close - index)
+                # The closing `>` is no operator: like a string's end, a slash after it divides.
+                contexts.pop()
+                index = close + 1
+            elif index + 1 < length and (line[index + 1] == ">" or _javascript_identifier_start(line[index + 1])):
+                executable[index] = True
+                contexts.append(("jsx-tag", 0, ""))
+                index += 1
+            else:
+                index += 1
+            continue
+
+        if kind == "jsx-tag":
+            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete).
+            if line.startswith("/>", index):
+                contexts.pop()
+                index += 2
+            elif character == ">":
+                contexts[-1] = ("jsx-children-text", 0, "")
+                index += 1
+            elif character in ("'", '"'):
+                contexts.append(("string-text", 0, character))
+                index += 1
+            elif character == "{":
+                executable[index] = True
+                contexts.append(("jsx-expression", 1, ""))
+                index += 1
+            elif _javascript_identifier_character(character):
+                executable[index] = True
+                index += 1
+            else:
+                # Not a JSX tag after all (`<T,>(x) => x`): the rest is read as code.
+                contexts.pop()
+            continue
 
         if kind == "block-comment":
             if path_suffix == ".swift" and line.startswith("/*", index):
@@ -1194,6 +1269,19 @@ def _lexical_positions_and_unresolved(
             index = comment_end
             continue
 
+        if (
+            is_jsx
+            and character == "<"
+            and index + 1 < length
+            and (line[index + 1] == ">" or _javascript_identifier_start(line[index + 1]))
+            and _javascript_regex_literal_starts_at(line, index, executable, comments)
+        ):
+            # Where an expression starts, `<Name` or `<>` opens a JSX element.
+            executable[index] = True
+            contexts.append(("jsx-tag", 0, ""))
+            index += 1
+            continue
+
         if path_suffix in _JAVASCRIPT_SUFFIXES and character == "/":
             starts_regex = _javascript_regex_literal_starts_at(
                 line,
@@ -1282,6 +1370,14 @@ def _lexical_positions_and_unresolved(
             "shell-command-substitution",
             "swift-string-expression",
         ) and character == ")":
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
+        elif kind == "jsx-expression" and character == "{":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind == "jsx-expression" and character == "}":
+            # A JSX hole's `{` and `}` are both code, so a brace count over the executable code stays balanced.
             if brace_depth == 1:
                 contexts.pop()
             else:
@@ -5384,6 +5480,10 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
      "    const f = () => { return {} / 2; };\n"),
     ("js division after an object's } in a template field", "web/tests/b17.test.ts",
      "    const t = `${ {} / 2 }`; const re = /\\}/;\n"),
+    # A JSX element's children are text: a `//` in them is no comment, and the code after the element is code.
+    ("jsx text holding //", "web/tests/b18.test.tsx", "    const el = <a>http://x</a>; const o = {\n      a: 1 };\n"),
+    ("jsx text holding // and a hole", "web/tests/b19.test.tsx",
+     "    const el = <p>see http://x {name}</p>; const o = {\n      a: 1 };\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5487,6 +5587,19 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      _js_attribution_fixture("    const el = <Tile a=\"x\" b={c} {...props} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("js division after an optional member call named if", "web/tests/g7.test.ts",
      _js_attribution_fixture("    const r = { w: x?.if(y) / 2 };\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    # Only a .tsx or .jsx file holds JSX; a generic arrow's type parameters are no tag in either.
+    ("ts generic arrow is no JSX", "web/tests/g8.test.ts",
+     _js_attribution_fixture("    const f = <T,>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("ts comparisons are no JSX", "web/tests/g9.test.ts",
+     _js_attribution_fixture("    const c = a < b > c; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx generic arrow is no JSX", "web/tests/g10.test.tsx",
+     _js_attribution_fixture("    const f = <T,>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("tsx generic arrow with extends is no JSX", "web/tests/g11.test.tsx",
+     _js_attribution_fixture("    const g = <T extends U>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
+    ("jsx nested elements in a hole", "web/tests/g12.test.tsx",
+     _js_attribution_fixture("    const el = <ul>{items.map((i) => <li key={i}>{i}</li>)}</ul>;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
     ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
      _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("python comment holding a triple quote", "tests/test_g3.py",
@@ -5619,7 +5732,7 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
     for source, hit, forks in _regex_after_token_cases(json.loads(shared.read_text(encoding="utf-8"))):
         cases += 1
         target = source.index("echo")
-        _, comments, unresolved = _lexical_positions_and_unresolved(source, ".ts")
+        _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
         if any(offset < target for offset in unresolved):
             if not forks:
                 failures.append(f"REGEX-AFTER-TOKEN {shared.name}: unresolved where the table decides: {source!r}")
