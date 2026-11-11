@@ -112,6 +112,39 @@ class SecretRouteBoundary(unittest.TestCase):
                 self.assertIn(name, secret_route_failures(fixture))
                 self.assertEqual(set(secret_route_failures(fixture)), {name})
 
+    def test_a_secret_reached_through_a_function_an_index_or_the_whole_context_is_checked(self):
+        """Codex review of #40784 at 96e5261c: holds_secret read `secrets.` with regexes, so `toJSON(secrets.*)`
+        (the object filter) held no secret, and `${{ }}` ended at the first `}}`, even one inside a string literal:
+        a format() that writes JSON braces hid the index or whole-context read after it. Each job below reads a
+        secret; each must be credentialed and its fleet route refused."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
+        for name, value in (
+            ("deploy-tojson-filter-fixture", "${{ toJSON(secrets.*) }}"),
+            ("deploy-format-tojson-fixture", "${{ format('{{\"all\":{0}}}', toJSON(secrets)) }}"),
+            ("deploy-format-index-fixture", "${{ format('{{\"token\":\"{0}\"}}', secrets['VERCEL_TOKEN']) }}"),
+            ("deploy-format-computed-index-fixture",
+             "${{ format('{{\"token\":\"{0}\"}}', secrets[format('{0}_TOKEN', 'VERCEL')]) }}"),
+            ("deploy-format-whole-fixture", "${{ format('{{{0}}}', secrets) }}"),
+            ("deploy-computed-index-fixture", "${{ secrets[format('{0}_TOKEN', 'VERCEL')] }}"),
+        ):
+            with self.subTest(job=name):
+                body = f"    steps:\n      - run: vercel deploy\n        env:\n          CREDENTIAL: {value}\n"
+                fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: {fleet}\n{body}"
+                self.assertIn(name, backend_secret_jobs(fixture))
+                self.assertEqual(set(secret_route_failures(fixture)), {name})
+
+    def test_secrets_only_as_a_word_in_a_string_or_another_context_s_property_holds_none(self):
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        for name, value in (
+            ("note-string-fixture", "${{ format('no secrets here {0}', github.sha) }}"),
+            ("note-property-fixture", "${{ needs.plan.outputs.secrets }}"),
+        ):
+            with self.subTest(job=name):
+                body = f"    steps:\n      - run: true\n        env:\n          NOTE: {value}\n"
+                fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: ubuntu-24.04\n{body}"
+                self.assertNotIn(name, backend_secret_jobs(fixture))
+
     def test_a_secret_job_whose_header_carries_a_comment_is_still_checked(self):
         """`  deploy-x: # note` is a job header to GitHub. A header-line regex that misses it folds the
         job into the one before, and its secret and its fleet route both escape the guard."""
