@@ -461,7 +461,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     static func messageMenu(_ message: @escaping () -> String) -> [UIMenuElement] {
         [
             UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
-            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(message()) },
+            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(ChatSelectText.readable(message())) },
             UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(message()) },
         ]
     }

@@ -176,5 +176,64 @@ enum ChatSelectText {
     static func present(_ text: String) {
         SelectableTextView(text).present()
     }
+
+    /// An answer's Markdown as the transcript reads it, for selecting: link and image
+    /// targets, emphasis marks, inline-code ticks, heading and quote marks, code fences
+    /// and table rules go; lines, list items, code and table cells (tab-separated) stay.
+    nonisolated static func readable(_ markdown: String) -> String {
+        var out: [String] = []
+        var inFence = false
+        for raw in markdown.components(separatedBy: "\n") {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                continue
+            }
+            if inFence {
+                out.append(raw)
+                continue
+            }
+            if trimmed.hasPrefix("|") || (trimmed.contains("|") && trimmed.hasSuffix("|")) {
+                var cells = trimmed.split(separator: "|", omittingEmptySubsequences: false).map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                }
+                if cells.first == "" { cells.removeFirst() }
+                if cells.last == "" { cells.removeLast() }
+                // A header rule (|---|:--:|) is the table's drawing, not its text.
+                if !cells.isEmpty, cells.allSatisfy({ !$0.isEmpty && $0.allSatisfy { "-:".contains($0) } }) { continue }
+                out.append(cells.map(inline).joined(separator: "\t"))
+                continue
+            }
+            var line = raw
+            let rules: [(String, String)] = [
+                (#"^(\s*)#{1,6}\s+"#, "$1"),
+                (#"^(\s*)>+\s?"#, "$1"),
+                (#"^(\s*)[-*+]\s+\[[ xX]\]\s+"#, "$1• "),
+                (#"^(\s*)[-*+]\s+"#, "$1• "),
+            ]
+            for (pattern, template) in rules {
+                line = line.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+            }
+            out.append(inline(line))
+        }
+        return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Inline Markdown as read: `[text](url)` and `![alt](src)` keep their text, code its
+    /// characters, and bold, strike and underscore-bold lose their marks.
+    nonisolated private static func inline(_ text: String) -> String {
+        var text = text
+        let rules: [(String, String)] = [
+            (#"!\[([^\]]*)\]\([^)]*\)"#, "$1"),
+            (#"\[([^\]]*)\]\([^)]*\)"#, "$1"),
+            (#"`([^`]*)`"#, "$1"),
+            (#"(\*\*|__|~~)(.+?)\1"#, "$2"),
+            (#"(^|[\s(])\*([^*\s][^*]*)\*"#, "$1$2"),
+        ]
+        for (pattern, template) in rules {
+            text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        return text
+    }
 }
 #endif

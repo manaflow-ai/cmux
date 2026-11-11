@@ -801,10 +801,16 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                } else if let session = voice.session {
-                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                }
+            }
+            // Voice mode on an agent session: captions, mute and end, above every screen. It
+            // takes its height from the top safe area, so the screen's navigation bar (back,
+            // the chat's title and More) moves under it instead of being covered by it.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !(call.session.map { call.isMinimized && !$0.hasEnded } ?? false), let session = voice.session {
                     AgentVoiceBar(mode: voice, session: session)
                         .padding(.top, 2)
+                        .padding(.bottom, 4)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }

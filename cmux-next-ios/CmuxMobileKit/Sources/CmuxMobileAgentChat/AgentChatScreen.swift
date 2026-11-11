@@ -825,7 +825,17 @@ public struct AgentChatBottomStack: View {
                             surface.stackHeightFrame?(frame.height)
                         }
                     } else {
-                        withAnimation(spring) { reportedHeight = frame.height }
+                        // The spring's frames reach the transcript through `DrawnHeightReporter`;
+                        // its last value also lands on completion, so the dock never keeps a
+                        // height the stack no longer has (the pushed chat's composer collapsed to
+                        // 54 pt while the dock, the transcript's bottom inset and the jump circle
+                        // stayed on 96 pt).
+                        let target = frame.height
+                        withAnimation(spring) { reportedHeight = target } completion: {
+                            guard reportedHeight == target, target > 0 else { return }
+                            surface.drawnStackHeight = target
+                            surface.stackHeightFrame?(target)
+                        }
                     }
                 }
             }

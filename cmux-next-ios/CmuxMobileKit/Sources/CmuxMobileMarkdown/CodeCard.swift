@@ -11,18 +11,24 @@ public struct CodeCard: View {
     let code: String
     var title: String?
     var maxHeight: CGFloat
+    /// Lines always wrap, whatever the setting: a command the person is asked to approve
+    /// shows whole, never cut at the card's edge.
+    var alwaysWraps = false
     @State private var expanded = false
     @State private var copied = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
     /// Settings → Terminal → Wrap code and diff lines.
     @AppStorage(CmuxMobilePreferences.Key.wrapCode) private var wrapCode = CmuxMobilePreferences.defaultWrapCode
 
-    public init(language: String?, code: String, title: String? = nil, maxHeight: CGFloat = 480) {
+    public init(language: String?, code: String, title: String? = nil, maxHeight: CGFloat = 480, alwaysWraps: Bool = false) {
         self.language = language
         self.code = code
         self.title = title
         self.maxHeight = maxHeight
+        self.alwaysWraps = alwaysWraps
     }
+
+    private var wraps: Bool { alwaysWraps || wrapCode }
 
     private var lineCount: Int { code.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } }
     private var lineHeight: CGFloat { codeSize * 1.46 }
@@ -35,12 +41,12 @@ public struct CodeCard: View {
                 Text(CodeHighlightCache.shared.highlighted(code, language: language))
                     .font(.system(size: codeSize, design: .monospaced))
                     .lineSpacing(codeSize * 0.46)
-                    .fixedSize(horizontal: !wrapCode, vertical: true)
+                    .fixedSize(horizontal: !wraps, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 16)
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
-                    .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
+                    .containerRelativeFrame(wraps ? .horizontal : [], alignment: .leading)
             }
             .scrollIndicators(.hidden)
             .trailingOverflowFade()
