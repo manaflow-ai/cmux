@@ -73,7 +73,7 @@ public final class PersonalGateway {
         wanted = true
         relaunch.reset()
         refusedRelaunch.reset()
-        if child == nil, restart == nil { spawn() }
+        if child == nil, restart == nil, state != .starting { spawn() }
     }
 
     /// Signed out or quitting: end the child and every wait.
@@ -98,6 +98,7 @@ public final class PersonalGateway {
             restart?.cancel()
             restart = nil
             relaunch.reset()
+            lastStop = nil
             if child == nil { spawn() }
         }
         // Refused at its last connect: asking again now is the restart above; waiting would only delay the turn.
@@ -162,6 +163,8 @@ public final class PersonalGateway {
         guard wanted else { set(.stopped); return }
         note("gateway exited (\(status), \(lastStop ?? "no reason"))")
         if lastStop == "replaced" { set(.replaced); return }
+        // A stop no restart fixes (a bad API origin, a protocol this CLI does not speak): a Cloud chat start tries again.
+        if lastStop == "ended" { set(.unavailable); return }
         let refused = lastStop == "refused"
         set(.offline(refused ? "refused" : "exited"))
         let delay = refused ? refusedRelaunch.next() : relaunch.next()

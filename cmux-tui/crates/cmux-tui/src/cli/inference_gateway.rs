@@ -538,19 +538,27 @@ async fn serve(options: Options) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
-    if let Err(error) = upstream.check().await {
-        log(&error);
-        if options.supervised {
-            super::inference_gateway_mac::event("stopped", Some("gateway_config"));
+    let has_login = match upstream.check().await {
+        Ok(found) => found,
+        Err(error) => {
+            log(&error);
+            if options.supervised {
+                super::inference_gateway_mac::event("stopped", Some("ended"));
+            }
+            return 2;
         }
-        return 2;
-    }
+    };
     let state = |kind: &str, reason: &str| {
         if options.supervised {
             super::inference_gateway_mac::event(kind, Some(reason));
         }
     };
-    let mut enabled = options.enable_once.is_none();
+    // A Mac with no agent signed in serves (a login added later is read at its call) but does not turn
+    // the person's gateway mode on: their machines keep the route they had. The next start asks again.
+    let mut enabled = options.enable_once.is_none() || !has_login;
+    if options.enable_once.is_some() && !has_login {
+        log("no agent is signed in on this Mac; your own gateway mode stays as it was");
+    }
     let mut backoff = Duration::from_secs(1);
     let mut refusals = 0u32;
     loop {
@@ -941,7 +949,8 @@ impl Provider {
     }
 
     /// Fails at start when the login cannot be read, so a mistake shows before any machine calls.
-    async fn check(&self) -> Result<(), String> {
+    /// Whether a login was found: false only for `--mac-logins` with neither agent signed in.
+    async fn check(&self) -> Result<bool, String> {
         match &self.upstream {
             // Never fails the start: a login signed in later is read at its first call.
             Upstream::MacLogins(logins) => {
@@ -955,20 +964,20 @@ impl Provider {
                     if claude { "signed in" } else { "not found" },
                     if codex { "signed in" } else { "not found" },
                 ));
-                Ok(())
+                Ok(claude || codex)
             }
             Upstream::Codex { auth } => {
                 let login = read_codex_login(auth).await?;
                 log(&format!("holding the Codex login in {}", auth.display()));
                 *self.codex.lock().await = Some(login);
-                Ok(())
+                Ok(true)
             }
             Upstream::Proxy { base, key_file } => {
                 if let Some(path) = key_file {
                     read_key(path).await?;
                 }
                 log(&format!("sending calls to the subscription proxy at {base}"));
-                Ok(())
+                Ok(true)
             }
         }
     }

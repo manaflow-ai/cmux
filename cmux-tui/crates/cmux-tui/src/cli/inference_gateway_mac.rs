@@ -56,7 +56,7 @@ pub(super) struct MacLogins {
 impl MacLogins {
     /// The default places, the way Claude Code and the Codex CLI find them.
     pub(super) fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Result<Self, String> {
-        let home = env("HOME").map(PathBuf::from).or_else(dirs::home_dir);
+        let home = env("HOME").map(PathBuf::from);
         let claude_home = env("CLAUDE_CONFIG_DIR")
             .map(PathBuf::from)
             .or_else(|| home.as_ref().map(|h| h.join(".claude")))
@@ -147,7 +147,7 @@ impl ClaudeBorrow {
 
     /// Whether a sign-in is there now (for the start's one log line; never fails the start).
     pub(super) async fn present(&self) -> bool {
-        self.read().await.is_ok()
+        !self.read_all().await.is_empty()
     }
 
     /// The access token for a call: the cached one while it is fresh, else read again. `stale` is
@@ -161,37 +161,62 @@ impl ClaudeBorrow {
         {
             return Ok(cached.0.clone());
         }
-        let found = self.read().await.map_err(|e| ("inference.gateway_login", e))?;
-        if !fresh(&found) || stale == Some(found.0.as_str()) {
-            *slot = None;
+        // Read again from here on: a refused or stale token is never served from the cache.
+        *slot = None;
+        let found = self.read(stale).await.map_err(|e| ("inference.gateway_login", e))?;
+        if !fresh(&found) {
             return Err(("inference.gateway_login", CLAUDE_EXPIRED.into()));
         }
         *slot = Some(found.clone());
         Ok(found.0)
     }
 
-    async fn read(&self) -> Result<(String, Option<u64>), String> {
+    /// Every sign-in Claude Code keeps here: its credentials file and (macOS) its keychain item. Claude
+    /// Code on macOS keeps its live sign-in in the keychain, so a leftover file must not hide it.
+    async fn read_all(&self) -> Vec<(String, Option<u64>)> {
+        let mut found = Vec::new();
         let file = self.logins.claude_home.join(".credentials.json");
         if let Ok(text) = tokio::fs::read_to_string(&file).await
-            && let Ok(found) = parse_claude_credentials(&text)
+            && let Ok(login) = parse_claude_credentials(&text)
         {
-            return Ok(found);
+            found.push(login);
         }
-        if !self.logins.keychain {
+        if self.logins.keychain
+            // The item Claude Code writes through /usr/bin/security; bounded, so a keychain that asks
+            // to unlock never holds a call. The password is the credentials document; it never
+            // leaves this process.
+            && let Ok(text) = super::inference_gateway::command_output_within(
+                "/usr/bin/security",
+                &["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
+                Duration::from_secs(5),
+            )
+            .await
+            && let Ok(login) = parse_claude_credentials(text.trim())
+        {
+            found.push(login);
+        }
+        found
+    }
+
+    /// The best sign-in now: one not `stale`, the latest expiry first (no expiry counts as latest).
+    async fn read(&self, stale: Option<&str>) -> Result<(String, Option<u64>), String> {
+        let found = self.read_all().await;
+        if found.is_empty() {
             return Err(NO_CLAUDE.into());
         }
-        // The item Claude Code writes through /usr/bin/security; bounded, so a keychain that asks
-        // to unlock never holds a call. The password is the credentials document; it never leaves
-        // this process.
-        let text = super::inference_gateway::command_output_within(
-            "/usr/bin/security",
-            &["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
-            Duration::from_secs(5),
-        )
-        .await
-        .map_err(|_| NO_CLAUDE.to_owned())?;
-        parse_claude_credentials(text.trim()).map_err(|_| NO_CLAUDE.into())
+        best(found, stale).ok_or_else(|| CLAUDE_EXPIRED.into())
     }
+}
+
+/// The sign-in to use among `found`: never the refused `stale` one, else the latest expiry.
+pub(super) fn best(
+    found: Vec<(String, Option<u64>)>,
+    stale: Option<&str>,
+) -> Option<(String, Option<u64>)> {
+    found
+        .into_iter()
+        .filter(|(token, _)| stale != Some(token.as_str()))
+        .max_by_key(|(_, exp)| exp.unwrap_or(u64::MAX))
 }
 
 /// One `--supervised` state line on stdout (`{"event": "online"}`); the app reads nothing else there.
@@ -338,6 +363,15 @@ mod tests {
         let borrow = ClaudeBorrow::new(logins(&dir));
         assert!(!borrow.present().await);
         assert_eq!(borrow.token(None).await.unwrap_err().0, "inference.gateway_login");
+    }
+
+    #[test]
+    fn the_freshest_sign_in_wins_and_a_refused_one_never_does() {
+        let file = ("old".to_owned(), Some(1_000));
+        let keychain = ("live".to_owned(), Some(9_000));
+        assert_eq!(best(vec![file.clone(), keychain.clone()], None), Some(keychain.clone()));
+        assert_eq!(best(vec![keychain.clone(), file.clone()], Some("live")), Some(file));
+        assert_eq!(best(vec![keychain], Some("live")), None);
     }
 
     #[test]
