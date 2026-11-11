@@ -72,8 +72,10 @@ struct CmdNTopInGroupFramesTests {
             let doc = services.sidebarDoc
             print("frame-debug: active \(String(describing: doc.store?.isActive)) item \(created().map { doc.item(workspace: $0) ?? "none" } ?? "-") store \(store.workspaces.map(\.id))")
         }
+        print("store-debug: press at \(ContinuousClock.now)")
         _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && created() != nil }
+        print("store-debug: settled at \(ContinuousClock.now)")
         try? await Task.sleep(for: .seconds(2))
         list.onApply = nil
         let after = Self.rows(list.displayed, model: model, home: home)
