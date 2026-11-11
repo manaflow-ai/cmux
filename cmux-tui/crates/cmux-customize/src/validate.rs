@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use cmux_app_manifest::hidden;
 use cmux_config::{FileRead, Schema, State, jsonc};
 use serde::Serialize;
 use serde_json::Value;
@@ -65,12 +66,19 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
             }
             continue;
         };
-        if let Some((line, column, name)) = hidden_direction_mark(text) {
+        // The one rule an app's script and manifest are held to at load
+        // (cmux_app_manifest::hidden), so a draft never passes here and
+        // fails there.
+        if let Some(mark) = hidden::first_hidden(text, hidden::Context::Code) {
             found.push(Problem::at(
                 path,
-                Some(line),
-                Some(column),
-                format!("has an invisible text-direction character ({name}); what you read is not what runs"),
+                Some(mark.line),
+                Some(mark.column),
+                format!(
+                    "has {} ({}); what you read is not what runs",
+                    mark.describe(),
+                    mark.code_point
+                ),
             ));
         }
         match Part::of(path) {
@@ -225,24 +233,6 @@ fn view(path: &str, text: &str, files: &BTreeMap<String, Vec<u8>>, found: &mut V
             format!("runtime.main names {main:?}, which is not in the folder"),
         ));
     }
-}
-
-/// U+202A..U+202E and U+2066..U+2069 reorder what a reader sees without
-/// changing what a parser reads (the "Trojan Source" class). First hit, as
-/// 1-based line and column.
-fn hidden_direction_mark(text: &str) -> Option<(u32, u32, String)> {
-    for (index, line) in text.lines().enumerate() {
-        for (column, character) in line.chars().enumerate() {
-            if matches!(character, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}') {
-                return Some((
-                    index as u32 + 1,
-                    column as u32 + 1,
-                    format!("U+{:04X}", character as u32),
-                ));
-            }
-        }
-    }
-    None
 }
 
 fn line_column(text: &str, offset: usize) -> (u32, u32) {
