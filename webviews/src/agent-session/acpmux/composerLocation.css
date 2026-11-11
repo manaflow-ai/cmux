@@ -1520,6 +1520,12 @@
   grid-column: 2;
   grid-row: 2;
 }
+/* Shell mode starts at the row's top as the prompt does (it stretches): where the controls' column
+   is taller than one line in the field's insets (a large chrome size under the attachments' band),
+   an end-aligned shell field stood lower than the prompt's line (composer-shell-alignment.test.ts). */
+.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-shell-prompt {
+  align-self: stretch;
+}
 /* The grid's inset is the control inset on both sides: + sits 8 px from the box's left, the mic or
    Send 8 px from its right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px
    glyph), and the block inset (10 px) over the bottom on a one-line prompt, as far as under the top.
