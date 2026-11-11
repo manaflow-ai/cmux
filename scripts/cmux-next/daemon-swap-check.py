@@ -12,6 +12,26 @@ work. The swap time runs from the SIGTERM to the last check passing.
     resolves each terminal running with the same incarnation, the same host
     pid and the same shell pid (`echo $$` before and after), the screen still
     shows the marker written before the swap, and new input echoes.
+    Optional terminal scenarios (`--drill` turns all of them on, with 24
+    shells and `--rollback`):
+    --hidden      a shell behind a second tab of its pane (nobody shows it).
+    --fullscreen  a program on the alternate screen with bracketed paste and
+                  mouse reporting on: after the swap the alternate screen is
+                  still up, typed input reaches the program as plain text, and
+                  leaving it shows the primary screen with its marker.
+                  --fullscreen-gap-host BINARY reports, not fails, a lost
+                  primary screen under a program whose host BINARY's daemon
+                  started (builds before the alternate-screen replay fix).
+    --flood SECS  a terminal printing numbered lines through the swap: the
+                  visible lines count up by one (nothing repeated, reordered or
+                  missing) and end at the count the program printed.
+    --typist      input typed every 10 ms before, during and after the swap
+                  (each line appends its number to a file): every line a
+                  daemon acknowledged arrives exactly once and in order, and no
+                  refused line arrives.
+    --rollback    after old -> new, two more shells start under the new build
+                  and the new daemon is swapped back to the old build, which
+                  must adopt hosts started by both builds.
   agents: one acpmux session on a scripted ACP agent (this script, run as
     `--fake-agent`, so no credential or model is needed). Survival means the
     new acpmux daemon lists the session live with the same agent host pid and
@@ -384,8 +404,9 @@ def nightly_pair(repo: Path) -> dict:
 
 
 class Daemon:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, session: str = "swap-check"):
         self.root = root
+        self.session = session
         self.socket = root / "mux.sock"
         self.state = root / "state"
         (root / "cmux-tui").mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -402,7 +423,7 @@ class Daemon:
         )
         with open(self.root / f"daemon-{int(time.time() * 1000)}.log", "wb") as log:
             self.proc = subprocess.Popen(
-                [str(binary), "--headless", "--session", "swap-check", "--socket", str(self.socket),
+                [str(binary), "--headless", "--session", self.session, "--socket", str(self.socket),
                  "--state", str(self.state)],
                 env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
             )
@@ -463,7 +484,7 @@ def host_pids(state: Path) -> dict[str, int]:
         except (OSError, ValueError):
             continue
         if isinstance(record, dict) and "host_pid" in record:
-            key = str(record.get("terminal_id") or record.get("id") or path.stem)
+            key = norm(record.get("terminal_id") or record.get("id") or path.stem)
             found[key] = int(record["host_pid"])
     return found
 
@@ -486,44 +507,251 @@ def shell_pid(screen: str, tag: str) -> int | None:
     return None
 
 
-def terminal_phase(old: Path, new: Path, count: int, work: Path) -> dict:
-    daemon = Daemon(work / "terminals")
+class Scenarios:
+    """Which extra kinds of live work the terminals phase opens (`--drill` turns all on)."""
+
+    def __init__(self, args: argparse.Namespace):
+        self.hidden = args.hidden
+        self.fullscreen = args.fullscreen
+        self.flood_secs = args.flood
+        self.typist = args.typist
+        # Hosts of these binaries may lose the primary screen under a full-screen program.
+        self.gap_hosts = {same_file_key(b) for b in getattr(args, "fullscreen_gap_host", None) or []}
+
+    @classmethod
+    def none(cls) -> "Scenarios":
+        return cls(argparse.Namespace(hidden=False, fullscreen=False, flood=0, typist=False))
+
+
+def same_file_key(binary: Path) -> str:
+    """One spelling per file, so a binary named twice compares equal."""
+    return str(Path(binary).expanduser().resolve())
+
+
+def printed(screen: str, line: str) -> bool:
+    """Whether the screen holds LINE as a whole line of output (a typed
+    command line never equals what it prints: they use `$((n))`)."""
+    return any(row.strip() == line for row in screen.splitlines())
+
+
+def open_shell(daemon: Daemon, kind: str, tag: str, born: int, **where) -> dict:
+    """BORN is the index of the build (in the swap order) whose daemon started the host."""
+    """A /bin/sh terminal with its shell pid read from its own screen."""
+    created = data(daemon.socket, {"cmd": "run", "argv": ["/bin/sh"], **where})
+    term = {
+        "surface": created["surface"],
+        "terminal_id": created["terminal_id"],
+        "incarnation": created["terminal_incarnation"],
+        "pane": created.get("pane"),
+        "kind": kind, "tag": tag, "born": born,
+    }
+    data(daemon.socket, {"cmd": "send", "surface": term["surface"], "text": "echo PIDS$((0))=$$\n"})
+    screen = wait_until(f"{tag} shell pid", now() + 15,
+                        lambda: (s := daemon.screen(term["surface"])) and shell_pid(s, "PIDS0") and s)
+    term["shell_pid"] = shell_pid(screen, "PIDS0")
+    return term
+
+
+def open_work(daemon: Daemon, count: int, scenarios: Scenarios, born: int) -> list[dict]:
+    """COUNT shells in their own workspaces, plus the scenario terminals."""
+    tag = f"T{os.getpid()}B{born}"
+    terms = [open_shell(daemon, "shell", f"{tag}N{i}", born, new_workspace=True) for i in range(count)]
+    if scenarios.hidden and terms:
+        # A second tab in the first shell's pane: the first shell is now a tab nobody shows.
+        pane = terms[0]["pane"] or data(daemon.socket, {
+            "cmd": "resolve-terminal", "terminal_id": terms[0]["terminal_id"]}).get("pane")
+        if pane is None:
+            raise RuntimeError("the run response names no pane for the hidden-tab scenario")
+        terms[0]["kind"] = "behind-a-tab"
+        terms.append(open_shell(daemon, "front-tab", f"{tag}H", born, pane=pane))
+    if scenarios.fullscreen:
+        terms.append(open_shell(daemon, "fullscreen", f"{tag}F", born, new_workspace=True))
+    if born == 0:
+        if scenarios.flood_secs > 0:
+            terms.append(open_shell(daemon, "flood", f"{tag}L", born, new_workspace=True))
+        if scenarios.typist:
+            terms.append(open_shell(daemon, "typist", f"{tag}Y", born, new_workspace=True))
+    return terms
+
+
+def norm(terminal_id: str) -> str:
+    """A terminal id as host records spell it: lowercase hex, no dashes."""
+    return str(terminal_id).replace("-", "").lower()
+
+
+def resolve(sock: Path, terminal_id: str) -> dict:
+    return data(sock, {"cmd": "resolve-terminal", "terminal_id": terminal_id})
+
+
+FULLSCREEN_ENTER = ("printf '\\033[?1049h\\033[?2004h\\033[?1000h\\033[2J\\033[H'; echo ALT$(({k})); read x; "
+                    "printf '\\033[?1000l\\033[?2004l\\033[?1049l'; echo LEFT$(({k}))-$x\n")
+FLOOD = ("perl -e '$t=time; $i=0; while (time-$t < {secs}) {{ print \"F{k}L$i\\n\"; $i++ }} "
+         "print \"F{k}DONE$i\\n\"'\n")
+
+
+def flood_report(screen: str, step: int) -> dict:
+    """The visible flood lines must count up by one with nothing repeated,
+    reordered or missing between them, and end where the program said."""
+    line, last = re.compile(rf"F{step}L(\d+)"), re.compile(rf"F{step}DONE(\d+)")
+    nums = [int(m.group(1)) for row in screen.splitlines() if (m := line.fullmatch(row.strip()))]
+    done = [int(m.group(1)) for row in screen.splitlines() if (m := last.fullmatch(row.strip()))]
+    consecutive = bool(nums) and nums == list(range(nums[0], nums[0] + len(nums)))
+    ends_right = bool(done) and bool(nums) and nums[-1] == done[-1] - 1
+    return {"lines_seen": len(nums), "printed": done[-1] if done else None,
+            "consecutive": consecutive, "ends_at_the_last_line": ends_right,
+            "passed": consecutive and ends_right}
+
+
+class Typist:
+    """Types the line `K` into one terminal (cat into FILE) every 10 ms through whichever
+    daemon answers on the socket, before, during and after the swap. Each K is
+    `acked` (the daemon answered ok), `refused` (no daemon took the
+    connection: never delivered), `rejected` (a daemon answered an error) or
+    `unknown` (a connection that broke after the request was sent). After the
+    swap every acked K must be in FILE exactly once, nothing twice, refused
+    and rejected never, in the order typed."""
+
+    def __init__(self, daemon: Daemon, term: dict, path: Path, round_no: int):
+        import threading
+        self.daemon, self.term, self.path = daemon, term, path
+        self.base = round_no * 1_000_000
+        # The terminal runs cat into PATH, not a shell: an interactive shell's line editor
+        # drops typeahead under load (10-16 lines in about one run in ten on a loaded build
+        # Mac, the bytes on the tty), which is the shell, not the swap. cat writes every line
+        # it reads. exec keeps the shell's pid, so the terminal's process is the same.
+        if term.get("typing_into") != path:
+            data(daemon.socket, {"cmd": "send", "terminal_id": term["terminal_id"],
+                                 "text": f"exec cat >> {shlex.quote(str(path))}\n"})
+            wait_until("typist cat", now() + 15, lambda: path.exists())
+            term["typing_into"] = path
+        self.status: dict[int, str] = {}
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def run(self) -> None:
+        k = self.base
+        while not self.stop.is_set():
+            k += 1
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                    conn.settimeout(5)
+                    conn.connect(str(self.daemon.socket))
+                    sent = False
+                    try:
+                        # By the stable terminal id: a surface id does not survive a swap.
+                        conn.sendall((json.dumps({"cmd": "send", "terminal_id": self.term["terminal_id"],
+                                                  "text": f"{k}\n"}) + "\n").encode())
+                        sent = True
+                        buf = b""
+                        while not buf.endswith(b"\n"):
+                            chunk = conn.recv(65536)
+                            if not chunk:
+                                break
+                            buf += chunk
+                        response = json.loads(buf)
+                        self.status[k] = "acked" if response.get("ok") is True else "rejected"
+                    except (OSError, ValueError):
+                        self.status[k] = "unknown" if sent else "refused"
+            except (OSError, RuntimeError, ValueError):
+                self.status[k] = "refused"
+            time.sleep(0.01)
+
+    def finish(self, deadline: float) -> dict:
+        self.stop.set()
+        self.thread.join(timeout=30)
+        end = f"END{self.base}"
+        surface = resolve(self.daemon.socket, self.term["terminal_id"])["surface"]
+        data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": f"{end}\n"})
+        wait_until("typist end line", deadline,
+                   lambda: self.path.exists() and end in self.path.read_text().split())
+        seen: dict[int, int] = {}
+        order: list[int] = []
+        for word in self.path.read_text().split():
+            if word.isdigit() and int(word) > self.base and int(word) < self.base + 1_000_000:
+                seen[int(word)] = seen.get(int(word), 0) + 1
+                order.append(int(word))
+        by = lambda st: [k for k, s in self.status.items() if s == st]
+        lost = [k for k in by("acked") if seen.get(k, 0) != 1]
+        doubled = [k for k, n in seen.items() if n > 1]
+        ghost = [k for k in by("refused") + by("rejected") if k in seen]
+        in_order = order == sorted(order)
+        return {"typed": len(self.status), "acked": len(by("acked")), "refused": len(by("refused")),
+                "rejected": len(by("rejected")), "unknown": len(by("unknown")),
+                "unknown_delivered": len([k for k in by("unknown") if k in seen]),
+                "acked_lost": lost[:20], "doubled": doubled[:20], "delivered_but_refused": ghost[:20],
+                "in_order": in_order, "passed": not lost and not doubled and not ghost and in_order}
+
+
+def terminal_phase(builds: list[Path], count: int, work: Path, scenarios: Scenarios, session: str) -> list[dict]:
+    daemon = Daemon(work / "terminals", session)
     started: Owned = {}
     try:
-        return terminal_swap(daemon, old, new, count, started)
+        return terminal_swaps(daemon, builds, count, started, scenarios, work)
     finally:
         if daemon.proc is not None:
             claim_hosts(daemon.state, started)
-            daemon.shutdown_with_terminals(started, old)
+            daemon.shutdown_with_terminals(started, builds[0])
 
 
-def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: Owned) -> dict:
-    daemon.start(old)
+def terminal_swaps(daemon: Daemon, builds: list[Path], count: int, started: Owned,
+                   scenarios: Scenarios, work: Path) -> list[dict]:
+    """Start BUILDS[0], open the work, then swap to each next build in turn
+    (old -> new, and with --rollback new -> old), checking every terminal
+    after each swap. Terminals opened by a build before a later swap (born
+    under the new build, adopted back by the old one) are checked too."""
+    daemon.start(builds[0])
     daemon.wait_ready(now() + 30)
+    terms = open_work(daemon, count, scenarios, born=0)
+    reports = []
+    for step in range(1, len(builds)):
+        if step > 1:
+            # Terminals the build now running started: the next swap adopts its hosts.
+            later = Scenarios.none()
+            later.fullscreen = scenarios.fullscreen
+            terms += open_work(daemon, min(2, count), later, born=step - 1)
+        reports.append(one_swap(daemon, builds, step, terms, started, scenarios, work))
+    return reports
+
+
+def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], started: Owned,
+             scenarios: Scenarios, work: Path) -> dict:
+    old, new = builds[step - 1], builds[step]
     before_id = data(daemon.socket, {"cmd": "identify"})
-    terms = []
-    for i in range(count):
-        created = data(daemon.socket, {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
-        terms.append({
-            "surface": created["surface"],
-            "terminal_id": created["terminal_id"],
-            "incarnation": created["terminal_incarnation"],
-            "marker": f"swap-before-{os.getpid()}-{i}",
-        })
     for t in terms:
-        data(daemon.socket, {"cmd": "send", "surface": t["surface"],
-                             "text": f"echo {t['marker']}; echo PID$((0))=$$\n"})
+        if t["kind"] in ("shell", "behind-a-tab", "front-tab", "fullscreen"):
+            data(daemon.socket, {"cmd": "send", "surface": t["surface"], "text": f"echo {t['tag']}K$(({step}))\n"})
     for t in terms:
-        screen = wait_until("marker before swap", now() + 15,
-                            lambda t=t: (s := daemon.screen(t["surface"])) and t["marker"] in s and shell_pid(s, "PID0") and s)
-        t["shell_pid"] = shell_pid(screen, "PID0")
-    hosts = wait_until("host records", now() + 15, lambda: (h := host_pids(daemon.state)) and len(h) >= count and h)
+        if t["kind"] in ("shell", "behind-a-tab", "front-tab", "fullscreen"):
+            wait_until(f"{t['tag']} marker before swap", now() + 15,
+                       lambda t=t: printed(daemon.screen(t["surface"]), f"{t['tag']}K{step}"))
+    extras: dict = {}
+    for full in (t for t in terms if t["kind"] == "fullscreen"):
+        data(daemon.socket, {"cmd": "send", "surface": full["surface"], "text": FULLSCREEN_ENTER.format(k=step)})
+        wait_until("fullscreen program up", now() + 15, lambda full=full: (s := daemon.screen(full["surface"]))
+                   and printed(s, f"ALT{step}") and not printed(s, f"{full['tag']}K{step}"))
+    flood = next((t for t in terms if t["kind"] == "flood"), None)
+    if flood:
+        data(daemon.socket, {"cmd": "send", "surface": flood["surface"],
+                             "text": FLOOD.format(secs=scenarios.flood_secs, k=step)})
+        wait_until("flood running", now() + 15, lambda: any(
+            re.fullmatch(rf"F{step}L\d+", r.strip()) for r in daemon.screen(flood["surface"]).splitlines()))
+    hosts = wait_until("host records", now() + 15,
+                       lambda: (h := host_pids(daemon.state)) and all(norm(t["terminal_id"]) in h for t in terms) and h)
     claim_hosts(daemon.state, started)
     old_pid = daemon.proc.pid
+    typist_term = next((t for t in terms if t["kind"] == "typist"), None)
+    typist = Typist(daemon, typist_term, work / "typed.txt", step) if typist_term else None
+    if typist:
+        typist.start()
+        time.sleep(0.3)
 
     t0 = now()
     stop_secs = stop(daemon.proc)
-    alive_after_stop = all(pid_alive(t["shell_pid"]) for t in terms) and all(pid_alive(p) for p in hosts.values())
+    alive_after_stop = (all(pid_alive(t["shell_pid"]) for t in terms)
+                        and all(pid_alive(hosts[norm(t["terminal_id"])]) for t in terms))
     try:
         daemon.socket.unlink()
     except FileNotFoundError:
@@ -537,35 +765,73 @@ def terminal_swap(daemon: Daemon, old: Path, new: Path, count: int, started: Own
     deadline = t0 + 60
     for i, t in enumerate(terms):
         def adopted(t=t):
-            r = data(daemon.socket, {"cmd": "resolve-terminal", "terminal_id": t["terminal_id"]})
+            r = resolve(daemon.socket, t["terminal_id"])
             ok = r.get("lifecycle") == "running" and r.get("terminal_incarnation") == t["incarnation"]
             return ok and r.get("surface")
+        row = {"terminal": i, "kind": t["kind"], "born": t["born"]}
         try:
             surface = wait_until("adopted", deadline, adopted)
-            scrollback = t["marker"] in daemon.screen(surface)
-            data(daemon.socket, {"cmd": "send", "surface": surface, "text": f"echo PID$((1))=$$\n"})
-            screen = wait_until("echo after swap", deadline,
-                                lambda: (s := daemon.screen(surface)) and shell_pid(s, "PID1") and s)
-            same_shell = shell_pid(screen, "PID1") == t["shell_pid"]
-            checks.append({"terminal": i, "adopted": True, "scrollback_kept": scrollback,
-                           "same_shell_pid": same_shell, "input_echoes": True})
+            t["surface"] = surface
+            row["adopted"] = True
+            if t["kind"] == "fullscreen":
+                row["alt_screen_kept"] = printed(daemon.screen(surface), f"ALT{step}")
+                data(daemon.socket, {"cmd": "send", "surface": surface, "text": "bye\n"})
+                screen = wait_until("fullscreen program left", deadline, lambda: (s := daemon.screen(surface))
+                                    and any(re.fullmatch(rf"LEFT{step}-.*", r.strip()) for r in s.splitlines()) and s)
+                answer = next(r.strip() for r in screen.splitlines() if r.strip().startswith(f"LEFT{step}-"))
+                row["typed_after_swap_reads_as"] = answer
+                row["input_plain"] = answer == f"LEFT{step}-bye"
+                row["primary_screen_kept"] = printed(screen, f"{t['tag']}K{step}")
+                primary_ok = row["primary_screen_kept"]
+                if not primary_ok and same_file_key(builds[t["born"]]) in scenarios.gap_hosts:
+                    # A host makes its own snapshot: before the alternate-screen
+                    # replay fix it carried no primary screen.
+                    row["known_gap"] = f"primary screen under a program, host of {builds[t['born']]}"
+                    primary_ok = True
+                row["scrollback_kept"] = row["alt_screen_kept"] and primary_ok and row["input_plain"]
+            elif t["kind"] in ("shell", "behind-a-tab", "front-tab"):
+                row["scrollback_kept"] = printed(daemon.screen(surface), f"{t['tag']}K{step}")
+            else:
+                row["scrollback_kept"] = True  # flood and typist scroll their markers away; checked below
+            if t["kind"] == "flood":
+                screen = wait_until("flood done", deadline + scenarios.flood_secs, lambda: (s := daemon.screen(surface))
+                                    and any(re.fullmatch(rf"F{step}DONE\d+", r.strip()) for r in s.splitlines()) and s)
+                extras["flood"] = flood_report(screen, step)
+            if t["kind"] != "typist":
+                data(daemon.socket, {"cmd": "send", "surface": surface, "text": f"echo PIDA$(({step}))=$$\n"})
+                screen = wait_until("echo after swap", deadline,
+                                    lambda: (s := daemon.screen(surface)) and shell_pid(s, f"PIDA{step}") and s)
+                row["same_shell_pid"] = shell_pid(screen, f"PIDA{step}") == t["shell_pid"]
+            else:
+                row["same_shell_pid"] = True  # the typist's file proves its shell; checked below
+            row["input_echoes"] = True
         except TimeoutError as error:
-            checks.append({"terminal": i, "adopted": False, "error": str(error)})
+            row.update(adopted=False, error=str(error))
+        checks.append(row)
     swap_secs = now() - t0
+    if typist:
+        time.sleep(0.5)  # keep typing into the adopted terminal a little longer
+        try:
+            extras["typist"] = typist.finish(now() + 30)
+        except (TimeoutError, OSError, RuntimeError) as error:
+            extras["typist"] = {"passed": False, "error": str(error)}
     hosts_after = host_pids(daemon.state)
-    same_hosts = all(hosts_after.get(k) == v for k, v in hosts.items())
+    same_hosts = all(hosts_after.get(norm(t["terminal_id"])) == hosts[norm(t["terminal_id"])] for t in terms)
     claim_hosts(daemon.state, started)
     # The new build answers: its own process, not the old one (two unstamped
     # local builds report the same build_commit; main() refuses identical bytes).
     new_daemon = after_id.get("pid") == daemon.proc.pid != old_pid == before_id.get("pid")
     passed = alive_after_stop and same_hosts and new_daemon and all(
-        c.get("adopted") and c.get("scrollback_kept") and c.get("same_shell_pid") for c in checks)
+        c.get("adopted") and c.get("scrollback_kept") and c.get("same_shell_pid") for c in checks) and all(
+        e.get("passed") for e in extras.values())
     return {
-        "phase": "terminals", "passed": passed, "count": count,
+        "phase": "terminals" if step == 1 else f"terminals-swap-{step}",
+        "passed": passed, "count": len(terms),
         "old_build": before_id.get("build_commit"), "new_build": after_id.get("build_commit"),
+        "old_binary": str(old), "new_binary": str(new),
         "old_daemon_exit_secs": round(stop_secs, 3), "new_daemon_answers_secs": round(ready_secs, 3),
         "swap_secs": round(swap_secs, 3), "processes_alive_while_no_daemon": alive_after_stop,
-        "same_host_pids": same_hosts, "terminals": checks,
+        "same_host_pids": same_hosts, "terminals": checks, **extras,
     }
 
 
@@ -770,7 +1036,28 @@ def main() -> int:
     parser.add_argument("--budget", type=float, default=10.0)
     parser.add_argument("--phases", default="terminals,agents")
     parser.add_argument("--keep", action="store_true", help="keep the work dir")
+    parser.add_argument("--session", default="swap-check", help="the daemon's --session name")
+    parser.add_argument("--work-root", type=Path, default=Path("/tmp"), help="where the work dir is made")
+    parser.add_argument("--rollback", action="store_true",
+                        help="after old -> new, swap back new -> old (adopting hosts both builds started)")
+    parser.add_argument("--hidden", action="store_true", help="a shell behind a second tab in its pane")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="a program on the alternate screen with bracketed paste and mouse modes on")
+    parser.add_argument("--flood", type=float, default=0.0, metavar="SECS",
+                        help="a terminal printing numbered lines for SECS seconds across the swap")
+    parser.add_argument("--typist", action="store_true",
+                        help="input typed every 10 ms before, during and after the swap; each acked line once")
+    parser.add_argument("--fullscreen-gap-host", type=Path, action="append", metavar="BINARY",
+                        help="report, not fail, a lost primary screen under a full-screen program whose host "
+                             "BINARY's daemon started (a build before the alternate-screen replay fix); repeatable")
+    parser.add_argument("--drill", action="store_true",
+                        help="the update drill: --rollback --hidden --fullscreen --flood 4 --typist, 24 terminals")
     args = parser.parse_args()
+    if args.drill:
+        args.rollback = args.hidden = args.fullscreen = args.typist = True
+        args.flood = args.flood or 4.0
+        if "--terminals" not in sys.argv:
+            args.terminals = 24
 
     report: dict = {"budget_secs": args.budget}
     if args.fetch:
@@ -798,13 +1085,15 @@ def main() -> int:
         print(json.dumps(report, indent=2))
         return 1
 
-    work = Path(tempfile.mkdtemp(prefix="cmux-swap-", dir="/tmp"))
+    args.work_root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="cmux-swap-", dir=str(args.work_root)))
     phases = []
     try:
         for phase in args.phases.split(","):
             try:
                 if phase == "terminals":
-                    phases.append(terminal_phase(args.old, args.new, args.terminals, work))
+                    builds = [args.old, args.new] + ([args.old] if args.rollback else [])
+                    phases.extend(terminal_phase(builds, args.terminals, work, Scenarios(args), args.session))
                 elif phase == "agents":
                     if not (args.old_acpmux and args.new_acpmux):
                         raise RuntimeError("the agents phase needs --old-acpmux and --new-acpmux (or --fetch)")

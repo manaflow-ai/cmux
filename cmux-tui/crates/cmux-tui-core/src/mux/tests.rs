@@ -31,6 +31,8 @@ mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;
 mod column_update;
+#[cfg(unix)]
+mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
@@ -68,6 +70,7 @@ mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
+mod tab_update_scoped;
 mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;

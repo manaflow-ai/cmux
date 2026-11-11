@@ -13,6 +13,8 @@
 # Needs the pinned bun and node 22.18+ (the fleet hosts and the web bundles CI
 # job have both).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d)
 src="$TMP/src"
