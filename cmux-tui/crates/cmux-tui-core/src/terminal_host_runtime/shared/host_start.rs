@@ -156,7 +156,7 @@ pub(crate) fn start_host_runtime(
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
-    shared.clipboard.start_timer(&shared)?;
+    shared.clipboard.bind_timer(&shared);
 
     let parser_host = shared.clone();
     thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {

@@ -68,6 +68,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: transaction.take(),
+                        mutation: None,
                     },
                     true,
                 )
@@ -109,6 +110,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     },
                     false,
                 )
@@ -229,6 +231,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         })
                     })();
                     BrowserSurfaceAttach::Attached(delta)

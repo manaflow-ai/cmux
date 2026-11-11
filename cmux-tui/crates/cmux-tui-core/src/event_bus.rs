@@ -71,6 +71,9 @@ enum MuxEventFilter {
     LaunchSnapshot,
     /// Local conversation changes (the host replica's Chief stream).
     Conversations,
+    /// The events a predicate takes: an internal consumer that reads only a
+    /// few kinds never gets (or clones) the others.
+    Matching(fn(&MuxEvent) -> bool),
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -132,6 +135,11 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::Conversations)
+    }
+
+    /// A receiver of the events `accepts` takes.
+    pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Matching(accepts))
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -234,6 +242,7 @@ impl MuxEventFilter {
                     | MuxEvent::Empty
             ),
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
+            Self::Matching(accepts) => accepts(event),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -405,6 +414,11 @@ impl MuxEventMailbox {
                 state.events.push_back((sequence, MuxEvent::Empty));
                 true
             }
+            // A client re-reads the whole tree on `tree-changed`, when it
+            // takes the event: a second one right behind an unread one asks
+            // for the same read again. Only an adjacent one is dropped, so
+            // no other event moves across it.
+            MuxEvent::TreeChanged if state.ends_with_tree_changed() => true,
             event => {
                 if !state.reserve_pending_slot() {
                     false
@@ -452,6 +466,13 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+    }
+
+    /// Whether the newest pending event is a `TreeChanged` (no coalesced
+    /// event is newer).
+    fn ends_with_tree_changed(&self) -> bool {
+        let Some((sequence, MuxEvent::TreeChanged)) = self.events.back() else { return false };
+        self.coalesced.last_key_value().is_none_or(|(newest, _)| newest < sequence)
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
@@ -590,3 +611,7 @@ impl MuxEventReceiver {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "event_bus_tests.rs"]
+mod tests;
