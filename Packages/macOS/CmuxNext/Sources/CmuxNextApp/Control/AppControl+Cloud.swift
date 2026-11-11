@@ -21,9 +21,7 @@ extension AppControl {
                     "user": user.map { .object(["id": .string($0.id), "email": $0.primaryEmail.map(JSONValue.string) ?? .null]) } ?? .null,
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
-                    // The account's teams as the team menu lists them (`personal` or `team`), so a script can name one
-                    // to `cmux cloud start-session --team` (the Cloud workspace matrix's account rows).
-                    "teams": .array(cloud.auth.activeTeam.rows.map { .object(["id": .string($0.id), "title": .string($0.title), "kind": .string($0.kind.rawValue), "active": .bool($0.active)]) }),
+                    "teams": JSONValue(foundation: cloud.auth.activeTeam.statusRows) ?? .null, // the team menu's rows, for `cloud start-session --team`
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
                     "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
                     "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,

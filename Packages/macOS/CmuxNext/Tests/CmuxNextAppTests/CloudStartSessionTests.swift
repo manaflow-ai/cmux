@@ -100,11 +100,11 @@ struct CloudStartSessionTests {
     /// The mode goes as the composer's Cloud send seeds its pick: on the new tab's seed with the harness it is for (the remote
     /// start sends a seeded mode only for that harness). Without one the seed is the folder's alone, as before.
     @Test func theModeIsSeededWithItsHarness() throws {
-        let seeded = try #require(CloudStartSession.seed(cwd: nil, agent: "claude", mode: "bypassPermissions"))
+        let seeded = try #require(AgentPaneSeed.cloudStart(cwd: nil, agent: "claude", mode: "bypassPermissions"))
         #expect((seeded.harness, seeded.mode, seeded.cwd) == ("claude", "bypassPermissions", nil))
-        #expect(CloudStartSession.seed(cwd: "/home/cmux/work", agent: "codex", mode: "full-access")?.cwd == "/home/cmux/work")
-        #expect(CloudStartSession.seed(cwd: nil, agent: "claude", mode: nil) == nil)
-        let folder = try #require(CloudStartSession.seed(cwd: "/home/cmux/work", agent: "claude", mode: nil))
+        #expect(AgentPaneSeed.cloudStart(cwd: "/home/cmux/work", agent: "codex", mode: "full-access")?.cwd == "/home/cmux/work")
+        #expect(AgentPaneSeed.cloudStart(cwd: nil, agent: "claude", mode: nil) == nil)
+        let folder = try #require(AgentPaneSeed.cloudStart(cwd: "/home/cmux/work", agent: "claude", mode: nil))
         #expect((folder.cwd, folder.harness, folder.mode) == ("/home/cmux/work", nil, nil))
     }
 
@@ -114,11 +114,11 @@ struct CloudStartSessionTests {
         let source = ActiveTeamTests.Source(teams: [], selected: "t-cmux")
         source.availableTeams = [CMUXAuthTeam(id: "t-cmux", displayName: "cmux"), CMUXAuthTeam(id: "t-me", displayName: "Personal")]
         let active = ActiveTeam(source: source)
-        #expect(try CloudStartSession.teamToSelect(nil, in: active) == nil)
-        #expect(try CloudStartSession.teamToSelect("personal", in: active) == "t-me")
-        #expect(try CloudStartSession.teamToSelect("t-me", in: active) == "t-me")
-        #expect(try CloudStartSession.teamToSelect("cmux", in: active) == nil, "the active team: no switch")
-        #expect(throws: ActionFailure.self) { try CloudStartSession.teamToSelect("someone-else", in: active) }
+        #expect(try active.startTeam(nil, rules: CloudHandlerRules()) == nil)
+        #expect(try active.startTeam("personal", rules: CloudHandlerRules()) == "t-me")
+        #expect(try active.startTeam("t-me", rules: CloudHandlerRules()) == "t-me")
+        #expect(try active.startTeam("cmux", rules: CloudHandlerRules()) == nil, "the active team: no switch")
+        #expect(throws: ActionFailure.self) { try active.startTeam("someone-else", rules: CloudHandlerRules()) }
     }
 
     @Test(arguments: ["", "Claude Code", "-rf", "claude;rm", String(repeating: "a", count: 65)])
