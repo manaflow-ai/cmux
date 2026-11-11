@@ -1945,6 +1945,25 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("(echo ')'; cd scripts/ci)\npython3 x", True, "x", ""),
     ("echo '&&' || cd scripts/ci\npython3 x", True, "x", None),
     ("echo 'a;b' # ) ; cd scripts/ci\npython3 x", True, "x", ""),
+    # Review of #41051, F2: errexit is off to the left of && and ||, after !, and in if/while/until
+    # conditions, for everything nested there, so a failed cd inside goes on.
+    ("{ cd scripts/ci > lib; :; } && python3 x", True, "x", None),
+    ("{ cd scripts/ci > lib; :; } && true\npython3 x", True, "x", None),
+    ("{ cd scripts/ci; :; } || true\npython3 x", True, "x", None),
+    ("( { cd scripts/ci > lib; :; } && python3 x )", True, "x", None),
+    ("( cd scripts/ci > lib; : ) && python3 x", True, "x", ""),
+    ("{ ( cd scripts/ci; : ) && { cd scripts/ci > lib; :; }; } && python3 x", True, "x", None),
+    ("{ { cd scripts/ci > lib; :; }; :; } && python3 x", True, "x", None),
+    ("if { cd scripts/ci; false; }; then true; fi\npython3 x", True, "x", None),
+    ("if { cd scripts/ci; false; }; then python3 x; fi", True, "x", None),
+    ("while { cd scripts/ci; false; }; do true; done\npython3 x", True, "x", None),
+    ("! { cd scripts/ci; }\npython3 x", True, "x", None),
+    ("! { cd scripts/ci; false; }\npython3 x", True, "x", None),
+    # ... and on everywhere else, nested groups included.
+    ("{ cd scripts/ci; :; }\npython3 x", True, "x", _CI),
+    ("{ { cd scripts/ci; }; :; }\npython3 x", True, "x", _CI),
+    ("{ cd scripts/ci; } || exit 1\npython3 x", True, "x", _CI),
+    ("if true; then { cd scripts/a; }; fi\npython3 x", True, "x", None),
     # Outside the grammar: the directory is unknown from there on.
     ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
     ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
@@ -2554,6 +2573,28 @@ class SparseCheckoutImportTests(unittest.TestCase):
                 "DYNAMIC_IMPORT_AUDIT: scripts/ci/vend.py scripts/ci/vendor/y.py: no call in scripts/ci/vend.py "
                 "matches it; re-check the call and the entry",
             ],
+        )
+
+    def test_fixture_review_41051_f1_an_unknown_directory_keeps_an_entry_only_while_its_load_call_exists(self) -> None:
+        # From an unknown directory the load's path cannot be resolved, but whether the call is there
+        # still can: a deleted load call leaves its audit entry stale.
+        audit = {("scripts/ci/vend.py", "scripts/ci/vendor/x.py"): "optional: vend.py runs without it"}
+        run = self.block("true || cd scripts/ci", "python3 scripts/ci/vend.py")
+        listed = self.block("scripts/ci/vend.py")
+        no_call = {**self.VENDOR, "scripts/ci/vend.py": "import importlib.util\n"}
+        self.assertEqual(
+            self._misses(listed, run=run, audit=audit, more=no_call),
+            [
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/vend.py scripts/ci/vendor/x.py: no call in scripts/ci/vend.py "
+                "matches it; re-check the call and the entry"
+            ],
+        )
+        # A load call that names another file from every directory does not keep it alive either.
+        other = {**self.VENDOR, "scripts/ci/vend.py": self.VENDOR["scripts/ci/vend.py"].replace("vendor/x.py", "vendor/z.py")}
+        self.assertIn(
+            "DYNAMIC_IMPORT_AUDIT: scripts/ci/vend.py scripts/ci/vendor/x.py: no call in scripts/ci/vend.py "
+            "matches it; re-check the call and the entry",
+            self._misses(listed, run=run, audit=audit, more=other),
         )
 
     def test_fixture_fixed_sys_path_insert_joins_the_search_path(self) -> None:
