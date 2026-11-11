@@ -159,6 +159,7 @@ pub mod ledger;
 mod model_hint;
 mod model_probe;
 mod models_view;
+pub(crate) mod native_messaging;
 mod paging;
 mod personal_stats;
 mod policy_gate;
@@ -1720,6 +1721,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
             asks_below: StdMutex::new((0, 0)),
+            held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),

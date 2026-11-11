@@ -744,6 +744,10 @@ fn session_snapshot_with_journal_head(
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
+        // The rows built for this request move in; `json!` would copy each of
+        // them (a deep copy of every terminal, notification and agent value).
+        // The committed parts are copied: the cached snapshot keeps them. A
+        // map's keys serialize sorted, so the reply bytes do not change.
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
@@ -751,18 +755,22 @@ fn session_snapshot_with_journal_head(
             "screens": committed.screens,
             "panes": committed.panes,
             "tabs": committed.tabs,
-            "terminals": terminals,
-            "browsers": browsers,
             "clients": [],
-            "notifications": notifications,
-            "agents": agents,
-            "frontend_projections": frontend_projections,
-            "sidebar_views": sidebar_views,
             "cursor": {
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
         });
+        for (name, rows) in [
+            ("terminals", terminals),
+            ("browsers", browsers),
+            ("notifications", notifications),
+            ("agents", agents),
+            ("frontend_projections", frontend_projections),
+            ("sidebar_views", sidebar_views),
+        ] {
+            snapshot.set(name, Value::Array(rows));
+        }
         snapshot.set("extra", json!({"state": committed.state}));
         Ok((snapshot, journal_head))
     })()
@@ -1206,18 +1214,24 @@ pub(crate) fn public_workspace_topology(
     .map_err(operation_failed)
 }
 
-/// The session snapshot's `cursor` alone (`session.ping`): the topology
-/// generation and resource revision, from the topology frame.
+/// The session snapshot's `cursor` alone (`session.ping`): the registry
+/// generation and the committed resource revision. The revision is one meta
+/// row, read on the registry's point reader, so a ping waits for no heavy
+/// read and walks no workspace (the topology frame it read before walked
+/// every workspace for an active-screen list the cursor does not show; its
+/// generation is the registry's, as here).
 pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
-    let frame = read_committed_registry(mux, |connection, ids| {
-        crate::workspace_registry::load_topology_frame(
-            connection,
-            ids.session_id.clone(),
-            ids.generation.clone(),
-        )
-    })
+    let (_, generation) = mux.registry_identity();
+    let revision = match mux.registry_connection.committed_resource_revision() {
+        Some(revision) => revision,
+        None => mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_revision(),
+    }
     .map_err(operation_failed)?;
-    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
+    Ok(json!({"generation": generation, "revision": revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
