@@ -129,8 +129,6 @@ final class AppServices {
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
-    /// The wide Inbox page (the Feed page on `#/inbox`).
-    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
@@ -273,17 +271,8 @@ final class AppServices {
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
-    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
-    var rightSidebarDefaults: UserDefaults = .standard
-    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    /// Each window's file explorer (the Files section) and its actions' effects.
     private(set) lazy var fileExplorers = FileExplorerService(services: self)
-    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
-    private(set) lazy var rightSidebarSections: RightSidebarSections = {
-        let sections = RightSidebarSections()
-        sections.registerAppSections()
-        sections.prewarmIcons()
-        return sections
-    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
@@ -618,7 +607,6 @@ final class AppServices {
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
-        _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))

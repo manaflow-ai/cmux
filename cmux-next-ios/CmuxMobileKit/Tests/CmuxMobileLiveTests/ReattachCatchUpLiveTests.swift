@@ -145,9 +145,9 @@ import Testing
     }
 
     /// Waits until `done` (a retry sleeps, so on the clock, not a count of yields). No deadline
-    /// of its own: one counted on the wall clock ended while a busy run's main actor had not
-    /// yet applied the catch-up, and the test read the chat unsettled. The suite's time limit
-    /// bounds a hang.
+    /// of its own: one counted on the wall clock (10 s, then 60 s in #40685) ended while a busy
+    /// run's main actor had not yet applied the catch-up, and the test read the chat unsettled.
+    /// The suite's time limit bounds a hang.
     static func waitUntil(_ done: () -> Bool) async {
         while !done(), !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
