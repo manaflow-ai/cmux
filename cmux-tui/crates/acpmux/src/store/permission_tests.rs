@@ -108,7 +108,10 @@ fn local_store_refuses_a_symlinked_existing_session() {
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
     let store = LocalStore::new(root, 64 * 1024).unwrap();
-    assert!(store.list().is_err());
+    // Never read through: left out of the list and counted unread, without hiding other chats
+    // (`store/list_entry_tests.rs`).
+    assert!(store.list().unwrap().is_empty());
+    assert_eq!(store.unlisted(), ["linked-session"]);
 }
 
 #[cfg(target_os = "macos")]
