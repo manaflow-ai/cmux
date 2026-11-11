@@ -304,12 +304,12 @@ jobs:
         working-directory: cmux-tui
         run: |
           cargo fmt -p cmux-sdk -p cmux-sidebar -- --check
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --doc \
@@ -473,7 +473,7 @@ jobs:
       - name: Test Rust resource consumers
         if: matrix.language == 'rust'
         run: |
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
           cargo clippy \
@@ -481,7 +481,7 @@ jobs:
             --locked \
             --all-targets \
             -- -D warnings
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
