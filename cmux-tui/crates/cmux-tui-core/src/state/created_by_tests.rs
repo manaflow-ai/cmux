@@ -200,3 +200,134 @@ fn created_by_needs_a_known_kind() {
     assert_eq!(super::tests::error_code(refused), "validation.invalid");
     mux.shutdown();
 }
+
+/// How the creator closes: `workspace.close` (a full projection), or the socket's
+/// `close-workspace` with `end_terminals` (a scoped projection of the closed workspace and the
+/// workspaces after it).
+#[derive(Clone, Copy, Debug)]
+enum Close {
+    Operation,
+    EndingTerminals,
+}
+
+/// A workspace keeps `extra.created_by.workspace` only while its creator lives
+/// ([`super::created_by::snapshot`]). `workspace.list` reads the rows and drops it at once; the
+/// session's events must say the same, or a client that builds its model from them keeps a
+/// creator that is closed. `before` picks the child to check: x, which sits BEFORE its creator a
+/// (the close changes none of its projected fields), or y, which sits after a (its index moves).
+fn check_child_after_its_creator_closes(name: &'static str, close: Close, before: bool) {
+    let session = Session::new(name);
+    let mux = session.open();
+    let start = super::tests::revision(&mux);
+    let other = empty_workspace(&mux, "other");
+    let a = empty_workspace(&mux, "a");
+    let by_a = json!({"kind": "agent", "workspace": a, "session": "s-1"});
+    let x = created(&mux, "x", by_a.clone());
+    let y = created(&mux, "y", by_a.clone());
+    mutate(&mux, "workspace.move", json!({"workspace": x, "index": 0}), "x-first");
+    // The person's selection is none of the three: the close moves no focus onto a child.
+    focus(&mux, &other);
+    let ids = [&x, &a, &y].map(String::as_str);
+    assert_eq!(listed(&mux, &ids), ids.map(str::to_string).to_vec(), "the scene: x, a, y");
+    assert_eq!(workspace(&mux, &other)["focused"], true, "the scene: other is selected");
+    seed_public_fold(&mux);
+    let child = if before { &x } else { &y };
+    assert_eq!(folded_created_by(&mux, start, child), by_a, "the scene: the events name a");
+    let a_key = workspace(&mux, &a)["extra"]["key"].as_str().unwrap().to_string();
+
+    match close {
+        Close::Operation => {
+            mutate(&mux, "workspace.close", json!({"workspace": a}), "close-a");
+        }
+        Close::EndingTerminals => {
+            let mutation = WorkspaceMutation::daemon("close-a", "created-by-test").unwrap();
+            mux.close_workspace_ending_terminals(None, Some(a_key.as_str()), None, None, &mutation)
+                .unwrap();
+        }
+    }
+
+    let wanted = json!({"kind": "agent", "session": "s-1"});
+    let mut problems = Vec::new();
+    let from_rows = workspace(&mux, child)["extra"]["created_by"].clone();
+    if from_rows != wanted {
+        problems.push(format!("workspace.list gives {from_rows}"));
+    }
+    let folded = folded_created_by(&mux, start, child);
+    if folded != wanted {
+        problems.push(format!("the session's events state {folded}"));
+    }
+    let stated = stated_created_by(&mux, child);
+    if stated != wanted {
+        problems.push(format!("the public fold states {stated}"));
+    }
+    assert!(
+        problems.is_empty(),
+        "{close:?}: after its creator {a} closed, the child's created_by must be {wanted}:\n{}",
+        problems.join("\n")
+    );
+    mux.shutdown();
+}
+
+/// One full resource effect projection, as a session's first terminal create runs: it states
+/// every workspace and seeds the journal's public fold, so the next commits state only what
+/// they change (the state of a live session).
+fn seed_public_fold(mux: &Arc<Mux>) {
+    let (key, operation) = ("seed-public-fold", "test.seed_public_fold");
+    let fingerprint = json!({"operation": operation, "fixture": key});
+    let expected_revision = super::tests::revision(mux);
+    mux.prepare_resource_effect(
+        &WorkspaceMutation::daemon(key, "test").unwrap(),
+        operation,
+        &fingerprint,
+        &json!({}),
+        None,
+        Some(expected_revision),
+    )
+    .unwrap();
+    mux.mark_resource_effect_executing(key, operation, &fingerprint).unwrap();
+    mux.commit_full_resource_effect_projection(key, operation, &fingerprint, json!({})).unwrap();
+    assert!(
+        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
+        "the full projection did not seed the fold"
+    );
+}
+
+/// `extra.created_by` of the workspace `id` as a client holds it that folds the session's
+/// events from `start`: the one of its last upsert.
+fn folded_created_by(mux: &Arc<Mux>, start: u64, id: &str) -> Value {
+    super::tests::changes_after(mux, start)
+        .iter()
+        .rev()
+        .find(|change| {
+            change["kind"] == "upsert" && change["resource"] == "workspace" && change["id"] == id
+        })
+        .map_or(Value::Null, |change| change["value"]["extra"]["created_by"].clone())
+}
+
+/// `extra.created_by` of the workspace `id` in the registry's public fold (what the journal
+/// states, and what the next commits prune their upserts against).
+fn stated_created_by(mux: &Arc<Mux>, id: &str) -> Value {
+    let mut registry = mux.workspace_registry.lock().unwrap();
+    registry
+        .stated_topology_value_for_test("workspace", id)
+        .flatten()
+        .map_or(Value::Null, |value| value["extra"]["created_by"].clone())
+}
+
+#[test]
+fn a_child_before_its_closed_creator_drops_the_creator_in_the_events() {
+    check_child_after_its_creator_closes("created-by-close-before", Close::Operation, true);
+}
+
+#[test]
+fn a_child_before_its_creator_closed_with_its_terminals_drops_the_creator_in_the_events() {
+    check_child_after_its_creator_closes("created-by-end-before", Close::EndingTerminals, true);
+}
+
+/// The control: a child AFTER its creator moves one index down, so the close states it again
+/// with the rows as they are after the close.
+#[test]
+fn a_child_after_its_closed_creator_drops_the_creator_in_the_events() {
+    check_child_after_its_creator_closes("created-by-close-after", Close::Operation, false);
+    check_child_after_its_creator_closes("created-by-end-after", Close::EndingTerminals, false);
+}
