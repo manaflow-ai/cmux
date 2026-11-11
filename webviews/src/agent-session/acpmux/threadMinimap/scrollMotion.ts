@@ -24,6 +24,11 @@ export function announceScroll(node: HTMLElement): void {
 }
 const READER_INPUTS = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
 
+/// The most of its curve a paced ride plays in one painted frame (and the follow chase integrates,
+/// followChase.ts): a longer frame gap (a page drawing few frames, a commit that started the ride
+/// inside a frame's callbacks, so its first step comes a whole frame later) counts as this long.
+export const MAX_FRAME_STEP_MS = 1000 / 30;
+
 /// Reduce Motion: the system's, or the app's (its motion tokens are 0 when Reduce Motion is on or
 /// ui.animationSpeed is off; AgentPaneTheme.motion).
 export function reducedMotion(): boolean {
@@ -43,7 +48,9 @@ export function stopScroll(node: HTMLElement): void {
 
 /// Scrolls `node` to `target()` over `duration` ms on `curve`. The target is read each frame, so rows
 /// that measure meanwhile move the landing with them. A zero duration jumps. Replacing or cancelling
-/// the ride notifies `cancelled`; a completed ride calls only `then`.
+/// the ride notifies `cancelled`; a completed ride calls only `then`. A `paced` ride plays at most
+/// MAX_FRAME_STEP_MS of its curve per painted frame, so it is seen as a ride however few frames the
+/// page draws (a send's: reader input must always win, and a send is the reader's newest input).
 export function animateScroll(
   node: HTMLElement,
   target: () => number,
@@ -51,7 +58,7 @@ export function animateScroll(
   curve: CubicBezier,
   then?: () => void,
   cancelled?: () => void,
-  options: { explicit?: boolean } = {},
+  options: { explicit?: boolean; paced?: boolean } = {},
 ): void {
   const intent = userScrollIntent(node);
   if (intent.isHeld() && !options.explicit) return;
@@ -77,6 +84,7 @@ export function animateScroll(
     cancelled,
     false,
     options.explicit,
+    options.paced,
   );
 }
 
@@ -127,6 +135,7 @@ function runScroll(
   cancelled?: () => void,
   wheel = false,
   explicit = false,
+  paced = false,
 ): void {
   const intent = wheel ? undefined : userScrollIntent(node);
   if (intent?.isHeld() && !explicit) return;
@@ -140,6 +149,9 @@ function runScroll(
   const owner = wheel ? (doc.defaultView ?? node) : node;
   const inputs = wheel ? READER_INPUTS.filter((input) => input !== "wheel") : READER_INPUTS;
   const start = performance.now();
+  // A paced ride's clock: the time it has played, at most MAX_FRAME_STEP_MS a frame.
+  let played = 0;
+  let last = start;
   let frame = 0;
   let active = true;
   let unsubscribeIntent: (() => void) | undefined;
@@ -165,7 +177,11 @@ function runScroll(
       end();
       return;
     }
-    const progress = Math.min(1, Math.max(0, (now - start) / duration));
+    if (paced) {
+      played += Math.min(MAX_FRAME_STEP_MS, Math.max(0, now - last));
+      last = Math.max(last, now);
+    }
+    const progress = Math.min(1, Math.max(0, (paced ? played : now - start) / duration));
     write(bezierAt(curve, progress));
     announceScroll(node);
     if (!active) return;

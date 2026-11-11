@@ -43,7 +43,6 @@ github
 group-editor
 history
 home-channels
-home-chat-colors
 home-messages
 icon-picker
 import-history
