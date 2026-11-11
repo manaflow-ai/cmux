@@ -125,7 +125,10 @@ _NOT_A_READ = re.compile(r"^\s*(#|//|\"\"\")|\b(echo|printf|print|warn|die|fail|
 
 # Where a shell line runs or sources a script it names: at the start of a command (after `;`, `&&`, `|`, `$(`,
 # a keyword or an opening quote) or as the argument of an interpreter or wrapper.
-_SHELL_RUN = (r"(?:^|[;&|(`{]|\b(?:then|do|else|exec|source|bash|sh|zsh|python3?|env|xcrun|nice|timeout\s+\S+|time)\b|^\s*\.)"
+# `!` negates a command (`if ! "$D/x.sh"`); a `{` opens a group but not `${VAR}`; an interpreter may take flags
+# first (`python3 -I x.py`, `bash -euo pipefail x.sh`).
+_SHELL_RUN = (r"(?:^|[;&|(`!]|(?<!\$)\{|\b(?:then|do|else|exec|source|env|xcrun|nice|timeout\s+\S+|time)\b|^\s*\."
+              r"|\b(?:bash|sh|zsh|python3?)\b(?:\s+-\S+(?:\s+pipefail)?)*)"
               r"\s*(?:[A-Z_]+=\S*\s+)*[\"']?")
 _PY_RUN = re.compile(r"\b(?:run|call|check_call|check_output|Popen|execv[pe]?|run_path)\(")
 
@@ -142,6 +145,8 @@ def _runs(line: str, token: str, script: str) -> bool:
     """Whether `line` of `script` runs or sources the file `token` names, not only mentions it."""
     if script.endswith(".py"):
         return bool(_PY_RUN.search(line))
+    if re.match(r"\s*(?:source|\.)\s", line):
+        return True  # a source line names one file, however its path is built (`"$(dirname ...)/lib/x.sh"`)
     return re.search(_SHELL_RUN + r"[^\s\"';|&]*" + re.escape(token) + r"(?![\w./-])", line) is not None
 
 
@@ -627,6 +632,13 @@ class PullRequestTiers(unittest.TestCase):
         reads = native_script_reads()
         self.assertIn("scripts/ghosttykit-checksums.txt", reads)
         self.assertIn("THIRD_PARTY_LICENSES.md", reads)
+        # An interpreter with flags first (`exec python3 -I .../check-version-surfaces.py`).
+        self.assertIn("scripts/cmux-next/check-version-surfaces.sh", {s for r in reads.values() for s in r})
+        for line, token in (('exec python3 -I "$here/check.py" "$@"', "check.py"),
+                            ('bash -euo pipefail "$D/z.sh"', "z.sh"), ('if ! "$D/z.sh"; then', "z.sh")):
+            self.assertTrue(_runs(line, token, "x.sh"), line)
+        self.assertTrue(_runs('source "$(dirname "${BASH_SOURCE[0]}")/lib/x.sh"', "lib/x.sh", "y.sh"))
+        self.assertFalse(_runs('cp "${ROOT}/scripts/x.sh" out', "scripts/x.sh", "y.sh"))
         # Two scripts deep: reload.sh runs build-acpmux.sh, which runs or sources these.
         self.assertIn("scripts/cmux-next/build-acpmux.sh", reads)
         self.assertIn("scripts/ci/tailnet-go.sh", reads)
