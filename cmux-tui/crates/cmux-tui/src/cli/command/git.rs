@@ -168,43 +168,12 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
         ));
     }
     if chosen == 0 {
-        let current = typed_current_dir()
+        // As the shell typed it, `.` and `..` taken as text: cmux prints that spelling.
+        let path = cmux_git::worktree::typed_folder(path.as_deref().map(std::path::Path::new))
             .map_err(|error| UsageError::new(format!("current directory: {error}")))?;
-        let path = match path {
-            Some(path) => current.join(path),
-            None => current,
-        };
         params.insert("path".into(), Value::String(path.to_string_lossy().into_owned()));
     }
     Ok(selectors)
-}
-
-/// The current folder as the shell typed it: `PWD` when it names the same
-/// folder as the process's directory (which has its links resolved), so cmux
-/// prints `/tmp/x`, not `/private/tmp/x`; else the process's directory.
-fn typed_current_dir() -> std::io::Result<std::path::PathBuf> {
-    let current = std::env::current_dir()?;
-    match std::env::var_os("PWD").map(std::path::PathBuf::from) {
-        Some(pwd) if pwd.is_absolute() && cmux_git::worktree::same_folder(&pwd, &current) => {
-            Ok(pwd)
-        }
-        _ => Ok(current),
-    }
-}
-
-/// `relative` (or the current folder) as an absolute folder in the spelling
-/// the person typed: against [`typed_current_dir`], with `.` and `..` taken
-/// as a shell takes them; the resolved folder when that spelling names
-/// another folder (a `..` out of a link).
-pub(in crate::cli) fn typed_folder(relative: Option<&str>) -> std::io::Result<std::path::PathBuf> {
-    let current = typed_current_dir()?;
-    let joined = match relative {
-        Some(relative) => current.join(relative),
-        None => return Ok(current),
-    };
-    let typed = comments::lexical(&joined);
-    let real = std::fs::canonicalize(&joined).unwrap_or_else(|_| joined.clone());
-    Ok(if cmux_git::worktree::same_folder(&typed, &real) { typed } else { real })
 }
 
 mod checkpoint;

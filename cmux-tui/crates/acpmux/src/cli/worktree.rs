@@ -44,17 +44,19 @@ pub enum WorktreeCmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove one worktree now, with the branch cmux made for it: refused while
-    /// it has uncommitted changes or unpushed commits (unless --discard) or a
-    /// running session works in it.
-    #[command(after_help = worktree_remove_help())]
+    /// Remove one worktree now, with the branch cmux made for it (in the
+    /// person's language: `REMOVE_ABOUT`).
+    #[command(
+        about = localized(REMOVE_ABOUT),
+        long_about = None,
+        after_help = worktree_remove_help()
+    )]
     Remove {
-        /// The worktree's folder, a session's name (the worktree it works in),
-        /// or a worktree's name (`~/.cmux/worktrees/<project>/<name>`).
+        /// The worktree to remove (`REMOVE_TARGET`).
+        #[arg(help = localized(REMOVE_TARGET), long_help = None)]
         target: String,
-        /// Remove it even with uncommitted changes or commits found nowhere
-        /// else: that work is lost.
-        #[arg(long)]
+        /// Remove it even with unsaved work (`REMOVE_DISCARD`).
+        #[arg(long, help = localized(REMOVE_DISCARD), long_help = None)]
         discard: bool,
     },
     /// Put a reclaimed worktree back: by its folder, branch or archive id.
@@ -248,12 +250,41 @@ fn print_report(report: &Report, all: bool) {
 /// `acpmux worktree remove --help`'s closing text, in the locale's language
 /// (LC_ALL, LC_MESSAGES, LANG; English unless it starts with `ja`).
 fn worktree_remove_help() -> &'static str {
+    localized((REMOVE_HELP_EN, REMOVE_HELP_JA))
+}
+
+/// The English or the Japanese text, by the locale (LC_ALL, LC_MESSAGES, LANG:
+/// the first set; Japanese when it starts with `ja`).
+fn localized((english, japanese): (&'static str, &'static str)) -> &'static str {
     let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
         .unwrap_or_default();
-    if locale.to_ascii_lowercase().starts_with("ja") { REMOVE_HELP_JA } else { REMOVE_HELP_EN }
+    if locale.to_ascii_lowercase().starts_with("ja") { japanese } else { english }
 }
+
+/// `acpmux worktree remove`'s summary.
+const REMOVE_ABOUT: (&str, &str) = (
+    "Remove one worktree now, with the branch cmux made for it: refused while it has uncommitted \
+     changes or unpushed commits (unless --discard) or a running session works in it.",
+    "ワークツリーを 1 つ今すぐ、cmux がそのために作ったブランチと一緒に削除します: コミットされていない\
+     変更やプッシュされていないコミットがある間 (--discard がないとき)、または実行中のセッションが\
+     そこで作業している間は拒否します。",
+);
+
+/// TARGET of `acpmux worktree remove`.
+const REMOVE_TARGET: (&str, &str) = (
+    "The worktree's folder, a session's name (the worktree it works in), or a worktree's name \
+     (`~/.cmux/worktrees/<project>/<name>`).",
+    "ワークツリーのフォルダー、セッション名 (そのセッションが作業しているワークツリー)、またはワークツリー名 \
+     (`~/.cmux/worktrees/<project>/<name>`)。",
+);
+
+/// --discard of `acpmux worktree remove`.
+const REMOVE_DISCARD: (&str, &str) = (
+    "Remove it even with uncommitted changes or commits found nowhere else: that work is lost.",
+    "コミットされていない変更や、ほかのどこにもないコミットがあっても削除します: その作業は失われます。",
+);
 
 const REMOVE_HELP_EN: &str = "\
 The worktree, its branch when cmux made it (acpmux new --worktree [--branch], cmux workspace create

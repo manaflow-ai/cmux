@@ -269,7 +269,7 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
 ) -> Result<Value, StepFailure> {
     // `--repo .` or `../x`: the daemon takes an absolute path without steps,
     // in the spelling the person typed (cmux prints that spelling).
-    let repo = command::git::typed_folder(request.repo.as_deref())
+    let repo = cmux_git::worktree::typed_folder(request.repo.as_deref().map(std::path::Path::new))
         .map_err(|error| StepFailure::usage(format!("current directory: {error}")))?;
     let mut create = words(&["git", "worktree", "create", "--name", &request.name, "--path"]);
     create.push(repo.to_string_lossy().into_owned());

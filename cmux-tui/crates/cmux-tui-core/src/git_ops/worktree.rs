@@ -9,7 +9,8 @@
 //! branch's later diff and apply, and a branch it made is marked
 //! `branch.<branch>.cmuxCreated`, so `git.worktree.remove` deletes it with
 //! the worktree. A named branch that already exists is checked out as it
-//! is (no `base` then), and stays when the worktree goes.
+//! is (no `base` then), any old mark on it is cleared, and it stays when the
+//! worktree goes.
 //!
 //! A name already taken by a folder or a branch gets the next free suffix
 //! (`fix-login-2`); with a named branch only the folder must be free. The
@@ -256,6 +257,20 @@ fn create(
             .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success {
             let message = "the worktree was made, but marking its branch as made by cmux failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+    } else {
+        // A branch that was there before is the person's: a mark an earlier
+        // worktree left on it goes, so removing this worktree keeps the branch.
+        let mark = cmux_git::worktree::created_key(&attempt.branch);
+        let run = git
+            .run(&["config", "--unset-all", mark.as_str()])
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
+        if !run.success
+            && cmux_git::worktree::branch_goes_with_worktree(repository, &attempt.branch)
+        {
+            let message =
+                "the worktree was made, but clearing an old cmux mark on its branch failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }

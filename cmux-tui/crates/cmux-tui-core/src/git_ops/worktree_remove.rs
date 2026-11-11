@@ -1,9 +1,9 @@
 //! `git.worktree.remove`: a worktree chat's cleanup. The linked worktree's
 //! folder goes (`git worktree remove`, run from the main checkout), with its
 //! ignored files, and so does its branch when `git.worktree.create` made it
-//! (`cmux_git::worktree::branch_goes_with_worktree`: a branch it made, named
-//! or `cmux/<name>`), with the branch's settings; a branch that was there
-//! before stays.
+//! (`cmux_git::worktree::branch_goes_with_worktree`: only a branch it made,
+//! by its `cmuxCreated` mark), with the branch's settings; a branch that was
+//! there before stays.
 //!
 //! Work that lives only there keeps it (`cmux_git::worktree::work_kept`, the
 //! same check `acpmux worktree remove` makes): uncommitted changes (tracked or

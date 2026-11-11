@@ -66,7 +66,7 @@ fn root(flags: &mut Flags) -> Result<String, UsageError> {
 
 /// `path` with its `.` parts dropped and each `..` taking off the part before
 /// it (never past the root), from the text alone.
-pub(super) fn lexical(path: &std::path::Path) -> std::path::PathBuf {
+fn lexical(path: &std::path::Path) -> std::path::PathBuf {
     use std::path::Component;
     let mut out = std::path::PathBuf::new();
     for part in path.components() {

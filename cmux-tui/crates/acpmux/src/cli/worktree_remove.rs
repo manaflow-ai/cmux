@@ -179,8 +179,8 @@ fn locate(home: &Path, target: &str, sessions: &[Session]) -> Result<PathBuf> {
         None => PathBuf::from(target),
     };
     if expanded.is_absolute() || target.contains('/') || target == "." || target == ".." {
-        let path =
-            if expanded.is_absolute() { expanded } else { std::env::current_dir()?.join(expanded) };
+        // Against the folder as the shell typed it ($PWD), so the paths printed keep its spelling.
+        let path = cmux_git::worktree::typed_folder(Some(&expanded))?;
         if path.is_dir() {
             return Ok(path);
         }
@@ -246,8 +246,13 @@ fn refused(reason: &str, message: String, data: Value) -> anyhow::Error {
 
 fn remove(home: &Path, folder: &Path, sessions: &[Session], discard: bool) -> Result<Removed> {
     let by = Instant::now() + DEADLINE;
-    let repository =
-        Repository::open_within(folder, by).map_err(|e| anyhow!("{}: {e}", folder.display()))?;
+    let repository = Repository::open_within(folder, by).map_err(|e| match e {
+        cmux_git::OpenError::NotARepository => anyhow!(say(
+            format!("{}: not in a git repository", folder.display()),
+            format!("{}: git リポジトリの中ではありません", folder.display()),
+        )),
+        other => anyhow!("{}: {other}", folder.display()),
+    })?;
     let root = repository.root.clone();
     let shown = shared::as_given(home, folder, &root);
     let Some(main_root) = repository.main_checkout() else {

@@ -1187,7 +1187,8 @@ instead (any name git takes for a branch, checked by
 --branch` follows too): a new one is made from `--base`, and one that exists
 is checked out as it is (`--base` is refused then) and keeps its recorded
 base. A branch the create made is marked `branch.<branch>.cmuxCreated`, so
-`git worktree remove` deletes it; one that existed stays. The name
+`git worktree remove` deletes it; one that existed stays, and an old mark on it
+is cleared. The name
 is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
 `chat-` and six random hex digits; a name taken by a folder (or, without
 `--branch`, by a branch) gets the next free suffix (`-2` to `-99`). The user's
@@ -1222,8 +1223,8 @@ checkout, in the user's environment and only on this machine; the folder goes
 with its ignored files, and the project folder in `~/.cmux/worktrees` goes
 once its last worktree is gone (never the root, never a folder that holds
 anything). Its branch goes too, with its settings, when `git worktree create`
-made it (marked `branch.<branch>.cmuxCreated`, or `cmux/<name>` with a
-recorded base); any other branch stays. Without `--discard` it refuses,
+made it (marked `branch.<branch>.cmuxCreated`; never from the name or a
+recorded base); any other branch stays, with its commits. Without `--discard` it refuses,
 changing nothing, with `extra.message` saying what keeps it and naming
 `--discard`, with
 `uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,

@@ -159,21 +159,16 @@ pub fn base_key(branch: &str) -> String {
     format!("branch.{branch}.cmuxBase")
 }
 
-/// Whether the branch goes with its worktree: cmux made it (the
-/// [`created_key`] mark), or it is a `cmux/<name>` branch with a recorded
-/// base (what cmux made before the mark). A branch that was there before its
-/// worktree, `--branch` named or not, stays.
+/// Whether the branch goes with its worktree: only when the create that made
+/// the worktree also made the branch (the [`created_key`] mark it writes then,
+/// and clears when it checks out a branch that was there before). Never from
+/// the name (`cmux/...`) or a recorded base: a branch the person made stays,
+/// with its commits.
 pub fn branch_goes_with_worktree(repository: &Repository, branch: &str) -> bool {
-    let get = |key: String| {
-        repository
-            .run(&["config", "--get", key.as_str()], MAX_SMALL_OUTPUT_BYTES)
-            .ok()
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-    };
-    if get(created_key(branch)).as_deref() == Some("true") {
-        return true;
-    }
-    branch.starts_with(BRANCH_PREFIX) && get(base_key(branch)).is_some()
+    let key = created_key(branch);
+    repository
+        .run(&["config", "--get", key.as_str()], MAX_SMALL_OUTPUT_BYTES)
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "true")
 }
 
 /// Work a worktree's removal keeps unless told to discard it.
@@ -322,6 +317,53 @@ pub fn resolved(path: &Path) -> PathBuf {
 /// Whether `a` and `b` name the same folder, links resolved.
 pub fn same_folder(a: &Path, b: &Path) -> bool {
     a == b || resolved(a) == resolved(b)
+}
+
+/// The current folder as the shell typed it: `PWD` when it names the same
+/// folder as the process's directory (which the OS gives with its links
+/// resolved), so cmux prints `/tmp/x`, not `/private/tmp/x`; else the
+/// process's directory.
+pub fn typed_current_dir() -> std::io::Result<PathBuf> {
+    let current = std::env::current_dir()?;
+    match std::env::var_os("PWD").map(PathBuf::from) {
+        Some(pwd) if pwd.is_absolute() && same_folder(&pwd, &current) => Ok(pwd),
+        _ => Ok(current),
+    }
+}
+
+/// `relative` (or the current folder) as an absolute path in the spelling
+/// the person typed: against [`typed_current_dir`], `.` and `..` taken as a
+/// shell takes them (`/tmp/a/../x` is `/tmp/x`); the resolved path when that
+/// spelling names something else (a `..` out of a link).
+///
+/// ```
+/// let here = cmux_git::worktree::typed_folder(None).unwrap();
+/// assert!(here.is_absolute());
+/// ```
+pub fn typed_folder(relative: Option<&Path>) -> std::io::Result<PathBuf> {
+    let current = typed_current_dir()?;
+    let Some(relative) = relative else { return Ok(current) };
+    let joined = current.join(relative);
+    let typed = lexical(&joined);
+    if same_folder(&typed, &joined) { Ok(typed) } else { Ok(resolved(&joined)) }
+}
+
+/// `path` with `.` and `..` taken as text, no links resolved.
+fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// `path` as cmux shows it: a folder in cmux's worktree root under the

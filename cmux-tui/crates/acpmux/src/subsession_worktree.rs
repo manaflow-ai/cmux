@@ -855,11 +855,17 @@ fn fill(
         })
         .and_then(|()| {
             // A branch made here goes with its worktree (`acpmux worktree remove`, the app's
-            // `git.worktree.remove`); one that was there before stays.
+            // `git.worktree.remove`); one that was there before is the person's and stays,
+            // so a mark an earlier worktree left on it goes.
+            let key = cmux_git::worktree::created_key(&made.branch);
             if kept_branch {
+                if git_repo_write(folder, &["config", "--unset-all", &key]).is_err()
+                    && git(folder, &["config", "--get", &key]).is_ok_and(|v| v.trim() == "true")
+                {
+                    return Err(format!("could not clear the old cmux mark on {}", made.branch));
+                }
                 return Ok(());
             }
-            let key = cmux_git::worktree::created_key(&made.branch);
             git_repo_write(folder, &["config", &key, "true"]).map(drop)
         });
     if let Err(e) = filled {
