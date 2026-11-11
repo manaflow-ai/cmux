@@ -193,9 +193,9 @@ function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): 
     measure();
     const view = box.ownerDocument.defaultView;
     if (!view?.ResizeObserver) return;
-    const sized = new view.ResizeObserver(measure);
-    sized.observe(box);
-    const watched = new Set<Element>();
+    // Everything that can throw runs before the observers exist, so the cleanup below always owns them.
+    const first = box.querySelector(".cv-shell__output");
+    const watched = new Set<Element>(first ? [first] : []);
     const watchOutput = () => {
       const output = box.querySelector(".cv-shell__output");
       if (output && !watched.has(output)) {
@@ -204,8 +204,10 @@ function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): 
       }
       measure();
     };
-    watchOutput();
+    const sized = new view.ResizeObserver(measure);
     const changed = new view.MutationObserver(watchOutput);
+    sized.observe(box);
+    if (first) sized.observe(first);
     changed.observe(box, { childList: true });
     return () => {
       sized.disconnect();

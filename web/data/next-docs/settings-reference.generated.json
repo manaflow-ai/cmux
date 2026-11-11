@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 625,
+  "count": 626,
   "sections": [
     {
       "id": "general",
@@ -4607,7 +4607,7 @@
           "title": "Workspace Color Style",
           "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
           "kind": "choice",
-          "default": "dot",
+          "default": "leftRail",
           "group": "Sidebar",
           "values": [
             "dot",
@@ -5754,6 +5754,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Passwords"
+        },
+        {
+          "key": "browser.vimKeys",
+          "title": "Vim Keys in Pages",
+          "help": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Links"
         },
         {
           "key": "browser.wakeTabsOnHover",
