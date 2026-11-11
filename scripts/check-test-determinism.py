@@ -69,6 +69,20 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- machine-wide-process-scan (Swift): a test lists every process on the host
+  (`/bin/ps -ax`, a `pgrep`/`pkill` with no -P parent, -g group or -s
+  session, a KERN_PROC_ALL sysctl, proc_listallpids) instead of the ones it
+  started. Swift suites run in parallel in one process and CI hosts run other
+  jobs beside them, so whatever another test or job left running is counted
+  or picked too. Read a process you started by its pid, its children with
+  `pgrep -P`, or your process group with `pgrep -g`.
+- host-children-count (Swift): a count of a cmux-tui daemon's terminal host
+  children (`TerminalHosts.of(daemon:)`, `terminalHosts(of:)`) compared to a
+  number. Those children include the R81 spare host, which the daemon starts
+  and drops on its own schedule, so the count is the terminals plus zero or
+  one (cmux#41182: `(hosts.count → 4) == 3` in BranchTeardownTests and
+  QuitSessionsTests). Count `TerminalHosts.census(...).terminals` and keep the
+  leak checks on all children.
 - isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
   import a module that sits beside it or in tests/ (-I puts no script folder on
   sys.path). Each changed test file, and each that loads git_fixture_env, is
@@ -143,6 +157,8 @@ RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
 RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
+RULE_MACHINE_WIDE_PROCESS_SCAN = "machine-wide-process-scan"
+RULE_HOST_CHILDREN_COUNT = "host-children-count"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -155,6 +171,8 @@ ALL_RULES = (
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_MACHINE_WIDE_PROCESS_SCAN,
+    RULE_HOST_CHILDREN_COUNT,
 )
 GIT_FIXTURE_RULES = (
     RULE_GIT_TEMP_REPO_MAINTENANCE,
@@ -4339,6 +4357,124 @@ def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[st
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Processes the test did not start
+# ---------------------------------------------------------------------------
+#
+# A test that lists every process on the machine (`ps -ax`, a `pgrep`/`pkill` with no parent, group or session, a
+# KERN_PROC_ALL sysctl, proc_listallpids, psutil.process_iter) sees whatever another test, job or agent on the same
+# host is running, so what it counts or picks changes with the host's load. A test reads only the processes it
+# started: its own children by PID (`pgrep -P`), its process group (`pgrep -g`), or the PIDs it holds.
+
+# ps, pgrep or pkill as a command word: first in a string, a path's last part, or after an argv bracket or comma or
+# shell punctuation (spaces between allowed). After a plain word ("no pgrep here") it is prose.
+_PROCESS_LISTER = re.compile(r"""(?:^|["'\[(,;|&`/])\s*(ps|pgrep|pkill)(?=["'\s,\])]|$)""")
+# The executable alone, as Swift's Process names it (`executableURL = URL(fileURLWithPath: "/bin/ps")`); its
+# arguments follow on a later line.
+_PROCESS_LISTER_PATH = re.compile(r"""["'](?:/bin/ps|/usr/bin/pgrep|/usr/bin/pkill)["']""")
+_SWIFT_ARGUMENTS = re.compile(r"\.arguments\s*=\s*\[(.*)\]")
+_PROCESS_LISTER_ARGS_LOOKAHEAD = 6
+_ARG_TOKEN = re.compile(r"""["']([^"']*)["']|([^\s"',\[\]()]+)""")
+# Native or library calls that list every process on the host.
+_ALL_PROCESSES_CALL = re.compile(r"\bproc_listallpids\b|\bKERN_PROC_ALL\b|\bPROC_ALL_PIDS\b")
+# pgrep/pkill flags that narrow it to processes the test owns: a parent (-P), a process group (-g) or a session
+# (-s). Not -G: that is a Unix group, which other runs of the same user share.
+_OWNED_SCOPE_FLAG = re.compile(r"^-[A-Za-z]*[Pgs]")
+
+
+def _lister_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for quoted, bare in _ARG_TOKEN.findall(text):
+        # A quoted string may hold a whole command line (`"pgrep -f x"`); its words are the arguments.
+        tokens.extend(quoted.split() if quoted else [bare])
+    return tokens
+
+
+def _lists_every_process(command: str, args: list[str]) -> bool:
+    """Whether COMMAND (ps, pgrep or pkill) with ARGS reads every process on the host."""
+    if command == "ps":
+        if any(arg == "-p" or arg.startswith("-p") for arg in args):
+            return False
+        # BSD `-ax`, `-A`, `-e`, or the dashless `aux` / `ax`.
+        return any(re.fullmatch(r"-[A-Za-z]*[aAe][A-Za-z]*", arg) or re.fullmatch(r"[auxwlcjre]*a[auxwlcjre]*", arg)
+                   for arg in args[:3])
+    # pgrep / pkill: anything not scoped to a parent, group or session matches across the host.
+    if not args:
+        return False
+    return not any(_OWNED_SCOPE_FLAG.match(arg) for arg in args if arg.startswith("-"))
+
+
+def detect_machine_wide_process_scan(lines: list[str], idx: int, path_suffix: str) -> bool:
+    """A test that lists every process on the host instead of the ones it started."""
+    if path_suffix != ".swift":
+        return False
+    line = lines[idx]
+    if _ALL_PROCESSES_CALL.search(line):
+        return True
+    path = _PROCESS_LISTER_PATH.search(line)
+    if path:
+        command = "ps" if "/bin/ps" in path.group() else ("pgrep" if "pgrep" in path.group() else "pkill")
+        # The arguments inline in the same argv (`run(["/bin/ps", "-axww"])`).
+        inline = [token for token in _lister_tokens(re.split(r"[\])]", line[path.end():], maxsplit=1)[0]) if token]
+        if inline:
+            return _lists_every_process(command, inline)
+        for j in range(idx + 1, min(idx + 1 + _PROCESS_LISTER_ARGS_LOOKAHEAD, len(lines))):
+            found = _SWIFT_ARGUMENTS.search(lines[j])
+            if found:
+                return _lists_every_process(command, _lister_tokens(found.group(1)))
+        return False
+    # A command line in a string: `["/bin/sh", "-c", "pgrep -f x"]`.
+    for match in _PROCESS_LISTER.finditer(line):
+        rest = line[match.end():]
+        # The command's own words: up to the end of its argv list or shell statement.
+        rest = re.split(r"[\])]|\|\||&&|[;|]", rest, maxsplit=1)[0]
+        args = [token for token in _lister_tokens(rest) if token]
+        if match.group(1) == "ps" and not args:
+            continue
+        if _lists_every_process(match.group(1), args):
+            return True
+    return False
+
+
+# The terminal host children of a daemon, spare included: `TerminalHosts.of(daemon:)` (CmuxNextDaemonTests) or
+# `terminalHosts(of:)` (CmuxNextMobileTests). Bound alone to a name, so a count of that name counts them all.
+_HOST_CHILDREN_BINDING = re.compile(
+    r"(?:\b(?:let|var)\s+|^\s*)([A-Za-z_]\w*)\s*(?::[^=]*)?=\s*(?:try\s+)?(?:await\s+)?(?:[\w.]*\.)?"
+    r"(?:TerminalHosts\.of\s*\(\s*daemon\s*:|terminalHosts\s*\(\s*of\s*:)[^()]*(?:\([^()]*\)[^()]*)*\)\s*$"
+)
+_HOST_CHILDREN_DIRECT_COUNT = re.compile(
+    r"(?:TerminalHosts\.of\s*\(\s*daemon\s*:|terminalHosts\s*\(\s*of\s*:)[^()]*(?:\([^()]*\)[^()]*)*\)\.count\b"
+)
+_SWIFT_FUNCTION_START = re.compile(r"^\s*(?:@Test\b|(?:(?:private|fileprivate|static|public|internal)\s+)*func\s)")
+_COMPARE = r"(?:==|!=|<=|>=|<|>)"
+
+
+def detect_host_children_count(lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that compare a count of a daemon's host children: the R81 spare host comes and goes on the
+    daemon's schedule, so the count is the terminals plus zero or one. Count `TerminalHosts.census(...).terminals`
+    (hosts with a published record) and keep the leak checks on all children."""
+    if path_suffix != ".swift":
+        return []
+    found: list[int] = []
+    bound: set[str] = set()
+    for i, line in enumerate(lines):
+        if _SWIFT_FUNCTION_START.match(line):
+            bound = set()
+        if _HOST_CHILDREN_DIRECT_COUNT.search(line) and re.search(_COMPARE, line):
+            found.append(i)
+            continue
+        if any(re.search(rf"\b{re.escape(name)}\.count\s*{_COMPARE}|{_COMPARE}\s*{re.escape(name)}\.count\b", line)
+               for name in bound):
+            found.append(i)
+        binding = _HOST_CHILDREN_BINDING.search(line)
+        if binding:
+            bound.add(binding.group(1))
+        else:
+            # A name given another value no longer holds the children.
+            bound -= {name for name in bound if re.search(rf"(?:^|[^.\w]){re.escape(name)}\s*=[^=]", line)}
+    return found
+
+
 def is_ignored_path(rel_posix: str) -> bool:
     normalized = "/" + rel_posix.lstrip("/")
     return any(part in normalized for part in IGNORED_PATH_PARTS)
@@ -4498,6 +4634,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    for i, code in enumerate(code_lines):
+        if code.strip() and detect_machine_wide_process_scan(code_lines, i, suffix):
+            findings.append(Finding(rel_posix, i + 1, RULE_MACHINE_WIDE_PROCESS_SCAN, raw_lines[i].strip()))
+    for count_line in detect_host_children_count(code_lines, suffix):
+        findings.append(Finding(rel_posix, count_line + 1, RULE_HOST_CHILDREN_COUNT, raw_lines[count_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -5818,6 +5959,67 @@ def _self_test() -> int:
             ),
             {RULE_YIELD_COUNT_POLL},
         ),
+        # Every process on the host: another test's or job's daemon is picked or counted too.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/p_ps_ax.swift",
+            'let ps = Process()\nps.executableURL = URL(fileURLWithPath: "/bin/ps")\n'
+            'ps.arguments = ["-axww", "-o", "pid=,ppid=,command="]\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_pgrep_f.swift",
+            'process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")\nprocess.arguments = ["-f", "__terminal-host"]\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_sh_pgrep.swift",
+            'try run(["/bin/sh", "-c", "pgrep -f cmux-tui | wc -l"])\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        (
+            "cmux-next-ios/CmuxMobileKit/Tests/KitTests/p_sysctl_all.swift",
+            "var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]\n",
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        # The arguments inline after the absolute path (router-review F1 on cmux#41262).
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/p_inline_ps.swift",
+            'let out = try run(["/bin/ps", "-axww"])\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_inline_pgrep.swift",
+            'let out = try run(["/usr/bin/pgrep", "-f", "__terminal-host"])\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        # -G is a Unix group, shared by every run of the user: not ownership (router-review F2 on cmux#41262).
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_pgrep_unix_group.swift",
+            'process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")\n'
+            'process.arguments = ["-G", String(getgid()), "-f", "__terminal-host"]\n',
+            {RULE_MACHINE_WIDE_PROCESS_SCAN},
+        ),
+        # A count of a daemon's host children, the R81 spare included (cmux#41182: `(hosts.count → 4) == 3`).
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_hosts_count.swift",
+            "    @Test func quit() async throws {\n"
+            "        let hosts = TerminalHosts.of(daemon: h.identity.pid)\n"
+            "        #expect(hosts.count == 3)\n"
+            "    }\n",
+            {RULE_HOST_CHILDREN_COUNT},
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/p_hosts_assigned.swift",
+            "        let hosts: Set<Int32>\n"
+            "        hosts = TerminalHosts.of(daemon: h.identity.pid)\n"
+            "        #expect(2 == hosts.count)\n",
+            {RULE_HOST_CHILDREN_COUNT},
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests/p_mobile_hosts.swift",
+            "#expect(Self.terminalHosts(of: identity.pid).count == 1)\n",
+            {RULE_HOST_CHILDREN_COUNT},
+        ),
     ]
 
     negatives: list[tuple[str, str]] = [
@@ -6558,6 +6760,62 @@ def _self_test() -> int:
         (
             "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
             "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
+        ),
+        # A process the test holds, read by its pid; its own children by parent; its process group.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/n_proc_32.swift",
+            'ps.executableURL = URL(fileURLWithPath: "/bin/ps")\nps.arguments = ["-ww", "-o", "command=", "-p", String(pid)]\n',
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/n_proc_33.swift",
+            'process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")\n'
+            'process.arguments = ["-P", String(pid), "-f", "__terminal-host"]\n',
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/n_proc_34.swift",
+            'try run(["/bin/sh", "-c", "pgrep -g \\(getpgrp()) -f helper"])\n',
+        ),
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/n_proc_40.swift",
+            'let out = try run(["/bin/ps", "-o", "command=", "-p", String(pid)])\n',
+        ),
+        # The words "ps" and "pgrep" in prose are not a command.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/n_proc_35.swift",
+            '#expect(log.contains("steps and ps output"), "no pgrep here")\n',
+        ),
+        # Python, shell and TypeScript tests are out of scope (VM probes, stubbed binaries, lint fixtures).
+        (
+            "tests/n_proc_36.py",
+            "subprocess.run(['pgrep', '-f', 'cmux-tui'])\n",
+        ),
+        # Counting the terminals (hosts with a published record), and bounding the spare, is the fix.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/n_proc_37.swift",
+            "        let census = TerminalHosts.census(daemon: h.identity.pid, state: state)\n"
+            "        let hosts = census.all\n"
+            "        #expect(census.terminals.count == 3)\n"
+            "        #expect(hosts.subtracting(census.terminals).count <= 1)\n",
+        ),
+        # Children less the terminals is the spare set, a derived value; a leak check reads emptiness.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/n_proc_38.swift",
+            "        let spares = TerminalHosts.of(daemon: pid).subtracting(TerminalHosts.terminals(daemon: pid, state: state))\n"
+            "        #expect(spares.count <= 1)\n"
+            "        let hosts = TerminalHosts.of(daemon: pid)\n"
+            "        #expect(await TerminalHosts.awaitExit(hosts).isEmpty)\n",
+        ),
+        # The name rebound to the terminals, or in another test, counts terminals.
+        (
+            "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/n_proc_39.swift",
+            "    @Test func a() async throws {\n"
+            "        let hosts = TerminalHosts.of(daemon: pid)\n"
+            "        _ = hosts\n"
+            "    }\n"
+            "    @Test func b() async throws {\n"
+            "        let hosts = census.terminals\n"
+            "        #expect(hosts.count == 1)\n"
+            "    }\n",
         ),
         # The scaling pattern (cmux#41236): two timings of the same work at N and 4N, bounded only by their ratio.
         (

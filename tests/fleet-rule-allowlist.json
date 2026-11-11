@@ -73,6 +73,7 @@
     "plans/cmux-next/team-vm-plan.md": {"count": 1, "reason": "safe: plan text for revoking a user's sessions on a team VM"},
     "scripts/cef/test-embedder-step.sh": {"count": 2, "reason": "safe: the pattern is this run's own tagged app, scratch dir or binary path, so it cannot match another run's or person's process"},
     "scripts/cef/tests/test-embedder-step.test.sh": {"count": 1, "reason": "safe: the pattern is this run's own tagged app, scratch dir or binary path, so it cannot match another run's or person's process"},
+    "scripts/check-test-determinism.py": {"count": 9, "reason": "safe: the test-determinism gate's machine-wide-process-scan patterns, docs and fixtures; it signals nothing"},
     "scripts/ci/frame-pacing/bench.sh": {"count": 2, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
     "scripts/ci/frame-pacing/golden.sh": {"count": 1, "reason": "safe: signals only processes whose executable lives inside this run's own app bundle, each by its listed PID"},
     "scripts/cmux-next/check-no-process-scan.py": {"count": 7, "reason": "safe: the process-scan lint's own patterns and docs"},
