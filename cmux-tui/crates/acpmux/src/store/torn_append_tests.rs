@@ -123,3 +123,27 @@ fn a_whole_tail_is_kept_when_the_log_is_next_written() {
     store.append(CHAT, &record(4)).unwrap();
     assert_eq!(strict_seqs(&store).unwrap(), vec![1, 2, 3, 4]);
 }
+
+/// A failed write whose cut back fails too closes the log rather than dropping it: the records
+/// appended before it are synced as at any close, so a checkpoint that takes the log as synced
+/// (`sync_log` with no open writer) and then an OS crash lose none of them. Review of #40884, F1.
+#[test]
+fn a_failed_cut_closes_the_log_so_earlier_records_survive_an_os_crash() {
+    let home = tempfile::tempdir().unwrap();
+    let sessions = home.path().join("sessions");
+    {
+        let store = LocalStore::new(sessions.clone(), 1 << 20).unwrap();
+        chat(&store);
+        store.append(CHAT, &record(1)).unwrap();
+        store.append(CHAT, &record(2)).unwrap();
+        test_write_fault::partial_and_failed_cut(9);
+        assert!(store.append(CHAT, &record(3)).is_err());
+        // The checkpoint's sync: the writer is gone, so only the folders are synced here.
+        store.sync_log(CHAT).unwrap();
+        assert!(!store.close_sync_failed());
+    }
+    sync_model::os_crash(&sessions);
+    let store = LocalStore::new(sessions, 1 << 20).unwrap();
+    store.append(CHAT, &record(4)).unwrap();
+    assert_eq!(strict_seqs(&store).unwrap(), vec![1, 2, 4]);
+}

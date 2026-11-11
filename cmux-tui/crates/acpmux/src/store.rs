@@ -1594,15 +1594,31 @@ impl LocalStore {
             // A full disk (or a signal) can write part of the line before the error. Cut it back
             // to the last whole record, or the next append is glued onto the torn bytes: the
             // merged line reads as no record, so that record is lost and a strict read fails.
-            // If the cut fails too, the writer is dropped, and the next open cuts the tail.
-            if w.file.set_len(w.written).is_err() {
-                writers.open.remove(id);
+            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
+            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
+            // as synced), and the next open cuts the tail.
+            if cut_back(&w.file, w.written).is_err()
+                && let Some(w) = writers.open.remove(id)
+            {
+                w.close(id, &self.sync_failed);
             }
             return Err(e.into());
         }
         w.written += line.len() as u64;
         Ok(())
     }
+}
+
+/// Cuts a log segment to `len` bytes.
+fn cut_back(file: &File, len: u64) -> std::io::Result<()> {
+    #[cfg(test)]
+    if test_write_fault::take_cut_failure() {
+        return Err(std::io::Error::other("a failed cut (a test)"));
+    }
+    file.set_len(len)?;
+    #[cfg(all(test, unix))]
+    sync_model::cut(file, len);
+    Ok(())
 }
 
 /// Cuts a segment opened for appending back to its last whole line and returns its length
@@ -1635,7 +1651,7 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
             torn = len - end,
             "cutting a torn append from the end of an event log"
         );
-        file.set_len(end)?;
+        cut_back(file, end)?;
     }
     Ok(end)
 }
@@ -1647,13 +1663,24 @@ pub(crate) mod test_write_fault {
     use std::cell::Cell;
 
     thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
+    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
 
     pub(crate) fn partial(kept: usize) {
         NEXT.with(|n| n.set(Some(kept)));
     }
 
+    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
+    pub(crate) fn partial_and_failed_cut(kept: usize) {
+        partial(kept);
+        FAIL_CUT.with(|f| f.set(true));
+    }
+
     pub(super) fn take() -> Option<usize> {
         NEXT.with(Cell::take)
+    }
+
+    pub(super) fn take_cut_failure() -> bool {
+        FAIL_CUT.with(|f| f.replace(false))
     }
 }
 
