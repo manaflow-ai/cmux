@@ -3530,7 +3530,7 @@ function TranscriptView({
       // under the composer behind Jump to latest, or a smaller one moved the rows on the follow chase,
       // down from where the old box drew them, leaving a sliver at the bottom (Leo, 2026-11-11: "a
       // new message from you seemed to come down from the heavens ... a sliver of space at the bottom
-      // that the newest few lines started from the top"; agent-pane-reveal-in-place.shared.ts). That
+      // that the newest few lines started from the top"; agent-pane-reveal-in-place.test.ts). That
       // pass is a resize: the offset is held to the box as it is, nothing reads as the reader's, and
       // nothing glides. One read; this pass already laid out.
       const liveHeight = node.clientHeight;
