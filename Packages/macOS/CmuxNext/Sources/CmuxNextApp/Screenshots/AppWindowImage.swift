@@ -122,7 +122,7 @@ extension ScreenshotMask {
     /// Activity's screen frames, the Chief's pages) is masked.
     static let shownAppPages: Set<String> = [
         "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",
-        "cmux.files", "cmux.debug-settings", "cmux.home-chat-colors",
+        "cmux.files", "cmux.debug-settings",
     ]
 
     /// The native page tabs (``InternalPageView`` whose content is not a ``PageWebView``) a

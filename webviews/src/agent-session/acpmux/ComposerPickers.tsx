@@ -982,16 +982,22 @@ export function ComposerPickers({
   // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
   // allowed to just go through with stuff?"); with no pick, the asking mode above.
   const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  // The Cloud send names a harness only after a switch, so the machine starts its default agent:
+  // Claude first (acpmux default_harness.rs). A harness whose Cloud start mode cmux does not know
+  // (a Mac with no agent CLI shows another one) names the agent the machine starts, Claude.
+  const cloudKnown = remoteStartMode(chipFamily, chipHarness) !== undefined;
+  const cloudFamily = cloudKnown ? chipFamily : CLOUD_DEFAULT_AGENT;
+  const cloudHarness = cloudKnown ? chipHarness : CLOUD_DEFAULT_AGENT;
   const cloudAsking =
     awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
-      ? remoteStartMode(chipFamily, chipHarness)
+      ? remoteStartMode(cloudFamily, cloudHarness)
       : undefined;
   const cloudPick = cloudAsking && snapshot.cloudStartMode;
   const cloudStart = cloudPick
     ? {
         id: cloudPick,
         name:
-          harnessFamilyMenu(chipFamily, chipHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
+          harnessFamilyMenu(cloudFamily, cloudHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
           (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
       }
     : cloudAsking;
@@ -999,8 +1005,10 @@ export function ComposerPickers({
   // highest level. acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
   // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
   const cloudPickable = cloudAsking
-    ? [cloudAsking.id, highestMode(chipFamily, chipHarness)?.id].filter((id): id is string => id !== undefined)
+    ? [cloudAsking.id, highestMode(cloudFamily, cloudHarness)?.id].filter((id): id is string => id !== undefined)
     : undefined;
+  // The default agent's own menu, not the face harness's modes, for a Cloud start that runs it.
+  const cloudDefaultMenu = cloudAsking && !cloudKnown ? harnessFamilyMenu(cloudFamily, cloudHarness) : undefined;
   const startMode: KeptStartMode | undefined =
     (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
@@ -1010,6 +1018,7 @@ export function ComposerPickers({
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
   const pendingMenu =
+    cloudDefaultMenu ??
     modeMenu ??
     harnessModeMenu(undefined, chipHarness, [
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
@@ -1050,7 +1059,7 @@ export function ComposerPickers({
         summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
         chipHarness,
       );
-    const profileModes = harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [];
+    const profileModes = cloudDefaultMenu ? [] : (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []);
     const rows: readonly { id: string; name?: string; description?: string }[] =
       profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
@@ -1344,6 +1353,8 @@ export function ComposerPickers({
 
 /// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
 const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
+/** The agent a Cloud machine starts when the send names none (acpmux default_harness.rs). */
+const CLOUD_DEFAULT_AGENT = "claude";
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a

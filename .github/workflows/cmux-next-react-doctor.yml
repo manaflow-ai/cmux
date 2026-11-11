@@ -1,0 +1,112 @@
+name: cmux-next React Doctor
+
+# React Doctor (https://www.react.doctor/) on cmux-next's React projects, as a
+# ratchet: scripts/ci/react_doctor_gate.py fails when a change adds a React
+# Doctor error over scripts/ci/react-doctor-baseline.json. Old findings never
+# fail; warnings are reported only. Local run: `bun run react-doctor`.
+#
+# Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
+# React projects)`, and a required check must report. The gate scans only the
+# projects the change touches and exits green at once when it touches none.
+# Pushes to feat-cmux-next check what the push brought, so a direct push that
+# adds an error shows red within minutes.
+#
+# Not the official millionco/react-doctor action: it blocks on findings that
+# changed lines introduce (no per-project baseline for this monorepo), posts PR
+# comments and calls the score API. This gate keeps scan data on the runner
+# (--no-score, --no-supply-chain, REACT_DOCTOR_NO_TELEMETRY).
+on:
+  pull_request:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-react-doctor-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  react-doctor:
+    name: React Doctor (changed React projects)
+    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
+    env:
+      REACT_DOCTOR_NO_TELEMETRY: "1"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Gate tests
+        run: python3 tests/test_react_doctor_gate.py
+
+      - name: Pick the base
+        id: base
+        env:
+          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            base="$(git rev-parse HEAD^1)"
+          elif [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
+              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
+            base="$PUSH_BASE"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -n "$base" ]; then
+            projects="$(git diff --name-only "$base" HEAD | python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import react_doctor_gate as g; print(" ".join(g.select_projects(sys.stdin.read().split())))')"
+          else
+            echo "::notice title=React Doctor::base unknown; scanning every project"
+            projects="all"
+          fi
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          echo "projects: ${projects:-none}"
+
+      - name: Setup Bun
+        if: steps.base.outputs.projects != ''
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        if: steps.base.outputs.projects != ''
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Bun package cache
+        if: steps.base.outputs.projects != ''
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/react-doctor/bun.lock', 'webviews/bun.lock', 'web/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: React Doctor gate
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/react-doctor"
+          if [ -n "$BASE" ]; then
+            python3 scripts/ci/react_doctor_gate.py --changed-from "$BASE" --out-dir "$RUNNER_TEMP/react-doctor"
+          else
+            python3 scripts/ci/react_doctor_gate.py --out-dir "$RUNNER_TEMP/react-doctor"
+          fi
+
+      - name: Upload reports
+        if: always() && steps.base.outputs.projects != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-doctor-reports
+          path: ${{ runner.temp }}/react-doctor
+          retention-days: 14
+          if-no-files-found: ignore
