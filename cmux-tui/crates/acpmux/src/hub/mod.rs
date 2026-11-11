@@ -66,6 +66,8 @@ mod agent_messaging_tests;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod forum_held_turn_tests;
+#[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
