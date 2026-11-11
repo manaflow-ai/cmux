@@ -283,7 +283,7 @@ impl Hub {
     pub(super) fn rehydrate_worker(self: &Arc<Self>) {
         let hub = Arc::downgrade(self);
         let wake = self.cold_wake.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("rehydrate-worker", async move {
             loop {
                 wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };

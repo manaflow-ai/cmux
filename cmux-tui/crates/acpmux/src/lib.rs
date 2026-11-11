@@ -184,6 +184,7 @@ pub mod secret_scan;
 pub mod self_command;
 pub mod sender_harness;
 pub mod sender_program;
+pub mod sender_token;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;
