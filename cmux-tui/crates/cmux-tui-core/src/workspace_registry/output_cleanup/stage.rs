@@ -129,6 +129,17 @@ fn stop_reads_on(
     source.progress_handler(STOP_CHECK_STEPS, Some(move || stopped()))
 }
 
+/// [`stage_registry`] for the cleanup of `mode`. Every mode is the output
+/// cleanup so far.
+#[cfg(test)]
+pub(crate) fn stage_registry_in(
+    db_path: &Path,
+    control: &StageControl<'_>,
+    _mode: super::CleanupMode,
+) -> anyhow::Result<StageOutcome> {
+    stage_registry(db_path, control)
+}
+
 fn stage_registry_until_stopped(
     db_path: &Path,
     control: &StageControl<'_>,

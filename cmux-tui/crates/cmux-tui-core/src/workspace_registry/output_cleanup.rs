@@ -63,6 +63,10 @@
 mod build;
 mod chunks;
 mod codec;
+#[cfg(test)]
+pub(crate) mod journal_compact;
+#[cfg(test)]
+mod mode;
 mod pruned;
 mod session_puts;
 mod stage;
@@ -75,6 +79,8 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+#[cfg(test)]
+pub(crate) use mode::CleanupMode;
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
 pub(super) use swap::{
@@ -229,6 +235,13 @@ fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     } else {
         None
     }
+}
+
+/// [`kept_refusal`] for a staging file of `mode`. No mode has its own bounds
+/// yet.
+#[cfg(test)]
+fn kept_refusal_in(_mode: CleanupMode, kept: u64, total: u64) -> Option<String> {
+    kept_refusal(kept, total)
 }
 
 /// `Some(reason)` when the staging database is over [`MAX_STAGED_BYTES`].
@@ -391,6 +404,15 @@ fn is_temporary(error: &anyhow::Error) -> bool {
 /// The message of an error that makes the staged work unusable.
 const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
+/// The registry meta key that marks the cleanup of `mode` done.
+#[cfg(test)]
+fn done_meta_key(mode: CleanupMode) -> &'static str {
+    match mode {
+        CleanupMode::Output => DONE_META_KEY,
+        CleanupMode::Compact => journal_compact::DONE_META_KEY,
+    }
+}
+
 fn file_len(path: &Path) -> u64 {
     std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
 }
@@ -421,10 +443,20 @@ fn mebibytes(bytes: u64) -> String {
 #[path = "output_cleanup/guard_tests.rs"]
 mod guard_tests;
 
+#[cfg(test)]
+#[path = "output_cleanup/journal_compact_tests.rs"]
+mod journal_compact_tests;
+
 impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
     pub(crate) fn output_cleanup_done(&self) -> anyhow::Result<bool> {
         Ok(meta_value(&self.connection.get(), DONE_META_KEY)?.is_some())
+    }
+
+    /// The cleanup of `mode` ran (or was not needed) for this registry.
+    #[cfg(test)]
+    pub(crate) fn cleanup_done(&self, mode: CleanupMode) -> anyhow::Result<bool> {
+        Ok(meta_value(&self.connection.get(), done_meta_key(mode))?.is_some())
     }
 
     /// Records that this registry holds no stored terminal output.
