@@ -22,9 +22,23 @@ public struct UpdateDropBack {
     /// offered, and the app relaunches into the kept build with every session kept.
     @discardableResult
     public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
-        let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
-        if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
-        return try updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+        if checkOnly {
+            let inputs = await updater.rollbackInputs(to: build, checkOnly: true, stateDirectories: stateDirectories)
+            return try updater.rollbackDecision(to: build, inputs: inputs).get()
+        }
+        // The person's click: the Channels card shows each step on the button they pressed.
+        let started = ContinuousClock.now
+        updater.buildSwitchProgress = BuildSwitchProgress(build: build ?? "", stage: .stores)
+        do {
+            let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
+            updater.log.append("rollback: checked \(build ?? "the newest kept build") in \(started.duration(to: .now))")
+            let target = try updater.rollbackDecision(to: build, inputs: inputs).get()
+            updater.buildSwitchProgress = BuildSwitchProgress(build: target.build, stage: .restart)
+            return try await updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+        } catch {
+            updater.buildSwitchProgress = nil
+            throw error
+        }
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
@@ -57,7 +71,13 @@ public struct UpdateDropBack {
         // The helper spawns off main; the app quits once it runs (it waits for this pid to exit).
         // task-owner: one spawn, then the quit; ends with the app.
         Task { @MainActor in
-            do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return }
+            do {
+                try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper)
+            } catch {
+                // The bundles already swapped: the next launch starts the picked build. Said, not silent.
+                NSLog("cmux: could not start the relaunch helper (%@); quit cmux to finish the switch", String(describing: error))
+                return
+            }
             NSApplication.terminateFromRunLoop()
         }
     }
