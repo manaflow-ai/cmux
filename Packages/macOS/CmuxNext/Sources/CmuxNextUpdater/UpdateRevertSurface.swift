@@ -49,6 +49,9 @@ public struct UpdateRevertSurface {
 extension UpdaterService {
     /// The Updated card's way back, in its highlights (`goBack`): the build and its words, nil
     /// with nothing kept to go back to (the card then offers the list only).
+    /// A go-back runs (``revert`` names a step that is not a failure).
+    var revertRunning: Bool { revert.map { $0.step != .failed } ?? false }
+
     var goBackJSON: JSONValue {
         guard let offer = revertOffer else { return .null }
         return .object(["build": .string(offer.build), "label": .string(offer.label), "kept": .bool(offer.kept),

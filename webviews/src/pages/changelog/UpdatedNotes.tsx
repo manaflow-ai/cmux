@@ -156,7 +156,14 @@ export function UpdatedNotes({
         </div>
       )}
       {goBackLook !== "header" && (
-        <GoBack goBack={data.goBack} strings={strings} actions={actions} look={goBackLook} {...goBackFixture} />
+        <GoBack
+          goBack={data.goBack}
+          running={data.goBackRunning === true}
+          strings={strings}
+          actions={actions}
+          look={goBackLook}
+          {...goBackFixture}
+        />
       )}
     </section>
   );

@@ -149,7 +149,9 @@ public struct UpdateDropBack {
     /// the menu. It names the build when one is known ("Go Back to nightly 4288034 from Nov 10?").
     public static func confirmation(_ target: RevertTarget?) -> (title: String, body: String, button: String) {
         let title = target.map { UpdaterStrings.goBackConfirmTitle($0.label) } ?? UpdaterStrings.rollbackConfirmTitle
-        let body = target?.kept == false ? UpdaterStrings.goBackDownloadBody : UpdaterStrings.rollbackConfirmBody
+        // No kept build offered: Go back downloads the feed's previous build (``goBack(stateDirectories:)``),
+        // so the question says so, not that a kept build reopens (cmux#41013 review).
+        let body = target?.kept == true ? UpdaterStrings.rollbackConfirmBody : UpdaterStrings.goBackDownloadBody
         return (title, body, UpdaterStrings.goBackButton)
     }
 

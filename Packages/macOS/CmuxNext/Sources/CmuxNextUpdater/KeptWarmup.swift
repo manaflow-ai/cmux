@@ -33,7 +33,13 @@ nonisolated enum KeptWarmup {
         guard var record = KeptRecord.read(from: file) else { return }
         record.warmed = true
         record.warmFailedBy = nil
-        if record.storeSchemas == nil, kept.storeSchemas == nil { record.storeSchemas = schemas }
+        // The schemas go in signed, and only into a record the key vouched for before: one another
+        // process wrote stays unsigned, so its schemas never count (the click runs the CLI again).
+        let key = store.recordKey()
+        if record.storeSchemas == nil, kept.storeSchemas == nil, record.isAuthentic(key: key) {
+            record.storeSchemas = schemas
+            record.sign(key: key)
+        }
         do { try record.save(to: file) } catch { log.append("kept \(build): could not record its first run: \(error)") }
     }
 
