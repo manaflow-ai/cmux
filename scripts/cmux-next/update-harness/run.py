@@ -365,6 +365,75 @@ def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock
             "v3_pid": opened and opened["pid"], "installed_build": installed, "v3_build": i3["CFBundleVersion"]}
 
 
+REVERT_STEPS = ["revert.inputs_read", "revert.decided", "revert.swapped", "revert.relaunch_helper",
+                "will_terminate"]
+
+
+def installed_build(app_path):
+    try:
+        with open(os.path.join(app_path, "Contents/Info.plist"), "rb") as f:
+            return plistlib.load(f)["CFBundleVersion"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def rollback_hop(a, marks, sock, installed_path, old_pids, remember_app, remember_tag, log):
+    """Goes back one build through `updates.rollback` (no build named: the app picks) on the app that runs now (the
+    last of old_pids), and times it from the click (revert.clicked) to the next process's first window. A refusal is a
+    result (its message verbatim), not a failure of the run."""
+    current = old_pids[-1]
+    hop = {"from_build": installed_build(installed_path)}
+    wait_socket(sock, 30)
+    t_send = time.time()
+    try:
+        reply = rpc(sock, "updates.rollback", {}, timeout=130)
+    except (OSError, ValueError) as error:
+        reply = {"closed": str(error)}
+    hop["reply"] = reply
+    hop["reply_ms"] = round((time.time() - t_send) * 1000)
+    if isinstance(reply, dict) and reply.get("error"):
+        hop["refused"] = reply["error"].get("message") if isinstance(reply["error"], dict) else reply["error"]
+        log("ROLLBACK REFUSED", hop["refused"])
+        return hop
+    t_exit = wait_exit(current, 60)
+    if t_exit is None:
+        hop["exit"] = "no exit within 60 s"
+        return hop
+    opened = marks.wait(lambda rows: next((r for r in rows if r["name"] == "launch.first_window_frame_committed"
+                                           and r["pid"] not in old_pids), None), a.relaunch_timeout)
+    if not opened:
+        hop["window"] = "no window"
+        return hop
+    marks.wait(lambda rows: all(any(r["name"] == m and r["pid"] not in old_pids for r in rows) for m in RESTORED_MARKS), 20)
+    rows = marks.read()
+    pid = opened["pid"]
+    remember_app(pid)
+    remember_tag()
+    clicked = first(rows, "revert.clicked", pid=current)
+    base = clicked["unix_ms"] if clicked else t_send * 1000
+
+    def at(name, p):
+        r = next((r for r in rows if r["pid"] == p and (r["name"] == name or
+                  (name.endswith("*") and r["name"].startswith(name[:-1])))), None)
+        return None if r is None else r["unix_ms"] - base
+
+    hop.update({
+        "pid": pid,
+        "to_build": installed_build(installed_path),
+        "send_to_click_ms": None if not clicked else round(clicked["unix_ms"] - t_send * 1000),
+        "click_to": {n: at(n, current) for n in REVERT_STEPS},
+        "click_to_old_exit_ms": round(t_exit * 1000 - base),
+        "click_to_new": {n: at(n, pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS},
+    })
+    hop["click_to_window_ms"] = hop["click_to_new"].get("launch.first_window_frame_committed")
+    try:
+        wait_socket(sock, 30)
+        hop["status_after"] = rpc(sock, "updates.status")
+    except OSError as error:
+        hop["socket_error"] = str(error)
+    return hop
+
+
 def card_marks(rows, pid):
     """The update card kinds v1 showed, in order (card.* marks)."""
     return [r["name"] for r in rows if r["pid"] == pid and r["name"].startswith("card.")]
@@ -479,6 +548,13 @@ def main():
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
+    ap.add_argument("--rollback", action="store_true",
+                    help="after the update relaunched, go back to the build it left (updates.rollback, the path the "
+                         "update card's Go back and the menu's Roll Back take) and time it: click to the old build's "
+                         "first window, with each step (revert.* marks)")
+    ap.add_argument("--rollback-twice", action="store_true",
+                    help="with --rollback: go back once more, and record which build that picks (it must not go "
+                         "forward to the build just left)")
     ap.add_argument("--scenario", choices=SCENARIOS,
                     help="the palette's Attempt Update: up-to-date (the feed offers v1 itself) -> the up to date card; "
                          "update -> checking or downloading, then the staged update card (Restart to Update); "
@@ -893,6 +969,12 @@ def main():
                 result["updated_changelog_shots"] = changelog_shots(sock, out, "updated", log, "open-whats-new", popover=False)
         except OSError as error:
             result["v2_socket_error"] = str(error)
+        if a.rollback:
+            result["rollback"] = rollback_hop(a, marks, sock, v1, (v1_pid, v2_pid), remember_app, remember_tag, log)
+            if a.rollback_twice and result["rollback"].get("pid"):
+                result["rollback_twice"] = rollback_hop(a, marks, sock, v1, (v1_pid, v2_pid, result["rollback"]["pid"]),
+                                                        remember_app, remember_tag, log)
+            log("rollback", json.dumps({k: v for k, v in result.items() if k.startswith("rollback")}, indent=1))
         if a.second_hop:
             result["second_hop"] = second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, v1,
                                               (v1_pid, v2_pid), click_after_keep=not a.click_at_stage)
