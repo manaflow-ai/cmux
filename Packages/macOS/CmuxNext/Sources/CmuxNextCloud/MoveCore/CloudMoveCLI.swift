@@ -320,6 +320,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return reply.ok && reply.delete == true
     }
 
+    /// Gives up `machine`, made for the start of send `key`, and runs `delete` on it only when ``startChatStrand(key:account:machine:)``
+    /// says no other send took it meanwhile: a second chat of the workspace that planned onto it keeps it and its files.
+    @MainActor public func strandThenDelete(key: String, account: String, machine: String, delete: @MainActor (String) async throws -> Void) async throws {
+        if await startChatStrand(key: key, account: account, machine: machine) { try await delete(machine) }
+    }
+
     public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
         (try await run(["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]).answer, ())
     }
