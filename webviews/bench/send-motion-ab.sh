@@ -41,7 +41,10 @@ run() {
 }
 
 run after
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$base"
+# A full clone stays full: --depth only where the checkout is already shallow.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$base"
 trap 'git checkout HEAD -- src' EXIT
 git checkout "$base" -- src
 # Files this checkout added under src that the base does not have: gone for the base's run, back on exit.
