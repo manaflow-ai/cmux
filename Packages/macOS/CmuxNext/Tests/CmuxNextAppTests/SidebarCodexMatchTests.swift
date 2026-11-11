@@ -54,7 +54,11 @@ struct SidebarCodexMatchTests {
             let m = SidebarLayoutMetrics.standard
             #expect(m.rowSpacing == Metrics.space1, "\(density) keeps its gap")
             #expect(m.rowHeight == SidebarRowTokens.current.rowHeight, "\(density) keeps its row")
-            #expect(SidebarStyle.contentInset == SidebarStyle.horizontalInset, "\(density) keeps one inset")
+            // Outside Default a row's content sits as far inside its fill as its title has room above and below
+            // (Lawrence 2026-11-09, "padding on left/bottom/top/right should be even"), not at the outer inset.
+            let row = Metrics.sidebarRowHeight + SidebarDensityTokens.textSize.rowStep
+            let even = ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2
+            #expect(SidebarStyle.contentInset == even, "\(density) keeps the even content inset")
             #expect(SidebarStyle.rowCornerRadius == Metrics.tabCornerRadius, "\(density) keeps the tab radius")
         }
     }
