@@ -1,23 +1,32 @@
 // l10n-allow-file: test fixture chart source, not shipped UI.
 // A drawn chart or diagram offers Save: its SVG goes to the host's save panel (`pane.saveFile`, kind svg),
 // and is copied instead where the host has none. Nothing is offered before the chart is drawn.
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import * as clipboard from "./clipboard";
+import * as diagrams from "../../../pages/markdown/diagrams";
+import { setNativeHost } from "../native";
 
 type Call = { method: string; params: Record<string, unknown> };
 const calls: Call[] = [];
 let hostSaves = true;
 let drawGate: Promise<void> = Promise.resolve();
-await mock.module("../native", () => ({
-  postNative: async (method: string, params: Record<string, unknown>) => {
-    calls.push({ method, params });
-    if (!hostSaves) throw new Error("no host");
-    return true;
-  },
-}));
+// The host, through the page's own seam for an injected host (a module mock of ../native would stay
+// in place for every later test file).
+const host = async (method: string, params: Record<string, unknown>) => {
+  calls.push({ method, params });
+  if (!hostSaves) throw new Error("no host");
+  return true;
+};
+// mock.module replaces a module for the rest of the bun process: the real ones go back after this file.
+const realDiagrams = { ...diagrams };
+const realClipboard = { ...clipboard };
+afterAll(async () => {
+  await mock.module("../../../pages/markdown/diagrams", () => realDiagrams);
+  await mock.module("./clipboard", () => realClipboard);
+});
 await mock.module("../../../pages/markdown/diagrams", () => ({
   DiagramLibraries: class {},
   renderMermaid: async (_libs: unknown, _source: string, target: HTMLElement) => {
@@ -40,7 +49,7 @@ const GLOBALS = ["window", "document", "navigator", "HTMLElement", "Node", "XMLS
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.agent/" });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -56,12 +65,17 @@ beforeEach(() => {
   copied.length = 0;
   hostSaves = true;
   drawGate = Promise.resolve();
+  setNativeHost(host);
 });
 
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  setNativeHost(undefined);
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom?.window.close();
 });
 

@@ -593,6 +593,11 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_single_host_fallbacks.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/check-single-host-fallbacks.py, which CI runs only with --advisory (warnings) and the pre-push gate runs strictly; run python3 tests/test_ci_single_host_fallbacks.py yourself after changing the checker or .github/single-host-fallbacks.json (about 10 s, no build)."
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
