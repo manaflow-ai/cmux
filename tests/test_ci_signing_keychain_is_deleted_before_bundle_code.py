@@ -842,6 +842,8 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
             ("echoed", [{**CERTIFICATE_STEP, "run": f"echo ./{script}\n./sign.sh"}]),
             ("printf", [{**CERTIFICATE_STEP, "run": f"printf '%s\\n' ./{script}\n./sign.sh"}]),
             ("heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<'EOF' > next.txt\n./{script}\nEOF\n./sign.sh"}]),
+            # Codex: `cat <<A <<B` opens two heredocs; B's body is text too, not a command that runs.
+            ("second heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<A <<'B' > next.txt\nfirst\nA\n./{script}\nB\n./sign.sh"}]),
             ("trailing comment", [{**CERTIFICATE_STEP, "run": f"./sign.sh # then ./{script}"}]),
             ("another step", [{**CERTIFICATE_STEP, "run": "./sign.sh"}, {"name": "Notarize", "run": f"./{script}"}])):
         mentioned = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}

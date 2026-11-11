@@ -579,6 +579,11 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_self_hosted_downloads_are_fresh.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails when a job on a self-hosted selector downloads an artifact into a relative directory (a persistent worker keeps an earlier job's files there) instead of ${{ runner.temp }}; run python3 tests/test_ci_self_hosted_downloads_are_fresh.py yourself after adding a download-artifact step (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 

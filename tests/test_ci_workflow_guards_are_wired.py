@@ -128,6 +128,9 @@ UNWIRED: set[str] = {
     # tests/workflow_jobs.py. Run both by hand after changing a job-list guard or the resolver. Exit: as above.
     "tests/test_ci_job_list_fixture_mutations.py",
     "tests/test_ci_guards_read_through_workflow_jobs.py",
+    # lane = "manual" for the same rule. It fails when a job on a self-hosted selector downloads an artifact into a
+    # relative directory a persistent worker may still hold files in; run it by hand after adding a download-artifact step.
+    "tests/test_ci_self_hosted_downloads_are_fresh.py",
 }
 
 
