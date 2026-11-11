@@ -9,6 +9,15 @@
 //! (2026-11-08) they were ~55 MB a day (2,568 records, ~21 KB each) and ~30 MB a day (415, up to
 //! 730 KB each) of acpmux's log.
 //!
+//! The same lists come twice more at each process start, in the answers to acpmux's own
+//! `initialize`: Claude Code's raw `control_response` (its slash commands, agents and models) and
+//! the ACP `initialize` response translated from it (the commands again, under `_meta.claude`).
+//! Agents stop when idle and start again at the next prompt, so on a busy machine (2026-11-11) a
+//! chat started about twice in 16 minutes, and these two answers were ~84 KB per start and 36% of
+//! the event log's bytes (57 starts of 29 chats), every one the same lists as the start before
+//! (cmuxterm-hq#9263). Nothing reads them back from the log: the chat's commands are its meta's
+//! (`available_commands_update`, `permissions.rs`), and the response's other fields stay.
+//!
 //! Each section below is compared with the last one logged for the session, as a hash of its JSON:
 //! an unchanged section is left out of the record, and a record left with nothing is not logged.
 //! The session's state is not built from the log: `on_update` takes every update as the agent
@@ -36,6 +45,14 @@ const SECTIONS: &[(&str, &[&str])] = &[
             "/_meta/acpmux/usageLimits",
         ],
     ),
+    // Claude Code's answer to acpmux's `initialize` control request, as the log keeps its raw
+    // line (`claude.control_response`).
+    (
+        "claude.control_response",
+        &["/response/response/commands", "/response/response/agents", "/response/response/models"],
+    ),
+    // The ACP `initialize` response (the whole JSON-RPC message, `in` `response`).
+    ("response", &["/result/_meta/claude/commands"]),
 ];
 
 /// The sections a session last logged, as hashes of their JSON.
