@@ -168,6 +168,40 @@ type Slot<T> = Mutex<Option<T>>;
 static HELD: Slot<String> = Mutex::new(None);
 RS
 refused cmux-tui/crates/acpmux/src/alias.rs 3 "a generic alias of a test slot" "test slot"
+# A generic alias's arguments are put in for its parameters by position; one it does not use is dropped (#41383 F1).
+cat >"$src/alias.rs" <<'RS'
+struct Cached { at: u64 }
+type Cache<T> = Mutex<Option<Cached>>;
+static CACHE: Cache<fn()> = Mutex::new(None);
+RS
+passes "a generic alias that does not use its fn() argument"
+cat >"$src/alias.rs" <<'RS'
+type Slot<T> = Mutex<Option<T>>;
+static S: Slot<Box<dyn Fn()>> = Mutex::new(None);
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 2 "a generic alias given a closure it holds" "closure"
+cat >"$src/alias.rs" <<'RS'
+struct Cached { at: u64 }
+type Pair<A, B> = Mutex<Option<A>>;
+static P: Pair<Cached, Box<dyn Fn()>> = Mutex::new(None);
+static Q: Pair<Cached, Unseen> = Mutex::new(None);
+RS
+passes "a two-parameter alias that uses only its first, given a closure and an unseen name second"
+cat >"$src/alias.rs" <<'RS'
+struct Cached { at: u64 }
+type Pair<A, B> = Mutex<Option<A>>;
+static P: Pair<Box<dyn Fn()>, Cached> = Mutex::new(None);
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 3 "a two-parameter alias given a closure in the parameter it uses" "closure"
+cat >"$src/alias.rs" <<'RS'
+type Inner<A, B> = std::sync::OnceLock<B>;
+type Outer<T> = Inner<u8, T>;
+type Wrong<T> = Inner<T, u8>;
+static O: Outer<fn(bool)> = std::sync::OnceLock::new();
+static W: Wrong<fn(bool)> = std::sync::OnceLock::new();
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 4 "a nested alias passing its closure on to the parameter used" "closure"
+case "$(python3 -I "$check" "$tmp" || true)" in *alias.rs:5:*) fail "a nested alias passing its closure to an unused parameter: refused" ;; esac
 # A struct of the file is judged by its fields, and a renamed cell is a cell.
 cat >"$src/alias.rs" <<'RS'
 struct Hooks {

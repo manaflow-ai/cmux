@@ -30,7 +30,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             try await PinnedPageTests.until({ !Self.inDaemon(s) }, report: { "the pane's close never landed" })
             try await Self.turns()
             #expect(!Self.shown(s), "the closed pane came back after its close landed")
-            #expect(Self.question() == nil, "an idle terminal's close asked")
+            #expect(Self.question(s) == nil, "an idle terminal's close asked")
         }
     }
 
@@ -45,7 +45,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             #expect(!Self.shown(s), "the emptied pane stayed on screen while the daemon's read decided")
             hold.release()
             try await Self.measureTakeBack(s)
-            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            try await PinnedPageTests.until({ Self.question(s) != nil }, report: { "no close question" })
             #expect(Self.shown(s), "the pane is not back on screen while its question shows")
             #expect(Self.live(s)?.orderedIDs.map(\.rawValue).contains(s.tab.id) == true, "the tab is not back in its strip while its question shows")
             try await Self.paneIsBackAndCancelKeepsIt(s)
@@ -70,7 +70,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             try await PinnedPageTests.until({ s.pane.view.window == nil }, report: { "the closed pane's views never left the window during the read" })
             hold.release()
             try await Self.measureTakeBack(s)
-            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            try await PinnedPageTests.until({ Self.question(s) != nil }, report: { "no close question" })
             #expect(Self.shown(s), "the pane is not back on screen while its question shows")
             try await Self.paneIsBackAndCancelKeepsIt(s)
         }
@@ -96,11 +96,11 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             #expect(!Self.shown(s), "the close of the pane's last other tab did not hide the pane")
             hold.release()
-            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            try await PinnedPageTests.until({ Self.question(s) != nil }, report: { "no close question" })
             try await PinnedPageTests.until({ Self.shown(s) && Self.live(s)?.orderedIDs.map(\.rawValue).contains(s.tab.id) == true },
                                             report: { "the pane did not come back with the program's tab: shown \(Self.shown(s)), strip \(Self.live(s)?.orderedIDs ?? [])" })
             try await PinnedPageTests.until({ s.store.tab(surface: idle.surface) == nil }, report: { "the idle terminal's close never landed" })
-            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question(s)).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
             try await Self.turns()
             #expect(Self.shown(s), "Cancel did not keep the pane")
@@ -168,7 +168,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
     private static func withFocusedSplit(_ body: (Split) async throws -> Void) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let s = try await split(services, connection)
-            defer { if let record = question() { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
+            defer { if let record = question(s) { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
             try await body(s)
         }
     }
@@ -178,7 +178,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
     private static func paneIsBackAndCancelKeepsIt(_ s: Split) async throws {
         try await PinnedPageTests.until({ focusIsBack(s) }, report: { "the focus did not come back to the pane the question asks about: \(focusReport(s))" })
         try await PinnedPageTests.until({ terminalShows(s) }, report: { "the pane came back without its terminal: \(focusReport(s))" })
-        _ = CmuxDialogCenter.shared.press(try #require(question()).id, button: "cancel")
+        _ = CmuxDialogCenter.shared.press(try #require(question(s)).id, button: "cancel")
         try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
         try await turns()
         #expect(shown(s), "Cancel did not keep the pane")
@@ -233,7 +233,7 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
         func ms() -> Double { let d = ContinuousClock.now - start; return Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1e3 }
         var asked: Double?, terminal: Double?
         while asked == nil || terminal == nil, ContinuousClock.now - start < .seconds(5) {
-            if asked == nil, question() != nil { asked = ms() }
+            if asked == nil, question(s) != nil { asked = ms() }
             if terminal == nil, asked != nil, terminalShows(s) { terminal = ms() }
             if asked == nil || terminal == nil { try await Task.sleep(for: .microseconds(250)) } // harness timing loop
         }
@@ -268,7 +268,6 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
         Issue.record("the terminal never ran \(program ?? "its shell only") in front (last: \(last))")
     }
 
-    private static func question() -> CmuxDialogCenter.Record? {
-        CmuxDialogCenter.shared.records.first { $0.spec.identifier == "cmux.dialog.confirmation" }
-    }
+    /// The close question in this test's own window (the dialog centre is one for the whole test process).
+    private static func question(_ s: Split) -> CmuxDialogCenter.Record? { PinnedPageTests.closeQuestion(of: s.services) }
 }

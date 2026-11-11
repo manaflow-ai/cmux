@@ -2001,9 +2001,15 @@ async fn dispatch_request_with_identity(
             // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
             // read, and no lane report of it goes to the same session again
             // (`hub/lane_report_reads.rs`). Held until this request returns.
-            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
-                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
-                .flatten();
+            // It reads while its connection is open and it has not cancelled this request: a
+            // cancel revokes it (`prompt_cancel.rs`, review F2 of #41361).
+            let reads_reply = flag(crate::cli::output::READS_REPLY_META) == Some(true);
+            let reader = (reads_reply || flag("wakeOrFail") == Some(true))
+                .then(|| super::prompt_cancel::ReaderGone::new(hub, conn.ended.subscribe()));
+            let reply_reader = reader
+                .as_ref()
+                .filter(|_| reads_reply)
+                .and_then(|r| hub.lane_report_reply_reader(conn.caller(), &s.id, r.subscribe()));
             if let Some(reader) = &reply_reader {
                 on_accepted = Some(reader.watch(on_accepted));
             }
@@ -2092,9 +2098,7 @@ async fn dispatch_request_with_identity(
                 wake_or_fail: flag("wakeOrFail") == Some(true),
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
-                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
-                    || flag("wakeOrFail") == Some(true))
-                .then(|| conn.ended.subscribe()),
+                reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2139,7 +2143,7 @@ async fn dispatch_request_with_identity(
             }
             // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
             // its turn's end, never dropped half way (`prompt_cancel.rs`).
-            let stop = super::prompt_cancel::PromptStop::new(hub, &s);
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
             opts.on_accepted = stop.watch(opts.on_accepted.take());
             let hub = hub.clone();
             let run = async move {
