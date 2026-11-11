@@ -183,6 +183,9 @@ pub(crate) struct PromptId {
     /// (`_meta.acpmux.callerSubagent`, `cli/sender.rs` `SUBAGENT_ENV`): a label the daemon puts
     /// on the provenance it binds to the caller's proven session.
     pub subagent: Option<Value>,
+    /// This host's sender token, presented to prove a named sender (`sender_token.rs`): sent as
+    /// `_meta.acpmux.senderToken`, which the daemon takes out before it reads anything else.
+    pub sender_token: Option<crate::sender_token::Presented>,
     /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the receiver's
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
@@ -207,6 +210,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
             None => Self {
@@ -224,6 +228,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
         }
@@ -283,6 +288,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if let Some(token) = &self.sender_token {
+            mux.set(crate::sender_token::META_KEY, token.to_value());
         }
         if let Some(Value::Object(relay)) = &self.relay {
             for (key, value) in relay {

@@ -229,6 +229,7 @@ pub(super) fn spawn_host(
     command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
     let mut child =
         command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
+    child.detach("cmux Remote runs in its own session and outlives this daemon; launchd reaps it");
     drop(bootstrap_read);
     let pid = child.id();
     let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;
