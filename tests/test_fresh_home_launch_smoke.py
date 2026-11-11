@@ -776,6 +776,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                                  ("fail", -6, arm, []), output)
                 self.assertRegex(report["failures"][0], r"the app exited \(signal 6\)")
                 self.assert_cleaned_up(report)
+                # The gate gives a cut attempt the status 124 and reads this report: it is that attempt's crash.
+                gate = gate_verdicts()
+                self.assertEqual(gate.attempt_result(124, report), gate.CRASH, report)
 
     def test_a_crash_stays_a_crash_when_its_crash_reports_cannot_be_read(self):
         # The verdict of an app that ended is its end. A report folder or a report that cannot be read must not make
