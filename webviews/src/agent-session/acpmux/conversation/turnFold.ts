@@ -74,6 +74,9 @@ export type TurnFold = {
   moving: Map<HTMLElement, Moving>;
   /// The drawn copy of a row that left the mounted rows mid-fold, by row id.
   copies: Map<string, HTMLElement>;
+  /// Each copy's path and the clip that keeps it out from under the rows over it (`coverClip`), played
+  /// again on the fold's clock whenever a pass places those rows somewhere else.
+  covers?: Map<HTMLElement, CopyCover>;
   /// The animations this fold started, so another toggle can settle them first.
   animations: Set<Animation>;
   /// Stops the watcher (watchTurnFold) and tells the transcript the fold is over; once, at its end.
@@ -156,6 +159,9 @@ export function ghostOf(row: HTMLElement): HTMLElement {
 /// the turn end's fold keeps such a row's copies below its bottom at rest (`covers`), where it hides
 /// nothing of them at the last frame either.
 export type CoverPath = { from: number; to: number; height: number; padTop: number; padBottom: number; clip?: number };
+
+/// A reader's fold copy: its path and own clip (fixed once made), and the clip it plays now.
+type CopyCover = { path: CoverPath; own: number; key?: string; animation?: Animation };
 
 /// The bottom a ghost's own clip hides (ghostOf keeps the clip its row had when the turn ended).
 export function clippedBottomOf(copy: HTMLElement): number {
@@ -278,6 +284,7 @@ export function settleTurnFold(thread: HTMLElement | null, fold: TurnFold | unde
   fold.animations.clear();
   fold.moving.clear();
   fold.copies.clear();
+  fold.covers?.clear();
   for (const ghost of ghosts) ghost.remove();
   ghosts.clear();
   endTurnFold(thread, fold);
@@ -310,11 +317,14 @@ export function playTurnFold(
   const rows = all.filter((row) => row.index > at && placed.idAt(row.index) === row.id);
   const mounted = new Set(all.map((row) => row.node));
   const mountedIds = new Set(rows.map((row) => row.id));
+  /// A row placed somewhere else (or a copy made) this pass: the copies' clips are worked out again.
+  let moved = false;
   for (const row of rows) {
     // The row is drawn again: its copy goes.
     const copy = fold.copies.get(row.id);
     if (copy) {
       fold.copies.delete(row.id);
+      fold.covers?.delete(copy);
       ghosts.delete(copy);
       copy.remove();
     }
@@ -331,6 +341,7 @@ export function playTurnFold(
       animation.cancel();
       fold.animations.delete(animation);
     }
+    moved = true;
     const animations: Animation[] = [];
     if (Math.abs(delta) >= 0.5) animations.push(play(row.node, [{ translate: `0 ${delta}px` }, { translate: "0 0" }]));
     if (reveal) animations.push(play(row.node, [{ opacity: 0 }, { opacity: 1 }]));
@@ -340,7 +351,6 @@ export function playTurnFold(
   // second, is the only window this runs in) and only in a pass where a row left: the rows below the
   // line are indexed once for that pass.
   let index: Map<string, number> | undefined;
-  let paths: CoverPath[] | undefined;
   const below = rows[0]?.node ?? null;
   for (const [node, row] of fold.moving) {
     if (mounted.has(node)) continue;
@@ -376,6 +386,7 @@ export function playTurnFold(
     ghosts.add(ghost);
     fold.copies.set(row.id, ghost);
     const drop = () => {
+      fold.covers?.delete(ghost);
       ghosts.delete(ghost);
       if (fold.copies.get(row.id) === ghost) fold.copies.delete(row.id);
       ghost.remove();
@@ -383,21 +394,41 @@ export function playTurnFold(
     const motion = play(ghost, [first, end], "forwards");
     motion.onfinish = drop;
     motion.oncancel = drop;
-    // The copy draws only outside the rows sliding over its place, on the same clock, so its fading
-    // text never shows under theirs (`coverClip`, as the turn end's fold does: turnEndFold.ts).
-    // Read only in a pass where a copy is made: each mounted row's path and box, then the copy's.
-    paths ??= rows.flatMap(({ node: mountedNode }) => {
-      const moving = fold.moving.get(mountedNode);
-      return moving ? [{ from: moving.top + moving.delta, to: moving.top, ...boxOf(mountedNode) }] : [];
+    (fold.covers ??= new Map()).set(ghost, {
+      path: {
+        from: row.top + row.delta,
+        to: row.top + (end.translate === undefined ? row.delta : to),
+        ...boxOf(ghost),
+      },
+      own: clippedBottomOf(ghost),
     });
-    const cover = coverClip(
-      { from: row.top + row.delta, to: row.top + (end.translate === undefined ? row.delta : to), ...boxOf(ghost) },
-      paths,
-      clippedBottomOf(ghost),
-    );
-    if (cover) play(ghost, cover, "forwards");
+    moved = true;
     // A hidden page suspends its animations: the copy never outlasts the fold.
     setTimeout(drop, Math.max(0, fold.until - now));
+  }
+  // Each copy draws only outside the rows sliding over its place, on the same clock, so its fading
+  // text never shows under theirs (`coverClip`, as the turn end's fold does: turnEndFold.ts). A later
+  // pass can place those rows somewhere else (a row above grew or went): their paths change, so the
+  // clip is worked out again from the paths they take now and played on, part way, on the fold's
+  // clock and curve, as their own moves are; one read when the copy was made left it hiding where the
+  // rows had been headed (review of #41337: a reply retargeted from 100 to 80 px, its copy's clip still
+  // at 100). Only in a pass where a row moved or a copy was made: one box read per mounted row.
+  if (moved && fold.covers?.size) {
+    const paths = rows.flatMap(({ node }) => {
+      const moving = fold.moving.get(node);
+      return moving ? [{ from: moving.top + moving.delta, to: moving.top, ...boxOf(node) }] : [];
+    });
+    for (const [ghost, cover] of fold.covers) {
+      const frames = coverClip(cover.path, paths, cover.own);
+      const key = frames ? JSON.stringify(frames) : undefined;
+      if (key === cover.key) continue;
+      if (cover.animation) {
+        cover.animation.cancel();
+        fold.animations.delete(cover.animation);
+      }
+      cover.key = key;
+      cover.animation = frames ? play(ghost, frames, "forwards") : undefined;
+    }
   }
   return true;
 }
