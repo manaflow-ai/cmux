@@ -102,19 +102,23 @@ fn launch_roots_with_the_text_save_held_at_its_check() {
     });
 }
 
-/// Starts the chat service, records a launch root with the home replaced, then waits for the
+/// Replaces the home, starts the chat service, records a launch root, then waits for the
 /// service's own threads to let it go, so a write they make late is seen too. `hold`: the
 /// text thread's save waits at its home check until the root is recorded.
+///
+/// The home is replaced before the service starts, as the module promises for every writer: the
+/// service's text thread saves on its own time, and a save that checked the home before the
+/// replacement writes into the replacement (`config::refuse_lost_home` cannot rule that out).
 fn record_a_launch_root(home: &Path, hold: bool) {
     if hold {
         acpmux::chats::text::SAVE_CHECKED.set(held_save).unwrap();
     }
+    replace_held(home);
     let service = acpmux::chats::ChatService::start(sources(home));
     let mut ended = service.subscribe();
     if hold {
         held_save_checked();
     }
-    replace_held(home);
     let root = home.parent().unwrap().join("claude-projects");
     std::fs::create_dir_all(&root).unwrap();
     service.record_launch_roots(&[cmux_chat_index::RootSpec {
