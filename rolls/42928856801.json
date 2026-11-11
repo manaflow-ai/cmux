@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42928856801",
+  "recorded_at": "2026-11-11T00:18:51Z",
+  "reason": "cmux-tui 71a77b21c037 changes the image's cmux-tui (pinned 4907f6cc4c19)",
+  "dry_run": false,
+  "cmux_tui": "71a77b21c037f26be86940a18e4792d2d607747b",
+  "fixes": [
+    {
+      "sha": "d16bbb96f75c2d25f94f39b13e0320e95ba93a95",
+      "mergedAt": "2026-11-10T15:49:53-08:00",
+      "subject": "sidebar_caps test: count the projection's cost instead of timing it (#40727)"
+    },
+    {
+      "sha": "24f6dad09a56270bcf353f904d877feca9fdf9fc",
+      "mergedAt": "2026-11-10T15:47:59-08:00",
+      "subject": "acpmux: a watch reads a peer chat in bounded pages of the kinds it uses, once (#40800)"
+    },
+    {
+      "sha": "b5cfec0cb2ada519a954535ed05aee02d09693ed",
+      "mergedAt": "2026-11-10T15:43:33-08:00",
+      "subject": "acpmux: run a day of peer reconnects in ticked time (wall clock follows paused tokio, seeded jitter, refused dials) (#40862)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T00:18:51Z",
+    "snapshot_id": "sh-9555f116f53b4bf18c1d5737f2ab74fe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42928856801): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b7ed0d9e73e247fba498ea3eaaf81c51231c8965",
+    "image": "cloud-native-auto-71a77b21-42928856801-1",
+    "revision": "ci-42928856801-1",
+    "at": "2026-11-11T00:18:51Z"
+  },
+  "rolled_back": false
+}
