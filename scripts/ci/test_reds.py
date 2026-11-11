@@ -1710,10 +1710,33 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     return Verdict(bool(reasons), reasons, shared)
 
 
+def one_verdict(verdicts, missing):
+    """The one rule of every base-red window (dep-fleet-6 on #41431: "a test's evidence comes from one verdict"):
+    (the first of VERDICTS, an iterable of (label, evidence) newest first and read lazily, whose evidence alone holds
+    every failure: MISSING(label, evidence) returns the ones it does not hold, so an empty answer is the verdict; or
+    None, (label, what it missed) for each verdict read). A window that let each failure rest on its own verdict excused
+    a head no one base run failed that way (#41422's review F1 on the placed path; the webview per-test window,
+    the cancelled shard's per-file window and ws-check's per-unit window here). Its readers: base_red_excuse's
+    compare_window and ws_check_red, classify_web_window and classify_web_cut_short."""
+    tried = []
+    for label, evidence in verdicts:
+        gone = list(missing(label, evidence))
+        if not gone:
+            return (label, evidence), tried
+        tried.append((label, gone))
+    return None, tried
+
+
+def one_verdict_why(tried, base: str = "the base") -> str:
+    """Why no one verdict of a window holds every failure alone: what each verdict read missed (one_verdict)."""
+    return (f"no one {base} verdict holds every failure alone: "
+            + "; ".join(f"{label} misses {', '.join(str(item) for item in gone)[:200]}" for label, gone in tried))
+
+
 def classify_web_window(head_logs: list, windows, job: str = "", base: str = "the base") -> Verdict | None:
     """classify_web against a window of base verdicts: WINDOWS yields (label, that base run's red webview test job
-    logs), newest first, and is read only while a head test is still unmatched. A failing test is the base's when one
-    base run of the window fails it with the same error; each run is compared alone, since two runs' different errors
+    logs), newest first, read only until one run of it alone fails every head test with the same error (one_verdict):
+    never a test on one run and another on another. Each run is compared alone, since two runs' different errors
     for one test joined (merged_web) match neither. Crashes, timeouts and cut-short head runs are the head's own before
     any base log is read. Shared names carry the label of the run that matched them."""
     got = web_head(head_logs, job, base)
@@ -1722,30 +1745,41 @@ def classify_web_window(head_logs: list, windows, job: str = "", base: str = "th
     names, head, reasons = got
     if reasons:
         return Verdict(True, reasons)
-    left, shared, labels, newest = list(names), [], [], None
-    for label, base_logs in windows:
-        labels.append(label)
+    newest: dict = {}  # the newest run's word on each test: (new, differ)
+
+    def missing(label, base_logs):
         if not base_logs or any(log is None for log in base_logs):
-            return Verdict(True, [f"no readable {base} webview test log in {label} to compare "
-                                  f"{len(left)} failing test(s) with"])
-        new, differ, matched = web_compare(left, head, base_logs, label)
-        if newest is None:  # the newest run's word on each test, named when none of the window matches it
-            newest = dict(zip(new, new)) | dict(zip([name for name in left if name not in new and name not in matched],
-                                                    differ))
-        shared += [f"{name} ({label})" for name in matched]
-        left = [name for name in left if name not in matched]
-        if not left:
-            return Verdict(False, [], shared)
-    if not labels:
+            raise _Unread(label)
+        new, differ, matched = web_compare(names, head, base_logs, label)
+        if not newest:
+            newest.update(label=label, new=new, differ=differ)
+        return [name for name in names if name not in matched]
+    try:
+        found, tried = one_verdict(windows, missing)
+    except _Unread as unread:
+        return Verdict(True, [f"no readable {base} webview test log in {unread.label} to compare "
+                              f"{len(names)} failing test(s) with"])
+    if found is not None:
+        return Verdict(False, [], [f"{name} ({found[0]})" for name in names])
+    if not tried:
         return Verdict(True, [f"no {base} webview test verdict to compare {len(names)} failing test(s) with"])
-    new = [name for name in left if newest.get(name) == name]
-    differ = [newest[name] for name in left if newest.get(name) != name]
-    if new:
-        reasons.append(f"{len(new)} failing test(s) pass or do not run on {', '.join(labels)}: {'; '.join(new)[:600]}")
-    if differ:
-        reasons.append(f"{len(differ)} test(s) fail on none of {', '.join(labels)} the same way; on {labels[0]}: "
-                       f"{'; '.join(differ)[:600]}")
-    return Verdict(True, reasons, shared)
+    if newest["new"]:
+        reasons.append(f"{len(newest['new'])} failing test(s) pass or do not run on {newest['label']}: "
+                       f"{'; '.join(newest['new'])[:600]}")
+    if newest["differ"]:
+        reasons.append(f"{len(newest['differ'])} test(s) fail on none of {newest['label']} the same way; on "
+                       f"{newest['label']}: {'; '.join(newest['differ'])[:600]}")
+    if len(tried) > 1:
+        reasons.append(one_verdict_why(tried, base))
+    return Verdict(True, reasons)
+
+
+class _Unread(Exception):
+    """A window run whose webview logs could not all be read: never compared, the head's own (classify_web_window)."""
+
+    def __init__(self, label):
+        super().__init__(label)
+        self.label = label
 
 
 # A head shard GitHub cancelled or timed out mid-run (cmux#39676, 2026-11-09: `web / react-apps-check (1)` ran 31 min,
@@ -1791,8 +1825,8 @@ def web_base_red_files(base_logs: list) -> set[str]:
 
 def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
     """A cancelled or timed-out head shard judged per file (the rule above) against WINDOWS, which yields (label, that
-    base run's red webview test job logs) newest first, read only while a head file is unmatched: shared when every
-    red file is red on some run of the window. None when the log names no red file (no failure to compare: the caller
+    base run's red webview test job logs) newest first, read only until one run of it alone has every red file red
+    (one_verdict): shared then, never a file on one run and another on another. None when the log names no red file (no failure to compare: the caller
     refuses it as no verdict). A crash, a file that timed out alone, or an unreadable log is the head's own."""
     got = web_cut_short(head_log)
     if got is None:
@@ -1803,21 +1837,25 @@ def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: s
         return Verdict(True, reasons)
     if not red:
         return None
-    left, shared, labels = list(red), [], []
-    for label, base_logs in windows:
-        labels.append(label)
+    def missing(label, base_logs):
         if not base_logs or any(log is None for log in base_logs):
-            return Verdict(True, [f"no readable {base} webview test log in {label} to compare {len(left)} red "
-                                  "file(s) with"])
+            raise _Unread(label)
         on_base = web_base_red_files(base_logs)
-        shared += [f"{name} ({label})" for name in left if name in on_base]
-        left = [name for name in left if name not in on_base]
-        if not left:
-            return Verdict(False, [], shared)
-    if not labels:
+        return [name for name in red if name not in on_base]
+    try:
+        found, tried = one_verdict(windows, missing)
+    except _Unread as unread:
+        return Verdict(True, [f"no readable {base} webview test log in {unread.label} to compare {len(red)} red "
+                              "file(s) with"])
+    if found is not None:
+        return Verdict(False, [], [f"{name} ({found[0]})" for name in red])
+    if not tried:
         return Verdict(True, [f"no {base} webview test verdict to compare {len(red)} red file(s) with"])
-    return Verdict(True, [f"{len(left)} red file(s) pass or do not run on {', '.join(labels)}: "
-                          f"{'; '.join(left)[:600]}"], shared)
+    label, left = tried[0]
+    reasons = [f"{len(left)} red file(s) pass or do not run on {label}: {'; '.join(left)[:600]}"]
+    if len(tried) > 1:
+        reasons.append(one_verdict_why(tried, base))
+    return Verdict(True, reasons)
 
 
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
