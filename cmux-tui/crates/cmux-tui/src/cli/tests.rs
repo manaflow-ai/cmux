@@ -210,14 +210,14 @@ mod remote_cli_docs {
             let line = words.join(" ");
             let mut words = words;
             if action.is_none() && !parser {
-                if let Some(short) = crate::cli::vm_short::parse(&parser_words) {
+                if let Some(short) = vm_short::parse(&parser_words) {
                     words = ["cmux", "cloud", short.cloud_verb]
                         .map(str::to_owned)
                         .into_iter()
                         .chain(short.tail)
                         .collect();
                     action = action_name(&words, names);
-                } else if let Some(alias) = crate::cli::vm::cloud_alias(&parser_words) {
+                } else if let Some(alias) = vm::cloud_alias(&parser_words) {
                     words = std::iter::once("cmux".to_owned()).chain(alias).collect();
                     action = action_name(&words, names);
                 }
