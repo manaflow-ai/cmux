@@ -1,7 +1,7 @@
 {
  "title": "A wide Markdown table's motion (user 2026-11-08: \"this table thing needs better animation on appear/disappear\"): in the Markdown viewer and in a chat reply, light then dark, every display frame recorded (debug.window_record into launch/strip-NN) while the table scrolls right and back and while a reply's table arrives. Shows the edge fades and the sideways thumb coming and going. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/markdown-table-motion.json --mac (any commit: the state is read from this file).",
  "launch_args": [
-  "--showcase"
+  "--skip-onboarding"
  ],
  "fakeHarness": {
   "id": "fake",
@@ -11,6 +11,18 @@
   {
    "title": "Launch",
    "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Motion on, whatever the host's Reduce Motion says (the scene records motion)",
+   "rpc": {
+    "method": "debug.motion",
+    "params": {
+     "action": "reduce",
+     "value": false
+    }
+   },
+   "wait": 0.5,
    "shot": false
   },
   {
@@ -72,9 +84,10 @@
    "shot": false
   },
   {
-   "title": "Open it in the Markdown viewer",
+   "title": "Open it in the Markdown viewer, in front of the terminal",
    "cmux": [
     "open",
+    "--focus",
     "/tmp/cmux-table-motion.md"
    ],
    "wait": 3,
@@ -268,6 +281,21 @@
    "shot": false
   },
   {
+   "title": "The reply's table is drawn (not the prompt's)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "wait",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :last-child",
+     "timeout_ms": 20000
+    }
+   },
+   "record": true,
+   "wait": 0.3,
+   "shot": false
+  },
+  {
    "title": "Record every frame (light chat, scroll right)",
    "rpc": {
     "method": "debug.window_record",
@@ -287,7 +315,7 @@
     "params": {
      "page": "cmux.agent",
      "action": "scroll",
-     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :last-child",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :last-child",
      "block": "nearest"
     }
    },
@@ -315,7 +343,7 @@
     "params": {
      "page": "cmux.agent",
      "action": "scroll",
-     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :first-child",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :first-child",
      "block": "nearest"
     }
    },
@@ -463,6 +491,21 @@
    "shot": false
   },
   {
+   "title": "The reply's table is drawn (not the prompt's)",
+   "rpc": {
+    "method": "debug.page",
+    "params": {
+     "page": "cmux.agent",
+     "action": "wait",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :last-child",
+     "timeout_ms": 20000
+    }
+   },
+   "record": true,
+   "wait": 0.3,
+   "shot": false
+  },
+  {
    "title": "Record every frame (dark chat, scroll right)",
    "rpc": {
     "method": "debug.window_record",
@@ -482,7 +525,7 @@
     "params": {
      "page": "cmux.agent",
      "action": "scroll",
-     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :last-child",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :last-child",
      "block": "nearest"
     }
    },
@@ -510,7 +553,7 @@
     "params": {
      "page": "cmux.agent",
      "action": "scroll",
-     "selector": ".acpmux-assistant .cv-table-wrap tr:first-child > :first-child",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) .cv-table-wrap tr:first-child > :first-child",
      "block": "nearest"
     }
    },
