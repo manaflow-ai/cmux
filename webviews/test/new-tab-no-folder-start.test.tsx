@@ -40,7 +40,8 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "http://localhost/" }).window;
+  window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "http://localhost/" })
+    .window;
   Object.assign(window, {
     ResizeObserver: class {
       observe() {}
