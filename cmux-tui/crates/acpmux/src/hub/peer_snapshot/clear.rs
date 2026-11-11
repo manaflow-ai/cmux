@@ -1,6 +1,7 @@
 //! Sign-out erases every peer copy, including a leased peer whose connection already ended.
-//! The rows lock orders the barrier and clear after every accepted listing/capture. Existing
-//! peer instances stay barred even if they reconnect; only a new instance may cache again.
+//! The rows writer lock (`RemoteTable::fence`) orders the barrier and clear after every accepted
+//! listing/capture. Existing peer instances stay barred even if they reconnect; only a new
+//! instance may cache again.
 
 use super::*;
 

@@ -4,8 +4,9 @@ use super::*;
 use crate::session_identity::SessionReceipt;
 use cmux_json::JsonSet as _;
 
-// Shared-lock rule: `peers` may be held while taking `remote_sessions` (`peers` → rows), but
-// never the reverse. Look up an Arc briefly before taking `peer_leases` or a per-peer writer gate,
+// Shared-lock rule: `peers` may be held while taking the rows writer lock (`remote_sessions`
+// `write`/`fence`/`settled`; `peers` → rows), but never the reverse. A rows `read` takes no lock
+// (`remote_table.rs`). Look up an Arc briefly before taking `peer_leases` or a per-peer writer gate,
 // and no disk or JSON work runs under any shared lock.
 
 #[cfg(test)]
@@ -179,9 +180,9 @@ impl Hub {
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
         let settled = peer.settled();
-        // Register under the peer lock before taking rows (lock order: `peers`, then
+        // Register under the peer lock and the rows writer lock (lock order: `peers`, then
         // `remote_sessions`): a purge or notice of the instance this replaces, checked current
-        // under it, is done before the new one is registered, never after.
+        // under them, is done before the new one is registered, never after.
         let old = {
             let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
             let _rows = self.remote_sessions.fence();
@@ -475,7 +476,7 @@ impl Hub {
                 )));
             }
             // Its rows, its cache and its snapshots go under the registry lock it leaves before
-            // the rows lock (lock order: `peer_leases`, `peers`, `remote_sessions`): a peer added
+            // the rows writer lock (lock order: `peer_leases`, `peers`, `remote_sessions`): a peer added
             // again under the name registers after (`spawn_peer`), and keeps what it lists.
             let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
             let mut rows = self.remote_sessions.write();
@@ -761,11 +762,11 @@ impl Hub {
         generation: u64,
         notice: crate::peer::PeerNotice,
     ) {
-        // `peer_notice_loop` checked the instance without the rows lock: a
+        // `peer_notice_loop` checked the instance without the rows writer lock: a
         // peer replaced or removed since (`add_peer`, `remove_peer`,
         // `end_peer_lease`, each of which unregisters the peer before it
         // drops its rows) must not add rows back or save them. So every path
-        // that changes rows checks again while holding the `peers` then rows locks.
+        // that changes rows checks again while holding `peers` then the rows writer lock.
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
@@ -817,7 +818,7 @@ impl Hub {
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an
                     // ssh tunnel is slow to open), so tell watchers what changed.
-                    // Read the old summaries under the rows lock, then do all JSON projection and
+                    // Read the old summaries once writers settled, then do all JSON projection and
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
                     let (changed, gone) = loop {

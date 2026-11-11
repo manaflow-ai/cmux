@@ -5,7 +5,8 @@
 //! notice (a streamed record, a `session_changed`, an ask check, a cache save) reads only that
 //! peer's rows, never every peer's: a Mac linked to peers listing thousands of sessions spent a
 //! core walking them for each record (cosmic-gray, 2026-11-02).
-//! Reads go through `Deref`; every write goes through the methods here, which keep the indexes.
+//! Reads go through `Deref` (on a snapshot `Hub::remote_sessions.read()` hands out, or a writer's
+//! copy); every write goes through the methods here, which keep the indexes.
 //! The maps are persistent (`imbl`): a clone shares every node with its original and costs the
 //! same at 12 rows or 12,000, and a write copies only the path to what it changes. That is what
 //! lets the table be published as a snapshot each reader holds as long as it likes
