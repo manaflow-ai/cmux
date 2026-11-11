@@ -607,14 +607,14 @@ jobs:
         # The reference plugin is an independent Cargo workspace, so the
         # daemon workspace test does not compile it. Keep this explicit check
         # in both hosted OS lanes.
-        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
 
 
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
@@ -622,7 +622,7 @@ jobs:
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib
           journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
           -- --exact
 
@@ -630,19 +630,23 @@ jobs:
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib \
             journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib \
             journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
             -- --exact
-          cargo test -p cmux-tui-core --test browser_runtime \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --test browser_runtime \
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
       - name: cargo test
         id: focused
         working-directory: cmux-tui
+        # Every test run here goes through scripts/ci/cargo-test-deadline.sh: a
+        # test that runs past 180 s is named and ended, so the job does not wait
+        # for its timeout (runs 42712581504, 42687069230). The --list and
+        # --no-run calls run no test and stay plain cargo test.
         env:
           CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
@@ -658,21 +662,21 @@ jobs:
             if [[ "$RUNNER_OS" == "Linux" ]]; then
               test_threads=32
             fi
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads="$test_threads"
+            ../scripts/ci/cargo-test-deadline.sh --workspace --exclude cmux-tui-core --locked -- --test-threads="$test_threads"
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
             python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
               target/cmux-tui-core-test-binaries.jsonl \
               crates/cmux-tui-core
-            cargo test -p cmux-tui-core --doc --locked
+            ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --doc --locked
             exit 0
           fi
           if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
             # Cargo test names do not include their package name. Keep this
             # explicit selector so focused verification can exercise the
             # relay crate instead of silently selecting zero tests.
-            cargo test -p chatmux-relay --locked
+            ../scripts/ci/cargo-test-deadline.sh -p chatmux-relay --locked
             exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
@@ -698,7 +702,7 @@ jobs:
             echo "::notice::test_filter '$TEST_FILTER' selects no Rust test on this host; hosted verification fails the run only if the other host selects none too"
             exit 0
           fi
-          cargo test --workspace --locked "$TEST_FILTER"
+          ../scripts/ci/cargo-test-deadline.sh --workspace --locked "$TEST_FILTER"
 
       - name: Optional Iroh route and auth tests
         if: inputs.mode == 'full'
@@ -709,7 +713,7 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
-            cargo test --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
+            ../scripts/ci/cargo-test-deadline.sh --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done
@@ -720,7 +724,7 @@ jobs:
         # Single-threaded: crossterm's colored tests mutate process env vars
         # (COLORTERM/NO_COLOR) and race each other under parallel test
         # threads, flaking test_parse_ansi_fg/bg intermittently.
-        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'
@@ -799,7 +803,7 @@ jobs:
         shell: bash
         run: |
           unset CMUX_GHOSTTY_SRC
-          cargo test -p cmux-tui-core --lib --locked \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
 
@@ -879,6 +883,8 @@ jobs:
       - name: Run configured Chrome CDP smoke
         working-directory: cmux-tui
         env:
+          # One browser launch and page load: give it more than the 180 s default.
+          CMUX_TEST_DEADLINE_SECONDS: "600"
           CMUX_MUX_BROWSER_TEST: "1"
           CMUX_MUX_BROWSER_TEST_CHROME: ${{ steps.chromium.outputs.path }}
         shell: bash
@@ -892,7 +898,7 @@ jobs:
             echo "::error::chrome_smoke_requires_configured_browser selected no exact test" >&2
             exit 1
           }
-          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-cdp --test chrome_smoke --locked -- \
             --ignored --exact chrome_smoke_requires_configured_browser
 
   bindings-e2e:
