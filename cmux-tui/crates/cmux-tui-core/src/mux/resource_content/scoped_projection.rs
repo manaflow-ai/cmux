@@ -409,7 +409,10 @@ pub(super) fn check_scope_containment(
 /// that is absent and tombstones the one that is lost.
 fn created_view_rows(registry: &WorkspaceRegistry, state: &State) -> anyhow::Result<WorkspaceRows> {
     let mut first = state.workspaces.len();
-    while first > 0 && !registry.workspace_row_is_live(&state.workspaces[first - 1].public_id)? {
+    for workspace in state.workspaces.iter().rev() {
+        if registry.workspace_row_is_live(&workspace.public_id)? {
+            break;
+        }
         first -= 1;
     }
     if registry.live_workspace_row_count()? != first {
