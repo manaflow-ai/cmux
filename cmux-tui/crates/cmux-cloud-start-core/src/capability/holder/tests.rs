@@ -8,6 +8,7 @@ use super::*;
 const TOKEN: &str = "cc1.eyJ2IjoxfQ.c2lnbmF0dXJl";
 const A: &str = "team_a";
 const B: &str = "team_b";
+const C: &str = "team_c";
 
 /// The mint route's answer for `team` (server times: 5 min life, refresh at 4).
 fn answer(team: &str) -> String {
@@ -154,6 +155,101 @@ fn a_switch_whose_mint_waits_behind_a_failed_one_still_goes() {
     // A's mint is refused: A backs off, B is another team and goes at once.
     app.answer(Some(403), 10);
     assert_eq!(app.mints.last(), Some(&(B.to_owned(), 0)));
+}
+
+#[test]
+fn a_switch_back_to_the_held_team_while_another_mints_keeps_the_held_one() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.answer(Some(200), 10);
+    // A team switch to B starts B's mint; the person switches back to A before it answers.
+    app.intent(B, 20);
+    assert_eq!(app.mints.last(), Some(&(B.to_owned(), 0)));
+    app.intent(A, 30);
+    app.answer(Some(200), 40);
+    assert_eq!(app.state.held.as_ref().map(|held| held.team.as_str()), Some(A));
+    assert_eq!(app.run(Event::Call { team: team(A) }, 50).as_deref(), Some(TOKEN));
+    assert_eq!(app.mints.len(), 2, "A is still fresh: no mint for it");
+    // The timer stays at A's refresh, not B's.
+    assert_eq!(app.timer, Some((10 + 240_000, 0)));
+}
+
+#[test]
+fn a_call_back_to_the_held_team_while_another_mints_keeps_the_held_one() {
+    let mut app = App::default();
+    app.intent(A, 0);
+    app.answer(Some(200), 10);
+    assert_eq!(app.run(Event::Call { team: team(B) }, 20), None);
+    assert_eq!(app.run(Event::Call { team: team(A) }, 30).as_deref(), Some(TOKEN));
+    app.answer(Some(200), 40);
+    assert_eq!(app.state.held.as_ref().map(|held| held.team.as_str()), Some(A));
+    assert_eq!(app.run(Event::Call { team: team(A) }, 50).as_deref(), Some(TOKEN));
+    assert_eq!(app.mints.len(), 2);
+}
+
+/// A seeded xorshift: the model's schedule, the same on every run.
+struct Schedule(u64);
+
+impl Schedule {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % n
+    }
+}
+
+/// The class: whatever team was asked for last (by an intent or a call) is the one held once
+/// every mint has answered, over random orders of switches, calls and answers.
+#[test]
+fn the_last_team_asked_for_is_held_once_the_mints_settle() {
+    for seed in 1..=5_000_u64 {
+        let mut schedule = Schedule(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+        let mut app = App::default();
+        let mut now = 0;
+        let mut last = None;
+        let mut steps = Vec::new();
+        for _ in 0..2 + schedule.below(12) {
+            now += 1 + i64::try_from(schedule.below(1_000)).unwrap_or(0);
+            let asked = match schedule.below(3) {
+                0 => A,
+                1 => B,
+                _ => C,
+            };
+            match schedule.below(3) {
+                0 => {
+                    app.intent(asked, now);
+                    last = Some(asked);
+                    steps.push(format!("intent {asked}"));
+                }
+                1 => {
+                    app.run(Event::Call { team: team(asked) }, now);
+                    last = Some(asked);
+                    steps.push(format!("call {asked}"));
+                }
+                _ if app.state.minting => {
+                    app.answer(Some(200), now);
+                    steps.push("answer".to_owned());
+                }
+                _ => {}
+            }
+        }
+        // Settle: every mint in flight answers, and any it starts answers too.
+        for _ in 0..10 {
+            if !app.state.minting {
+                break;
+            }
+            now += 1;
+            app.answer(Some(200), now);
+            steps.push("answer".to_owned());
+        }
+        assert!(!app.state.minting, "seed {seed}: still minting after {steps:?}");
+        assert_eq!(
+            app.state.held.as_ref().map(|held| held.team.as_str()),
+            last,
+            "seed {seed}: {steps:?}"
+        );
+    }
 }
 
 #[test]
