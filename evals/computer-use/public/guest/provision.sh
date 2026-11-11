@@ -28,9 +28,32 @@ if [[ -d $A/cmux.app ]]; then
   sudo_ xattr -dr com.apple.quarantine "/Applications/$app_name" 2>/dev/null || true
 fi
 
+# cmux settings for the benchmark: no person is at the VM, so no takeover
+# pause, and the deny list is emptied so cmux may use every app the tasks
+# name (Terminal and System Settings are on its default list; Codex Computer
+# Use has no such list). The cmux Remote helper's grants are below (TCC).
+mkdir -p ~/.config/cmux
+cat > ~/.config/cmux/cmux-next.json <<'JSON'
+{
+  "computerUse": {
+    "mode": "fullAccess",
+    "deniedApps": [],
+    "pauseOnTakeover": false,
+    "showCursor": true
+  }
+}
+JSON
+# Start the app once so its daemon stages cmux Remote, then quit it; the
+# staged helper's bundle id gets the grants below.
+if [[ -f $A/cmux-app-name ]]; then
+  open -g -a "/Applications/$(cat "$A/cmux-app-name")" || true
+fi
+
 # --- VS Code and Obsidian (MacAgentBench vscode/obsidian tasks) ---------------
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 /opt/homebrew/bin/brew install --cask --quiet visual-studio-code obsidian || true
+# No "downloaded from the Internet" prompt on first launch (it blocks open -g).
+sudo_ xattr -dr com.apple.quarantine "/Applications/Visual Studio Code.app" "/Applications/Obsidian.app" 2>/dev/null || true
 
 # --- TCC ---------------------------------------------------------------------
 SYS=/Library/Application\ Support/com.apple.TCC/TCC.db
@@ -52,6 +75,12 @@ for id in "${cu_ids[@]}"; do
     grant "$SYS" "$svc" "$id" 0
   done
 done
+# cmux Remote asks for Local Network access on first start and does not report
+# ready until it is answered: pre-allow it for the helper and the app.
+for id in com.cmuxterm.remote.dev $(cat "$A/cmux-bundle-ids" 2>/dev/null); do
+  grant "$USR" kTCCServiceLocalNetwork "$id" 0
+done
+
 # The benchmark's setup and checkers run over SSH and drive apps with
 # AppleScript and read their data: Apple Events to every app, and full disk access.
 ssh_clients=(/usr/libexec/sshd-keygen-wrapper /usr/sbin/sshd /bin/bash /bin/zsh /usr/bin/osascript)
@@ -73,10 +102,29 @@ sudo_ pmset -a sleep 0 displaysleep 0 disksleep 0
 defaults -currentHost write com.apple.screensaver idleTime 0
 sudo_ defaults write /Library/Preferences/com.apple.screensaver loginWindowIdleTime 0
 defaults write com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false
+# No autocorrect or auto-capitalization: a task's exact text stays exact for
+# every arm (it capitalized "cmux" in the Codex smoke run).
+defaults write NSGlobalDomain NSAutomaticCapitalizationEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticSpellingCorrectionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
+defaults write com.apple.TextEdit RichText -bool false
 defaults write com.apple.dock autohide -bool false
-# First launch of each benchmark app once, so welcome sheets are out of the way
-# the same way for every arm; then quit them.
+# First launch of each benchmark app once (bounded), so their first-run state
+# is the same for every arm; then quit every app, so each attempt starts on an
+# empty desktop.
 for app in Calendar Notes Reminders Safari Clock TextEdit "Visual Studio Code" Obsidian; do
-  open -g -a "$app" 2>/dev/null || true
+  ( open -g -a "$app" 2>/dev/null & p=$!; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 $p 2>/dev/null || break; /bin/sleep 1; done; kill $p 2>/dev/null ) || true
 done
+/bin/sleep 5
+keep='^(Finder|Dock|SystemUIServer|WindowManager|ControlCenter|NotificationCenter|loginwindow)$'
+for name in $(lsappinfo list | sed -n 's/.*"\(.*\)" ASN.*/\1/p' | sort -u); do
+  [[ $name =~ $keep ]] && continue
+  pkill -x "$name" 2>/dev/null || true
+done
+# Dismiss pending notification banners and the "What's new" welcome.
+defaults write com.apple.ncprefs dnd_prefs -data 0 2>/dev/null || true
+killall NotificationCenter 2>/dev/null || true
+bash "$(dirname "$0")/quiet-capture-alerts.sh" 2>/dev/null || bash ~/quiet-capture-alerts.sh || true
 echo provisioned

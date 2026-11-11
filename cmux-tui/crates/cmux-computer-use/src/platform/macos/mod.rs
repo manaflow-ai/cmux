@@ -30,11 +30,30 @@ use cgwindows::CgWindow;
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
     elements: ElementCache,
+    menu_guard: std::sync::RwLock<Option<Arc<dyn MenuGuard>>>,
 }
 
 impl MacDesktop {
     pub fn new(host: Option<Arc<dyn HostServices>>) -> Self {
-        Self { host, elements: ElementCache::default() }
+        Self { host, elements: ElementCache::default(), menu_guard: std::sync::RwLock::new(None) }
+    }
+
+    fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
+        self.menu_guard.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Whether the deny list hides and refuses this menu item (Recent Items,
+    /// Open With and Services entries that reach a denied or protected app).
+    fn menu_item_blocked(&self, item: &Ax) -> bool {
+        let Some(guard) = self.guard() else { return false };
+        let (top_index, depth, siblings) = ax::menu_context(item);
+        let title = item.string("AXTitle").unwrap_or_default();
+        let ctx = roles::MenuItemContext { title: &title, top_index, depth, siblings: &siblings };
+        roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
+    }
+
+    fn denies_any(&self) -> bool {
+        self.guard().is_some_and(|g| g.denies_any())
     }
 }
 
@@ -314,7 +333,17 @@ impl Desktop for MacDesktop {
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         let t = self.target(window_id)?;
         let (_, window) = self.ax_window(&t)?;
-        self.elements.tree(&t.id(), window, options)
+        let guard = self.guard();
+        let blocked = |ctx: &roles::MenuItemContext| {
+            guard.as_ref().is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
+        };
+        self.elements.tree(&t.id(), window, options, &blocked)
+    }
+
+    fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {
+        *self.menu_guard.write().unwrap_or_else(|e| e.into_inner()) = Some(guard);
+        workspace::warm_app_names();
+        let _ = workspace::service_shortcuts();
     }
 
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {
@@ -409,7 +438,7 @@ impl Desktop for MacDesktop {
             accepted = app.set("AXFrontmost", &yes).is_ok() || workspace::activate(pid);
         }
         let window = match prior.window_id.as_deref().and_then(|w| w.parse::<u32>().ok()) {
-            Some(id) => app.elements("AXWindows").into_iter().find(|w| w.window_id() == Some(id)),
+            Some(id) => app.windows().into_iter().find(|w| w.window_id() == Some(id)),
             None => app.element("AXFocusedWindow"),
         };
         if let Some(window) = window {

@@ -17,20 +17,34 @@ uid=$(id -u)
 label=dev.cmux.cubench.agent
 plist=$out/agent.plist
 codex=${CUBENCH_CODEX:-$HOME/.local/bin/codex}
-cmux=${CUBENCH_CMUX:-/Applications/cmux DEV cuparity.app/Contents/Resources/bin/cmux}
+cmux=${CUBENCH_CMUX:-/Applications/$(cat "$HOME/cub-assets/cmux-app-name" 2>/dev/null)/Contents/Resources/bin/cmux}
 
 common=(exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
   -m "$model" -c "model_reasoning_effort=\"$effort\""
   --disable shell_tool --disable unified_exec
   -c 'include_apply_patch_tool=false' -c 'web_search="disabled"' -C "$out")
 case $arm in
-  codex-cu) args=("${common[@]}") ;;
+  codex-cu)
+    # Codex hosts Codex Computer Use's MCP client itself (the service checks
+    # that its caller is signed by OpenAI), the way Codex's own config sets it.
+    sky="$HOME/.codex/computer-use/Codex Computer Use.app"
+    args=("${common[@]}"
+      -c 'mcp_servers.computer-use.enabled=true'
+      -c "mcp_servers.computer-use.command=\"$sky/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient\""
+      -c 'mcp_servers.computer-use.args=["mcp"]'
+      -c "mcp_servers.computer-use.cwd=\"$HOME/.codex/computer-use\""
+      -c "mcp_servers.computer-use.env.SKY_CUA_SERVICE_PATH=\"$sky\""
+      -c "mcp_servers.computer-use.env.CODEX_CLI_PATH=\"$codex\""
+      -c "mcp_servers.computer-use.env.CODEX_HOME=\"$HOME/.codex\""
+      -c 'mcp_servers.computer-use.startup_timeout_sec=60'
+      -c 'mcp_servers.computer-use.tool_timeout_sec=120') ;;
   cmux-cu)
     args=("${common[@]}" --disable computer_use
       -c 'plugins."computer-use@openai-bundled".enabled=false'
       -c 'plugins."unified-computer-use@openai-bundled".enabled=false'
       -c "mcp_servers.cmux_computer_use.command=\"$cmux\""
       -c 'mcp_servers.cmux_computer_use.args=["computer-use","mcp"]'
+      -c "mcp_servers.cmux_computer_use.env.CMUX_TUI_SOCKET=\"$(getconf DARWIN_USER_TEMP_DIR)cmux-tui-$(id -u)/cmux-app-$(cat "$HOME/cub-assets/cmux-tag" 2>/dev/null || echo cuparity2).sock\""
       -c 'mcp_servers.cmux_computer_use.tool_timeout_sec=120') ;;
   *) echo "unknown arm $arm" >&2; exit 2 ;;
 esac
@@ -46,6 +60,13 @@ plistlib.dump({"Label": label, "ProgramArguments": ["/bin/bash", "-c", wrapped],
                                         "HOME": __import__("os").path.expanduser("~")}},
               open(plist, "wb"))
 PY
+if [[ $arm == cmux-cu ]]; then
+  # cmux Computer Use runs in cmux Remote, which the app's daemon starts: open
+  # the app hidden and wait for the worker (bounded) before the clock starts.
+  open -g -j -a "/Applications/$(cat "$HOME/cub-assets/cmux-app-name")"
+  for _ in $(seq 1 120); do pgrep -f "cmux-remote worker computer-use" >/dev/null && break; /bin/sleep 1; done
+  pgrep -f "cmux-remote worker computer-use" >/dev/null || { echo "cmux worker did not start" > "$out/stderr.txt"; echo setup > "$out/rc"; cat "$out/rc"; exit 0; }
+fi
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
 rm -f "$out/rc"
 start=$(date +%s)

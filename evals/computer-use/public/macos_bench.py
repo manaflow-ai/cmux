@@ -81,17 +81,56 @@ def mab_tasks(root: str) -> list[dict]:
     return out
 
 
+# macOSWorld's own guest is an EC2 AMI with seeded files in
+# ~/Benchmark_Backup and App Store apps; tasks that need either cannot run
+# faithfully in a stock VM and are left out. The rest run with the AMI's user
+# path rewritten to the guest's.
+MOW_APP_STORE = ("Pages", "Keynote", "Numbers", "iMovie", "GarageBand", "Xcode", "Final Cut", "Logic")
+
+
 def mow_tasks(root: str) -> list[dict]:
     out = []
     for path in sorted(glob.glob(os.path.join(root, "tasks", "*", "*.json"))):
         t = json.load(open(path))
-        task = t.get("task") or t.get("instruction") or {}
+        blob = json.dumps(t)
+        if "Benchmark_Backup" in blob or t.get("force_ec2") or any(a in blob for a in MOW_APP_STORE):
+            continue
+        task = t.get("task") or {}
         instr = task.get("en") if isinstance(task, dict) else task
         if not instr:
             continue
+        t = json.loads(blob.replace("/Users/ec2-user", f"/Users/{GUEST_USER}"))
         out.append({"suite": "macosworld", "id": f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)[:-5]}",
                     "path": path, "instruction": instr, "raw": t})
     return out
+
+
+def mow_setup(task: dict, vm: "VM"):
+    t = task["raw"]
+    pre = t.get("pre_command")
+    if isinstance(pre, dict):
+        pre = pre.get("en")
+    if pre:
+        r = vm.ssh(pre, timeout=300)
+        if r.returncode != 0 and t.get("force_error_free_prep"):
+            raise RuntimeError(f"pre_command failed: {r.stderr[-300:]}")
+    # The benchmark's own settle time, capped: it was sized for EC2 cold starts.
+    time.sleep(min(int(t.get("before_action_delay_seconds", 0) or 0), 10))
+
+
+def mow_check(task: dict, vm: "VM") -> tuple[float, dict]:
+    """macOSWorld's evaluator: the first full-score grading command whose
+    output contains "true" scores; a command that fails to run is an error."""
+    t = task["raw"]
+    time.sleep(min(int(t.get("before_grading_delay_seconds", 0) or 0), 10))
+    for command, value in [c for c in t["grading_command"] if c[1] == 100]:
+        r = vm.ssh(command, timeout=120)
+        if r.returncode == 255:
+            # The check never ran (ssh): an infrastructure failure, retried on resume.
+            raise RuntimeError(f"grading ssh failed: {r.stderr[-200:]}")
+        if "true" in r.stdout.lower():
+            return value / 100.0, {"matched": command[:200]}
+    return 0.0, {}
 
 
 # ------------------------------------------------------------------ VM
@@ -119,11 +158,17 @@ class VM:
 
     def ssh_args(self) -> list[str]:
         return ["sshpass", "-p", GUEST_PASS, "ssh", "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password",
                 "-o", "ConnectTimeout=5", f"{GUEST_USER}@{self.ip}"]
 
     def ssh(self, command: str, timeout: float = 600, check: bool = False) -> subprocess.CompletedProcess:
-        p = subprocess.run(self.ssh_args() + [command], capture_output=True, text=True, timeout=timeout)
+        # The guest's sshd now and then refuses a password login right after
+        # another session (rc 255, "Permission denied"): retry those only.
+        for attempt in range(4):
+            p = subprocess.run(self.ssh_args() + [command], capture_output=True, text=True, timeout=timeout)
+            if p.returncode != 255 or "Permission denied" not in p.stderr and "authentication failures" not in p.stderr:
+                break
+            time.sleep(1 + attempt)  # bounded retry backoff for a refused login, not a synchronization
         if check and p.returncode != 0:
             raise RuntimeError(f"guest `{command[:80]}`: exit {p.returncode}: {p.stderr[-300:]}")
         return p
@@ -142,15 +187,22 @@ class VM:
         raise TimeoutError(f"{self.name}: no SSH/GUI session after {limit}s")
 
     def put(self, local: str, remote: str):
-        subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-r", local,
-                        f"{GUEST_USER}@{self.ip}:{remote}"], check=True, timeout=300)
+        self._scp(local, f"{GUEST_USER}@{self.ip}:{remote}")
 
     def get(self, remote: str, local: str):
-        subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
-                        "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-r",
-                        f"{GUEST_USER}@{self.ip}:{remote}", local], timeout=300)
+        self._scp(f"{GUEST_USER}@{self.ip}:{remote}", local, check=False)
 
+    def _scp(self, src: str, dst: str, check: bool = True):
+        for attempt in range(4):
+            p = subprocess.run(["sshpass", "-p", GUEST_PASS, "scp", "-q", "-o", "StrictHostKeyChecking=no",
+                                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                                "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=password",
+                                "-r", src, dst], capture_output=True, text=True, timeout=300)
+            if p.returncode == 0 or "No such file" in p.stderr:
+                break
+            time.sleep(1 + attempt)  # bounded retry backoff for a refused login, not a synchronization
+        if check and p.returncode != 0:
+            raise RuntimeError(f"scp {src} -> {dst}: {p.stderr[-300:]}")
 
 # ------------------------------------------------------------------ suites' setup and checks
 
@@ -214,6 +266,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
     try:
         with VM(args.golden, name) as vm:
             env = mab_setup(task, vm, args.mab) if task["suite"] == "macagentbench" else None
+            if task["suite"] == "macosworld":
+                mow_setup(task, vm)
             prompt = f"{SYSTEM}\n\nTask: {task['instruction']}\n"
             pf = os.path.join(adir, "prompt.txt")
             open(pf, "w").write(prompt)
@@ -225,6 +279,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                        f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
             row["agent_seconds"] = round(time.monotonic() - t0, 1)
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
+            if row["agent_rc"] == "setup":
+                raise RuntimeError("the arm's computer-use service did not start in the guest")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:
@@ -235,7 +291,8 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                 env.close_connection()
                 row.update(score=score, success=score >= 1.0, check=detail)
             else:
-                row.update(score=None, success=None, check={"note": "macosworld checker not wired yet"})
+                score, detail = mow_check(task, vm)
+                row.update(score=score, success=score >= 1.0, check=detail)
     except Exception as e:  # infrastructure failure: recorded, never counted as a task failure
         row.update(infra_error=f"{type(e).__name__}: {e}"[:500], score=None, success=None)
     row.update(summarize_events(os.path.join(adir, "events.jsonl")))

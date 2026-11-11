@@ -177,3 +177,96 @@ pub fn carries_text(key: &Key, flags: u64) -> Option<char> {
         _ => None,
     }
 }
+
+/// `AXMenuItemCmdModifiers` bits (HIToolbox `kMenu*Modifier`): Command is
+/// implied unless `MENU_NO_COMMAND` is set.
+pub const MENU_SHIFT: i64 = 1;
+pub const MENU_OPTION: i64 = 2;
+pub const MENU_CONTROL: i64 = 4;
+pub const MENU_NO_COMMAND: i64 = 8;
+
+/// Whether a menu item's key equivalent is `combo`. `cmd_char` is
+/// `AXMenuItemCmdChar` (AppKit reports it upper-case, with Shift in the
+/// modifiers), `virtual_key` is `AXMenuItemCmdVirtualKey` for items whose
+/// equivalent is a non-character key (arrows, Delete, F-keys).
+pub fn menu_item_matches(
+    combo: &crate::keys::KeyCombo,
+    cmd_char: Option<&str>,
+    virtual_key: Option<i64>,
+    menu_mods: i64,
+) -> bool {
+    let has = |m: Modifier| combo.modifiers.contains(&m);
+    // Option, Control and Command must be the same.
+    let wanted = (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
+        | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
+        | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
+    if menu_mods & (MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) != wanted {
+        return false;
+    }
+    let menu_shift = menu_mods & MENU_SHIFT != 0;
+    match (&combo.key, cmd_char.filter(|c| !c.is_empty())) {
+        (Key::Char(c), Some(item)) => {
+            let mut chars = item.chars();
+            let Some(i) = chars.next() else { return false };
+            if chars.next().is_some() {
+                return false;
+            }
+            // Compare the physical key and Shift. AppKit stores Zoom In as "+"
+            // with Command only: the character carries the Shift ("+" is
+            // shift+=), and letters are reported upper-case without meaning
+            // Shift (Shift is then the MENU_SHIFT bit).
+            let (Some((item_code, item_char_shift)), Some((key_code_, key_char_shift))) = (char_key(i), char_key(*c))
+            else {
+                return i.to_lowercase().eq(c.to_lowercase()) && menu_shift == has(Modifier::Shift);
+            };
+            let item_shift = menu_shift || (item_char_shift && !i.is_ascii_alphabetic());
+            let key_shift = has(Modifier::Shift) || (key_char_shift && !c.is_ascii_alphabetic());
+            item_code == key_code_ && item_shift == key_shift
+        }
+        (key, None) => match (key_code(key), virtual_key) {
+            (Some((code, _)), Some(v)) => i64::from(code) == v && menu_shift == has(Modifier::Shift),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// A Services key equivalent ("@B", "$^@C", or a bare "M": Command is
+/// implied) as (key code, CGEvent modifier flags), on the ANSI layout.
+pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
+    let mut flags = FLAG_COMMAND;
+    let mut key = None;
+    for c in equivalent.chars() {
+        match c {
+            '$' => flags |= FLAG_SHIFT,
+            '^' => flags |= FLAG_CONTROL,
+            '~' => flags |= FLAG_ALTERNATE,
+            '@' => flags |= FLAG_COMMAND,
+            other => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(other);
+            }
+        }
+    }
+    let key = key?;
+    // NSF1FunctionKey (U+F704) .. NSF24FunctionKey.
+    if let n @ 0xF704..=0xF71B = key as u32 {
+        let (code, _) = key_code(&Key::F((n - 0xF704 + 1) as u8))?;
+        return Some((code, flags));
+    }
+    let (code, shift) = char_key(key)?;
+    if shift || key.is_ascii_uppercase() {
+        // A capital or shifted character means Shift (services write "B" for ⇧⌘B).
+        flags |= FLAG_SHIFT;
+    }
+    Some((code, flags))
+}
+
+/// Whether a chord (key code and flags, Shift folded in) is one of the
+/// registered Services shortcuts.
+pub fn is_service_shortcut(code: u16, flags: u64, services: &[(u16, u64)]) -> bool {
+    let mask = FLAG_SHIFT | FLAG_CONTROL | FLAG_ALTERNATE | FLAG_COMMAND;
+    services.iter().any(|(c, f)| *c == code && (*f & mask) == (flags & mask))
+}

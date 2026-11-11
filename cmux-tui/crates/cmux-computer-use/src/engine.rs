@@ -108,6 +108,19 @@ impl ToolOutput {
     }
 }
 
+/// The deny list and protected apps, for menu items that open other apps.
+struct PolicyMenuGuard(Arc<RwLock<PolicyConfig>>);
+
+impl crate::desktop::MenuGuard for PolicyMenuGuard {
+    fn app_blocked(&self, id: &str, name: &str) -> bool {
+        let config = self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        policy::is_blocked(&config, &TargetApp { id: id.to_string(), name: name.to_string() }).is_some()
+    }
+    fn denies_any(&self) -> bool {
+        !self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner).denied_apps.is_empty()
+    }
+}
+
 /// The cursor's caption for an acting call that was refused, or None for an
 /// ordinary failure (a bad argument, a missing window).
 fn refusal_caption(code: &str) -> Option<&'static str> {
@@ -265,7 +278,7 @@ impl EngineParts {
 
 pub struct Engine {
     desktop: Arc<dyn Desktop>,
-    config: RwLock<PolicyConfig>,
+    config: Arc<RwLock<PolicyConfig>>,
     sessions: Sessions,
     cursor: Arc<dyn CursorSink>,
     approver: Arc<dyn Approver>,
@@ -333,10 +346,12 @@ fn need_f64(args: &Value, key: &str) -> Result<f64, ToolOutput> {
 impl Engine {
     pub fn new(parts: EngineParts) -> Self {
         let audit = parts.state_dir.as_ref().map(|d| d.join("audit.jsonl"));
+        let config = Arc::new(RwLock::new(parts.config));
+        parts.desktop.set_menu_guard(Arc::new(PolicyMenuGuard(config.clone())));
         Self {
             sessions: Sessions::open(parts.state_dir.as_deref()),
             desktop: parts.desktop,
-            config: RwLock::new(parts.config),
+            config,
             cursor: parts.cursor,
             approver: parts.approver,
             takeover: parts.takeover,
@@ -1215,7 +1230,9 @@ impl Engine {
                 "action": actions.get(completed).and_then(|a| a.get("action")).cloned(),
                 "ok": false,
                 "code": failure.code,
-                "message": failure.body.get("message").cloned(),
+                // Errors carry their text as `error` (ToolOutput::error);
+                // without it an agent sees only a code and gives up.
+                "message": failure.body.get("error").or_else(|| failure.body.get("message")).cloned(),
             }));
         }
         let mut out = ToolOutput::ok(json!({
@@ -1298,7 +1315,7 @@ impl Engine {
             Err(e) => {
                 out.body["state"] = json!({
                     "available": false,
-                    "reason": e.body.get("message").cloned().unwrap_or(json!(e.code)),
+                    "reason": e.body.get("error").or_else(|| e.body.get("message")).cloned().unwrap_or(json!(e.code)),
                     "next": "call list_windows, then screenshot the window you need",
                 });
                 return;
@@ -1310,7 +1327,8 @@ impl Engine {
         state["captures"] = json!(captures);
         let config = self.config();
         if self.still_allowed(&config, ctx, window_id, app).is_ok()
-            && let Ok(mut tree) = self.desktop.ui_tree(window_id, TreeOptions::default())
+            && let Ok(mut tree) =
+                self.desktop.ui_tree(window_id, TreeOptions { menus: false, ..TreeOptions::default() })
         {
             // The capture just recorded this window's geometry for the session.
             let seen = lock(&self.seen)
