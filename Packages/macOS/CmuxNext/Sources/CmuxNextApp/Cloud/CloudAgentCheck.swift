@@ -21,8 +21,9 @@ import os
 @MainActor final class CloudAgentCheck {
     /// The probe's whole budget: a probe that has not answered by then lets the start go on.
     nonisolated static let probeTimeout: TimeInterval = 2.5
-    /// The model a probe asks when the start names no full Claude model id: the cheapest, as Claude Code's small calls.
-    nonisolated static let probeModel = "claude-haiku-5-5"
+    /// The model a Claude start with none named runs: acpmux's catalog default for a new Claude chat
+    /// (cmux-tui acpmux `start_defaults`), so a used-up Opus window stops it.
+    nonisolated static let defaultModel = "claude-opus-5-5"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// The probe's reply as the rule reads it.
@@ -82,8 +83,9 @@ import os
     }
 
     /// The refusal's words when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
-    func limitRefusal(harness: String?, model: String?, userID: String, token: Data) async -> String? {
-        let key = userID + "\n" + (model ?? "")
+    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> String? {
+        let model = Self.modelID(named)
+        let key = userID + "\n" + model
         if let kept = kept[key], kept.freshUntil > now() { return kept.refusal?.message }
         let task = asking[key] ?? Task { [self] in
             guard let probe = await probe(token, model: model) else { return nil }
@@ -99,6 +101,18 @@ import os
     }
 
     /// The rule's answer for `probe` (cmux-cloud-start-core `agent_check::check`); nil when the FFI does not answer.
+    /// The full Claude model id a start of `model` runs, which the probe asks and the rule reads: the
+    /// default for none (or `default`); a context-window suffix dropped (`claude-opus-5-5[1m]`, whose
+    /// limits are its model's, and which the API does not take); a family alias (`opus`, `opusplan`,
+    /// `sonnet`, `haiku`) as that family's current id; any other `claude-` id as it is.
+    nonisolated static func modelID(_ model: String?) -> String {
+        var id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if id.hasSuffix("]"), let open = id.lastIndex(of: "[") { id = String(id[..<open]) }
+        if id.hasPrefix("claude-") { return id }
+        for family in ["opus", "sonnet", "haiku"] where id.hasPrefix(family) { return "claude-\(family)-5-5" }
+        return defaultModel
+    }
+
     nonisolated static func answer(harness: String?, model: String?, probe: Probe?, now: Int64) -> Answer? {
         CloudStartCore().call("cloud_agent_check", Request(harness: harness, model: model, probe: probe, now: now), as: Answer.self)
     }
@@ -112,7 +126,7 @@ import os
     }
 
     /// The probe: Claude Code's own request shape for a subscription login, the smallest it can be, on the start's own
-    /// model when it names a full Claude model id (its limits are that model's), else the cheapest.
+    /// model as ``modelID(_:)`` reads it (its limits are that model's).
     nonisolated static func probeRequest(bearer: String, model: String? = nil) -> URLRequest? {
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
         var request = URLRequest(url: url, timeoutInterval: probeTimeout)
@@ -121,7 +135,7 @@ import os
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": model.flatMap { $0.lowercased().hasPrefix("claude-") ? $0 : nil } ?? probeModel, "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+        let body: [String: Any] = ["model": modelID(model), "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
                                    "messages": [["role": "user", "content": "ok"]]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
