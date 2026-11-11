@@ -73,6 +73,31 @@ impl Fixture {
             .unwrap_or_else(|_| panic!("server {action} printed no JSON: {stdout:?} {stderr:?}"))
     }
 
+    /// `server <action>` of the fixture's session at `socket`, which must
+    /// fail: its exit code and the JSON error it printed on stderr.
+    fn server_error(
+        &self,
+        socket: &std::path::Path,
+        action: &str,
+        extra: &[&str],
+    ) -> (Option<i32>, Value) {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["server", action, "--json", "--session", &self.session, "--socket"])
+            .arg(socket)
+            .args(extra);
+        self.env(&mut command);
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "server {action} succeeded: {stdout} {stderr}");
+        let last = stderr.lines().rfind(|line| line.starts_with('{')).unwrap_or_default();
+        let error = serde_json::from_str(last).unwrap_or_else(|_| {
+            panic!("server {action} printed no JSON error: {stdout:?} {stderr:?}")
+        });
+        (output.status.code(), error)
+    }
+
     /// The `kind` of every control client of the running daemon, or `None`
     /// while no daemon answers.
     fn client_kinds(&self) -> Option<Vec<String>> {
@@ -285,6 +310,21 @@ fn session_state_dirs(fixture: &Fixture) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The session's guard files (`session-locks/<session>-<hash>.lock`), which
+/// every owner holds from its registry open to its exit.
+fn session_guard_files(fixture: &Fixture) -> Vec<String> {
+    let prefix = format!("{}-", fixture.session);
+    fs::read_dir(fixture.dir.join("state").join("session-locks"))
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with(&prefix) && name.ends_with(".lock"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Seeds `table` of the sqlite store `path` with one row, as the Chief and
 /// conversation stores keep theirs next to the session registry.
 fn seed_store(path: &std::path::Path, table: &str, row: &str) {
@@ -417,4 +457,107 @@ fn w6e_stop_with_purge_removes_the_folder_of_a_stopped_session() {
     let left = session_state_dirs(&fixture);
     assert!(left.is_empty(), "stop --purge left the stopped session's folder {left:?}: {purged}");
     assert_eq!(purged["removed_session_state"], true, "{purged}");
+}
+
+/// W6-E review item 3: `--purge` alone (no `--end-terminals`) ends every
+/// terminal of the session first, then removes its folder and its
+/// terminal-host records.
+#[test]
+fn w6e_stop_with_purge_alone_ends_the_terminals() {
+    let fixture = Fixture::new("w6e-purge-alone");
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+
+    let stopped = fixture.server("stop", &["--purge"]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+
+    assert!(
+        stopped["ended_terminals"].as_u64().is_some_and(|ended| ended >= 1),
+        "stop --purge alone did not end the session's terminals: {stopped}"
+    );
+    let hosts = terminal_host_dirs(&fixture);
+    assert!(hosts.is_empty(), "stop --purge alone left terminal-host records {hosts:?}");
+    let left = session_state_dirs(&fixture);
+    assert!(left.is_empty(), "stop --purge alone left the session folder {left:?}: {stopped}");
+}
+
+/// W6-E review item 2: a purge that fails exits non-zero with the
+/// `session.reset_state.*` code, and the error keeps the stop's facts
+/// (`details.stop`). Here the session's folder path is a regular file, so
+/// the purge cannot remove it as a session folder.
+#[test]
+fn w6e_failed_purge_exits_non_zero_with_the_reset_error_code() {
+    let fixture = Fixture::new("w6e-purge-fails");
+    fixture.server("ensure", &[]);
+    fixture.server("stop", &["--end-terminals"]);
+    let kept = session_state_dirs(&fixture);
+    let [folder] = kept.as_slice() else {
+        panic!("a plain end-terminals stop did not keep one session folder: {kept:?}")
+    };
+    let folder = fixture.dir.join("state").join(folder);
+    fs::remove_dir_all(&folder).unwrap();
+    fs::write(&folder, "not a session folder").unwrap();
+
+    let (code, error) = fixture.server_error(&fixture.socket, "stop", &["--purge"]);
+
+    assert_eq!(code, Some(1), "a failed purge did not exit 1: {error}");
+    assert_eq!(error["code"], "session.reset_state.invalid_state_path", "{error}");
+    assert_eq!(error["details"]["stop"]["status"], "not_running", "{error}");
+    assert_eq!(error["details"]["stop"]["removed_session_state"], false, "{error}");
+    assert!(
+        error["message"].as_str().is_some_and(|message| !message.is_empty()),
+        "a failed purge printed no message: {error}"
+    );
+    assert!(folder.is_file(), "the failed purge removed the file at the session folder path");
+}
+
+/// W6-E review item 3: `stop --purge` of a session that another owner
+/// still runs (here: the stop names another socket, where no owner
+/// answers) refuses: it exits non-zero with
+/// `session.reset_state.session_running`, the folder stays, and the running
+/// owner still serves its session.
+#[test]
+fn w6e_purge_refuses_a_session_another_daemon_runs() {
+    let fixture = Fixture::new("w6e-purge-running");
+    let owner = fixture.server("ensure", &[]);
+    let other_socket = fixture.dir.join("other.sock");
+
+    let (code, error) = fixture.server_error(&other_socket, "stop", &["--purge"]);
+
+    assert_eq!(code, Some(1), "a refused purge did not exit 1: {error}");
+    assert_eq!(error["code"], "session.reset_state.session_running", "{error}");
+    assert_eq!(error["details"]["stop"]["status"], "not_running", "{error}");
+    let kept = session_state_dirs(&fixture);
+    assert_eq!(kept.len(), 1, "the refused purge removed the running session's folder {kept:?}");
+    let again = fixture.server("ensure", &[]);
+    assert_eq!(again["pid"], owner["pid"], "the owner did not survive the refused purge: {again}");
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+}
+
+/// W6-E review item 4: `stop --purge` also removes the session's empty
+/// guard file (`session-locks/<session>-<hash>.lock`), and a new session of
+/// the same name then starts on a fresh folder and serves a client.
+#[test]
+fn w6e_purge_removes_the_session_guard_and_the_name_starts_again() {
+    let fixture = Fixture::new("w6e-purge-lock");
+    let first = fixture.server("ensure", &[]);
+    let guards = session_guard_files(&fixture);
+    assert_eq!(guards.len(), 1, "the running session has no guard file: {guards:?}");
+
+    let stopped = fixture.server("stop", &["--purge"]);
+
+    let left = session_guard_files(&fixture);
+    assert!(left.is_empty(), "stop --purge left the session guard {left:?}: {stopped}");
+    assert!(session_state_dirs(&fixture).is_empty(), "stop --purge left the folder: {stopped}");
+    let again = fixture.server("ensure", &[]);
+    assert_ne!(again["pid"], first["pid"], "the purged session did not start again: {again}");
+    assert_eq!(session_state_dirs(&fixture).len(), 1, "the new session has no folder");
+    assert_eq!(session_guard_files(&fixture).len(), 1, "the new session has no guard file");
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
 }
