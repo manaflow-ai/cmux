@@ -845,6 +845,63 @@ pub fn adopt(paths: &Paths) -> Outcome {
     }
     record_installed(&mut state, &plan);
     let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "adopt")
+}
+
+/// `cmux host update install --file PATH --commit C --committed-at T`: puts the build at
+/// `file` (a client's own pinned cmux-tui, the cmux NEXT app's: `cmux link machine update
+/// --to-bundled` on a machine whose work link is the store link) in the store and flips
+/// the profile to it, as [`adopt`] does with the channel's build: it relinks the work
+/// user's cmux-tui into `current`, arms the guard, restarts acpmux, the cmux units and
+/// last `cmux-host.service`, and the new `cmux host run` proves the build or rolls it
+/// back ([`healthy`]). Run as root, from the new build itself. Only cmux-tui changes
+/// ([`super::decide_pinned`]); a build not newer than the last one applied here, or one
+/// rolled back here, is left out, so the channel and the app never move a machine back.
+/// Like [`adopt`] it honors no hold: the caller asked for it while it waits.
+pub fn install_pinned(paths: &Paths, file: &Path, commit: &str, committed_at: u64) -> Outcome {
+    let Some(_lock) = Lock::take(paths, false) else {
+        return Outcome::Failed("another update check runs".to_owned());
+    };
+    if paths.at(super::OFF_FILE).exists() {
+        return Outcome::Off(format!("{} exists", super::OFF_FILE));
+    }
+    if load_pending(paths).is_some() {
+        return Outcome::Failed("an update is waiting for its health check".to_owned());
+    }
+    let sha256 = match store::sha256_file(file) {
+        Ok(sha) => sha,
+        Err(e) => return Outcome::Failed(format!("{}: {e}", file.display())),
+    };
+    let size = fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+    let pinned = super::Pinned { sha256, size, commit: commit.to_owned(), committed_at };
+    let mut state = load_state(paths);
+    let plan = match super::decide_pinned(paths, &state, &pinned) {
+        Ok(Decision::Update(plan)) => plan,
+        Ok(Decision::Current) => return Outcome::Current(pinned.commit),
+        Ok(Decision::Older) => return Outcome::Older,
+        Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Err(e) => return Outcome::Failed(e),
+    };
+    if !store::has_entry(paths, &pinned.sha256, CMUX_TUI)
+        && let Err(e) = store::add_entry(paths, &pinned.sha256, CMUX_TUI, file)
+    {
+        return Outcome::Failed(format!("adding {} to the store: {e}", file.display()));
+    }
+    if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
+        return Outcome::Failed(format!("building profile {}: {e}", plan.to));
+    }
+    // Only the new cmux-tui is this update's: the hook entry stays the profile's own.
+    if !state.installed.contains(&pinned.sha256) {
+        state.installed.push(pinned.sha256);
+    }
+    let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "install")
+}
+
+/// The last steps of [`adopt`] and [`install_pinned`], once the next profile is built:
+/// records the update as pending, arms the guard, relinks the work link, flips
+/// `/opt/cmux/current` and restarts the services. `what` names the verb in the log.
+fn flip_and_restart(paths: &Paths, plan: Plan, what: &str) -> Outcome {
     let pending = plan.pending(now());
     if let Err(e) = save_pending(paths, &pending) {
         return Outcome::Failed(format!("recording the update: {e}"));
@@ -877,7 +934,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
     }
     log(&format!(
-        "adopt: profile {} -> {}: cmux-tui {} ({}); restarting the services",
+        "{what}: profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
         short_hex(&plan.cmux_tui.sha256),
@@ -1633,6 +1690,13 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{}", outcome.json(None));
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
+        ["install", "--file", file, "--commit", commit, "--committed-at", at] => {
+            let Ok(at) = at.parse::<u64>() else { return 2 };
+            let outcome = install_pinned(&paths, Path::new(file), commit, at);
+            log(&outcome.line());
+            println!("{}", outcome.json(None));
+            if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
+        }
         ["check"] | ["check", "--skip-resume-hold"] => {
             let honor = if args.len() > 1 { Honor::AllButResume } else { Honor::All };
             let (outcome, skipped) = check(&paths, honor);
@@ -1662,7 +1726,7 @@ pub fn verb(args: &[String]) -> u8 {
         }
         _ => {
             eprintln!(
-                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | guard --to GENERATION"
+                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | install --file PATH --commit SHA --committed-at SECONDS | guard --to GENERATION"
             );
             2
         }

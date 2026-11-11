@@ -2,7 +2,9 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{claim, claim_path, keep_previous, runs_this_install, stop};
+use super::{
+    Route, claim, claim_path, keep_previous, parse, runs_this_install, stop, store_answer,
+};
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
 
@@ -185,4 +187,47 @@ fn a_second_run_of_one_update_finds_its_outcome_claimed() {
     assert!(claim(&folder.path().join(".cmux-tui.update-fedcba9876543210.json")).is_some());
     drop(first);
     assert!(claim(&result).is_some());
+}
+
+fn route_of(extra: &[&str]) -> Option<Route> {
+    let sha = "a".repeat(64);
+    let mut args: Vec<String> = [
+        "--sha256",
+        sha.as_str(),
+        "--install",
+        "/home/cmux/.cmux/bin/cmux-tui",
+        "--daemon-pid",
+        "42",
+        "--result",
+        "/home/cmux/.cmux/bin/.cmux-tui.update-0123456789abcdef.json",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    args.extend(extra.iter().map(|word| (*word).to_owned()));
+    parse(&args).map(|args| args.route)
+}
+
+/// The Mac names the store route for a machine whose daemon runs from the store; an
+/// older Mac names none (the work route), and any other route is refused.
+#[test]
+fn the_route_is_work_unless_the_mac_names_the_store() {
+    assert_eq!(route_of(&[]), Some(Route::Work));
+    assert_eq!(route_of(&["--route", "work"]), Some(Route::Work));
+    assert_eq!(route_of(&["--route", "store"]), Some(Route::Store));
+    assert_eq!(route_of(&["--route", "elsewhere"]), None);
+    assert_eq!(route_of(&["--route"]), None);
+}
+
+/// `cmux host update install`'s answer: its state and detail, `unknown` for anything else.
+#[test]
+fn the_updaters_answer_is_read_from_its_last_json_line() {
+    let line = |state: &str| format!("noise\n{{\"state\":\"{state}\",\"detail\":\"why\"}}\n");
+    for state in ["updating", "current", "older", "off", "rolled-back-before", "failed"] {
+        assert_eq!(store_answer(&line(state)), (state, "why".to_owned()));
+    }
+    assert_eq!(
+        store_answer("sudo: a password is required"),
+        ("unknown", "sudo: a password is required".to_owned())
+    );
+    assert_eq!(store_answer(&line("dancing")).0, "unknown");
 }

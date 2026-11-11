@@ -115,3 +115,22 @@ fn the_login_copy_ops_are_gone() {
         assert_eq!(call(op, &request).0, ERR_INVALID, "{op:?} still answers");
     }
 }
+
+/// The start's machine-route check through the C ABI: the command it runs on the machine, and the
+/// verdict on what the machine printed (none before it ran).
+#[test]
+fn the_machine_route_op_names_its_command_and_judges_the_report() {
+    let (code, asked) = call(c"cloud_machine_route", &json!({}));
+    assert_eq!(code, OK);
+    assert!(asked["command"].as_str().is_some_and(|c| c.contains("acp --json machine-auth")));
+    assert_eq!(asked["verdict"], Value::Null);
+    let judged = |stdout: &str| {
+        call(c"cloud_machine_route", &json!({"stdout": stdout})).1["verdict"].clone()
+    };
+    assert_eq!(judged(""), json!("unsupported"));
+    let ok =
+        json!({"ok": true, "holds_credential": false, "daemon": {"running": true}, "agents": {}});
+    assert_eq!(judged(&ok.to_string()), json!("ready"));
+    let login = json!({"ok": false, "holds_credential": true, "agents": {}});
+    assert_eq!(judged(&login.to_string()), json!("holds_credential"));
+}
