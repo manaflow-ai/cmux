@@ -2871,7 +2871,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
 
     def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
         """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
-        the blocking read writes `reply` (or fails when None)."""
+        the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         run = next(step["run"] for step in jobs["release-compile-fast"]["steps"] if step.get("id") == "compile")
         with tempfile.TemporaryDirectory() as temp:
@@ -2882,12 +2882,13 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(f"""#!/bin/bash
 echo "$*" >> "{temp}/calls"
-if [[ " $* " == *" -w "* ]]; then
+if [[ " $* " == *" -o /dev/null "* ]]; then
   code=$(head -1 "{temp}/codes"); sed -i.bak 1d "{temp}/codes"; printf '%s' "${{code:-404}}"
   [[ "${{code:-404}}" == 000 ]] && exit 7; exit 0
 fi
-[[ -s "{temp}/reply.json" ]] || exit 22
+[[ -s "{temp}/reply.json" ]] || {{ printf 404; exit 0; }}
 while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift; done
+printf 200
 """)
             curl.chmod(0o755)
             output = Path(temp) / "out"
@@ -2916,12 +2917,14 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
     def test_fast_check_still_waits_for_a_live_results_service(self):
         verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
                    "configuration": "release-onone", "state": "pass"}
-        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read.
+        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read. The read
+        # retries nothing inside curl: a 530 there would be retried until the deadline (note-82).
         for codes in (["404"], ["530", "404"]):
             with self.subTest(codes=codes):
                 out, log, _ = self.run_fast_linux_read(codes, verdict)
                 self.assertIn("verdict=pass", out)
-                self.assertIn("--retry-all-errors", log)
+                self.assertIn("&wait=", log)
+                self.assertNotIn("--retry-all-errors", log)
                 self.assertNotIn("results service down", log)
 
     def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):

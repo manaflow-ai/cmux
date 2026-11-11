@@ -5554,9 +5554,14 @@ a.cv-sha:focus-visible {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-enter,
-  .acpmux-row--enter {
+  .cv-enter {
     animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
+     (opacity 1, no translate), and a translate held past it would win over the one a fold ride
+     moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
+  .acpmux-row--enter {
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in

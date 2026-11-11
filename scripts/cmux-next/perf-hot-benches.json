@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "terminal-host-output": {
+      "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
+      "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",
+      "owner": "terminal host"
+    },
     "chats-window-query": {
       "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
       "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
@@ -81,6 +86,11 @@
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
       "owner": "PL-motion-cef"
     },
+    "window-resize-step": {
+      "what": "one step of a live window resize (a person drags an edge): AppKit lays the window's view tree out inside setFrame, so every chrome view's layout() runs once per step and all of them share one refresh. Work that does not depend on the new size (rebuilding tooltips or accessibility elements, drawing a view that only moved) does not belong in it.",
+      "bench": "swift test --filter WindowResizeWorkPerStepTests with CMUX_TEST_SESSION_SIZES=large,real (prints WORK case=window-resize per session size: layout calls per step and per class); frame times by a real corner drag (CuaDriver, 1280x800 to 1040x640) with the same drag on Chrome as the reference: window-edge intervals from debug.motion record_start, main-thread time from debug.frames",
+      "owner": "Performance Lead"
+    },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
       "bench": "scripts/cmux-next/activation-perf.py (observers_ms per become)",
@@ -133,7 +143,12 @@
     },
     "workspace-list-change": {
       "what": "one workspace made or closed (the daemon's workspace-added / workspace-closed event, DaemonStore.drain): the observers it wakes, the membership reconcile, the placement and the sidebar sections pass. Its main-thread cost must not grow with the number of workspaces of the session (826 in the person's session, 60 in the `large` one).",
-      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests (on a build mini); the list's scroll rule (ListViewportChange, SidebarLayout.viewportPositions): swift test --filter \"SidebarRowChangeScrollTests|SidebarViewportRuleEqualityTests\" (viewport_rows per change at 60 and 826 rows); time: session_real.py launch ... --steps \"agents,wait:6,clients:13,wait:8,map:--runs 20\" at 60 and 826, rows new workspace and workspace close (main-thread gap and stalls per action)",
+      "owner": "WORKSPACE LIST 800"
+    },
+    "workspace-placement": {
+      "what": "one new workspace put at its sidebar slot once the daemon reports it (WindowManager.applyPendingPlacements -> SidebarBridge.place): the rows it maps from their stores. It maps the new row only, at 60 workspaces as at 826. Still O(session) per placement and not covered by this budget: the two rows passes (structure walk and SidebarModel.setSections), the document projection in the Rust mirror, and the slot rule's copy of every row (SidebarSection.withoutPlaceholders, counted as slot_rows).",
+      "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspacePlacementCostTests (on a build mini; rows_made, doc_reshows, project, slot_rows per placement)",
       "owner": "WORKSPACE LIST 800"
     }
   }

@@ -102,6 +102,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
+import { FoldRide } from "./conversation/foldRide";
 import { deliberateClick } from "./conversation/useAnchoredCollapse";
 import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
@@ -171,7 +172,7 @@ import {
   jumpUpShown,
   jumpUpTarget,
   lastOwnPrompt,
-  placeOffScreen,
+  placeOffView,
   pressJumpUp,
   type JumpBack,
   type ManualMark,
@@ -1412,7 +1413,7 @@ function TranscriptView({
       repositoryReading.current,
     );
     repositoryReading.current = reading;
-    return reading.repositories;
+    return reading.at;
   }, [githubRepository, fallbackRepository, rows]);
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
@@ -2165,8 +2166,13 @@ function TranscriptView({
       }
     | undefined
   >(undefined);
+  /// The rows under a disclosure's height fold, moved by translate while only folding rows change
+  /// size, and placed by one render when the fold ends (conversation/foldRide.ts).
+  const foldRide = useRef<FoldRide | undefined>(undefined);
   const flushDrawn = useCallback(() => {
     if (!pendingDrawn.current.size) return;
+    // Rows placed at their new heights drop a ride's translate first, or they move by it twice.
+    foldRide.current?.release();
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
     // An equal report can correct a different height still queued at a lower priority.
@@ -2208,6 +2214,25 @@ function TranscriptView({
     },
     [reportRow, flushDrawn],
   );
+  // The ride lives across renders; it reports through the current session's `reportRow`.
+  const reportRowRef = useRef(reportRow);
+  reportRowRef.current = reportRow;
+  foldRide.current ??= new FoldRide({
+    placed: (row) => {
+      const id = row.dataset.rowId;
+      return id === undefined ? undefined : drawnRef.current.get(id)?.height;
+    },
+    height: drawnHeightOf,
+    drawn: () => drawnRef.current,
+    held: () => (foldHolding(foldAnchor.current) ? foldAnchor.current : undefined),
+    finish: (rows) => {
+      for (const row of rows) reportRowRef.current(row);
+      if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
+      else pendingDrawn.current = new Map();
+    },
+  });
+  // Another chat's rows ride nothing of this one's.
+  useEffect(() => () => foldRide.current?.reset(), [sessionId]);
   const observer = useMemo(
     () =>
       typeof ResizeObserver === "undefined"
@@ -2230,8 +2255,30 @@ function TranscriptView({
             // over the live line under it, and the view a line short (agent-pane-stream-jitter's
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
-            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-            else if (followingRef.current || targets.some(heightFoldInFlight) || foldHolding(foldAnchor.current)) {
+            // A ride that gives way below takes its translates off now: the rows go to their places
+            // before this frame paints too, not in a batch after it.
+            const rode = foldRide.current!.riding;
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+              pendingDrawn.current = new Map();
+              // Back at their placed heights: a ride keeps no translate for a change undone.
+              foldRide.current!.settled(targets, !followingRef.current && !bottomStackFold.current);
+            }
+            // Only rows whose own fold plays changed, away from the bottom: the rows under them ride
+            // the change by translate, and the transcript renders once when the fold ends, not on
+            // every frame of it (Leo, 2026-11-09: "It just, like, lags pretty heavily").
+            // Otherwise (and when a ride gives way) every translate goes before the rows are placed.
+            else if (
+              !followingRef.current && !bottomStackFold.current
+                ? foldRide.current!.ride(targets)
+                : foldRide.current!.release()
+            )
+              return;
+            else if (
+              rode ||
+              followingRef.current ||
+              targets.some(heightFoldInFlight) ||
+              foldHolding(foldAnchor.current)
+            ) {
               for (let pass = 0; pass < 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
@@ -3023,6 +3070,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: unplacedScroll.top - origin,
           anchorTop: unplacedScroll.top - origin,
+          folds: foldRide.current?.handedFolds(previousRows.current, drawn),
         })
       : undefined;
   const placementDelta = projectedTop === undefined ? 0 : projectedTop - (unplacedScroll.top - origin);
@@ -3568,10 +3616,17 @@ function TranscriptView({
               const held = chaseHeld.current;
               chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
               chase.land();
-              // The rows under the reply (the turn's footer the fold brought) would move down by
-              // its growth at once: they glide there instead (tailGlide.ts).
+            }
+            // The rows under the reply (the turn's footer the fold brought) would move down by its
+            // growth at once: they glide there instead (tailGlide.ts), in every pass of the drain, not
+            // only the one that read the growth. The reply's drawn height can grow a pass before the
+            // layout takes it (a pass the mounted range brings, as the scroll trail's does), and the
+            // footer then moved by it in the next pass, at once (turn-transition-jumps `tool-group`,
+            // end step: 19.2 and 32.2 px in a frame). Only a move against the reply glides, so a pass
+            // where nothing moved plays nothing.
+            if (reply) {
               tailGlides = true;
-              tailAnchor = reply?.id;
+              tailAnchor = reply.id;
             }
           } else if (foldRiding && !resizing) {
             // The fold playing on: nothing noted, and a chase still landing lands on its own.
@@ -3688,6 +3743,7 @@ function TranscriptView({
           newRows: rows,
           liveTop: logicalTop,
           anchorTop: logicalTop,
+          folds: foldRide.current?.handedFolds(oldRows, drawnRef.current),
         });
         if (nextTop !== undefined && (clamped || nextTop !== logicalTop)) {
           writeAnchorScrollTop(node, nextTop);
@@ -3753,6 +3809,8 @@ function TranscriptView({
     tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
     previousLayout.current = layout;
     previousRows.current = rows;
+    // The rows a fold ride moved are placed where they showed: its hand-over is spent.
+    foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
     heldRoom.current = room + lifted;
@@ -4876,9 +4934,18 @@ function TranscriptView({
       stopBottomStackFold();
       foldAnchor.current = undefined;
     };
+    // Any input lands a fold ride first, before whatever it reaches reads the layout: rows go to
+    // their places and the scroll range to its new end. Otherwise a wheel, the scrollbar, the map's
+    // scrub (ScrollMap's `seek`, from `layout.totalHeight`), find or a jump would stop at, or aim
+    // by, the range placed before the fold (review of #39917 at 184fed21 and e357b4a0: 1250px and
+    // 800px short). A ride only plays mid-fold, so this is one render, only for input then.
+    const landRide = () => foldRide.current?.land();
+    const landingInputs = ["pointerdown", "wheel", "touchstart", "keydown"] as const;
+    const view = node?.ownerDocument.defaultView;
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
     node?.addEventListener("pointerdown", notePressed, { capture: true });
+    for (const name of landingInputs) view?.addEventListener(name, landRide, { capture: true, passive: true });
     node?.addEventListener("pointercancel", dropPressed, { capture: true });
     node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
@@ -4930,6 +4997,7 @@ function TranscriptView({
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       node?.removeEventListener("pointerdown", notePressed, { capture: true });
+      for (const name of landingInputs) view?.removeEventListener(name, landRide, { capture: true });
       node?.removeEventListener("pointercancel", dropPressed, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
@@ -5065,7 +5133,7 @@ function TranscriptView({
     : undefined;
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffScreen(upTop, renderScroll.top - origin, height, topInset);
+  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
   const upTopRef = useRef(upTop);
   upTopRef.current = upTop;
@@ -5204,6 +5272,9 @@ function TranscriptView({
               className="acpmux-spacer"
               // The room held above the loaded rows for older history (conversation/olderReserve.ts).
               data-older-room={layout.origin || undefined}
+              // Older history is left to load. The room is not the sign of it: it goes once the reader
+              // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
+              data-loads-older={canLoadOlder || undefined}
               style={{
                 height: layout.totalHeight,
                 width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
@@ -5272,7 +5343,7 @@ function TranscriptView({
                         controls={controls}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
-                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                        githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         referenceScope={scopeAt(absoluteIndex)}
                       >
                         <RowContent
@@ -5285,7 +5356,7 @@ function TranscriptView({
                           onOpenDiff={onOpenDiff}
                           expanded={isExpanded}
                           controls={controls}
-                          githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                          githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         />
                       </RowFrame>
                     );
