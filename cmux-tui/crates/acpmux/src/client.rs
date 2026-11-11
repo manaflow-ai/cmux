@@ -146,7 +146,12 @@ impl Client {
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
         hello.set("_meta", json!({"acpmux": meta}));
-        let init = client.request(method::INITIALIZE, hello).await?;
+        // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
+        let init = crate::cli::slow_notice::noted(
+            "the connection's hello",
+            client.request(method::INITIALIZE, hello),
+        )
+        .await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
             let _ = client.proven_caller_session.set(session.to_owned());

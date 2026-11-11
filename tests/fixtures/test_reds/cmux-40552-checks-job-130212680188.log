@@ -52,6 +52,293 @@
 2026-11-10T20:27:08.0170350Z OS Version: Ubuntu 24.04.4 LTS
 2026-11-10T20:27:08.0170828Z 
 2026-11-10T20:27:08.0247526Z Enabling Blacksmith transparent cache
+2026-11-10T20:31:08.3598413Z ##[group]Run python3 tests/test_cmux_next_generated_catch_up.py
+2026-11-10T20:31:08.3598659Z [36;1mpython3 tests/test_cmux_next_generated_catch_up.py[0m
+2026-11-10T20:31:08.3598835Z [36;1mpython3 tests/test_next_batch.py[0m
+2026-11-10T20:31:08.3598997Z [36;1mpython3 tests/test_next_batch_groups.py[0m
+2026-11-10T20:31:08.3599201Z [36;1mpython3 tests/test_cmux_next_base_autofix_finishes.py[0m
+2026-11-10T20:31:08.3599481Z [36;1mpython3 tests/test_base_autofix_pushed_exports.py[0m
+2026-11-10T20:31:08.3599703Z [36;1mpython3 tests/test_cmux_next_pr_autofix_settings.py[0m
+2026-11-10T20:31:08.3599948Z [36;1mpython3 tests/test_cmux_next_pr_changed_paths.py[0m
+2026-11-10T20:31:08.3600133Z [36;1mpython3 tests/test_pr_capture_check_paths.py[0m
+2026-11-10T20:31:08.3600332Z [36;1mpython3 tests/test_car_guards.py[0m
+2026-11-10T20:31:08.3600583Z [36;1mpython3 tests/test_ci_github_token_budget.py[0m
+2026-11-10T20:31:08.3600991Z [36;1m# Warn-only, exit 0 always: a ::warning for each step that calls the API with the repository[0m
+2026-11-10T20:31:08.3601356Z [36;1m# GITHUB_TOKEN (1,000 requests an hour, shared by every workflow) and has no line in[0m
+2026-11-10T20:31:08.3601579Z [36;1m# .github/github-token-budget.json.[0m
+2026-11-10T20:31:08.3601748Z [36;1mpython3 scripts/ci/github_token_budget_lint.py[0m
+2026-11-10T20:31:08.3611443Z shell: /usr/bin/bash -e {0}
+2026-11-10T20:31:08.3611575Z env:
+2026-11-10T20:31:08.3611712Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-10T20:31:08.3611877Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-10T20:31:08.3612022Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-10T20:31:08.3612232Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-10T20:31:08.3612427Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 150
+2026-11-10T20:31:08.3612580Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 426
+2026-11-10T20:31:08.3612717Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-10T20:31:08.3612849Z ##[endgroup]
+2026-11-10T20:31:09.1079204Z .........................
+2026-11-10T20:31:09.1079465Z ----------------------------------------------------------------------
+2026-11-10T20:31:09.1079668Z Ran 25 tests in 0.700s
+2026-11-10T20:31:09.1079744Z 
+2026-11-10T20:31:09.1079796Z OK
+2026-11-10T20:31:09.2387494Z [next-batch 20:31:09] base probe gave no result; falling back to the base's push run
+2026-11-10T20:31:09.2387950Z [next-batch 20:31:09] base tier verdict for cmux-next generated files from 2 at dddddddddddd (created 2026-10-30T12:15:00Z; the newest for it, not necessarily the base head): passed
+2026-11-10T20:31:09.2388524Z [next-batch 20:31:09] base tier verdict for cmux-next daemon tests from 3 at cccccccccccc (created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): cmux-next daemon tests: error error: y
+2026-11-10T20:31:09.2389065Z [next-batch 20:31:09] no base tier verdict in the newest 2 base tier runs for: cmux app scheme compile (Debug), cmux-next crash ends the app
+2026-11-10T20:31:09.2393716Z [next-batch 20:31:09] eligible: #7
+2026-11-10T20:31:09.2396368Z [next-batch 20:31:09] base probe: https://probe
+2026-11-10T20:31:09.2405879Z [next-batch 20:31:09] base probe: https://probe
+2026-11-10T20:31:09.2407999Z [next-batch 20:31:09] base probe: https://probe
+2026-11-10T20:31:09.2409022Z [next-batch 20:31:09] base probe: its rerun did not finish; no result
+2026-11-10T20:31:09.2411803Z [next-batch 20:31:09] waiting for the base's cmux-tui tree: u
+2026-11-10T20:31:09.2416098Z [next-batch 20:31:09] base probe gave no result; falling back to the base's push run
+2026-11-10T20:31:09.2417579Z [next-batch 20:31:09] base tier verdict for cmux-next daemon tests from 2 at cccccccccccc (created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): cmux-next daemon tests: error error: y
+2026-11-10T20:31:09.2418134Z [next-batch 20:31:09] no base tier verdict in the newest 1 base tier runs for: cmux app scheme compile (Debug), cmux-next crash ends the app, cmux-next generated files
+2026-11-10T20:31:09.2419971Z [next-batch 20:31:09] base probe: https://probe
+2026-11-10T20:31:09.2420332Z [next-batch 20:31:09] base probe: cmux-next checks (god files, concurrency, crash safety, l10n): Type scale
+2026-11-10T20:31:09.2421215Z [next-batch 20:31:09] base probe gave no result; falling back to the base's push run
+2026-11-10T20:31:09.2422694Z [next-batch 20:31:09] no base tier verdict in the newest 0 base tier runs for: cmux app scheme compile (Debug), cmux-next crash ends the app, cmux-next daemon tests, cmux-next generated files
+2026-11-10T20:31:09.2423105Z [next-batch 20:31:09] base probe gave no result; falling back to the base's push run
+2026-11-10T20:31:09.2425263Z [next-batch 20:31:09] base tier verdict for cmux-next daemon tests from 2 at cccccccccccc (created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): cmux-next daemon tests: error error: y
+2026-11-10T20:31:09.2426028Z [next-batch 20:31:09] no base tier verdict in the newest 1 base tier runs for: cmux app scheme compile (Debug), cmux-next crash ends the app, cmux-next generated files
+2026-11-10T20:31:09.2426402Z [next-batch 20:31:09] base probe gave no result; falling back to the base's push run
+2026-11-10T20:31:09.2426830Z [next-batch 20:31:09] base tier verdict for cmux-next daemon tests from 2 at cccccccccccc (created 2026-10-30T12:00:00Z; the newest for it, not necessarily the base head): cmux-next daemon tests: error error: y
+2026-11-10T20:31:09.2427364Z [next-batch 20:31:09] no base tier verdict in the newest 1 base tier runs for: cmux app scheme compile (Debug), cmux-next crash ends the app, cmux-next generated files
+2026-11-10T20:31:09.2448041Z [next-batch 20:31:09] close watch: #1: HTTP 502
+2026-11-10T20:31:09.2470757Z [next-batch 05:00:00] a newer event's run waits instead; nothing to do
+2026-11-10T20:31:09.2485199Z [next-batch 05:00:00] first event since the last batch at 2026-10-06T04:59:00+00:00; waiting 120s for quiet
+2026-11-10T20:31:09.2486327Z [next-batch 05:00:00] dispatched a batch
+2026-11-10T20:31:09.2493175Z [next-batch 05:00:00] first event since the last batch at 2026-10-06T04:59:00+00:00; waiting 120s for quiet
+2026-11-10T20:31:09.2494103Z [next-batch 05:00:00] an event arrived during the wait; its run dispatches instead
+2026-11-10T20:31:09.3121964Z [next-batch 05:00:00] #9: pushed formatting b9c78fa7bf3f
+2026-11-10T20:31:09.3477293Z [next-batch 05:00:00] #3: receipt posted; owner lands
+2026-11-10T20:31:09.3668308Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.3671557Z [next-batch 05:00:00] #1: not landed: no CMUX_NEXT_BATCH_EXCLUDE on this runner, so coord-2's PRs can't be told apart; serve on the coordinator's host lands instead; receipt posted
+2026-11-10T20:31:09.3678342Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.3684980Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.3685361Z [next-batch 05:00:00] #2: not reviewed at this head; receipt posted
+2026-11-10T20:31:09.3691729Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.3691967Z [next-batch 05:00:00] #2: receipt posted; owner lands
+2026-11-10T20:31:09.4012917Z [next-batch 20:31:09] fleet job job-9
+2026-11-10T20:31:09.4018828Z [next-batch 20:31:09] fleet job job-9
+2026-11-10T20:31:09.4029405Z [next-batch 20:31:09] regen: no result from u; dispatching once more
+2026-11-10T20:31:09.4029644Z [next-batch 20:31:09] regen: no result from u; dispatching once more
+2026-11-10T20:31:09.4046206Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4049562Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.4054874Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4055063Z [next-batch 05:00:00] #2: receipt posted; owner lands
+2026-11-10T20:31:09.4691627Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4694675Z [next-batch 05:00:00] #1: not reviewed at this head; receipt posted
+2026-11-10T20:31:09.4701842Z [next-batch 05:00:00] #1: not reviewed at this head; receipt posted
+2026-11-10T20:31:09.4708531Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.4715005Z [next-batch 05:00:00] #1: not reviewed at this head; receipt posted
+2026-11-10T20:31:09.4721716Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.4729670Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4729995Z [next-batch 05:00:00] #2: receipt posted; owner lands
+2026-11-10T20:31:09.4752184Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4760094Z [next-batch 05:00:00] #1: statuses unreadable (HTTP 502); not reviewed
+2026-11-10T20:31:09.4776568Z [next-batch 05:00:00] #1: landed
+2026-11-10T20:31:09.4782676Z [next-batch 05:00:00] #1: receipt posted; owner lands
+2026-11-10T20:31:09.4782994Z [next-batch 05:00:00] #2: receipt posted; owner lands
+2026-11-10T20:31:09.5321893Z [next-batch 20:31:09] merged #1
+2026-11-10T20:31:09.5481590Z [next-batch 20:31:09] merged #2
+2026-11-10T20:31:09.6065907Z [next-batch 20:31:09] merged #1
+2026-11-10T20:31:09.6270513Z [next-batch 20:31:09] merged #2 (1 resolved)
+2026-11-10T20:31:09.6914900Z [next-batch 20:31:09] merged #1
+2026-11-10T20:31:09.7083435Z [next-batch 20:31:09] merged #2
+2026-11-10T20:31:09.7718007Z [next-batch 20:31:09] merged #1
+2026-11-10T20:31:09.7800952Z [next-batch 20:31:09] dropped #2: app.swift both sides changed it
+2026-11-10T20:31:09.7963378Z [next-batch 20:31:09] merged #3
+2026-11-10T20:31:09.8579276Z [next-batch 20:31:09] merged #1
+2026-11-10T20:31:09.8862553Z [next-batch 20:31:09] merged #2 (1 resolved)
+2026-11-10T20:31:10.0439459Z ............................................................................................................................................
+2026-11-10T20:31:10.0439777Z ----------------------------------------------------------------------
+2026-11-10T20:31:10.0439972Z Ran 140 tests in 0.806s
+2026-11-10T20:31:10.0440047Z 
+2026-11-10T20:31:10.0440123Z OK
+2026-11-10T20:31:11.3530207Z [next-batch 05:00:00] group ui: #1 landed
+2026-11-10T20:31:11.3530435Z [next-batch 05:00:00] group ui: #2 landed
+2026-11-10T20:31:11.3537729Z [next-batch 05:00:00] group ui: #1 landed
+2026-11-10T20:31:11.3537914Z [next-batch 05:00:00] group ui: #2 landed
+2026-11-10T20:31:11.3538058Z [next-batch 05:00:00] group ui: #3 landed
+2026-11-10T20:31:11.3542753Z [next-batch 05:00:00] group ui: culprit #3
+2026-11-10T20:31:11.3543301Z [next-batch 05:00:00] group ui: #1 landed
+2026-11-10T20:31:11.3543603Z [next-batch 05:00:00] group ui: #2 landed
+2026-11-10T20:31:11.3543852Z [next-batch 05:00:00] group ui: #4 landed
+2026-11-10T20:31:11.3545315Z [next-batch 05:00:00] group ui: waiting: no review pass on #1 #2
+2026-11-10T20:31:11.3546444Z [next-batch 05:00:00] group a: #1
+2026-11-10T20:31:11.3546699Z [next-batch 05:00:00] group a: #1
+2026-11-10T20:31:11.3548899Z [next-batch 20:31:11] eligible: #7
+2026-11-10T20:31:11.3552506Z [next-batch 05:00:00] group a: waiting (#2 red check ci-status)
+2026-11-10T20:31:11.3553123Z [next-batch 05:00:00] group a: waiting (#1 red check cmux-next swift test)
+2026-11-10T20:31:11.3553784Z [next-batch 05:00:00] group a: waiting (#2 red check ci-status)
+2026-11-10T20:31:11.3559824Z [next-batch 20:31:11] base probe: https://probe
+2026-11-10T20:31:11.3563466Z [next-batch 05:00:00] group a: #1
+2026-11-10T20:31:11.3568822Z [next-batch 20:31:11] eligible: #7
+2026-11-10T20:31:11.3570309Z [next-batch 05:00:00] group a: #1
+2026-11-10T20:31:11.3570521Z [next-batch 05:00:00] group a: tried at these heads within the hour; waiting for a push
+2026-11-10T20:31:11.3574733Z ...................................
+2026-11-10T20:31:11.3574903Z ----------------------------------------------------------------------
+2026-11-10T20:31:11.3575078Z Ran 35 tests in 1.234s
+2026-11-10T20:31:11.3575156Z 
+2026-11-10T20:31:11.3575205Z OK
+2026-11-10T20:31:17.0575292Z .............................................
+2026-11-10T20:31:17.0575964Z ----------------------------------------------------------------------
+2026-11-10T20:31:17.0576270Z Ran 45 tests in 5.444s
+2026-11-10T20:31:17.0576380Z 
+2026-11-10T20:31:17.0576450Z OK
+2026-11-10T20:31:20.1960797Z .............................................
+2026-11-10T20:31:20.1961048Z ----------------------------------------------------------------------
+2026-11-10T20:31:20.1961245Z Ran 45 tests in 2.886s
+2026-11-10T20:31:20.1961323Z 
+2026-11-10T20:31:20.1961375Z OK
+2026-11-10T20:31:20.1961682Z pushed-exports conditional-read harness: {"charged_200": 5, "requests": 150, "revalidated_304": 145}
+2026-11-10T20:31:20.1961946Z export waiter admissions after failed primary read: 1/9
+2026-11-10T20:31:23.6098283Z ................
+2026-11-10T20:31:23.6098610Z ----------------------------------------------------------------------
+2026-11-10T20:31:23.6098823Z Ran 16 tests in 3.334s
+2026-11-10T20:31:23.6098897Z 
+2026-11-10T20:31:23.6098949Z OK
+2026-11-10T20:31:23.9989843Z ........
+2026-11-10T20:31:23.9990068Z ----------------------------------------------------------------------
+2026-11-10T20:31:23.9990285Z Ran 8 tests in 0.334s
+2026-11-10T20:31:23.9990362Z 
+2026-11-10T20:31:23.9990411Z OK
+2026-11-10T20:31:24.6264063Z ......
+2026-11-10T20:31:24.6264315Z ----------------------------------------------------------------------
+2026-11-10T20:31:24.6264525Z Ran 6 tests in 0.565s
+2026-11-10T20:31:24.6264601Z 
+2026-11-10T20:31:24.6264648Z OK
+2026-11-10T20:31:26.9864456Z ...................................
+2026-11-10T20:31:26.9864715Z ----------------------------------------------------------------------
+2026-11-10T20:31:26.9864913Z Ran 35 tests in 2.280s
+2026-11-10T20:31:26.9864985Z 
+2026-11-10T20:31:26.9865032Z OK
+2026-11-10T20:31:39.9882022Z .............
+2026-11-10T20:31:39.9882404Z ----------------------------------------------------------------------
+2026-11-10T20:31:39.9882615Z Ran 13 tests in 12.951s
+2026-11-10T20:31:39.9882689Z 
+2026-11-10T20:31:39.9882737Z OK
+2026-11-10T20:31:47.0593537Z GITHUB_TOKEN budget: 310 steps spend the repository token, 271 budgeted, 39 not, in .github/github-token-budget.json.
+2026-11-10T20:31:47.0599997Z ##[warning]app-ffi-release.yml: Pin the new release and open or update the pull request calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0602092Z ##[warning]app-ffi-repin.yml: Pin the newest published release and open or update the pull request calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0603998Z ##[warning]backend.yml: Dashboard inputs changed since its last deploy calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0606006Z ##[warning]ci-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0608075Z ##[warning]ci-web.yml: Restore the history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0609900Z ##[warning]classic-frozen-guard.yml: Check the changed paths against the classic-frozen list calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0611708Z ##[warning]cloud-chat-proof.yml: Install, sign in and launch the published NEXT DEV app calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0613499Z ##[warning]cloud-chat-proof.yml: Resolve the published NEXT DEV release asset calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0615292Z ##[warning]cloud-journey-prod.yml: Open, update or close the red-journey issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0616976Z ##[warning]cloud-vm-image-roll.yml: Record the roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0618659Z ##[warning]cmux-next-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0620308Z ##[warning]cmux-next.yml: Place the fast tier's re-run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0621903Z ##[warning]cmux-rd-release.yml: Attest calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0623487Z ##[warning]cmux-rd-release.yml: Release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0625507Z ##[warning]cmux-tui-artifacts.yml: Dispatch the image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0627313Z ##[warning]cmux-tui-artifacts.yml: Request the Cloud VM image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0628961Z ##[warning]cmux-vm.yml: Deploy the rollback again calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0630681Z ##[warning]cmux-vm.yml: Image roll commit with a passed check on the same code (short check) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0632393Z ##[warning]cmux-vm.yml: Record the production smoke and any rollback calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0634078Z ##[warning]cu-driver-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0635710Z ##[warning]cu-driver-eval.yml: the last successful run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0637431Z ##[warning]debug-labs-keys-report.yml: Open or update the Debug and Labs keys issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0639197Z ##[warning]nightly-next-rollback-drill.yml: Dispatch the step on nightly-next calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0640900Z ##[warning]nightly.yml: Ask for this build's post-publication run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0642679Z ##[warning]nightly.yml: Ask for this build's sign run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0644416Z ##[warning]nightly.yml: Ask the push group for the newest head calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0646098Z ##[warning]nightly.yml: Build the tip while its tree publishes calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0647826Z ##[warning]nightly.yml: Check the run that published calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0649496Z ##[warning]nightly.yml: Download SSH daemon assets for publication calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0651132Z ##[warning]nightly.yml: Download its record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0652752Z ##[warning]nightly.yml: Download nightly variant artifacts calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0654411Z ##[warning]nightly.yml: Download published variant calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0656024Z ##[warning]nightly.yml: Download the build's dSYMs calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0657733Z ##[warning]nightly.yml: Download the cmux-next source archive calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0659365Z ##[warning]nightly.yml: Download the published feed calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0660990Z ##[warning]nightly.yml: Download verified DMG digests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0662609Z ##[warning]screen-stream-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0664382Z ##[warning]screen-stream-eval.yml: the last successful daily run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0666206Z ##[warning]thunderdome-label.yml: Add the thunderdome label calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-10T20:31:47.0667258Z no longer spends the token (drop its line from .github/github-token-budget.json): cloud-vm-canary.yml: Tell Slack when the state changes
+2026-11-10T20:31:47.0667697Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Check out the build's own source for the bundle checks
+2026-11-10T20:31:47.0668136Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Compare the cmux NEXT feed with the old feed
+2026-11-10T20:31:47.0668589Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Download the pending cmux NIGHTLY-identity submission
+2026-11-10T20:31:47.0669020Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Download the published cmux NEXT DMG
+2026-11-10T20:31:47.0669404Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Find the failure issue
+2026-11-10T20:31:47.0669782Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Hold a build with a known-bad commit
+2026-11-10T20:31:47.0670216Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Publish the cmux NIGHTLY DMG, release notes and the old feed
+2026-11-10T20:31:47.0670637Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Report a failed publication
+2026-11-10T20:31:47.0671017Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Resolve the attempt
+2026-11-10T20:31:47.0729638Z ##[group]Run python3 tests/test_test_reds.py
+2026-11-10T20:31:47.0729821Z [36;1mpython3 tests/test_test_reds.py[0m
+2026-11-10T20:31:47.0729972Z [36;1mpython3 tests/test_base_red_excuse.py[0m
+2026-11-10T20:31:47.0730131Z [36;1mpython3 tests/test_web_coalesce.py[0m
+2026-11-10T20:31:47.0739747Z shell: /usr/bin/bash -e {0}
+2026-11-10T20:31:47.0739872Z env:
+2026-11-10T20:31:47.0740003Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-10T20:31:47.0740163Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-10T20:31:47.0740308Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-10T20:31:47.0740515Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-10T20:31:47.0740711Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 150
+2026-11-10T20:31:47.0740857Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 426
+2026-11-10T20:31:47.0740997Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-10T20:31:47.0741127Z ##[endgroup]
+2026-11-10T20:31:47.8650192Z ....................................................................................................................................
+2026-11-10T20:31:47.8650491Z ----------------------------------------------------------------------
+2026-11-10T20:31:47.8650674Z Ran 132 tests in 0.741s
+2026-11-10T20:31:47.8650751Z 
+2026-11-10T20:31:47.8650797Z OK
+2026-11-10T20:31:50.2730124Z .................................................................................................................................................../home/runner/_work/cmux/cmux/tests/test_base_red_excuse.py:6431: ResourceWarning: unclosed file <_io.BufferedReader name=5>
+2026-11-10T20:31:50.2730647Z   self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
+2026-11-10T20:31:50.2730932Z ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-10T20:31:50.2737725Z /home/runner/_work/cmux/cmux/tests/test_base_red_excuse.py:6433: ResourceWarning: unclosed file <_io.BufferedReader name=5>
+2026-11-10T20:31:50.2738059Z   self.assertIsNone(reader.artifact_file(REPO, 7, "missing.json"))
+2026-11-10T20:31:50.2738290Z ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-10T20:31:50.2747989Z /usr/lib/python3.12/traceback.py:241: ResourceWarning: unclosed file <_io.BufferedReader name=5>
+2026-11-10T20:31:50.2748208Z   tb.tb_frame.clear()
+2026-11-10T20:31:50.2748378Z ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-10T20:31:50.2782321Z .............base_red_excuse: 'cmux-next fleet Release compile' at da05de790876 was decided by the fleet's compile receipts
+2026-11-10T20:31:50.2782691Z .base_red_excuse: 'cmux-next/compile' at da05de790876 was decided by the fleet's compile receipts
+2026-11-10T20:31:50.9642476Z ......................................................................................................................................rate-limited: GitHub rate-limited `gh api`
+2026-11-10T20:31:50.9644933Z ..rate-limited: GitHub rate-limited `gh api graphql`; resets in 14 minutes
+2026-11-10T20:31:50.9646542Z .not excused: no failed job found on the head to compare with the base
+2026-11-10T20:31:51.1242563Z ........................................base_red_excuse: https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f63d516ecfc798e40d2d031ebfcbb8eb1637e48/SOURCE_SHA failed (HTTP Error 503: Service Unavailable); fetching it through the release-assets API
+2026-11-10T20:31:51.1386490Z .........................base_red_excuse: https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f63d516ecfc798e40d2d031ebfcbb8eb1637e48/SOURCE_SHA failed (HTTP Error 502: x); fetching it through the release-assets API
+2026-11-10T20:31:51.2694145Z ..................................................................................................
+2026-11-10T20:31:51.2694518Z ----------------------------------------------------------------------
+2026-11-10T20:31:51.2694746Z Ran 461 tests in 3.301s
+2026-11-10T20:31:51.2694848Z 
+2026-11-10T20:31:51.2694926Z OK
+2026-11-10T20:31:52.0994682Z .............................................
+2026-11-10T20:31:52.0995215Z ----------------------------------------------------------------------
+2026-11-10T20:31:52.0995448Z Ran 45 tests in 0.758s
+2026-11-10T20:31:52.0995556Z 
+2026-11-10T20:31:52.0995640Z OK
+2026-11-10T20:31:52.0995922Z web subareas: db=true diff_sidecar=true instant=true production_build=true react_apps=true typecheck=true unit_tests=true
+2026-11-10T20:31:52.1192901Z ##[group]Run python3 tests/test_cmux_next_update_dev_daily.py
+2026-11-10T20:31:52.1193312Z [36;1mpython3 tests/test_cmux_next_update_dev_daily.py[0m
+2026-11-10T20:31:52.1193670Z [36;1mpython3 tests/test_cmux_next_classic_to_next.py[0m
+2026-11-10T20:31:52.1203374Z shell: /usr/bin/bash -e {0}
+2026-11-10T20:31:52.1203577Z env:
+2026-11-10T20:31:52.1203761Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-10T20:31:52.1203972Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-10T20:31:52.1204271Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-10T20:31:52.1204542Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-10T20:31:52.1204800Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 150
+2026-11-10T20:31:52.1204984Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 426
+2026-11-10T20:31:52.1205191Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-10T20:31:52.1205368Z ##[endgroup]
+2026-11-10T20:31:54.9824539Z ok   test_a_closed_app_is_updated_and_stays_closed
+2026-11-10T20:31:54.9824928Z ok   test_a_first_install_quits_nothing_and_opens_the_app
+2026-11-10T20:31:54.9825176Z ok   test_a_half_published_build_is_installed_once_published
+2026-11-10T20:31:54.9825424Z ok   test_a_republished_identical_archive_is_nothing_new
+2026-11-10T20:31:54.9825667Z ok   test_an_update_from_another_cmux_terminal_quits_cmux_next_dev
+2026-11-10T20:31:54.9825857Z ok   test_an_update_keeps_sessions_and_reopens_the_app
+2026-11-10T20:31:54.9826032Z ok   test_nothing_new_leaves_the_running_app_alone
+2026-11-10T20:31:55.7459351Z ok   test_a_malformed_layout_still_brings_every_terminal
+2026-11-10T20:31:55.7459629Z ok   test_a_pane_holding_only_an_agent_chat_folds_away
+2026-11-10T20:31:55.7459825Z ok   test_a_split_workspace_keeps_its_panes
 2026-11-10T20:31:55.7564067Z ##[group]Run if [[ "$EVENT_NAME" != pull_request ]]; then
 2026-11-10T20:31:55.7564341Z [36;1mif [[ "$EVENT_NAME" != pull_request ]]; then[0m
 2026-11-10T20:31:55.7564556Z [36;1m  echo "Pushes run every tier; the replay checks pull request routing only."[0m
