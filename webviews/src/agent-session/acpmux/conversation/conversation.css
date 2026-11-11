@@ -2691,17 +2691,24 @@ pre.cv-math-source {
 
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
-   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them)
-   rise, soften and fade out above while the new rise in from below. Transform, opacity and a small
-   blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it. Reduce
-   Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
-   static status look change the words at once; the old words never show. Two keyframes of one roll,
-   swapped each change, restart it on the same element, so the line's live region is never
-   remounted. The new words fill backwards only, so no filter stays on the shimmer once they land. */
+   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them) roll
+   up and out of the line as the new roll up into it from below, both opaque, on the arrival step. The
+   line's row clips them to its own height while a roll is on it, so the old words never draw over
+   the reply above the line, and at every frame the two tile the line: never a frame with no words
+   and never two texts over each other (Leo, 2026-11-11: "there's a breif moment where ther'es
+   overlapping text between the sent out text (from you) and the subequent tool calls/thinking";
+   the old copy rose 0.6em out of the line, faded and blurred, over the reply's last line). Transform
+   only, so nothing reflows and the compositor plays it on a busy main thread too. Reduce Motion, cmux
+   motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the static status look
+   change the words at once; the old words never show. Two keyframes of one roll, swapped each change,
+   restart it on the same element, so the line's live region is never remounted. */
 .cv-roll-out {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-roll-out) {
+    overflow-y: clip;
+  }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out {
     display: block;
     position: absolute;
@@ -2730,38 +2737,26 @@ pre.cv-math-source {
 }
 @keyframes cv-roll-out {
   from {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
   to {
-    opacity: 0;
-    translate: 0 -0.6em;
-    filter: blur(2px);
+    translate: 0 -100%;
   }
 }
 @keyframes cv-roll-in-odd {
   from {
-    opacity: 0;
-    translate: 0 0.6em;
-    filter: blur(2px);
+    translate: 0 100%;
   }
   to {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
 }
 @keyframes cv-roll-in-even {
   from {
-    opacity: 0;
-    translate: 0 0.6em;
-    filter: blur(2px);
+    translate: 0 100%;
   }
   to {
-    opacity: 1;
     translate: 0 0;
-    filter: blur(0);
   }
 }
 
@@ -3514,9 +3509,10 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 
 /* A look at a video's frames (VideoFramesCard.tsx): the video's name and length, then its frames
- * in one row that scrolls sideways, each in a box of the video's shape with its time in a corner.
- * It hangs from the row's words, as any line under a row does. `grid` and `poster` are the
- * gallery's alternatives. */
+ * in rows that wrap down the pane, never a row that scrolls sideways (Leo, 2026-11-11: "shouldn't
+ * this be... not horizontally scrolled? as in, it goes down instead of to the right?"), each in a
+ * box of the video's shape with its time in a corner. It hangs from the row's words, as any line
+ * under a row does. `grid` and `poster` are the gallery's alternatives. */
 .cv-video-frames {
   --cv-video-frame-width: 112px;
   display: flex;
@@ -3577,9 +3573,9 @@ button.cv-video-frames__name:focus-visible {
 }
 .cv-video-frames__strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   max-width: 100%;
-  overflow-x: auto;
 }
 .cv-video-frames__grid {
   display: grid;
@@ -5553,9 +5549,14 @@ a.cv-sha:focus-visible {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-enter,
-  .acpmux-row--enter {
+  .cv-enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
+     (opacity 1, no translate), and a translate held past it would win over the one a fold ride
+     moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
+  .acpmux-row--enter {
+    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in

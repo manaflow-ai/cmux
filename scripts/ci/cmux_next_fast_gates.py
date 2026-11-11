@@ -25,7 +25,8 @@ The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
                   web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
-  prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
+  prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE --advisory (only violations the PR
+                  adds; --advisory names the hook-only layers' findings as warnings and never fails the gate)
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
@@ -304,7 +305,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
-        ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
+        # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
+        ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]

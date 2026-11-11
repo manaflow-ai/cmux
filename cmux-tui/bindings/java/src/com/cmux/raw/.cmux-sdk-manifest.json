@@ -2192,7 +2192,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "562a60ef4bc004bf82aae77f35496d33c4661ff77d3757ab31a78b07826014ee",
+      "sha256": "6a98f3bf1cd8a57dba436b325728956a8d566b6e201b7df237d20c357087a61a",
       "size": 8000
     },
     {
@@ -2606,6 +2606,21 @@
       "size": 1792
     },
     {
+      "path": "ServerStatsCommandConnections.java",
+      "sha256": "f945f9128d52394154839976984ff89cfb36a97db92cfc203a97db53a7eff633",
+      "size": 3433
+    },
+    {
+      "path": "ServerStatsCommandRow.java",
+      "sha256": "380264356999dea73a8769150c87103005513cfeb1a43151b3b41f3047b79307",
+      "size": 5300
+    },
+    {
+      "path": "ServerStatsCommands.java",
+      "sha256": "a3e76f51758bac30af93049261cda64e4ba80d2fa133a2ec763a6c1ca2b983af",
+      "size": 5348
+    },
+    {
       "path": "ServerStatsConnections.java",
       "sha256": "8358297e61670f5cf7032a0794a9dfda381d0a0dede752518f043992580b9f7d",
       "size": 4689
@@ -2654,6 +2669,16 @@
       "path": "ServerStatsHookQueue.java",
       "sha256": "e5be96e4b9a0de676d8aba316519b4188aaac0df581e334792a3edc1ffae689f",
       "size": 4044
+    },
+    {
+      "path": "ServerStatsJournalFollower.java",
+      "sha256": "ae5efddb7fcca03e25cc2951ac19286cf685df0e7bbb64e20bb181973ffd974e",
+      "size": 8221
+    },
+    {
+      "path": "ServerStatsJournalFollowers.java",
+      "sha256": "a86a7104ab8e66a58a36ea108dcfaf2d1b32465ff0ca96ca34f6e330a053a5cc",
+      "size": 6399
     },
     {
       "path": "ServerStatsJournalWriter.java",
@@ -2707,8 +2732,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "33fe999df76ed414568ef4a9bd9e9d93430d39cad14a022a1bd056e4fcaacaf4",
-      "size": 8708
+      "sha256": "a776f4771bf9ef87cf24f29db2e2b0373df5dc72cac22cf2e06c9daea48b58ed",
+      "size": 10236
     },
     {
       "path": "ServerStatsWritePath.java",
@@ -3657,7 +3682,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73",
+  "ir_sha256": "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
