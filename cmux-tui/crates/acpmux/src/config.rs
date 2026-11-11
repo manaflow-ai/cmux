@@ -165,13 +165,35 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     if !home_path_lost() && held_home_replaced(&home) {
         mark_home_lost();
     }
-    anyhow::ensure!(
-        !home_lost(),
-        "the acpmux home {} is gone; {} is not written",
-        home.display(),
-        path.display()
-    );
-    Ok(())
+    let checked = if home_lost() {
+        Err(anyhow::anyhow!(
+            "the acpmux home {} is gone; {} is not written",
+            home.display(),
+            path.display()
+        ))
+    } else {
+        Ok(())
+    };
+    #[cfg(test)]
+    if let Some(hook) = seams::CHECKED.get() {
+        hook(path, checked.is_ok());
+    }
+    checked
+}
+
+/// Test seams for the forced lost-home races (`lost_home_race_tests.rs`): each holds a writer at
+/// one point so the order its race depends on is the test's, not the clock's.
+#[cfg(test)]
+pub(crate) mod seams {
+    use std::path::Path;
+
+    /// Called on the writing thread at the end of each home check under the home, with the path
+    /// checked and whether the check passed: after the check, before the write it guards.
+    pub(crate) static CHECKED: std::sync::OnceLock<fn(&Path, bool)> = std::sync::OnceLock::new();
+
+    /// Called with a file's path once its temporary copy is written and synced, before that copy
+    /// is renamed over the file.
+    pub(crate) static BEFORE_RENAME: std::sync::OnceLock<fn(&Path)> = std::sync::OnceLock::new();
 }
 
 /// Make one acpmux state directory owner-only, including an existing directory

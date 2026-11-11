@@ -108,6 +108,8 @@ pub mod local_stream;
 pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
+#[cfg(all(test, unix))]
+mod lost_home_race_tests;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
