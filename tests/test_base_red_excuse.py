@@ -6613,7 +6613,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "9a16adb77a9ab7be3484523a917058dc8de984980a40b0be5d0c1fccb002dd57"
+    VENDORED_FINGERPRINT = "7a28b5eca868b9f5258457dd01a21dcb503e02cdaa1688cfa6931e3ac8cd5eba"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib

@@ -999,6 +999,11 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
       `Post job cleanup.` and no other step does, and a named step's header (`Run <its script's first line>`) cannot
       be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
       silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
+      Whether a step is unnamed is the workflow's to say, never its name's: a step's "named_in_workflow" (set only by
+      workflow_step_names, from the workflow at the job's head) is True for a step with a `name:` (only its stamp
+      places it, so "Run package tests (...)" may open with `Run set -euo pipefail`, #40542's sixth Codex BLOCK) and
+      False for one with none (its header must be its name). A step it was not set on is unproven: a name that
+      starts with "Run " is then taken for an unnamed step's, whose header must be it.
     Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
     SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
@@ -1026,10 +1031,12 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
     for k, n in enumerate(starts, 1):
         name = str(steps[k].get("name") or "")  # step-name: validate
         header = texts[n].removeprefix("##[group]")
+        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
+        named = steps[k].get("named_in_workflow")
         if header == "Post job cleanup." or name.startswith("Post "):
             if not (header == "Post job cleanup." and name.startswith("Post ")):
                 return unknown
-        elif name.startswith("Run ") and header != name:
+        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
             return unknown
         parts = lines[n].replace("\ufeff", "").split("\t", 2)
         stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
@@ -1079,6 +1086,104 @@ def failed_steps_log(job: dict, log: str) -> str:
     and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
     is kept: what is shown of a red never hides its evidence."""
     return "\n".join(line for line, _, status in step_owners(job, log) if status != PASSED)
+
+
+# The runner's own steps around a job's workflow steps in the jobs API's steps[]: "Set up job" first, then a job-started
+# hook's "Set up runner"; after them the post steps ("Post ..."), a job-completed hook's "Complete runner" and
+# "Complete job" last. A workflow's `pre:` steps, a container job's steps or anything else leaves its order unproven.
+RUNNER_LEADING_STEPS = ("Set up runner",)
+RUNNER_TRAILING_STEPS = ("Complete runner",)
+
+
+def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> None:
+    """Set "named_in_workflow" on each of JOB's jobs-API steps that its workflow (PATH, read at the job's head_sha)
+    lists: True when that step has a `name:`, False when it has none (step_owners). Only a proven mapping marks
+    anything: one workflow job whose name is JOB's (no matrix, no called workflow), its steps matched to the jobs
+    API's by order between the runner's own (RUNNER_LEADING_STEPS, RUNNER_TRAILING_STEPS), every fixed `name:` the
+    step's API name, every unnamed step's API name `Run <its uses>` or, for a `run:` step, `Run ...` (_step_marks);
+    a job whose name is an expression _check_matcher does not read (cmux-next.yml's cmux-scheme-compile) may be JOB
+    too, so one whose steps fit as well must give the same marks. A workflow
+    that cannot be read, or any doubt, marks nothing, so step_owners keeps taking a "Run ..." name for an unnamed
+    step's (#40542's sixth Codex BLOCK). Read only for a job with such a step; each workflow is read once (SEEN)."""
+    api = sorted(job.get("steps") or [], key=lambda step: step.get("number") if isinstance(step.get("number"), int)
+                 else -1)
+    names = [step.get("name") for step in api]  # step-name: validate
+    if not any(isinstance(name, str) and name.startswith("Run ") for name in names):
+        return
+    sha = str(job.get("head_sha") or "")
+    path = str(path or "").split("@", 1)[0]
+    if ([step.get("number") for step in api] != list(range(1, len(api) + 1)) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+            or not re.fullmatch(r"\.github/workflows/[\w.-]+\.ya?ml", path)
+            or not all(isinstance(name, str) for name in names)):
+        return
+    key = ("workflow-jobs", sha, path)
+    if key not in seen:
+        def read(_: str) -> str:
+            if hasattr(github, "blob"):
+                return source_text(repo, sha, path, github)
+            text = git_text(repo, sha, path)  # a client with no blob read has only git
+            if text is None:
+                raise Refused(f"{repo}@{sha}: {path} could not be read")
+            return text
+
+        try:
+            seen[key] = _workflow(yaml_module(), read, path.removeprefix(".github/workflows/"))[1]
+        except Refused:
+            seen[key] = None
+    jobs = seen[key]
+    if not isinstance(jobs, dict):
+        return
+    # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
+    # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
+    named, unread = [], []
+    for job_id, spec in jobs.items():
+        if not isinstance(spec, dict):
+            return
+        try:
+            matcher = _check_matcher(str(job_id), spec, path)
+        except Refused:
+            unread.append(spec)
+            continue
+        if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
+                                                       for start in matcher["prefixes"])):
+            named.append(spec)
+    if len(named) != 1 or "uses" in named[0] or (named[0].get("strategy") or {}).get("matrix"):
+        return
+    marks = _step_marks(named[0].get("steps"), names)
+    if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
+        return
+    for step, mark in zip(api, marks):
+        if mark is not None:
+            step["named_in_workflow"] = mark
+
+
+def _step_marks(declared, names: list[str]) -> list[bool | None] | None:
+    """For each of a job's jobs-API step NAMES, whether the workflow step it is (DECLARED, the job's `steps:`) has a
+    `name:`, None for the runner's own steps; None when the steps do not map one to one in order
+    (workflow_step_names)."""
+    if not isinstance(declared, list) or not all(isinstance(step, dict) for step in declared):
+        return None
+    if names[:1] != ["Set up job"]:
+        return None
+    first = 1
+    while first < len(names) and names[first] in RUNNER_LEADING_STEPS:
+        first += 1
+    last = first + len(declared)
+    tail = names[last:]
+    if (len(tail) < 1 or tail[-1] != "Complete job"
+            or not all(name.startswith("Post ") or name in RUNNER_TRAILING_STEPS for name in tail[:-1])):
+        return None
+    for name, step in zip(names[first:last], declared):
+        if "name" in step:
+            said = step["name"]  # step-name: validate
+            if not isinstance(said, str) or ("${{" not in said and name != said):
+                return None
+        elif isinstance(step.get("uses"), str):
+            if name != f"Run {step['uses']}":
+                return None
+        elif not (isinstance(step.get("run"), str) and name.startswith("Run ")):
+            return None
+    return [None] * first + ["name" in step for step in declared] + [None] * len(tail)
 
 
 def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[str], set[str]]:
@@ -3753,6 +3858,18 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         head_log = lost_runner_log(repo, name, job, github)
+        if any(str(step.get("name") or "").startswith("Run ") for step in job.get("steps") or []):  # step-name: validate
+            # Which steps the workflow names (step_owners), read before any reader places this log's lines.
+            # An unread run record marks nothing (the "Run ..." names stay unproven); its workflow_id is read below.
+            run_key = ("run-record", job["run_id"])
+            if run_key not in run_reads:
+                try:
+                    run_reads[run_key] = rest_run(repo, job["run_id"], github, run_reads)
+                except Refused:
+                    run_reads[run_key] = None
+            record = run_reads[run_key]
+            workflow_step_names(repo, job, record.get("path") if isinstance(record, dict) else None, github,
+                                run_reads)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
@@ -3793,7 +3910,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if pinned is not None:
             audit.append(pinned)
             continue
-        workflow_info = rest_run(repo, job["run_id"], github, run_reads)
+        workflow_info = run_reads.get(("run-record", job["run_id"]))
+        if not isinstance(workflow_info, dict):
+            workflow_info = rest_run(repo, job["run_id"], github, run_reads)
         workflow = workflow_info.get("workflow_id")
         if not isinstance(workflow, int):
             # never `actions/workflows/None/runs` (cmux#37033's 404): a run whose workflow is unread has no base
@@ -3862,6 +3981,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             text = github.log(repo, found)
+            workflow_step_names(repo, found, run.get("path"), github, run_reads)
             if not placed(found, text):
                 raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
                               "(step_owners), so no base line can be told to a failed step; nothing is compared")
