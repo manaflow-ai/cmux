@@ -151,8 +151,10 @@ describe("the hat's leaving copy folds one time", () => {
     // One frame sooner the fold is still in its first half: the frame after the gap is one frame on.
     const sooner = fold(SOONER);
     expect(sooner[4]!, "the frame before the sooner gap is in the first half").toBeLessThan(LEAVE_MS / 2);
-    expect(sooner[5]!, "the frame after the sooner gap").toBeGreaterThan(sooner[4]!);
-    expect(sooner[5]!, "the frame after the sooner gap").toBeLessThanOrEqual(sooner[4]! + FRAME_MS + 0.001);
+    expect(sooner[5]!, "the frame after the sooner gap goes on").toBeGreaterThan(sooner[4]!);
+    expect(sooner[5]!, "the frame after the sooner gap is at most one frame on").toBeLessThanOrEqual(
+      sooner[4]! + FRAME_MS + 0.001,
+    );
   });
 
   test("a fold with no late frame keeps the page's clock", () => {

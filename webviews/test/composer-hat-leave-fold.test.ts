@@ -15,9 +15,9 @@
 // own length (read from the leaving copy: the settle token, 180 ms) of wall time from its full height
 // to its final one with at least two painted heights in between (frame-rate independent: headless
 // WebKit paints sparse frames), and the composer never moves. The stack's height only goes down: a
-// fold that played a second time (the copy 95% folded, then drawn at its first frame's height again,
-// #41192) put 12.7 px back in one frame, and no other rule of this file saw it when the whole fold
-// was still long enough. With Reduce Motion the hat goes in one step (folds snap). The samples are
+// fold that played a second time (the copy 92% folded at 106.2 px of 132, then drawn at its first
+// frame's height again, 118.9 px: #41192) put 12.7 px back in one frame, and no other rule of this
+// file saw it when the whole fold was still long enough. With Reduce Motion the hat goes in one step (folds snap). The samples are
 // printed, for the PR.
 //
 // Real Chromium and WebKit. CI fails the file when it cannot launch them (requireBrowserLane).
