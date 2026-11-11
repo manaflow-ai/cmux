@@ -1,6 +1,7 @@
 // l10n-allow-file: synthetic file names and host errors for a behavioral regression.
 // An image's original that fails between a commit and that commit's passive effects keeps its Retry
-// (composer/attachmentIntakeModel.ts, the cleanup effect's `everStaged` guard; #40892, review F1).
+// (composer/attachmentIntakeModel.ts, the cleanup effect's `everDrawn` guard, which each commit's
+// layout phase fills, never a render; #40892, review F1).
 //
 // The cleanup effect drops the original's file and failure of a chip no longer in the strip. It runs
 // after its commit's paint, so a second image read meanwhile (staged, its original failed) is in no
