@@ -15,6 +15,13 @@ final class PaneTypeMenuButton: NSView {
     private let chevronLayer = CAShapeLayer()
     private lazy var pointer = PointerHover(self) { [weak self] hovering in
         self?.updateColors()
+        self?.onHoverChange?(hovering)
+    }
+    /// The pointer came onto (true) or left (false) the ⌄.
+    var onHoverChange: ((Bool) -> Void)?
+    /// The + beside it is under the pointer (the split look's shared hover).
+    var siblingHovered = false {
+        didSet { if oldValue != siblingHovered { updateColors() } }
     }
     var onPress: (() -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) the chooser.
@@ -123,7 +130,7 @@ final class PaneTypeMenuButton: NSView {
             switch style {
             case .circles: fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
             case .split:
-                fillLayer.backgroundColor = NewTabButtonView.splitFill(hovering: hovering, pressed: pressed).cgColor
+                fillLayer.backgroundColor = NewTabButtonView.splitFill(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered)?.cgColor
             case .plates, .glyphs, .merged: fillLayer.backgroundColor = nil
             }
         }
