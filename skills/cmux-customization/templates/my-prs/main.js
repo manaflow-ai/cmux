@@ -156,7 +156,9 @@ function renderPRs() {
     ),
     () => (error() ? EmptyState({ title: "Cannot read your pull requests", message: error(), symbol: "exclamationmark.triangle" }) : null),
     () => (needsLogin() ? TextField(draft, { placeholder: "Your GitHub login", onEdit: setDraft, onSubmit: useLogin }) : null),
-    () => (!error() && prs() && prs().length === 0 ? EmptyState({ title: "No open pull requests", symbol: "checkmark.circle" }) : null)
+    () => (!error() && prs() && prs().length === 0 ? EmptyState({ title: "No open pull requests", symbol: "checkmark.circle" }) : null),
+    // With no rows there is no row menu, so the login gets its own way to change.
+    () => (login() && !needsLogin() && prs() && prs().length === 0 ? Button("Change GitHub login", () => setNeedsLogin(true)) : null)
   ])
 }
 
