@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4299930370601",
+  "notes": "notes/4299930370601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41200,
+      "title": "tests: sparse checkouts must hold the repo files their tests read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41166,
+      "title": "base_red_excuse: excuse keys keep a red's identity (failed steps by name and conclusion, counted; full paths)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40150,
+      "title": "app FFI re-pin: a newer pending release run re-pins instead",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41197,
+      "title": "capture provision: delete a new probe team on any failed join",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41021,
+      "title": "test: no fixed names in the shared temp folder; the git fixture's folder survives a test's own EXIT trap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41141,
+      "title": "Sidebar: keep the order drawn after an update restart until the home owner serves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41001,
+      "title": "pre-commit: bootstrap vp with the pinned bun, unaffected by BUN_OPTIONS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40997,
+      "title": "Agent chat: a running row's shimmer takes the clock's phase from a delay, not a style flush",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41138,
+      "title": "Toasts are native AppKit views on Liquid Glass again; the React toast page is gone",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41194,
+      "title": "BASE RED: image-viewer-tab-row-browser fails on the play's defects, not on a frame of the runner",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41168,
+      "title": "ci(test-compile): a cold build fits the job: 90 min job, 60 min run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41180,
+      "title": "BASE RED: the live line's shimmer is one element from Thinking through each step",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40954,
+      "title": "lint: warn on connections opened without a deadline and spawns nobody frees (baseline of today's hits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41177,
+      "title": "cmux-tui tests: the synth kind-backfill test bounds the first read by a count of segments, not by a ratio of two times",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41164,
+      "title": "risk-tier: a held takeback's error names the exact 'Takes back #N' line to paste",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40061,
+      "title": "Composer: a pasted recording is one box from paste to sent message and a chip at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41081,
+      "title": "Every task and process has an owner: a dropped Child dies with its group, a Scope on Hub, Peer and Conn, and a spawn-owner ratchet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41064,
+      "title": "acpmux: our own senders prove themselves with a host token; Xcode's Python is no longer Xcode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41074,
+      "title": "Cloud composer: a new chat with Cloud picked isn't held by this Mac's agent sign-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40774,
+      "title": "rust panic ratchet: lower 5 crates and add 37 new crates to the baseline (CI-generated, after #40569)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41183,
+      "title": "BASE RED: composer-hat-leave-fold bounds the fold by its own length",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
