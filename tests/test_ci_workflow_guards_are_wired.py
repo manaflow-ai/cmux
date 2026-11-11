@@ -48,6 +48,9 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: that each pool read resolves off
+    # Blacksmith with the pools at their CI_BLACKSMITH_OFF labels, and the live signing guard's pattern. Exit: as below.
+    "tests/test_ci_blacksmith_off_switch.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
