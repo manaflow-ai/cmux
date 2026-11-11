@@ -88,6 +88,7 @@ pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
+pub(crate) mod home_fs;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -108,6 +109,8 @@ pub mod local_stream;
 pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
+#[cfg(test)]
+mod lost_home_race_tests;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
