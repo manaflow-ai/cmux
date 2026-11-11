@@ -11,8 +11,9 @@
 //! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
 //!   none (`my_vm`);
 //! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
-//!   kind of namespace will be a bit reserved"). Today that is `--on vm`'s VM; the answer's
-//!   `placement` (`vm:ID`) names what it chose, so nothing depends on `cloud` meaning a VM;
+//!   kind of namespace will be a bit reserved"), and never asks which VM: today my most recently
+//!   used running chat VM, else a new one (`cloud_vm`); the answer's `placement` (`vm:ID`) names
+//!   what it chose, so nothing depends on `cloud` meaning a VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
 //!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
@@ -503,13 +504,14 @@ where
     if on == "here" {
         return Ok(Route::Here);
     }
-    // `cloud` is cmux Cloud's choice of place; today it is `vm`'s (module docs).
+    // `cloud` is cmux Cloud's choice of place, never a question (module docs); `vm` is my VM.
     if on == "cloud" || on == "vm" {
         if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
         {
             return Err(refused(&refusal));
         }
-        return my_vm(&(reads.cloud_machines)()?).map(Route::Cloud);
+        let listed = (reads.cloud_machines)()?;
+        return if on == "cloud" { cloud_vm(&listed) } else { my_vm(&listed) }.map(Route::Cloud);
     }
     if let Some(vm) = on.strip_prefix("vm:") {
         if vm == "new" {
@@ -596,22 +598,12 @@ fn retryable(mut error: Value) -> Value {
 /// The VM statuses `--on vm` does not reuse: a VM that is failing or going away.
 const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
 
-/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07; and `--on cloud` today): the one VM
+/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07): the one VM
 /// of yours the app lists, a new one when you have none, or the one running VM of several. Several VMs and not
 /// one running is refused with their names, never guessed; a paused VM resumes when the chat
 /// starts on it (the app's `start-chat --target`).
 fn my_vm(listed: &Value) -> Result<Machine, Value> {
-    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
-        return Err(refused(&ChatTargetRefusal::SignedOut));
-    }
-    if let Some(error) = not_loaded(listed) {
-        return Err(error);
-    }
-    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let usable: Vec<&Value> = rows
-        .iter()
-        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
-        .collect();
+    let usable = usable_vms(listed)?;
     let running: Vec<&Value> =
         usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
     // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
@@ -645,6 +637,56 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
         "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
+}
+
+/// The VMs `listed` (the app's `cloud list-machines` answer) has that a chat may reuse: not
+/// failing or going away. Refused when the list says signed out, or is not loaded yet.
+fn usable_vms(listed: &Value) -> Result<Vec<&Value>, Value> {
+    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
+        return Err(refused(&ChatTargetRefusal::SignedOut));
+    }
+    if let Some(error) = not_loaded(listed) {
+        return Err(error);
+    }
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    Ok(rows
+        .iter()
+        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .collect())
+}
+
+/// The words of a VM title that mark a machine made for something other than chat: a fleet lease
+/// (`lease-…`), a probe, the Cloud dev loop's machine (`cloud-devloop`).
+const NOT_FOR_CHAT: &[&str] = &["lease", "probe", "devloop"];
+
+/// Whether a VM titled `title` was made for something other than chat: one of its words (split
+/// at anything not a letter or digit, any case) is in [`NOT_FOR_CHAT`].
+fn made_for_other_than_chat(title: &str) -> bool {
+    title
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| NOT_FOR_CHAT.iter().any(|other| word.eq_ignore_ascii_case(other)))
+}
+
+/// `--on cloud`: cmux Cloud picks the place, so the person is never asked which VM (the help:
+/// "cmux Cloud runs it; where may change"; `--on vm` may still ask). Today it is the person's
+/// most recently used running chat VM: running, not made for something else
+/// ([`made_for_other_than_chat`]), made by the signed-in person when the list names them
+/// (`account.user`), latest `last_active_at` (else `created_at`) first, the machine id breaking a
+/// tie, so the same list always picks the same VM. None of those: a new VM.
+fn cloud_vm(listed: &Value) -> Result<Machine, Value> {
+    let me = listed.pointer("/account/user").and_then(Value::as_str);
+    // The list's times are one fixed form (`2026-11-10T23:56:32Z`), so their text sorts as they do.
+    let used_at = |row: &Value| text(row, "last_active_at").or_else(|| text(row, "created_at"));
+    let chosen = usable_vms(listed)?
+        .into_iter()
+        .filter(|row| text(row, "status") == Some("running"))
+        .filter(|row| !made_for_other_than_chat(text(row, "title").unwrap_or("")))
+        .filter(|row| me.is_none_or(|me| text(row, "created_by") == Some(me)))
+        .filter_map(|row| text(row, "machine_id").map(|id| (used_at(row), id)))
+        .max_by(|(left_at, left), (right_at, right)| {
+            left_at.cmp(right_at).then_with(|| right.cmp(left))
+        });
+    Ok(chosen.map_or(Machine::New, |(_, id)| Machine::Target(id.to_owned())))
 }
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
@@ -853,8 +895,7 @@ fn in_repo(mut start: Start, output: OutputMode) -> Result<Start, Failure> {
 
 /// Where `start` runs. An environment makes the chat's machine, so `--on cloud --environment`
 /// (cmux Cloud's choice of place) is a new machine in it, decided before any VM of yours is
-/// looked at: the VMs `--on cloud` would otherwise pick from (or refuse as several) are not its
-/// choice then. Only the sign-in is checked first. Anything else is [`route`]'s.
+/// looked at: the VMs `--on cloud` would otherwise pick from are not its choice then. Only the sign-in is checked first. Anything else is [`route`]'s.
 pub(super) fn route_start<C, S, L>(start: &Start, reads: Reads<C, S, L>) -> Result<Route, Value>
 where
     C: FnOnce() -> Result<Value, Value>,

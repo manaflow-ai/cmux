@@ -257,7 +257,7 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
     assert_eq!(picked.environment.as_deref(), Some("staging-db"));
     assert!(TAKES_VALUE.contains(&"--environment"));
     // cmux Cloud's choice of place: a new machine in the environment, decided before any VM is
-    // read, so several VMs of yours (which `--on cloud` alone refuses as `which_vm`) never matter.
+    // read, so the VM `--on cloud` alone would pick from yours never matters.
     let reads = |signed_in: bool| Reads {
         catalog: || -> Result<Value, Value> { panic!("no catalog read") },
         signed_in: move || signed_in,
@@ -324,9 +324,10 @@ fn vm_targets_are_new_or_an_existing_vm_never_made_for_them() {
 
 #[test]
 fn cloud_is_a_selector_and_needs_a_sign_in() {
-    // Four VMs, none running: which one is not guessed, for `vm` and for `cloud` (today the same).
+    // Four VMs, none running: `vm` asks which one; `cloud` never asks, and has none to reuse.
+    assert_eq!(code(at("vm", true)), "chat_target.which_vm");
+    assert_eq!(at("cloud", true), Ok(Route::Cloud(Machine::New)));
     for on in ["cloud", "vm"] {
-        assert_eq!(code(at(on, true)), "chat_target.which_vm");
         assert_eq!(code(at(on, false)), "chat_target.signed_out");
     }
     // A device named "cloud" is reached by its id, never by the selector.
@@ -346,6 +347,80 @@ fn on_vm(listed: Value) -> Result<Route, Value> {
             cloud_machines: || Ok(listed),
         },
     )
+}
+
+/// `--on cloud` with the app's VM list `listed`.
+fn on_cloud(listed: Value) -> Result<Route, Value> {
+    route(
+        Some("cloud"),
+        Reads {
+            catalog: || -> Result<Value, Value> { panic!("catalog") },
+            signed_in: || true,
+            cloud_machines: || Ok(listed),
+        },
+    )
+}
+
+/// Leo's NIGHTLY, 2026-11-11: `cmux chat --on cloud` with seven VMs refused `which_vm`, though its
+/// help says "cmux Cloud runs it; where may change". Now cmux Cloud picks, the same VM for the
+/// same list: the person's most recently used running chat VM, else a new one.
+#[test]
+fn cloud_picks_my_most_recently_used_running_chat_vm_and_never_asks() {
+    let vm = |id: &str, title: &str, status: &str, by: &str, created: &str, active: Option<&str>| {
+        json!({"machine_id": id, "title": title, "status": status, "created_by": by,
+               "created_at": created, "last_active_at": active})
+    };
+    // Leo's list, as the NIGHTLY's rows carry it (no `last_active_at`, no `account.user`).
+    let leo = |rows: Vec<Value>| json!({"account": {"signed_in": true}, "machines": rows});
+    let seven = vec![
+        vm("vm_e35", "chat-91c33c40", "paused", "user_a", "2026-11-04T07:25:51Z", None),
+        vm("vm_5e3", "cloud-devloop", "running", "user_a", "2026-11-05T06:20:17Z", None),
+        vm("vm_4e2", "Cloud Machine 2", "running", "user_a", "2026-11-05T06:49:14Z", None),
+        vm("vm_b11", "lease-lease_45_32acd657", "paused", "user_a", "2026-11-09T21:23:04Z", None),
+        vm("vm_d0c", "chat-800dd580cab0487c", "running", "user_a", "2026-11-10T02:16:41Z", None),
+        vm("vm_dff", "lease-lease_7c_9d87501b", "running", "user_a", "2026-11-10T23:39:21Z", None),
+        vm("vm_c4f", "chat-1ee79169fa414849", "running", "user_a", "2026-11-10T23:56:32Z", None),
+    ];
+    // No use known: the newest running one, never the lease or the dev loop's machine.
+    assert_eq!(on_cloud(leo(seven.clone())), Ok(Route::Cloud(Machine::Target("vm_c4f".into()))));
+    // The same list in another order picks the same VM.
+    let mut reversed = seven.clone();
+    reversed.reverse();
+    assert_eq!(on_cloud(leo(reversed)), Ok(Route::Cloud(Machine::Target("vm_c4f".into()))));
+    // `--on vm` still asks.
+    assert_eq!(code(on_vm(leo(seven))), "chat_target.which_vm");
+
+    // Use known: the most recently used, though made earlier; a paused VM is never picked.
+    let used = vec![
+        vm("vm-old", "chat-aa", "running", "user_a", "2026-11-01T00:00:00Z", Some("2026-11-10T12:00:00Z")),
+        vm("vm-new", "chat-bb", "running", "user_a", "2026-11-09T00:00:00Z", Some("2026-11-09T01:00:00Z")),
+        vm("vm-nap", "chat-cc", "paused", "user_a", "2026-11-10T00:00:00Z", Some("2026-11-10T23:00:00Z")),
+    ];
+    assert_eq!(on_cloud(leo(used.clone())), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
+    // A teammate's VM is never mine, when the list says who I am.
+    let me = |who: &str| json!({"account": {"signed_in": true, "user": who}, "machines": used.clone()});
+    assert_eq!(on_cloud(me("user_a")), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
+    assert_eq!(on_cloud(me("user_b")), Ok(Route::Cloud(Machine::New)));
+    // A tie breaks on the machine id, so it is still one answer.
+    let tie = vec![
+        vm("vm-2", "chat-2", "running", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-1", "chat-1", "running", "user_a", "2026-11-01T00:00:00Z", None),
+    ];
+    assert_eq!(on_cloud(leo(tie)), Ok(Route::Cloud(Machine::Target("vm-1".into()))));
+    // Machines made for something else, whatever their case: none qualifies, a new VM.
+    let others = vec![
+        vm("vm-l", "lease-lease_1", "running", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-p", "Probe-VM", "running", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-d", "cloud-devloop", "running", "user_a", "2026-11-01T00:00:00Z", None),
+        vm("vm-f", "chat-ff", "failed", "user_a", "2026-11-01T00:00:00Z", None),
+    ];
+    assert_eq!(on_cloud(leo(others)), Ok(Route::Cloud(Machine::New)));
+    assert_eq!(on_cloud(leo(vec![])), Ok(Route::Cloud(Machine::New)));
+    // Signed out, or not loaded yet: refused as `--on vm` refuses, never a new VM.
+    let out = json!({"account": {"signed_in": false}, "machines": []});
+    assert_eq!(code(on_cloud(out)), "chat_target.signed_out");
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    assert_eq!(code(on_cloud(unloaded)), "chat_target.unavailable");
 }
 
 #[test]

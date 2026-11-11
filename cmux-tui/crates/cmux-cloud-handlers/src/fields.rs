@@ -416,7 +416,19 @@ pub struct Listed {
     pub created_by: Option<String>,
     /// Unix seconds.
     pub created_at: Option<f64>,
+    /// The machine's last API activity (its idle-pause record's `lastApiActivityAt`), epoch ms.
+    pub last_api_activity_at: Option<f64>,
+    /// When it last started running, unix seconds; none while paused.
+    pub running_since: Option<f64>,
     pub failure: Option<Failure>,
+}
+
+impl Listed {
+    /// When the machine was last used, unix seconds: its last API activity, else when it last
+    /// started running (the order cmux-cloud-machine's `cap` gives a person's busy machines).
+    fn last_active_at(&self) -> Option<f64> {
+        self.last_api_activity_at.map(|ms| ms / 1000.0).or(self.running_since)
+    }
 }
 
 /// One create still on its way: its id, the name it asked for, and its failure if it failed.
@@ -436,6 +448,8 @@ pub struct MachineList {
     pub loaded: bool,
     pub team: bool,
     pub signed_in: bool,
+    /// The signed-in person's platform user id (`user_…`), the id a machine's `created_by` names.
+    pub user: Option<String>,
     pub machines: Vec<Listed>,
     pub creating: Vec<Creating>,
 }
@@ -453,6 +467,7 @@ pub fn machine_list(list: &MachineList) -> Fields {
                     "machine_id": m.machine_id, "target": format!("machine:{}", m.machine_id), "title": m.title,
                     "status": m.status, "owner": owner, "created_by": m.created_by,
                     "created_at": m.created_at.map(time::iso8601),
+                    "last_active_at": m.last_active_at().map(time::iso8601),
                     "error": m.failure.as_ref().map(|f| json!({"code": f.code, "message": f.message})),
                 })
             })
@@ -475,7 +490,7 @@ pub fn machine_list(list: &MachineList) -> Fields {
         .collect();
     object(json!({
         "loaded": list.loaded, "count": machines.len(), "machines": machines, "creating": creating,
-        "account": {"signed_in": list.signed_in},
+        "account": {"signed_in": list.signed_in, "user": list.user},
     }))
 }
 
