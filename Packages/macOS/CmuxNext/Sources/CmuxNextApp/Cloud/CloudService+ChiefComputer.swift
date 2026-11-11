@@ -10,9 +10,11 @@ extension CloudService {
         machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight
     }
 
-    /// The free name for a computer of the Chief named `chief`.
+    /// The free name for a computer of the Chief named `chief`, cut to fit a machine name's 80
+    /// characters (a Chief's name may have 100).
     func chiefComputerName(for chief: String) -> String {
-        CloudMachine.defaultName(taken: machineNamesTaken, base: HomeEngineStrings.computerName(chief),
+        let chief = String(chief.prefix(60))
+        return CloudMachine.defaultName(taken: machineNamesTaken, base: HomeEngineStrings.computerName(chief),
                                  numbered: { HomeEngineStrings.computerName("\(chief) \($0)") })
     }
 

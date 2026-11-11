@@ -3,7 +3,7 @@ import Foundation
 /// What the card's Computer picker lists, in order: this Chief's computer and This Mac, then the
 /// account's other Cloud machines under a heading, then New Cloud Computer…. Machines tooling made
 /// for itself stay out unless the Chief is using one.
-struct HomeChiefComputerMenu: Equatable {
+nonisolated struct HomeChiefComputerMenu: Equatable {
     enum Row: Equatable {
         /// A computer to pick: `target` is engine.json's `computer`, nil for This Mac.
         case computer(title: String, target: String?)
