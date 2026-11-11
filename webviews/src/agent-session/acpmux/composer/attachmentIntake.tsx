@@ -198,7 +198,7 @@ function PendingChip({
       ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
       : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
-  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
+  // one small retry button where a retry can work (`retryable`), and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
   if (chip.failed)
     return (

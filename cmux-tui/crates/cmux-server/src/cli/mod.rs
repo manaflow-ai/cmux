@@ -128,7 +128,20 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
 fn fail(json: bool, e: &Error) -> u8 {
     let mut stderr = std::io::stderr().lock();
     let _ = if json {
-        let body = json!({"error": {"kind": e.kind.as_str(), "message": e.message}});
+        // The CLI's one error shape (`code`, `message`, `details`,
+        // `retryable`; docs/cli-conventions.md in cmuxterm-hq) beside the
+        // `error` object this noun printed first, which callers still read.
+        let code = match e.kind {
+            crate::error::ExitKind::Usage => "usage.invalid".to_owned(),
+            kind => format!("server.{}", kind.as_str()),
+        };
+        let body = json!({
+            "code": code,
+            "message": e.message,
+            "details": {},
+            "retryable": e.kind == crate::error::ExitKind::Unreachable,
+            "error": {"kind": e.kind.as_str(), "message": e.message},
+        });
         writeln!(stderr, "{body}")
     } else {
         writeln!(stderr, "cmux server: {}", e.message)

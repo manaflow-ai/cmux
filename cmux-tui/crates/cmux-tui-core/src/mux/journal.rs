@@ -139,23 +139,32 @@ impl Mux {
     }
 
     /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
-    /// and structural, it carries no output.
+    /// and structural, it carries no output. Offered to the terminal lane
+    /// without a wait, as a geometry change is.
     pub(crate) fn journal_terminal_output_gap(
-        &self,
+        self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         reason: &'static str,
     ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        });
+        let offer = self.journal_ingress.offer_terminal(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id: terminal_id.clone(),
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        );
+        self.note_terminal_offer(&terminal_id, offer);
     }
 
+    /// Journals an accepted geometry change without a wait: the callers hold
+    /// the terminal's geometry and parser locks, and a writer that cannot
+    /// drain must not stop the terminal. A full terminal lane leaves a
+    /// `journal_queue_full` gap marker in place of the change
+    /// (journal_ingress/terminal_offer.rs).
     pub(crate) fn journal_terminal_resize(
-        &self,
+        self: &Arc<Self>,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
         cols: u16,
@@ -163,15 +172,33 @@ impl Mux {
         cell_width: u16,
         cell_height: u16,
     ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            cols,
-            rows,
-            cell_width,
-            cell_height,
-        });
+        let offer = self.journal_ingress.offer_terminal(
+            crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                terminal_id: terminal_id.clone(),
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                cols,
+                rows,
+                cell_width,
+                cell_height,
+            },
+        );
+        self.note_terminal_offer(&terminal_id, offer);
+    }
+
+    /// A refused record, and the marker that later stands for it, move the
+    /// terminal's replay boundary: the next coalesced checkpoint covers it
+    /// (and first offers the marker again, mux/journal_retention.rs). No log
+    /// line here: the callers hold terminal locks and stderr can block; the
+    /// marker in the journal is the record of the refusal.
+    fn note_terminal_offer(
+        self: &Arc<Self>,
+        terminal_id: &TerminalPublicId,
+        offer: crate::journal_ingress::TerminalOffer,
+    ) {
+        if offer.needs_checkpoint() {
+            self.note_terminal_host_reconnect(terminal_id.clone());
+        }
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -561,29 +588,46 @@ impl Mux {
                 return Err(validation_error);
             }
         };
-        let commit = if self.journal_ingress.enabled() {
+        // A hook that changes no durable state is answered from memory: no
+        // journal row, no registry commit (`agent_hooks_at_rest.rs`).
+        if let Some(commit) = self.answer_agent_hook_at_rest(ingress, origin, idempotency_key) {
+            // Its time is live state; the journal gets one coalesced row for
+            // all terminals when the interval passed.
+            self.save_agent_activity(false);
+            return Ok(commit);
+        }
+        // So is a plugin report that repeats what the roster holds from it
+        // (`agent_plugin_reports_at_rest.rs`).
+        if let Some(commit) =
+            self.answer_agent_plugin_report_at_rest(ingress, origin, idempotency_key)
+        {
+            return Ok(commit);
+        }
+        let in_flight = self.agent_hook_in_flight(ingress);
+        let plugin_in_flight = self.agent_plugin_report_in_flight(ingress);
+        let appended = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            )?
+            )
         } else {
-            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            let appended = self.workspace_registry.lock().unwrap().append_journal_ingress(
                 ingress,
                 &validated,
                 origin,
                 idempotency_key,
-            )?;
-            if !commit.replayed {
+            );
+            if appended.as_ref().is_ok_and(|commit| !commit.replayed) {
                 self.publish_journal_event();
             }
-            commit
+            appended
         };
-        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
-            self.activity.note_agent_action();
-        }
-        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+        let result = appended.as_ref().ok();
+        self.note_agent_hook_result(ingress, result, in_flight.as_ref(), origin, idempotency_key);
+        self.note_agent_plugin_report_result(ingress, result, plugin_in_flight.as_ref());
+        self.finish_journal_ingress(ingress, origin, idempotency_key, appended?)
     }
 
     pub(super) fn finish_journal_ingress(
@@ -628,16 +672,24 @@ impl Mux {
                         "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
+                // Each report of this terminal is a row while this waits:
+                // the row's projection is the retry.
+                self.note_agent_hook_projection_pending(ingress);
             }
-        } else if let Err(_bookkeeping_error) = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
-        {
-            self.report_internal_diagnostic(
-                "agent hook projection applied; retry bookkeeping cleanup deferred",
-            );
+        } else {
+            if let Err(_bookkeeping_error) = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+            {
+                self.report_internal_diagnostic(
+                    "agent hook projection applied; retry bookkeeping cleanup deferred",
+                );
+            }
+            // After the clear of this row: ends the terminal's wait when no
+            // projection of it is left to try.
+            self.note_agent_hook_projected(ingress);
         }
         // A replayed plugin event can repair a projection after a process
         // crash between the durable journal commit and the in-memory fold.

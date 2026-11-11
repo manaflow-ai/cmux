@@ -64,7 +64,10 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/ci/web_coalesce.py
+          sparse-checkout: |
+            scripts/ci/web_coalesce.py
+            scripts/ci/web_subareas.py
+            scripts/ci/webviews_test_history.py
           sparse-checkout-cone-mode: false
 
       # The last push that ran the web checks: the newest entry by its prefix. Missing (the first run, an eviction)
@@ -211,7 +214,8 @@ jobs:
           mkdir -p "$WEB_BISECT_RUNNER" "$WEB_BISECT_RUNNER/../cmux-next"
           cp scripts/ci/run-webviews-tests.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/webviews_test_history.py scripts/ci/web_subareas.py scripts/ci/web_coalesce.py \
-            scripts/ci/web-bisect-probe.sh scripts/ci/ensure-system-chrome.sh "$WEB_BISECT_RUNNER/"
+            scripts/ci/web-bisect-probe.sh scripts/ci/ensure-system-chrome.sh \
+            scripts/ci/pin-browser-test-font.sh "$WEB_BISECT_RUNNER/"
           cp scripts/cmux-next/web-bundle-key.py "$WEB_BISECT_RUNNER/../cmux-next/"
           shopt -s nullglob
           results=("$RUNNER_TEMP"/web-bisect-results/webviews-test-history-shard*/webviews-head-results.json)

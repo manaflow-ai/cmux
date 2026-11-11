@@ -108,10 +108,11 @@ struct Resolved {
 /// held directories and cannot leave root. Procfs is recognized by fstatfs,
 /// including mounts reached through aliases. Symlinks are read through their
 /// pinned O_PATH fd, never through a mutable directory entry a second time.
-/// Relative starts use one additional absolute walk to verify cwd/dirfd identity;
-/// this recursion ends immediately because the verified start is absolute.
+/// Relative starts, and `/proc/<self>/fd/N/<rest>` with N a directory, use one
+/// additional absolute walk to verify cwd/dirfd identity; that walk is nested
+/// and never expands a proc-fd directory itself, so the recursion is one level.
 fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result<Resolved> {
-    resolve_inner(task, dir, path, flags, nspid, &directory_flags, true)
+    resolve_inner(task, dir, path, flags, nspid, &directory_flags, true, false)
 }
 
 fn proc_fd_number(name: &str) -> Result<u32> {
@@ -142,9 +143,11 @@ fn resolve_with_flags(
     nspid: &str,
     read_flags: &dyn Fn(RawFd) -> Result<c_long>,
 ) -> Result<Resolved> {
-    resolve_inner(task, dir, path, flags, nspid, read_flags, false)
+    resolve_inner(task, dir, path, flags, nspid, read_flags, false, false)
 }
 
+// One flag per caller kind; a struct would only rename the same eight values.
+#[allow(clippy::too_many_arguments)]
 fn resolve_inner(
     task: RawFd,
     dir: i32,
@@ -153,6 +156,7 @@ fn resolve_inner(
     nspid: &str,
     read_flags: &dyn Fn(RawFd) -> Result<c_long>,
     verify_filesystem: bool,
+    nested: bool,
 ) -> Result<Resolved> {
     if path.is_empty() {
         return Err(ENOENT);
@@ -184,28 +188,43 @@ fn resolve_inner(
         })
     };
     check_directory(root.as_raw_fd(), false)?;
-    let mut directory_required = path.ends_with('/');
-    let start = if path.starts_with('/') {
-        path.to_owned()
-    } else {
-        let at = if dir == AT_FDCWD { "cwd".to_owned() } else { format!("fd/{dir}") };
-        let actual = open_at(task, &at, O_PATH, 0).map_err(|_| EACCES)?;
+    // The rooted path of the task's cwd or one of its directory fds (`at` is
+    // "cwd" or "fd/N"), verified by one absolute walk that must reach the same
+    // inode. That walk is `nested`: it never expands a proc-fd directory
+    // prefix itself, so this recursion is at most one level deep.
+    let held_directory = |at: &str| -> Result<String> {
+        let actual = open_at(task, at, O_PATH, 0).map_err(|_| EACCES)?;
         let actual = stat(actual.as_raw_fd())?;
         if actual.st_mode & S_IFMT != S_IFDIR {
             return Err(ENOTDIR);
         }
-        let cwd = link_at(task, &at).map_err(|_| EACCES)?;
-        if !cwd.starts_with('/') || cwd.ends_with(" (deleted)") {
+        let current = link_at(task, at).map_err(|_| EACCES)?;
+        if !current.starts_with('/') || current.ends_with(" (deleted)") {
             return Err(EACCES);
         }
-        let walked =
-            resolve_inner(task, AT_FDCWD, &cwd, O_DIRECTORY, nspid, read_flags, verify_filesystem)?;
+        let walked = resolve_inner(
+            task,
+            AT_FDCWD,
+            &current,
+            O_DIRECTORY,
+            nspid,
+            read_flags,
+            verify_filesystem,
+            true,
+        )?;
         let pin = open_at(walked.parent.as_raw_fd(), &walked.name, O_PATH | O_NOFOLLOW, 0)?;
         let walked_stat = stat(pin.as_raw_fd())?;
         if (actual.st_dev, actual.st_ino) != (walked_stat.st_dev, walked_stat.st_ino) {
             return Err(EACCES);
         }
-        format!("{}/{path}", walked.logical)
+        Ok(walked.logical)
+    };
+    let mut directory_required = path.ends_with('/');
+    let start = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        let at = if dir == AT_FDCWD { "cwd".to_owned() } else { format!("fd/{dir}") };
+        format!("{}/{path}", held_directory(&at)?)
     };
     let mut queue = components(&start);
     let mut stack = vec![root];
@@ -251,15 +270,36 @@ fn resolve_inner(
                 return Err(EACCES);
             };
             if target != Path::new("/proc")
-                || queue.len() != 3
+                || queue.len() < 3
                 || magic.is_some()
                 || !matches!(first.as_str(), "self" | "thread-self") && *first != nspid
                 || *second != "fd"
-                || flags & O_NOFOLLOW != 0
             {
                 return Err(EACCES);
             }
             let number = proc_fd_number(fd)?;
+            if queue.len() > 3 {
+                // `/proc/self/fd/N/rest` (Claude Code's scratch folders): the
+                // rest is relative to directory fd N, exactly like
+                // `openat(N, rest)`. The fd's real path is verified by inode
+                // and the whole path is walked again from root, so policy sees
+                // only where the walk lands, never this spelling. Each
+                // expansion counts as a symlink, bounding loops through it.
+                links += 1;
+                if nested || links > 40 {
+                    return Err(if nested { EACCES } else { ELOOP });
+                }
+                let held = held_directory(&format!("fd/{number}"))?;
+                let mut next = components(&held);
+                next.extend(queue.drain(3..));
+                queue = next;
+                stack.truncate(1);
+                logical = "/".into();
+                continue;
+            }
+            if flags & O_NOFOLLOW != 0 {
+                return Err(EACCES);
+            }
             let object = open_at(task, &format!("fd/{number}"), O_PATH, 0)?;
             let current = link_at(AT_FDCWD, &format!("/proc/self/fd/{}", object.as_raw_fd()))
                 .map_err(|_| EACCES)?;
@@ -327,7 +367,7 @@ fn resolve_inner(
                                     | "stderr"
                             )
                         ))
-                    || (queue.len() == 2 && queue.front().is_some_and(|c| c == "fd")));
+                    || (queue.len() >= 2 && queue.front().is_some_and(|c| c == "fd")));
             check_directory(pin.as_raw_fd(), device_route)?;
         } else if queue.is_empty() && directory_required {
             return Err(ENOTDIR);
@@ -1107,6 +1147,84 @@ mod tests {
         assert!(matches!(
             resolve(task().as_raw_fd(), AT_FDCWD, &alias, O_WRONLY, &pid),
             Err(EACCES)
+        ));
+    }
+
+    /// Claude Code 2.1.322 makes its scratch folders through
+    /// `/proc/self/fd/<O_PATH dirfd>/<name>`. The prefix resolves to the held
+    /// directory's walked path, and the rest is walked from there.
+    #[test]
+    fn proc_fd_directory_prefix_resolves_through_the_held_directory() {
+        let fixture = Fixture::new();
+        let held =
+            open_at(AT_FDCWD, fixture.0.join("a").to_str().unwrap(), O_PATH | O_DIRECTORY, 0)
+                .expect("held directory");
+        let number = held.as_raw_fd();
+        let pid = nspid();
+        let root = fixture.0.display();
+        for prefix in [
+            format!("/proc/self/fd/{number}"),
+            format!("/proc/thread-self/fd/{number}"),
+            format!("/dev/fd/{number}"),
+        ] {
+            let resolved = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/new"),
+                O_PATH | O_NOFOLLOW,
+                &pid,
+            )
+            .unwrap_or_else(|e| panic!("{prefix}/new: errno {e}"));
+            assert_eq!(resolved.logical, format!("{root}/a/new"));
+            assert_eq!(resolved.name, "new");
+            assert!(resolved.object.is_none());
+            let nested = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/b/new"),
+                O_CREAT | O_WRONLY,
+                &pid,
+            )
+            .expect("nested name under the held directory");
+            assert_eq!(nested.logical, format!("{root}/a/b/new"));
+            // `..` leaves the held directory and is checked where it lands.
+            let escaped = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/../.git/config"),
+                O_WRONLY,
+                &pid,
+            )
+            .expect("dotdot from the held directory");
+            assert_eq!(escaped.logical, format!("{root}/.git/config"));
+        }
+        // Only a live, named directory can be a prefix.
+        let file = fs::File::open(fixture.0.join(".git/config")).expect("regular file");
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().expect("anonymous socket");
+        for fd in [file.as_raw_fd(), socket.as_raw_fd()] {
+            assert!(
+                resolve(
+                    task().as_raw_fd(),
+                    AT_FDCWD,
+                    &format!("/proc/self/fd/{fd}/new"),
+                    O_CREAT | O_WRONLY,
+                    &pid
+                )
+                .is_err(),
+                "non-directory fd {fd} accepted as a prefix"
+            );
+        }
+        // A symlink back into the same prefix is bounded like any symlink loop.
+        symlink(format!("/proc/self/fd/{number}/loop"), fixture.0.join("a/loop")).unwrap();
+        assert!(matches!(
+            resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("/proc/self/fd/{number}/loop/x"),
+                O_CREAT | O_WRONLY,
+                &pid
+            ),
+            Err(ELOOP)
         ));
     }
 

@@ -635,15 +635,23 @@ impl Mux {
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return Ok(());
         }
+        // A sidecar this build cannot read (a newer build's after a
+        // rollback, a damaged file) is no receipt: the end is a host loss and
+        // the file stays for a build that reads it. Failing here failed every
+        // start of the daemon, with every live terminal unreachable.
         let sidecar = options
             .terminal_host_root
             .as_ref()
             .map(|root| root.join(format!("{terminal_id}.json")))
-            .map(|record_path| {
+            .and_then(|record_path| {
                 crate::terminal_host_runtime::terminal_host_exit_record(&record_path)
+                    .unwrap_or_else(|error| {
+                        eprintln!(
+                            "cmux-tui: terminal {terminal_id} exit sidecar not read, kept: {error:#}"
+                        );
+                        None
+                    })
             })
-            .transpose()?
-            .flatten()
             .filter(|(_, record)| {
                 record.terminal_id == terminal_id
                     && terminal
@@ -718,7 +726,15 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if orphan_hosts::placed_on_adoption(&terminal) && !has_restored_placements {
+        // A template that this registry already published has a durable
+        // public terminal id. If its tab was closed it is detached, and it is
+        // restored detached below like any other terminal: placing its
+        // identity-less runtime here would leave a tab slot with no durable
+        // identity, fail every later resource projection, and stop the
+        // session from creating terminals.
+        let first_adoption = orphan_hosts::placed_on_adoption(&terminal)
+            && registry.terminal_resource_id(terminal_id)?.is_none();
+        if first_adoption && !has_restored_placements {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
@@ -771,6 +787,8 @@ impl Mux {
                 }
             }
         }
+        #[cfg(test)]
+        test_hooks::run_committed_before_route_publish_hook();
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
@@ -1149,11 +1167,14 @@ impl Mux {
                 mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
                 mux.terminal_adoption_ended.notify_all();
+                // After the id left the set: no input joins the queue from now on.
+                mux.finish_adopting_input(&terminal_id);
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
             self.terminal_adoption_ended.notify_all();
             self.clear_pending_terminal(&cleanup_id);
+            self.finish_adopting_input(&cleanup_id);
         }
     }
 

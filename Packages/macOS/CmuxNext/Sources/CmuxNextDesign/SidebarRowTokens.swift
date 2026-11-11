@@ -19,9 +19,12 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         /// The body and caption text sizes (`Typography.body`, `Typography.caption`).
         public var body: CGFloat
         public var caption: CGFloat
+        /// The app is at Default density (`appearance.density` cozy), the Codex desktop app's size (#37274), so the
+        /// sidebar's own Compact rows take the Codex sidebar's geometry (``matchesCodex``).
+        public var isCodexDensity: Bool
 
         public init(rowHeight: CGFloat, space1: CGFloat, space2: CGFloat, space3: CGFloat, space4: CGFloat,
-                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat) {
+                    cornerRadius: CGFloat, body: CGFloat, caption: CGFloat, isCodexDensity: Bool = false) {
             self.rowHeight = rowHeight
             self.space1 = space1
             self.space2 = space2
@@ -30,6 +33,7 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             self.cornerRadius = cornerRadius
             self.body = body
             self.caption = caption
+            self.isCodexDensity = isCodexDensity
         }
     }
 
@@ -55,8 +59,27 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public var band: SidebarRowTokens {
         density == .expanded ? SidebarRowTokens(density: .comfortable, textSize: textSize, base: base) : self
     }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
+    /// Rows inset from the sidebar edge (and, outside ``matchesCodex``, their content from the row edge).
     public var horizontalInset: CGFloat { isComfortable ? base.space4 : base.space3 }
+
+    /// The sidebar's list and band rows draw the Codex desktop sidebar's rows
+    /// (https://github.com/manaflow-ai/cmux/issues/39956, measured in https://github.com/manaflow-ai/cmux/issues/28793): the app at
+    /// Default density and the sidebar at its own default, Compact. Codex stacks 30 px rows with no gap
+    /// (`--height-token-nav-row`), pads their content 8 px from the fill (`--padding-row-x`) inside a 6 px outer
+    /// inset, and rounds the fill 10 px (`--radius-token-row`). Every other density keeps its own rows, so
+    /// `appearance.density`, `sidebar.density` and the metric overrides still pick them.
+    public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
+    /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
+    /// stays the row step and the fill grows into the gap (28 + 2 = 30 at Default).
+    public var listRowHeight: CGFloat { rowHeight + (matchesCodex ? base.space1 : 0) }
+    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
+    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
+    /// else the outer inset.
+    public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
+    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
+    /// pill's radius.
+    public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
     public var captionSize: CGFloat { base.caption + textSize.textStep }
@@ -78,7 +101,8 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         let sections = DesignSettings.shared.sidebarSections
         let base = Base(rowHeight: Metrics.sidebarRowHeight, space1: Metrics.space1, space2: Metrics.space2,
                         space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.itemCornerRadius,
-                        body: Typography.body.pointSize, caption: Typography.caption.pointSize)
+                        body: Typography.body.pointSize, caption: Typography.caption.pointSize,
+                        isCodexDensity: Metrics.tokens.id == DensityPreset.cozy.rawValue)
         return SidebarRowTokens(density: sections.density, textSize: sections.textSize, base: base)
     }
 }

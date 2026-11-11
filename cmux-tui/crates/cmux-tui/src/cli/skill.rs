@@ -271,7 +271,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         [] | ["show"] => Some(show(&global)),
         ["--help" | "-h"] | ["show", "--help" | "-h"] => Some(usage(0)),
-        _ => Some(usage(2)),
+        _ => Some(super::scope_usage_failure(
+            global.output,
+            "skill",
+            &super::unknown_words("skill", rest),
+            messages.skill_usage,
+        )),
     }
 }
 

@@ -342,9 +342,11 @@ public final class HoverCardCoordinator {
     }
 
     /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
-    public func refit(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on the hover cards' motion (its fixed
+    ///   corner stays put), as a retarget's resize does; off, it takes the new size at once.
+    public func refit(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id else { return }
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 
