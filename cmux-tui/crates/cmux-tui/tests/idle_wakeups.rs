@@ -76,11 +76,22 @@ impl Daemon {
         if settings.parent() == Some(dir.as_path()) {
             fs::write(&settings, "{}\n").unwrap();
         }
+        // The daemon's own home folder. It watches folders there (the editor
+        // and Codex project sources); the machine's real home is busy on a
+        // host where Codex runs (a write to ~/.codex several times a second
+        // woke the watch in every window), and the test judges the daemon,
+        // not the host. The Codex folder exists, so the watch is still set up.
+        let home = dir.join("home");
+        fs::create_dir_all(home.join(".codex")).unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .env("HOME", &home)
+            .env_remove("CODEX_HOME")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
             .env("CMUX_TUI_CONFIG", &config)
             .env("CMUX_NEXT_CONFIG_FILE", &settings)
             .env("ACPMUX_SOCKET", &acpmux)
