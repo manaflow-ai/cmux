@@ -123,6 +123,17 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     return findings, importers, {stem: {rel for rel, _, _ in sites} for stem, sites in loaders.items()}
 
 
+def sharing_test_files(root: Path = ROOT) -> list[str]:
+    """Every test file that imports a repository module two or more test files import by name, plus every file that
+    loads by path a module some test imports by name. Found from the imports, not from the path loads left, so a file
+    whose path load became an import stays covered."""
+    _, importers, loaders = two_object_loads(root)
+    modules = {p.stem for p in [*root.glob("scripts/**/*.py"), *root.glob("tests/*.py")]}
+    shared = {rel for stem, files in importers.items() if stem in modules and len(files) >= 2 for rel in files}
+    shared |= {rel for stem in importers if stem in loaders for rel in importers[stem] | loaders[stem]}
+    return sorted(rel for rel in shared if (root / rel).is_file())
+
+
 # Run in a fresh interpreter: imports each test module in the given order, then reports any repository file that
 # sys.modules holds a module object of (what `import name` returns) while a test module's globals hold another.
 # Private copies nothing registers (tests/git_fixture_env.py, loaded by path in each test file by design because
@@ -191,12 +202,11 @@ class ScriptModuleLoadTests(unittest.TestCase):
                         findings)
 
     def test_importing_the_sharing_test_files_in_either_order_leaves_one_module_per_file(self):
-        _, importers, loaders = two_object_loads()
-        # Every test file that imports a module some test also loads, or used to load, by path.
-        shared = sorted({rel for stem in importers if stem in loaders for rel in importers[stem] | loaders[stem]}
-                        | {"tests/test_ci_change_areas.py", "tests/test_cmux_next_route.py"})
-        shared = [rel for rel in shared if rel.startswith("tests/test_") and (ROOT / rel).is_file()]
-        self.assertIn("tests/test_cmux_next_route.py", shared)
+        shared = sharing_test_files()
+        # The files whose path loads became imports, so a path load put back in any of them is caught here too.
+        for rel in ("tests/test_cmux_next_route.py", "tests/test_ci_change_areas.py",
+                    "tests/test_ci_guard_check_isolation.py", "scripts/cmux-next/tests/test_build_names.py"):
+            self.assertIn(rel, shared)
         for order in (shared, list(reversed(shared))):
             with self.subTest(first=order[0]):
                 done = subprocess.run([sys.executable, "-c", ONE_OBJECT_PER_FILE, str(ROOT), json.dumps(order)],
