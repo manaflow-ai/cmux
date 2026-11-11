@@ -19,6 +19,8 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         o.excludedWorkspaces.formUnion(leaving)
+        // A collapse of the stuck group keeps its header where it draws: at its own place, now at the top.
+        keepStuckHeaderForFold(of: id, collapsing: group.isCollapsed)
         // What the animation needs of the rows before the fold: the realized ones and the group's block. The rest of
         // the layout is spliced in place (no copy of every row).
         let old = displayed.excerpt(rowViews.keys, group: id)
@@ -27,6 +29,10 @@ extension SidebarListViewComponents {
         }
         SidebarPerfCounters.add(.groupFolds)
         groups[id] = group
+        // The row caches hold what the layout shows: a space page kept from them (`SidebarSpacePage`) is compared with
+        // the model, so its sections have this fold as its layout has.
+        spacePages.cachesTookChange(at: model.structureRevision)
+        sections[section.id] = section
         applyFold(from: old, group: id)
     }
 
@@ -43,6 +49,10 @@ extension SidebarListViewComponents {
         let layout = displayed
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
+        // The header that sticks over the folded rows draws there; the one that let go moves home.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         let range = layout.rowIndices(from: realize.minY, to: realize.maxY)
         // An opened group adds workspace rows: they open only with ui.animations.newWorkspace on, as in `apply` (hq-1d).
@@ -50,7 +60,7 @@ extension SidebarListViewComponents {
             if case .workspace = layout.rows[index].key { old.row(for: layout.rows[index].key) == nil } else { false }
         }
         // Only the user's own fold moves on the spring; another client's shows in one step (calm-sidebar-movement).
-        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace))
+        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace, in: window))
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []
@@ -61,7 +71,7 @@ extension SidebarListViewComponents {
         // The realized rows: kept ones move, ones the fold hid leave (first, so a new row can take a parked view).
         for (key, view) in Array(rowViews) {
             if let row = layout.row(for: key) {
-                let target = frame(for: row)
+                let target = drawnFrame(for: row)
                 view.targetSize = target.size
                 if key == .group(id) { configure(view, row: row, animated: animate) } // the chevron, count and activity
                 view.isSelected = selectedRowKey == key // a row the fold keeps shows the selection as it is now

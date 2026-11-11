@@ -392,6 +392,29 @@ mod tests {
         assert!(!dir.path().join("peers/huge-blue.journal").exists());
     }
 
+    /// A peer's list is input from another machine: a row that is not an object (a buggy or
+    /// hostile peer) is skipped, and the daemon keeps the peer's good rows. Before, the row
+    /// reached `views::decide`, whose `summary["indicator"] = ..` panics on a non-object, and
+    /// the peer-notice loop runs under `supervise::once`: the daemon stopped, then stopped
+    /// again each time the peer reconnected with the same list.
+    #[test]
+    fn a_peer_row_that_is_not_an_object_is_skipped_not_a_panic() {
+        let (hub, _dir) = test_hub();
+        let peer = add_idle_peer(&hub, "huge-blue");
+        for row in [json!("x"), json!(7), json!([1]), json!(true), Value::Null] {
+            let kept = Hub::remote_summary("huge-blue", row.clone());
+            assert_eq!(kept, row, "a row that is not an object is not changed");
+        }
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![json!("x"), json!(7), json!([1]), remote("m1", "lane")]),
+        );
+        let listed = hub.remote_sessions();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0]["name"], "huge-blue/lane");
+    }
+
     /// A cache an older build saved can hold a peer's own display line on a pending ask: the
     /// row a restart lists carries none (`drop_display_lines`), the tool's own input kept.
     #[test]

@@ -255,8 +255,12 @@ struct ChatComposer: View {
                 if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, collapsed ? 6 : 8)
-            .padding(.top, collapsed ? 6 : 0)
+            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
+            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
+            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
+            // keeps its 44 pt targets and grows with Dynamic Type.
+            .padding(.bottom, collapsed ? 2 : 8)
+            .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
@@ -264,7 +268,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.

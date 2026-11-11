@@ -11,7 +11,7 @@
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai", "particle"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -81,6 +81,23 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
       { provider: "custom", id: "deepseek/deepseek-v4.1-flash-1017" },
       { provider: "azure", id: "deepseek-v4.1-flash" }
     ]
+  },
+  {
+    // Particle (particle.ai, user 2026-11-10): a coding-agent model post-trained on DeepSeek V4.1 Flash for
+    // token efficiency. Particle is its only route on purpose: the cmux key's traffic is not under Particle's
+    // zero-data-retention terms (the inference-for-data arrangement), so no other model ever falls back to
+    // Particle and only a caller who picks this model reaches it. Not in the deployments' allowlist yet; a
+    // deployment opts in with INFERENCE_MODEL_ALLOWLIST. List price is Particle's peak default tier
+    // (docs.particle.ai pricing, 2026-11-10); off-peak and flex are cheaper, so the card is an upper bound.
+    id: "particle-ai/particle-1",
+    name: "Particle-1",
+    card: { input: 0.25, output: 1 },
+    context: 1_048_576,
+    maxOutput: 131_072,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [{ provider: "particle", id: "particle-ai/particle-1", list: { input: 0.25, output: 1 } }]
   },
   {
     // OpenAI's own API (user 2026-10-28: ChatGPT API credits). Not in the deployments' allowlist yet

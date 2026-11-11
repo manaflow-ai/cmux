@@ -633,6 +633,87 @@ test("a started Cloud chat: the picker shows its machine and Bring Back Local", 
   expect(calls).toEqual([["offload", "bringBack"]]);
 });
 
+// Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper \"move to other cloud\" (by cloud i mean
+// vm for now) and \"move to local\"". One Move to… row opens every place the chat can go.
+test("Move to…: a chat on this Mac with two Cloud machines lists them, and a pick moves it there", async () => {
+  const moved: string[] = [];
+  const offloaded: unknown[] = [];
+  await mount(true, {
+    ...startedOn("local"),
+    onOffload: (kind: string) => offloaded.push(kind),
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  // One row in place of Move to Cloud: the list stays two lines.
+  expect(newRows().map(rowText)).toEqual([t("composer.moveToMenu")]);
+  await act(async () => newRows()[0]!.click());
+  // It opens the targets in place; nothing moved yet.
+  expect(doc().querySelector(".acpmux-env-popover.acpmux-env-moves")).not.toBeNull();
+  expect(newRows().map(rowText)).toEqual(["dev-box", "gpu-box"]);
+  expect(moved).toEqual([]);
+  await act(async () => newRows()[1]!.click());
+  expect(moved).toEqual(["vm-gpu"]);
+  expect(offloaded).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
+test("Move to…: a Cloud chat lists This Mac and the other machines", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => undefined,
+    moveTargets: [
+      { id: "local", label: "", kind: "local" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  await act(async () => newRows()[0]!.click());
+  expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "gpu-box"]);
+  await act(async () => newRows()[0]!.click());
+  expect(moved).toEqual(["local"]);
+});
+
+test("Move to…: a Cloud chat whose only target is This Mac keeps the Bring Back Local row it already names", async () => {
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => undefined,
+    moveTargets: [{ id: "local", label: "", kind: "local" }],
+    onMoveTo: () => undefined,
+  });
+  await openPicker();
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.bringBackLocal"),
+  ]);
+});
+
+test("Move to…: a chat that started on a Cloud machine gets the row with no other move, and a refused target is greyed", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("cloud"),
+    offloads: [],
+    moveTargets: [
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+      { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  expect(newRows().map(rowText)).toEqual([t("composer.moveToMenu")]);
+  await act(async () => newRows()[0]!.click());
+  const refused = newRows()[1]!;
+  expect(refused.querySelector(".acpmux-menu-description")?.textContent).toBe("Update this machine first");
+  await act(async () => refused.click());
+  expect(moved).toEqual([]);
+  await act(async () => newRows()[0]!.click());
+  expect(moved).toEqual(["vm-gpu"]);
+});
+
 test("a started Cloud chat's picker keeps its machine's load warning", async () => {
   const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings(DEFAULT_COMPOSER);

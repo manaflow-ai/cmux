@@ -2195,7 +2195,9 @@ mod new_worktree;
 mod outbound;
 mod plan_build;
 mod project_new;
+mod prompt_coach;
 mod review_queue;
+mod run_elsewhere;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,

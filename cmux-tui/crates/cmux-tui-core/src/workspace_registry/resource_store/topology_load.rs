@@ -24,6 +24,29 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// What a workspace registry commit that leaves `live` as the live
+    /// workspaces reads before it: the frame (every workspace's active
+    /// screen) and the subtrees of the workspaces it closes, whose screens,
+    /// panes and tabs its public deltas delete. The rest of the topology is
+    /// not read: the whole of it made every create read the session.
+    pub(crate) fn resource_topology_for_workspace_commit(
+        &self,
+        live: &[RegistryWorkspace],
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let mut topology =
+            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
+        let live = live.iter().map(|workspace| &workspace.public_id).collect::<HashSet<_>>();
+        let closing = topology
+            .active_screens
+            .iter()
+            .filter(|(workspace, _)| !live.contains(workspace))
+            .map(|(workspace, _)| workspace.clone())
+            .collect::<Vec<_>>();
+        load_subtrees(&connection, &mut topology, &closing)?;
+        Ok(topology)
+    }
+
     /// The stored subtrees of the active workspace and of `workspaces`: what
     /// a focus change reads, since it changes only the workspace it leaves and
     /// the one it focuses. One frame read names the active workspace.
@@ -144,6 +167,41 @@ pub(crate) fn load_resource_topology(
     Ok(topology)
 }
 
+/// The stored screens and panes of the whole session, with the frame: what a
+/// `pane.list` with no scope reads. No tabs, no browsers and no screen side
+/// tables: a pane's public value names its screen's workspace, active pane
+/// and zoomed pane only.
+pub(crate) fn load_session_panes(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let mut topology = load_topology_frame(connection, session_id, generation)?;
+    topology.screens = load_screens(connection, "", &[])?;
+    topology.panes = load_panes(connection, "", &[])?;
+    Ok(topology)
+}
+
+/// The stored panes and tabs of the whole session, with the frame: what a
+/// `tab.list` with no scope reads. No screens and no browsers: a tab's
+/// public value names its pane's active tab only.
+pub(crate) fn load_session_tabs(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let mut topology = load_topology_frame(connection, session_id, generation)?;
+    topology.panes = load_panes(connection, "", &[])?;
+    topology.tabs = load_tabs(connection, "", &[])?;
+    Ok(topology)
+}
+
+/// The stored terminal tabs of the whole session, in the full load's order:
+/// what a `terminal.list` with no scope reads.
+pub(crate) fn load_terminal_tabs(connection: &Connection) -> anyhow::Result<Vec<RegistryTab>> {
+    load_tabs(connection, " AND t.content_kind = 'terminal'", &[])
+}
+
 /// The stored subtrees (screens, panes, tabs and their browsers) of
 /// `workspaces` only, with the complete workspace list, active workspace and
 /// revision. A scoped projection diffs against this, so its read cost follows
@@ -192,6 +250,29 @@ fn load_subtrees(
         }
     }
     Ok(())
+}
+
+/// One live tab row and whether its pane shows it (the tab is its pane's
+/// active tab), by point reads: what a restatement of one tab needs,
+/// whatever the size of the session. `None` when the tab has no live row.
+pub(crate) fn load_tab_with_focus(
+    connection: &Connection,
+    tab_id: &str,
+) -> anyhow::Result<Option<(RegistryTab, bool)>> {
+    let Some(tab) = load_tabs(connection, " AND t.public_id = ?1", &[&tab_id])?.pop() else {
+        return Ok(None);
+    };
+    let active_tab = connection
+        .query_row(
+            "SELECT active_tab_id FROM resource_panes
+             WHERE public_id = ?1 AND deleted_revision IS NULL",
+            [tab.pane_id.as_str()],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let focused = active_tab.as_deref() == Some(tab.public_id.as_str());
+    Ok(Some((tab, focused)))
 }
 
 /// Revision, active workspace and every live workspace's active screen.
