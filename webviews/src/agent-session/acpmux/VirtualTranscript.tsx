@@ -1789,7 +1789,8 @@ function TranscriptView({
     rearm?: boolean;
     /// While rows flow from their top: the row the reader looks at, where it showed in the view,
     /// and the thread's padding that keeps it there (`holdFlow`).
-    hold?: { row: HTMLElement; at: number; pad: number; first: number };
+    /// `top` is the scroll offset `at` was read at: a scroll by the reader moves the row with it.
+    hold?: { row: HTMLElement; at: number; pad: number; first: number; top: number };
   }>({
     at: Number.NEGATIVE_INFINITY,
     live: false,
@@ -2432,7 +2433,7 @@ function TranscriptView({
         for (const row of mounted) {
           const box = row.getBoundingClientRect();
           if (box.bottom <= view) continue;
-          live.hold = { row, at: box.top - view, pad: 0, first: placed.first };
+          live.hold = { row, at: box.top - view, pad: 0, first: placed.first, top: scroller.scrollTop };
           break;
         }
       }
@@ -2446,15 +2447,19 @@ function TranscriptView({
   }, []);
   /// Keeps the held row (`anchorFlow`) where the view showed it: rows above it that rewrapped taller
   /// or shorter take their difference from the thread's padding, so what the reader looks at holds
-  /// still under the drag instead of drifting and snapping back once the width holds. One read of
-  /// one row's box: in a ResizeObserver callback the layout is already clean. Never below 0: at the
-  /// chat's top the rows above grow down.
+  /// still under the drag instead of drifting and snapping back once the width holds. Run by the
+  /// commit each width step renders (its layout effect), so one row's box is read once a frame.
+  /// Never below 0: at the chat's top the rows above grow down.
   const holdFlow = useCallback(() => {
     const hold = liveResize.current.hold;
     const threadNode = thread.current;
     const scroller = ref.current;
     if (liveResize.current.flow === undefined || !hold || !threadNode || !scroller) return;
     if (!hold.row.isConnected) return;
+    // A scroll during the drag (a wheel, a fling still coasting) moves the held row by its own
+    // distance: that is the reader's, not a rewrap, and the padding keeps it.
+    hold.at -= scroller.scrollTop - hold.top;
+    hold.top = scroller.scrollTop;
     const shift = hold.row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - hold.at;
     if (Math.abs(shift) < 0.5) return;
     const pad = Math.max(0, hold.pad - shift);
@@ -2885,9 +2890,6 @@ function TranscriptView({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
-      // Flowing rows rewrapped in the layout this callback follows: hold the reader's row first,
-      // while that layout is still clean to read.
-      holdFlow();
       flushSync(() => measure(true, widthStep));
     });
     observer.observe(node);
@@ -2915,7 +2917,7 @@ function TranscriptView({
       live.rearm = timer !== undefined;
       clearTimeout(timer);
     };
-  }, [noteQueue, startFlow, endFlow, holdFlow]);
+  }, [noteQueue, startFlow, endFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
