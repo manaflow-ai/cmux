@@ -76,7 +76,12 @@ pub(crate) struct RemoteSidebarDoc {
     /// path. A timeout or a closed transport does not set it.
     unavailable: AtomicBool,
     next_id: AtomicU64,
+    /// Wakes the app loop when the stream falls back to timed reads: its
+    /// idle wait then ends at the next read (`sidebar_doc_fallback_at`).
+    idle_waker: Mutex<Option<IdleWaker>>,
 }
+
+type IdleWaker = Box<dyn Fn() + Send + Sync>;
 
 /// A poisoned lock still holds a usable read model: a panic elsewhere must
 /// not take the TUI down with it.
@@ -232,6 +237,31 @@ impl RemoteSession {
             *last = Some(now);
         }
         self.start_sidebar_doc_worker(true);
+    }
+
+    /// When `tick_sidebar_doc` reads the document next: only while the
+    /// stream is closed past its restart limit. The app loop's idle wait
+    /// ends there.
+    pub(crate) fn sidebar_doc_fallback_at(&self) -> Option<Instant> {
+        if self.sidebar_doc.stream_restarts.load(Ordering::Acquire) <= MAX_STREAM_RESTARTS
+            || !self.sidebar_doc_wanted()
+            || self.sidebar_doc.stream().is_some()
+        {
+            return None;
+        }
+        let last = *lock(&self.sidebar_doc.fallback_read_at);
+        Some(last.map_or_else(Instant::now, |last| last + FALLBACK_READ_INTERVAL))
+    }
+
+    /// See [`crate::session::Session::set_idle_waker`].
+    pub(crate) fn set_idle_waker(&self, wake: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.sidebar_doc.idle_waker) = Some(Box::new(wake));
+    }
+
+    fn wake_idle_loop(&self) {
+        if let Some(wake) = lock(&self.sidebar_doc.idle_waker).as_ref() {
+            wake();
+        }
     }
 
     fn load_sidebar_doc(&self) -> anyhow::Result<bool> {
@@ -495,6 +525,10 @@ impl RemoteSession {
                     );
                     if ends <= MAX_STREAM_RESTARTS {
                         self.start_sidebar_doc_worker(true);
+                    } else {
+                        // Past the limit the app loop reads the document on
+                        // a timer of its own; it may be blocked with none.
+                        self.wake_idle_loop();
                     }
                     return;
                 }

@@ -34430,7 +34430,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {revision, schema_hash, effective, file, managed, policy, diagnostics, domains}; domains holds the published themes, font_families and sounds (each null: this daemon does not take published domains yet)."
+          "Answers {revision, schema_hash, effective, file, managed, policy, diagnostics, domains, path}; domains holds the published themes, font_families and sounds (each null: this daemon does not take published domains yet); path is the absolute path of the settings file this daemon reads and writes."
         ]
       },
       "result": {
