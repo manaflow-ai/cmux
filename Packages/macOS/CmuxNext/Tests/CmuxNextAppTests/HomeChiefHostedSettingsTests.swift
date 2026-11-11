@@ -109,7 +109,7 @@ struct HomeChiefHostedSettingsTests {
         #expect(services.home.chiefHost(of: "conv_named") == HomeChiefHostLine())
     }
 
-    /// The card the name pill opens over this Mac's Chief, as `HomeChiefSurface` builds it: "Runs here",
+    /// The card the name pill opens over this Mac's Chief, as HomeHostView builds it: "Runs here",
     /// the Harness row, and the pickers filled from this Mac's engine.json, never the cloud's words.
     @Test func thisMacsChiefsCardRunsHereWithItsPickers() async throws {
         let services = try await Self.servicesWithCloudChiefs()
