@@ -67,6 +67,9 @@ describe("chat perf capture: pure parts", () => {
     expect(report.count).toBe(2);
     expect(report.longest_ms).toBe(120);
     expect(report.blocking_ms).toBe(80);
+    // A longtask entry (no LoAF) has no blockingDuration: its blocking time is its duration past 50 ms.
+    const fallback = longTaskSummary([{ duration: 120 }, { duration: 40 }, { duration: 51 }], "longtask");
+    expect(fallback.blocking_ms).toBe(71);
     expect(report.top_scripts[0]).toEqual({
       invoker: "MessagePort.onmessage",
       source_url: "cmux-page://agent/app.js",
