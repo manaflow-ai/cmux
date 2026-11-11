@@ -118,6 +118,15 @@ fn find<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     }
 }
 
+/// The chat an answer names. A waited turn answers `session_id`; with no
+/// `--wait`, `cmux chat` prints the receipt of the chat it made or sent to,
+/// which names it as `result.chat`.
+fn chat_of(answer: &Value) -> Option<&str> {
+    find(answer, "session_id")
+        .or_else(|| answer.pointer("/result/chat").and_then(Value::as_str))
+        .or_else(|| answer.get("chat").and_then(Value::as_str))
+}
+
 /// The last JSON object a child printed (`--json` answers are one line).
 fn last_json(text: &str) -> Option<Value> {
     text.lines()
@@ -162,9 +171,7 @@ pub(super) fn ask(
             .unwrap_or_else(|| result.stderr.trim().to_owned());
         // The chat that has the ask: the one sent to, or the new one a
         // timed-out wait names.
-        let has_it = sent_to.or_else(|| {
-            error.as_ref().and_then(|error| find(error, "session_id")).map(str::to_owned)
-        });
+        let has_it = sent_to.or_else(|| error.as_ref().and_then(chat_of).map(str::to_owned));
         let timed_out = code(&result).as_deref() == Some(TIMED_OUT);
         return Err(match has_it {
             Some(session) => {
@@ -174,11 +181,7 @@ pub(super) fn ask(
             None => chat_failed(said),
         });
     }
-    let session = answer
-        .as_ref()
-        .and_then(|answer| find(answer, "session_id"))
-        .map(str::to_owned)
-        .or(session);
+    let session = answer.as_ref().and_then(chat_of).map(str::to_owned).or(session);
     if let Some(session) = &session {
         customize.set_session(session)?;
     }

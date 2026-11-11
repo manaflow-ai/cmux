@@ -774,6 +774,7 @@ fn a_credential_in_a_script_is_hidden_from_diffs_and_profiles() {
     home.write("customize/main.js", "const config = {apiKey: 'private-value'};\n");
     home.write("customize/other.js", "const config = {\n  'token':\n    `private-value`,\n};\n");
     home.write("customize/plain.js", "const title = 'kept';\n");
+    home.write("customize/long.js", "const token = `\nprivate-value\n`;\nconst name = 'shown';\n");
     for reader in [Reader::Agent, Reader::Person] {
         let live = diff_text(&customize.diff(reader).unwrap());
         assert!(!live.contains("private-value"), "{reader:?}: {live}");
@@ -790,6 +791,35 @@ fn a_credential_in_a_script_is_hidden_from_diffs_and_profiles() {
     let said = saved.left_out.join("\n");
     assert!(said.contains("customize/main.js: line 1 looks like a secret"), "{said}");
     assert!(said.contains("customize/other.js: line 3 looks like a secret"), "{said}");
+    assert!(said.contains("customize/long.js: line 2 looks like a secret"), "{said}");
+}
+
+/// A profile that is refused says which setting, or where the file stops
+/// being a profile: never the value, which an agent reads in the answer.
+#[test]
+fn a_refused_profile_never_quotes_what_it_carries() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    let profile = profile_of("{\"appearance.density\":{\"token\":\"private-value\"}}", "{}");
+    match customize.preview_profile(&profile, "mcp", 1) {
+        Err(Error::Profile(said)) => {
+            assert!(said.contains("appearance.density") && !said.contains("private"), "{said}");
+        }
+        other => panic!("the value was taken: {other:?}"),
+    }
+    let file = home.config("leaky-profile.json");
+    fs::write(&file, "{\n  \"cmuxProfile\": \"private-value\",\n  \"name\": \"x\"\n}\n").unwrap();
+    match customize.load_profile(&file.to_string_lossy()) {
+        Err(Error::Profile(said)) => {
+            assert!(
+                said.contains("not a cmux profile (line 2") && !said.contains("private"),
+                "{said}"
+            );
+        }
+        other => panic!("read as a profile: {:?}", other.map(|profile| profile.name)),
+    }
+    assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
 }
 
 /// A profile imported into an open preview writes over files no generation

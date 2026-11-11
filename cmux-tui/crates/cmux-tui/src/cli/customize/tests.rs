@@ -97,6 +97,9 @@ struct FakeAgent<'a> {
     fail_send: bool,
     /// The code a failing `chat send` prints.
     send_code: &'static str,
+    /// Answer as `cmux chat` does with no `--wait`: the receipt of the chat
+    /// it made or sent to, which has no `session_id`.
+    receipt: bool,
 }
 
 impl Chat for FakeAgent<'_> {
@@ -117,11 +120,16 @@ impl Chat for FakeAgent<'_> {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, text).unwrap();
         }
-        Ok(ChatResult {
-            ok: true,
-            stdout: "{\"session_id\":\"sess-1\",\"reply\":\"The sidebar is compact now. It is a preview.\"}\n".into(),
-            stderr: String::new(),
-        })
+        let stdout = if self.receipt {
+            let action =
+                if words.get(2).map(String::as_str) == Some("send") { "send" } else { "new" };
+            format!(
+                "{{\"schema_version\":1,\"action\":\"chat.{action}\",\"result\":{{\"chat\":\"sess-9\",\"name\":\"Customize\",\"prompt\":{{\"state\":\"accepted\",\"prompt_id\":\"p1\"}}}}}}\n"
+            )
+        } else {
+            "{\"session_id\":\"sess-1\",\"reply\":\"The sidebar is compact now. It is a preview.\"}\n".into()
+        };
+        Ok(ChatResult { ok: true, stdout, stderr: String::new() })
     }
 }
 
@@ -140,6 +148,7 @@ fn an_ask_previews_through_a_chat_and_the_next_ask_refines_in_it() {
         calls: RefCell::new(Vec::new()),
         fail_send: false,
         send_code: "",
+        receipt: false,
     };
     let wait = AskOptions { wait: true, ..AskOptions::default() };
     let request = Request::Ask { wish: "make the sidebar compact".into(), options: wait.clone() };
@@ -206,6 +215,7 @@ fn an_ask_whose_chat_is_gone_starts_a_new_one_and_a_chat_that_fails_keeps_the_dr
         calls: RefCell::new(Vec::new()),
         fail_send: true,
         send_code: "selector.not_found",
+        receipt: false,
     };
     let request = Request::Ask { wish: "second wish".into(), options: AskOptions::default() };
     execute(&customize, request, "cli", 2, &agent).ok().unwrap();
@@ -247,6 +257,7 @@ fn a_refinement_that_was_delivered_is_never_sent_to_a_second_chat() {
             calls: RefCell::new(Vec::new()),
             fail_send: true,
             send_code: code,
+            receipt: false,
         };
         let options = AskOptions { wait: true, ..AskOptions::default() };
         let request = Request::Ask { wish: "smaller text".into(), options };
@@ -319,4 +330,32 @@ fn the_chat_child_never_gets_the_callers_output_flag() {
             GlobalArgs { output, session: Some("work".to_owned()), ..GlobalArgs::default() };
         assert_eq!(super::child_globals(&global), ["--session", "work"], "{output:?}");
     }
+}
+
+/// With no `--wait`, `cmux chat` answers the receipt of the chat it made,
+/// which names it as `result.chat`. The next ask goes on in that chat
+/// instead of starting another.
+#[test]
+fn two_asks_that_do_not_wait_share_one_chat() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let agent = FakeAgent {
+        root: dir.path(),
+        edits: RefCell::new(Vec::new()),
+        calls: RefCell::new(Vec::new()),
+        fail_send: false,
+        send_code: "",
+        receipt: true,
+    };
+    for (at, wish) in [(1_000, "make the sidebar compact"), (2_000, "and a night theme")] {
+        let request = Request::Ask { wish: wish.into(), options: AskOptions::default() };
+        let answer = execute(&customize, request, "cli", at, &agent).ok().unwrap();
+        assert_eq!(answer.json()["session_id"], "sess-9", "{wish}");
+    }
+    let calls = agent.calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0][..3], words(&["--json", "chat", "--name"])[..]);
+    assert_eq!(calls[1][..6], words(&["--json", "chat", "send", "sess-9", "--on", "here"])[..]);
 }

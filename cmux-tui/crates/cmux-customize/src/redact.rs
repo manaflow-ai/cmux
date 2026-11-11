@@ -124,12 +124,10 @@ pub fn tokens(line: &str) -> Vec<(usize, usize, &'static str)> {
 /// The first credential in a text meant for sharing: `(line, what)`, the
 /// line 1-based.
 pub fn find_secret(text: &str) -> Option<(u32, &'static str)> {
-    let mut awaited = false;
+    let mut carry = Carry::default();
     for (index, line) in text.lines().enumerate() {
         let number = index as u32 + 1;
-        if split_value(line, &mut awaited).is_some() {
-            return Some((number, "a value named like a password or token"));
-        }
+        let named = !named_values(line, &mut carry).is_empty();
         if line.contains("-----BEGIN ") && line.contains("PRIVATE KEY") {
             return Some((number, "a private key"));
         }
@@ -139,7 +137,7 @@ pub fn find_secret(text: &str) -> Option<(u32, &'static str)> {
         if !userinfo(line).is_empty() {
             return Some((number, "a user and password in a URL"));
         }
-        if !credential_values(line).is_empty() {
+        if named {
             return Some((number, "a value named like a password or token"));
         }
     }
@@ -186,68 +184,87 @@ fn name_before(before: &str) -> Option<&str> {
     named.get(start..).filter(|word| !word.is_empty())
 }
 
-/// The string that opens with the quote at byte `open`, as the byte range
-/// inside its quotes. A string the line does not close (a template literal
-/// that runs on) reaches the end of the line.
-fn string_at(line: &str, open: usize, quote: char) -> (usize, usize) {
-    let start = open + quote.len_utf8();
+/// Where the string whose text starts at byte `start` ends, and whether
+/// this line closes it. One it does not close reaches the end of the line.
+fn string_end(line: &str, start: usize, quote: char) -> (usize, bool) {
     let mut escaped = false;
     for (at, c) in line.get(start..).unwrap_or_default().char_indices() {
         match c {
             _ if escaped => escaped = false,
             '\\' => escaped = true,
-            c if c == quote => return (start, start + at),
+            c if c == quote => return (start + at, true),
             _ => {}
         }
     }
-    (start, line.len())
+    (line.len(), false)
+}
+
+/// What a credential leaves for the line after it.
+#[derive(Default)]
+struct Carry {
+    /// The last thing read was a credential's name and its `:` or `=`: a
+    /// formatter may put `"apiKey":` (or a script's `apiKey:`, `token =`)
+    /// on one line and the string on the next. Blank and comment lines keep
+    /// waiting.
+    awaited: bool,
+    /// A credential's template literal is still open: every line is its
+    /// value until the backtick that closes it.
+    open: bool,
 }
 
 /// The text of each string whose name is a credential's, as byte ranges
 /// inside the quotes. JSON's `"token": "…"`, and what a script writes:
-/// `{apiKey: 'x'}`, `{ 'api-key': "x" }`, `const password = \`x\``.
+/// `{apiKey: 'x'}`, `{ 'api-key': "x" }`, `const password = \`x\``, with
+/// the name and the value on one line or two, and a template literal over
+/// as many lines as it runs.
 ///
 /// Every quote is tried as the start of a value, by what stands before it,
 /// so no other quote on the line (the apostrophe in a comment's "don't")
 /// can hide one. That may mask a little prose; it never shows a value.
-fn credential_values(line: &str) -> Vec<(usize, usize)> {
+fn named_values(line: &str, carry: &mut Carry) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
-    let mut after = 0;
+    // One string's text from `start`: its range, and where reading goes on.
+    // `None` when a template literal runs past the line.
+    let mut take = |start: usize, quote: char, carry: &mut Carry| {
+        let (end, closed) = string_end(line, start, quote);
+        if end > start {
+            found.push((start, end));
+        }
+        carry.open = !closed && quote == '`';
+        (!carry.open).then_some(end + 1)
+    };
+    let mut from = 0;
+    let trimmed = line.trim();
+    if carry.open {
+        match take(0, '`', carry) {
+            Some(after) => from = after,
+            None => return found,
+        }
+    } else if carry.awaited && !trimmed.is_empty() && !trimmed.starts_with("//") {
+        carry.awaited = false;
+        if let Some(quote) = trimmed.chars().next().filter(|c| QUOTES.contains(c)) {
+            let start = line.len() - line.trim_start().len() + quote.len_utf8();
+            match take(start, quote, carry) {
+                Some(after) => from = after,
+                None => return found,
+            }
+        }
+    }
     for (at, c) in line.char_indices() {
-        if at < after || !QUOTES.contains(&c) {
+        if at < from || !QUOTES.contains(&c) {
             continue;
         }
         if !name_before(line.get(..at).unwrap_or_default()).is_some_and(credential_key) {
             continue;
         }
-        let (start, end) = string_at(line, at, c);
-        if end > start {
-            found.push((start, end));
-        }
-        after = end + 1;
-    }
-    found
-}
-
-/// A credential's name and its value need not share a line: a formatter may
-/// put `"apiKey":` (or a script's `apiKey:`, `token =`) on one and the string
-/// on the next. `awaited` carries "the last thing read was a credential's
-/// name and its colon" from line to line; the answer is the byte range of
-/// the string that then arrives, inside its quotes. Blank and comment lines
-/// keep waiting.
-fn split_value(line: &str, awaited: &mut bool) -> Option<(usize, usize)> {
-    let trimmed = line.trim();
-    let mut found = None;
-    if *awaited && !trimmed.is_empty() && !trimmed.starts_with("//") {
-        *awaited = false;
-        if let Some(quote) = trimmed.chars().next().filter(|c| QUOTES.contains(c)) {
-            let open = line.len() - line.trim_start().len();
-            found = Some(string_at(line, open, quote)).filter(|(start, end)| end > start);
+        match take(at + c.len_utf8(), c, carry) {
+            Some(after) => from = after,
+            None => return found,
         }
     }
     // A name and its `:` or `=` at the end of this line, with no value yet.
     if trimmed.ends_with([':', '=']) {
-        *awaited = name_before(line).is_some_and(credential_key);
+        carry.awaited = name_before(line).is_some_and(credential_key);
     }
     found
 }
@@ -274,7 +291,7 @@ fn mask(line: &str, mut ranges: Vec<(usize, usize)>) -> String {
 pub fn text(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_key = false;
-    let mut awaited = false;
+    let mut carry = Carry::default();
     for line in input.split_inclusive('\n') {
         let (body, ending) = match line.strip_suffix('\n') {
             Some(body) => (body, "\n"),
@@ -288,8 +305,7 @@ pub fn text(input: &str) -> String {
             out.push_str(ending);
             continue;
         }
-        let mut ranges = credential_values(body);
-        ranges.extend(split_value(body, &mut awaited));
+        let mut ranges = named_values(body, &mut carry);
         ranges.extend(userinfo(body));
         ranges.extend(tokens(body).into_iter().map(|(start, end, _)| (start, end)));
         if ranges.is_empty() {
@@ -380,6 +396,25 @@ mod tests {
         let split = "const config = {\n  apiKey:\n    'private-value',\n  secret =\n    `private-value`\n};\n";
         assert!(!text(split).contains("private-value"), "{}", text(split));
         assert_eq!(find_secret(split), Some((3, "a value named like a password or token")));
+    }
+
+    #[test]
+    fn a_credential_in_a_template_literal_is_hidden_on_every_line_it_runs() {
+        for script in [
+            "const token = `\nprivate-value\n`;\nconst title = 'kept';\n",
+            "const config = {\n  apiKey:\n    `\n    private-value\n    more-private-value`,\n};\nconst title = 'kept';\n",
+            "let secret = `private-value\n  ${more}private-value\n`; const title = 'kept';\n",
+        ] {
+            let shown = text(script);
+            assert!(!shown.contains("private-value"), "{shown}");
+            assert!(shown.contains("const title = 'kept';"), "{shown}");
+            assert_eq!(shown.lines().count(), script.lines().count(), "{shown}");
+            assert!(find_secret(script).is_some(), "{script}");
+        }
+        assert_eq!(
+            find_secret("const token = `\nprivate-value\n`;\n"),
+            Some((2, "a value named like a password or token"))
+        );
     }
 
     #[test]

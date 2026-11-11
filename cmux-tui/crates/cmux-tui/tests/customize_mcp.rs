@@ -178,6 +178,19 @@ fn customize_mcp_and_cli_share_one_draft_and_one_history() {
     );
     assert_eq!(std::fs::read_to_string(&theme).unwrap(), "{ \"name\": \"midnight\" }\n");
 
+    // A profile the agent may not use is refused by the setting's name: the
+    // value it carried is not in the answer.
+    let leaky = dir.join("leaky-profile.json");
+    std::fs::write(
+        &leaky,
+        "{\"cmuxProfile\":1,\"name\":\"x\",\"settings\":{\"appearance.density\":{\"token\":\"private-value\"}},\"files\":{}}\n",
+    )
+    .unwrap();
+    let (failed, refused) = server.call("customize_use", json!({"profile": leaky}));
+    let refused = refused.to_string();
+    assert!(failed && refused.contains("appearance.density"), "{refused}");
+    assert!(!refused.contains("private-value"), "{refused}");
+
     // A typo is a usage error with a suggestion, never an ask.
     let typo = cmux(&dir).args(["customize", "aply"]).output().unwrap();
     assert_eq!(typo.status.code(), Some(2));
