@@ -132,35 +132,25 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
   expect(card).not.toBeNull();
   expect(card!.textContent).toContain(TITLE);
   expect(card!.textContent).toContain(`${REPO}#634`);
-  // The chip's own ask reads the host's cache only (its mark's colour); the card's is the read.
+  // The card's read is the only one: the chip asks nothing for itself (it has no state colour).
   expect(view.calls.filter((call) => call.method === "pr.inspect")).toEqual([
-    { method: "pr.inspect", params: { url: URL, cached: true } },
     { method: "pr.inspect", params: { url: URL } },
   ]);
 });
 
-// Leo 2026-10-23, of a merged pull request's blue chip: "I feel like this should be purple". The
-// chip's mark takes its state from the host's cache, before any hover and without a GitHub read.
-test("a pull request chip carries its state for its mark's colour", async () => {
+// A pull request chip is a link: its mark keeps the link's colour, never its state's, which turned it
+// purple once a hover read a merged pull request (Lucas, 2026-11-11: "we'll just keep it blue since its
+// a link"). It asks nothing of the host until the reader hovers it; the card reads then.
+test("a pull request chip keeps the link's colour and reads nothing before a hover", async () => {
   const view = await render("Landed in (#634).", REPO);
   const { act } = await import("react");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const chip = view.element.querySelector<HTMLAnchorElement>("a.cv-chip.is-ref")!;
-  // No hover: the state came from the chip's own cache-only ask.
-  expect(chip.dataset.prState).toBe("open");
-  expect(view.calls.filter((call) => call.method === "pr.inspect").map((call) => call.params)).toEqual([
-    { url: URL, cached: true },
-  ]);
+  expect(chip.dataset.prState).toBeUndefined();
+  expect(view.calls.filter((call) => call.method === "pr.inspect")).toEqual([]);
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new globalThis.URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
-  for (const [state, token] of [
-    ["open", "success"],
-    ["merged", "merged"],
-    ["closed", "failure"],
-  ])
-    expect(css).toContain(
-      `.cv-chip.is-ref[data-pr-state="${state}"] .cv-chip__icon--gh {\n  color: var(--agent-status-${token});`,
-    );
+  expect(css).not.toContain("data-pr-state");
 });
 
 // A card opened while the chip's cache-only ask is still out reads once that ask settles, rather
