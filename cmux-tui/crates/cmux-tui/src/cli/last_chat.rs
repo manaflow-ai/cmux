@@ -145,7 +145,7 @@ pub(super) fn none_yet() -> Value {
 mod tests {
     use serde_json::{Map, Value, json};
 
-    use super::{Last, pick, pruned};
+    use super::{Last, pick, pruned, records};
 
     fn book(entries: &[(&str, &str, Option<&str>, u64)]) -> Map<String, Value> {
         entries
