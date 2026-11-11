@@ -95,9 +95,17 @@ Detectors (all line/regex heuristics, never an AST):
   for that moment (cmux#41466,
   a_held_lock_is_alive_a_free_one_is_dead_and_none_is_no_proof). Unlock with
   `flock(f.as_raw_fd(), LOCK_UN)` before the drop.
+- exec-of-a-file-written-in-process (Rust): a test writes a program itself
+  (`fs::copy(src, &p)`, `fs::write(&p, ...)`) and then runs it
+  (`Command::new(&p)`). While this process holds the write descriptor, a test
+  on another thread that starts a process hands a copy of it to that child
+  until its exec, and running the program then fails with ETXTBSY ("Text file
+  busy"; agent_host::tree's exe_still_names_a_program_whose_file_was_replaced).
+  Have a child write it (`cp`, or `sh -c 'cat >"$1"'` as
+  cmux-tui's test_exec::write_executable does); a hard link writes nothing.
   Rust files are scanned under RUST_ROOTS, and only their test code: a
   `*_tests.rs`, `tests.rs` or `tests/` file whole, any other file from its first
-  `#[cfg(test)]` on. They get only these two rules.
+  `#[cfg(test)]` on. They get only these three rules.
 - isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
   import a module that sits beside it or in tests/ (-I puts no script folder on
   sys.path). Each changed test file, and each that loads git_fixture_env, is
@@ -183,6 +191,7 @@ RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
 RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
 RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
+RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -198,8 +207,9 @@ ALL_RULES = (
     RULE_PREDICTABLE_TMP_PATH,
     RULE_WALL_CLOCK_EXPIRY,
     RULE_FLOCK_RELEASED_BY_CLOSE,
+    RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
 )
-RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE)
+RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
 GIT_FIXTURE_RULES = (
     RULE_GIT_TEMP_REPO_MAINTENANCE,
     RULE_GIT_FIXTURE_ENV_DROPPED,
@@ -4511,6 +4521,7 @@ _RUST_SLEEP = re.compile(
 )
 _RUST_FAKE_CLOCK = re.compile(r"\btest_clock::|\bstart_paused\b|\bManualClock\b|\btime::pause\(")
 _RUST_FLOCK_EXCLUSIVE = re.compile(r"\bflock\(\s*(\w+)\.as_raw_fd\(\)\s*,\s*libc::LOCK_EX\b")
+_RUST_WRITES_FILE = re.compile(r"\bfs::(?:copy\([^,]+,\s*&?(\w+)\s*\)|write\(\s*&?(\w+)\s*,)")
 _RUST_ASSERTION = re.compile(r"^\s*(?:debug_)?assert(?:_eq|_ne|_matches)?!\s*\(")
 
 
@@ -4678,9 +4689,24 @@ def detect_rust_flock_released_by_close(code: list[str], start: int) -> list[int
     return hits
 
 
+def detect_rust_exec_of_file_written_in_process(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_WRITES_FILE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1) or match.group(2))
+            runs = re.compile(r"\bCommand::new\(\s*&?" + name + r"\s*\)")
+            if any(runs.search(later) for later in body[k + 1 :]):
+                hits.append(first + k)
+    return hits
+
+
 def scan_rust_text(rel_posix: str, text: str) -> list[Finding]:
-    # Most Rust files have neither rule's anchor: skip the lexer for them (6,500 files).
-    if "now_ms()" not in text and "LOCK_EX" not in text:
+    # Most Rust files have no rule's anchor: skip the lexer for them (6,500 files).
+    if "now_ms()" not in text and "LOCK_EX" not in text and "Command::new" not in text:
         return []
     raw_lines = text.splitlines()
     code = _rust_code_lines(raw_lines)
@@ -4694,6 +4720,10 @@ def scan_rust_text(rel_posix: str, text: str) -> list[Finding]:
     findings += [
         Finding(rel_posix, i + 1, RULE_FLOCK_RELEASED_BY_CLOSE, raw_lines[i].strip())
         for i in detect_rust_flock_released_by_close(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS, raw_lines[i].strip())
+        for i in detect_rust_exec_of_file_written_in_process(code, start)
     ]
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
@@ -4944,6 +4974,22 @@ def _self_test() -> int:
                 "}\n"
             ),
             {RULE_FLOCK_RELEASED_BY_CLOSE},
+        ),
+        # A program this test process wrote, then ran (ETXTBSY when another thread forks meanwhile).
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/tree.rs",
+            (
+                "#[cfg(test)]\n"
+                "mod census_tests {\n"
+                "    #[test]\n"
+                "    fn exe_still_names_a_replaced_program() {\n"
+                "        let program = dir.join(\"server\");\n"
+                "        std::fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "        let mut child = std::process::Command::new(&program).arg(\"30\").spawn().unwrap();\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS},
         ),
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
         (
@@ -6930,6 +6976,24 @@ def _self_test() -> int:
                 "    drop(runner);\n"
                 "    daemon.join().unwrap();\n"
                 "    assert!(stopped.is_ok());\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a program written by a child (`cp`), or linked, then run; a copy that is never run.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs5_tests.rs",
+            (
+                "fn by_cp() {\n"
+                "    let copied = Command::new(\"cp\").arg(\"/bin/sleep\").arg(&program).status();\n"
+                "    let child = Command::new(&program).spawn();\n"
+                "}\n"
+                "fn linked() {\n"
+                "    fs::hard_link(exe, &daemon).unwrap();\n"
+                "    let child = Command::new(&daemon).spawn();\n"
+                "}\n"
+                "fn data_only() {\n"
+                "    fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "    let child = Command::new(\"ls\").arg(&program).spawn();\n"
                 "}\n"
             ),
         ),

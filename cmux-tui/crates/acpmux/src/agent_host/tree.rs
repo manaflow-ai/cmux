@@ -457,10 +457,13 @@ mod census_tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn exe_still_names_a_program_whose_file_was_replaced() {
-        let dir = std::env::temp_dir().join(format!("acpmux-exe-replaced-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("server");
-        std::fs::copy("/bin/sleep", &program).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("server");
+        // Copied by `cp`, never by this process: a test on another thread that starts a process
+        // copies every open descriptor into the child until its exec, and a write descriptor
+        // for `program` held then made its exec here fail with ETXTBSY ("Text file busy").
+        let copied = std::process::Command::new("cp").arg("/bin/sleep").arg(&program).status();
+        assert!(copied.unwrap().success(), "cp /bin/sleep {}", program.display());
         let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
         let canonical = std::fs::canonicalize(&program).unwrap();
         // The update: the old file goes, a new one takes its path.
@@ -469,7 +472,6 @@ mod census_tests {
         let seen = super::exe(child.id());
         let _ = child.kill();
         let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
         let seen = seen.expect("a replaced program still has an executable");
         assert!(
             seen == program || seen == canonical,
