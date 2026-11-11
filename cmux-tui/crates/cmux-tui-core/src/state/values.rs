@@ -17,6 +17,8 @@ use crate::resource::SessionPublicId;
 use crate::workspace_registry::resource_store::{load_resource_topology, load_tab_with_focus};
 use crate::workspace_registry::{meta_value, required_meta};
 
+mod tab_extra;
+
 fn extra_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
     let object = value.as_object_mut()?;
     let extra = object.entry("extra").or_insert_with(|| Value::Object(Map::new()));
@@ -40,114 +42,6 @@ fn workspace_extra(
 ) -> anyhow::Result<Map<String, Value>> {
     let mut extras = workspace_extras(connection, &[workspace_id])?;
     Ok(extras.remove(workspace_id).unwrap_or_default())
-}
-
-fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String, Value>> {
-    let mut fields = Map::new();
-    let pinned = connection
-        .query_row("SELECT pinned FROM tab_presentation WHERE tab_id = ?1", [tab_id], |row| {
-            row.get::<_, i64>(0)
-        })
-        .optional()?
-        .is_some_and(|value| value != 0);
-    if pinned {
-        fields.insert("pinned".into(), json!(true));
-    }
-    let group = connection
-        .query_row(
-            "SELECT m.group_id
-             FROM tab_group_members AS m
-             JOIN tab_groups AS g ON g.group_id = m.group_id
-             JOIN resource_tabs AS t ON t.public_id = m.tab_id AND t.pane_id = g.pane_id
-             WHERE m.tab_id = ?1",
-            [tab_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(group) = group {
-        fields.insert("tab_group_id".into(), json!(group));
-    }
-    let state = connection
-        .query_row(
-            "SELECT zoom, back_json, forward_json, icon, emulation_json, marked_unread,
-                    attention_json
-             FROM tab_state WHERE tab_id = ?1",
-            [tab_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<f64>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<i64>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                ))
-            },
-        )
-        .optional()?;
-    if let Some((zoom, back, forward, icon, emulation, marked_unread, attention)) = state {
-        if let Some(emulation) =
-            emulation.as_deref().and_then(crate::state::browser_devices::resolve)
-        {
-            fields.insert("emulation".into(), emulation);
-        }
-        if let Some(zoom) = zoom {
-            fields.insert("zoom".into(), json!(zoom));
-        }
-        if let Some(icon) = icon {
-            fields.insert("icon".into(), json!(icon));
-        }
-        // `tab-mark-unread-v1`: present only while the tab is marked.
-        if marked_unread.is_some_and(|value| value != 0) {
-            fields.insert("marked_unread".into(), json!(true));
-        }
-        // `tab-attention-v1`: `{reason, at_ms, request_id}`, present only while an agent
-        // needs the person in this tab.
-        if let Some(attention) = attention {
-            fields.insert(
-                "attention".into(),
-                crate::state::tab_state_store::shown_attention(&attention)?,
-            );
-        }
-        for (name, list) in [("back", back), ("forward", forward)] {
-            if let Some(list) = list {
-                fields.insert(name.into(), serde_json::from_str(&list)?);
-            }
-        }
-    }
-    // The install id of the app that hosts a frontend-rendered browser, and
-    // the browser profile whose store the page uses (absent is `default`).
-    let frontend = connection
-        .query_row(
-            "SELECT f.owner, f.profile_id FROM resource_tabs AS t
-             JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
-             WHERE t.public_id = ?1",
-            [tab_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?;
-    if let Some((owner, profile)) = frontend {
-        if let Some(owner) = owner {
-            fields.insert("owner".into(), json!(owner));
-        }
-        let profile =
-            profile.unwrap_or_else(|| crate::workspace_registry::DEFAULT_PROFILE_ID.to_string());
-        fields.insert("browser_profile_id".into(), json!(profile));
-    }
-    // `conversation-tabs-v1` / `agent-session-tabs-v1`: what a frontend tab shows.
-    if let Some(conversation) =
-        super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
-    {
-        fields.insert("conversation".into(), conversation);
-    }
-    // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
-    // in `cwd`. Absent (null) for every other tab, like the other extras.
-    let relaunch = super::kept_tab_store::relaunch_value(connection, tab_id)?;
-    if !relaunch.is_null() {
-        fields.insert("relaunch".into(), relaunch);
-    }
-    Ok(fields)
 }
 
 fn screen_extra(connection: &Connection, screen_id: &str) -> anyhow::Result<Map<String, Value>> {
@@ -201,16 +95,48 @@ pub(crate) fn decorate_value(
     let Some(id) = value["id"].as_str().map(str::to_string) else { return Ok(()) };
     let fields = match resource {
         "workspace" => workspace_extra(connection, &id)?,
-        "tab" => tab_extra(connection, &id)?,
+        "tab" => tab_extra::tab_extra(connection, &id)?,
         "screen" => screen_extra(connection, &id)?,
         _ => return Ok(()),
     };
+    if resource == "tab" {
+        merge_tab_extra(value, fields);
+    } else {
+        merge_extra(value, fields);
+    }
+    Ok(())
+}
+
+/// Add the state fields of a tab to its public value.
+fn merge_tab_extra(value: &mut Value, fields: Map<String, Value>) {
     // The canonical kind of a conversation tab; connections without
     // `conversation-tabs-v1` see `browser` (server/conversation_tabs_wire.rs).
-    if resource == "tab" && fields.contains_key("conversation") {
+    if fields.contains_key("conversation") {
         value["content_kind"] = json!(super::conversation_tabs_store::CONVERSATION_KIND);
     }
     merge_extra(value, fields);
+}
+
+/// How many `tab_state` rows a session-wide tab list holds after its read.
+#[cfg(test)]
+pub(crate) fn session_tab_state_rows(connection: &Connection) -> anyhow::Result<usize> {
+    Ok(tab_extra::SessionTabExtras::read(connection)?.state_rows())
+}
+
+/// Add the state fields of every tab of a session-wide list in place: what
+/// [`decorate_value`] adds to each, with each state table read one time for
+/// the list, not one time for each tab. Run it in the read transaction that
+/// loaded `tabs`.
+pub(crate) fn decorate_session_tabs(
+    connection: &Connection,
+    tabs: &mut [Value],
+) -> anyhow::Result<()> {
+    let mut extras = tab_extra::SessionTabExtras::read(connection)?;
+    for tab in tabs {
+        let Some(id) = tab["id"].as_str().map(str::to_string) else { continue };
+        let fields = extras.take(&id)?;
+        merge_tab_extra(tab, fields);
+    }
     Ok(())
 }
 

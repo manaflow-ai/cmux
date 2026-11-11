@@ -2,7 +2,11 @@
 // "Run on a bigger machine": the chip shows on a running shell row from 20 s on and never on a
 // finished one or a non-shell; a click shows exactly what goes (secret-looking files left out
 // until ticked, untracked files staying) and starts the run with the plan's digest; the run's
-// output streams in under the row in order, and the reads stop when it ends.
+// output streams in under the row in order, and the reads stop when it ends. A background command
+// gets no chip; a command that stays here (acpmux's reason, the host refusing to relay the run, no
+// machine) gets one quiet line under the row and no control; the panel's buttons are the design
+// system's, with no keycap and no disabled one.
+import { readFileSync } from "node:fs";
 import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -19,7 +23,9 @@ import {
   appendOutput,
   chipDueAt,
   firstMachine,
+  inBackground,
   nextReadDelay,
+  resetHostRelays,
   RUN_OUTPUT_KEEP,
   type RunElsewhere,
   type RunOutput,
@@ -52,6 +58,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   jest.useRealTimers();
   resetTranscriptDisclosure();
+  resetHostRelays();
   root = undefined;
   dom?.window.close();
   dom = undefined;
@@ -101,12 +108,12 @@ async function advance(ms: number) {
   await flush();
 }
 
-function harness(outputs: RunOutput[] = []) {
+function harness(outputs: RunOutput[] = [], plan: () => Promise<RunPlan> = async () => PLAN) {
   const calls: { started?: unknown[]; reads: number[]; stopped: string[] } = { reads: [], stopped: [] };
   const runs: RunElsewhere = {
     store: new RunElsewhereStore(),
     client: {
-      plan: async () => PLAN,
+      plan,
       start: async (...args) => {
         calls.started = args;
         return { id: "bg-7" };
@@ -290,4 +297,135 @@ test("Stop stops the task on the other machine", async () => {
   const host = await render(call("in_progress", Date.now() - 30_000), runs);
   await act(async () => host.querySelector<HTMLButtonElement>(".cv-run-elsewhere__link")!.click());
   expect(calls.stopped).toEqual(["bg-7"]);
+});
+
+test("a command in the background never gets the chip, however long it runs", async () => {
+  const base = { kind: "execute", command: "make", startedAt: 1000, running: true };
+  expect(chipDueAt({ ...base, background: true })).toBeUndefined();
+  // acpmux tracks it as a background task, or the harness started it there.
+  expect(inBackground({ background: { state: "running" } })).toBe(true);
+  expect(inBackground({ inputSummary: JSON.stringify({ command: "make", run_in_background: true }) })).toBe(true);
+  expect(inBackground({ inputSummary: JSON.stringify({ command: "make", run_in_background: false }) })).toBe(false);
+  expect(inBackground({})).toBe(false);
+  const { runs } = harness();
+  for (const Row of [CommandRow, ToolRow]) {
+    // Claude's Bash `run_in_background`: the call itself still reads as running.
+    const started = call("in_progress", Date.now() - 60_000);
+    started.tool!.inputSummary = JSON.stringify({ command: "cargo test", run_in_background: true });
+    let host = await render(started, runs, Row);
+    expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+    await act(async () => root!.unmount());
+    root = undefined;
+    // Running there as acpmux's background task.
+    const moved = call("completed", Date.now() - 60_000);
+    moved.tool!.background = { state: "running" } as never;
+    host = await render(moved, runs, Row);
+    expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+});
+
+/** Clicks the chip and lets the plan settle; returns the host. */
+async function clickChip(runs: RunElsewhere) {
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  return host;
+}
+
+/** The row's whole answer is one quiet line: no card, no button, no keycap. */
+function expectOnlyLine(host: HTMLElement, text: string) {
+  const line = host.querySelector(".cv-run-elsewhere-line");
+  expect(line?.textContent).toBe(text);
+  expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+  expect(host.querySelectorAll("button").length).toBe(1); // the row's own toggle
+  expect(host.querySelector("kbd")).toBeNull();
+}
+
+test("a command acpmux keeps here shows only one line with its reason", async () => {
+  const { runs } = harness([], async () => ({ eligible: false, why: "vim needs this machine", machines: [] }));
+  const host = await clickChip(runs);
+  expectOnlyLine(host, translate("runElsewhere.stays", { why: "vim needs this machine" }));
+});
+
+test("no connected machine shows one line pointing to Machines, and the chip stays to ask again", async () => {
+  let machines: RunPlan["machines"] = [];
+  const { runs } = harness([], async () => ({ ...PLAN, machines }));
+  const host = await clickChip(runs);
+  const line = host.querySelector(".cv-run-elsewhere-line");
+  expect(line?.textContent).toBe(translate("runElsewhere.noMachine"));
+  expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
+  expect(host.querySelector("kbd")).toBeNull();
+  // A machine connects: the chip asks again and the panel opens.
+  machines = PLAN.machines;
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere-line")).toBeNull();
+  expect(host.querySelector(".cv-run-elsewhere__run")).not.toBeNull();
+});
+
+test("the stays-here line has its own rule, never a failed call's hidden cause line", async () => {
+  const { runs } = harness([], async () => ({ eligible: false, why: "vim needs this machine", machines: [] }));
+  const host = await clickChip(runs);
+  const line = host.querySelector(".cv-run-elsewhere-line")!;
+  expect(line.classList.contains("cv-tool-error")).toBe(false);
+  const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
+  const rule = css.slice(css.indexOf(".cv-run-elsewhere-line {"));
+  const body = rule.slice(0, rule.indexOf("}"));
+  for (const hidden of ["position: absolute", "clip-path", "display: none"]) expect(body).not.toContain(hidden);
+});
+
+test("the host refusing to relay the run says so plainly, and no row offers it again", async () => {
+  const refusal = Object.assign(new Error("Refused by the cmux host"), {
+    code: "transport.method_refused",
+    data: { origin: "native", code: "transport.method_refused", method: "_acpmux/run_elsewhere/plan" },
+  });
+  const { runs } = harness([], async () => {
+    throw refusal;
+  });
+  const host = await clickChip(runs);
+  expectOnlyLine(host, translate("runElsewhere.unavailable"));
+  expect(host.textContent).not.toContain("Refused by the cmux host");
+  expect(runs.store.relays()).toBe(false);
+  await act(async () => root!.unmount());
+  root = undefined;
+  // Another slow command of the chat: no chip.
+  const other = call("in_progress", Date.now() - 60_000);
+  other.tool!.id = "t2";
+  const again = await render(other, runs);
+  expect(again.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+});
+
+test("the panel's buttons are the design system's: no keycap, none disabled, no not-allowed cursor", async () => {
+  const { runs } = harness();
+  const host = await clickChip(runs);
+  const panel = host.querySelector(".cv-run-elsewhere")!;
+  const buttons = [...panel.querySelectorAll<HTMLButtonElement>("button")];
+  expect(buttons.map((b) => b.textContent)).toEqual([
+    translate("runElsewhere.cancel"),
+    translate("runElsewhere.run", { machine: "build-box" }),
+  ]);
+  for (const button of buttons) {
+    expect(button.classList.contains("ui-btn")).toBe(true);
+    expect(button.disabled).toBe(false);
+    expect(button.hasAttribute("data-disabled")).toBe(false);
+  }
+  expect(buttons.map((b) => b.dataset.variant)).toEqual(["ghost", "solid"]);
+  // The glyph after Cancel was DialogButton's Escape keycap (⎋), not a cursor.
+  expect(panel.querySelector("kbd")).toBeNull();
+  expect(panel.textContent).not.toContain("⎋");
+  // Escape still closes the panel from inside it.
+  await act(async () =>
+    buttons[0]!.dispatchEvent(
+      new host.ownerDocument.defaultView!.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
+  // No rule of the feature's own draws a not-allowed cursor.
+  const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
+  const rules = css.split("}").filter((rule) => rule.includes("run-elsewhere"));
+  expect(rules.length).toBeGreaterThan(0);
+  for (const rule of rules) expect(rule).not.toContain("not-allowed");
 });
