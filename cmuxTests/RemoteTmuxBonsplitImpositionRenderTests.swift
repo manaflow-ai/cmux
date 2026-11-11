@@ -507,11 +507,6 @@ import Testing
         // SimulatorPanelThemeTests). Render the hosting view's layer directly.
         // The backing color is part of the same SwiftUI root, so it is in
         // this layer tree and in the captured pixels.
-        for _ in 0..<4 {
-            hostingView.layoutSubtreeIfNeeded()
-            hostingView.displayIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        }
         let layer = try #require(hostingView.layer, "the hosting view has no layer to render")
         let width = Int(hostingView.bounds.integral.width)
         let height = Int(hostingView.bounds.integral.height)
@@ -534,11 +529,33 @@ import Testing
         // its x is beyond the tree's width.
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: 1, y: -1)
-        layer.render(in: context)
         let offset = (Int(region.height - sampleInset) * width + Int(region.width - sampleInset)) * 4
         try #require(
             offset >= 0 && offset + 3 < bytes.count,
             "no pixel at the sampled corner of a \(width)x\(height) capture"
+        )
+        // The capture starts fully transparent. The opaque backing color
+        // fills the root, so an opaque sample is the signal that SwiftUI
+        // painted the sampled corner. Poll that predicate to a deadline
+        // instead of a fixed number of timed passes.
+        let captureArea = CGRect(x: 0, y: 0, width: width, height: height)
+        let renderDeadline = ContinuousClock.now + .seconds(10)
+        var sampleIsPainted = false
+        while true {
+            hostingView.layoutSubtreeIfNeeded()
+            hostingView.displayIfNeeded()
+            context.clear(captureArea)
+            layer.render(in: context)
+            sampleIsPainted = bytes[offset + 3] >= 250
+            if sampleIsPainted || ContinuousClock.now >= renderDeadline { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        try #require(
+            sampleIsPainted,
+            """
+            the sampled corner was never painted: alpha \(bytes[offset + 3]) of 255 after 10 seconds, \
+            so the capture does not show the rendered view
+            """
         )
         let painted = NSColor(
             srgbRed: CGFloat(bytes[offset]) / 255,
