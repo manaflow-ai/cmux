@@ -30,6 +30,9 @@ pub(crate) struct LoadPlan {
     pub(super) adopting: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
+    /// The start's store list read every chat folder: only then does a host whose chat it did
+    /// not name belong to a purged chat (`Hub::purged_at_start`).
+    pub(super) listed: bool,
 }
 
 impl Hub {

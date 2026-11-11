@@ -200,6 +200,64 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registry connections keep their statements compiled
+/// (`REGISTRY_STATEMENT_CACHE_CAPACITY`). A reused statement must read the
+/// latest commit, never the snapshot of its previous run: a long-lived
+/// reader (the fanout's, the roster's) and the writer each run the same
+/// statements again after every commit here.
+#[test]
+fn reused_statements_read_every_later_commit() {
+    let root = std::env::temp_dir().join(format!("cmux-journal-cached-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "cached").unwrap();
+    let database_path = registry.session_journal_database_path().unwrap();
+    let reader = SessionJournalReader::open(&database_path).unwrap();
+    let workspace_id = format!("ws_{}", "2".repeat(32));
+    let result = serde_json::json!({"workspace_id":workspace_id});
+    for revision in 1..=6_u64 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "cached-test",
+            &format!("cached-commit-{revision}"),
+            if revision % 2 == 0 { "workspace.focus" } else { "workspace.rename" },
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        assert_eq!(registry.session_journal_head().unwrap(), revision);
+        assert_eq!(reader.head().unwrap(), revision);
+        let page = reader.after(revision - 1, 10).unwrap();
+        assert_eq!(page.head_sequence, revision);
+        assert_eq!(
+            page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            [revision]
+        );
+        let (focused, reached) =
+            reader.kinds_after(0, revision, |kind| kind == "workspace.focus", 100).unwrap();
+        assert_eq!(reached, revision);
+        assert_eq!(
+            focused.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            (1..=revision).filter(|sequence| sequence % 2 == 0).collect::<Vec<_>>(),
+            "the kind read after commit {revision}"
+        );
+    }
+    drop(reader);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archived_segment_metadata_is_verified_before_replay() {
     let registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
@@ -935,4 +993,53 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
     // whole backfill is several times that.
     assert!(first < std::time::Duration::from_millis(600), "{numbers}");
     assert!(first * 3 < total, "the first read is a slice of the backfill: {numbers}");
+}
+
+/// The page reader's cursor rules (`query_resource_events_after`): a cursor at the head reads an empty page
+/// whatever history is retained; a cursor behind the head with no retained resource history, or behind the
+/// oldest retained revision, is a gap; a cursor past the head is invalid.
+#[test]
+fn resource_event_pages_keep_their_head_gap_and_ahead_rules() {
+    let registry = WorkspaceRegistry::in_memory("page-cursor-rules").unwrap();
+    {
+        let db = registry.connection.get();
+        db.execute("UPDATE meta SET value = '5' WHERE key = 'resource_revision'", []).unwrap();
+    }
+    // No retained resource history at all.
+    let at_head = registry.resource_events_after(5).unwrap();
+    assert_eq!(at_head.head_revision, 5);
+    assert!(at_head.batches.is_empty());
+    let behind = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(behind.starts_with("cursor.gap:"), "{behind}");
+    let ahead = registry.resource_events_after(6).unwrap_err().to_string();
+    assert!(ahead.starts_with("cursor.invalid:"), "{ahead}");
+
+    // History retained from revision 6 on: 5 reads it, 4 is a gap, the head reads nothing.
+    for revision in 6..=7 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "test",
+            &format!("page-{revision}"),
+            "pane.focus",
+            None,
+            &serde_json::json!({}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(registry.resource_events_after(7).unwrap().batches.len(), 0);
+    let page = registry.resource_events_after(5).unwrap();
+    assert_eq!(page.batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(), vec![6, 7]);
+    let gap = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(gap.starts_with("cursor.gap:"), "{gap}");
 }
