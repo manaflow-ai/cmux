@@ -124,12 +124,16 @@ export function useCurrentCard(
     if (scroller) resizes?.observe(scroller);
     const target: HTMLElement | Window = scroller ?? window;
     target.addEventListener("scroll", onScroll, { passive: true });
-    const inputs = ["wheel", "touchmove", "pointerdown"] as const;
-    for (const type of inputs) target.addEventListener(type, unpin, { passive: true });
+    // Each listener added here is removed in the cleanup below, one call each.
+    target.addEventListener("wheel", unpin, { passive: true });
+    target.addEventListener("touchmove", unpin, { passive: true });
+    target.addEventListener("pointerdown", unpin, { passive: true });
     window.addEventListener("keydown", unpinOnScrollKey);
     return () => {
       target.removeEventListener("scroll", onScroll);
-      for (const type of inputs) target.removeEventListener(type, unpin);
+      target.removeEventListener("wheel", unpin);
+      target.removeEventListener("touchmove", unpin);
+      target.removeEventListener("pointerdown", unpin);
       window.removeEventListener("keydown", unpinOnScrollKey);
       resizes?.disconnect();
       if (frame) cancelAnimationFrame(frame);

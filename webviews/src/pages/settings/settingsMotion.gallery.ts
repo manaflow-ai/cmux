@@ -1,10 +1,13 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The Settings motions that change the list's height on purpose, measured apart from
 // pages.settings (whose layout-shift limit stays 0): search filtering collapses rows in place,
-// and a cleared scope override removes its line. Their layout shift is recorded, not gated at 0.
+// a cleared scope override removes its line, and the states in settings.gallery's
+// heightChangingVariants open or drop content above rows. Their layout shift is recorded, not gated at 0.
 import { settingsPageEntry, type SettingsPageVariant } from "../../gallery/format";
+import { heightChangingVariants } from "./settings.gallery";
 
 const variants: Record<string, SettingsPageVariant> = {
+  ...heightChangingVariants,
   "play-search": {
     section: "general",
     note: "Typing a search: rows outside it collapse in place (height and opacity), nothing jumps.",

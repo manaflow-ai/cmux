@@ -265,6 +265,42 @@ const showEndpoint =
     form.setAttribute("data-gallery-capture", "");
     form.scrollIntoView({ block: "center" });
   };
+/** States whose fixture steps change the page's height on purpose (the scope switch drops the
+ * All Workspaces tiles; a refused name opens its error line), so the rows below them move. They are
+ * measured in pages.settings-motion, whose layout shift is recorded, not held at 0 (#41237: on
+ * Personalization those rows are in view). */
+export const heightChangingVariants: Record<string, SettingsPageVariant> = {
+  "backdrops-workspace": variant("personalization", {
+    focus: "appearance.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"] .backdrop-scope'),
+      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
+    ],
+    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
+  }),
+  "theme-file-refused": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      input('[data-theme-files-prompt="name"] input', "Dracula"),
+      click('[data-theme-files-prompt="name"] button[type="submit"]'),
+      wait("[data-theme-files-error]"),
+    ],
+    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
+  }),
+};
+
 const variants: Record<string, SettingsPageVariant> = {
   "model-picker-placement-inherited": variant("chat", {
     focus: "agentPane.display.harnessPlacement",
@@ -676,23 +712,6 @@ Object.assign(variants, {
     note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
-  "backdrops-workspace": variant("personalization", {
-    focus: "appearance.background",
-    workspace: "ws-1",
-    options: {
-      values: { "appearance.background": "starryNight" },
-      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
-    },
-    host: {
-      ...host,
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
-    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
-  }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("personalization", {
@@ -1063,18 +1082,6 @@ Object.assign(variants, {
       wait('[data-theme-files-prompt="replace"]'),
     ],
     note: "Importing a file whose theme name is already in the themes folder asks inline before replacing it.",
-  }),
-  "theme-file-refused": variant("theme", {
-    allThemes: true,
-    options: { values: { "appearance.theme": "Dracula" } },
-    steps: [
-      wait('[data-theme-files-action="save"]:not([disabled])'),
-      click('[data-theme-files-action="save"]'),
-      input('[data-theme-files-prompt="name"] input', "Dracula"),
-      click('[data-theme-files-prompt="name"] button[type="submit"]'),
-      wait("[data-theme-files-error]"),
-    ],
-    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
   }),
   "font-picker": variant("terminal", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
