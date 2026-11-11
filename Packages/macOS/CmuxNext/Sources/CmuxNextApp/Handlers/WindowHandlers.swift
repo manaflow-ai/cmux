@@ -28,12 +28,26 @@ enum WindowHandlers {
             return .done
         })
         ActionTargetTitles.setPaletteState("debug.actionLatencyHUD", in: registry) { context.services.actionLatencyHUD.isShown }
-        // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
-        // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
+        // DEV and NIGHTLY (`isDebugOnly`): Main-Thread Blocking's counts reset and its call sites copied. Enabled
+        // only in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere they do nothing.
         let blocking = context.services.blocking
         registry.bindEffect("debug.blockingCalls.reset", isEnabled: { blocking.isCompiledIn }, effect: { _ in
             blocking.resetCounts()
             return .done
+        })
+        registry.bindEffect("debug.blockingCalls.copy", isEnabled: { blocking.isCompiledIn }, effect: { [weak registry] _ in
+            // Kind, code location and count are diagnostic tokens, not prose: not localized.
+            registry?.copyText(blocking.sites.map { "\($0.kind.rawValue)  \($0.location)  ×\($0.count)" }.joined(separator: "\n"))
+            return .done
+        })
+        DebugTunableChoiceAction(id: "debug.sidebarToggleIcon", argument: "icon", suggestions: ActionSuggestions.debugSidebarToggleIcons,
+                                 tunable: SidebarToggleIcon.tunable).bind(into: registry)
+        DebugTunableChoiceAction(id: "debug.statusIconSet", argument: "set", suggestions: ActionSuggestions.debugStatusIconSets,
+                                 tunable: StatusIconSet.tunable).bind(into: registry)
+        // Debug-only actions reach the person only while Internal Developer Mode is on, read at each palette
+        // open and key press (no restart); scripts reach them wherever developer tools exist.
+        registry.debugActions = DebugActionGate(isOn: { [weak services = context.services] in
+            services?.settings.map { InternalDeveloperModeSetting().value(in: $0.snapshot.root) } ?? false
         })
         registry.bind("about", run: { _ in
             context.activateApp()
