@@ -446,7 +446,7 @@ struct CloudStartSessionTests {
     /// start is refused before any machine (`link start-chat trust`), and a refusal after one says the same.
     @Test(arguments: ["unknown", "untrusted"])
     func aFolderThisMacDoesNotTrustIsRefusedWithTheFixHere(level: String) throws {
-        let message = try #require(CloudStartSession.untrustedRefusal(level: level, folder: "/Users/me/my project"))
+        let message = try #require(AgentRemoteStartRefusal.untrustedSource(level: level, folder: "/Users/me/my project")?.userMessage)
         #expect(message.hasPrefix("This Mac doesn't trust /Users/me/my project,"), "\(message)")
         #expect(message.contains("`cmux setup trust '/Users/me/my project'`"), "\(message)")
         #expect(!message.contains("that machine"), "the cause is on this Mac: \(message)")
@@ -454,17 +454,32 @@ struct CloudStartSessionTests {
 
     /// A trusted folder goes on, and so does one whose trust could not be read (the copy then reads it again, as before).
     @Test func aTrustedOrUnreadFolderGoesOn() {
-        #expect(CloudStartSession.untrustedRefusal(level: "trusted", folder: "/w/paint") == nil)
-        #expect(CloudStartSession.untrustedRefusal(level: nil, folder: "/w/paint") == nil)
+        #expect(AgentRemoteStartRefusal.untrustedSource(level: "trusted", folder: "/w/paint") == nil)
+        #expect(AgentRemoteStartRefusal.untrustedSource(level: nil, folder: "/w/paint") == nil)
+    }
+
+    /// The check before any machine runs the folder's own check first (its refusal in the run's words), and with no
+    /// `cmux` binary or acpmux home to read trust from, lets the start go on.
+    @Test func theSourceCheckRefusesTheFolderFirstAndGoesOnWithoutTrustToRead() async throws {
+        let setup = CloudMoveSetup()
+        let gone = "/nonexistent-\(UUID().uuidString)"
+        let missing = await setup.refusedSource(gone, home: NSHomeDirectory(), acpmuxHome: "/h") { _ in "folder refused" }
+        #expect(missing == "folder refused")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("trust-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        #expect(await setup.refusedSource(folder.path, home: NSHomeDirectory(), acpmuxHome: nil) { _ in "folder refused" } == nil)
     }
 
     /// The machine's refusal of an untrusted copy of a folder this Mac does not trust names this Mac; the same refusal of
     /// a folder that is no copy (`--cwd` on the machine) keeps the machine's own words.
-    @Test func aRefusedCopyNamesThisMacNotThatMachine() {
+    @Test func aRefusedCopyNamesThisMacNotThatMachine() throws {
         let refused = AgentRemoteStartRefusal(code: "agent_session.untrusted_folder", machine: "chat-6fe5", folder: "/home/cmux/work/chats/k/a/paint-9a62e5")
-        let copied = CloudStartSession.startFailure(refused, name: "chat-6fe5", id: "vm-6fe5", agent: "codex", untrustedCopyOf: "/Users/me/paint")
+        let copied = try #require(AgentRemoteStartRefusal.untrustedCopy(refused, of: "/Users/me/paint")?.userMessage)
         #expect(copied == AgentRemoteStartRefusal.untrustedSource(folder: "/Users/me/paint").userMessage)
         #expect(copied.contains("cmux setup trust /Users/me/paint") && !copied.contains("that machine"), "\(copied)")
+        #expect(AgentRemoteStartRefusal.untrustedCopy(refused, of: nil) == nil)
+        #expect(AgentRemoteStartRefusal.untrustedCopy(AgentRemoteStartRefusal(code: "agent_session.limit", machine: "m"), of: "/Users/me/paint") == nil)
         let onMachine = CloudStartSession.startFailure(refused, name: "chat-6fe5", id: "vm-6fe5", agent: "codex")
         #expect(onMachine.contains("Trust it on that machine"), "\(onMachine)")
     }

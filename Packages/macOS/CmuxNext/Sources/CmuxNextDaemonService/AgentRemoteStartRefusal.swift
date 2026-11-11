@@ -103,7 +103,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     }
 }
 
-extension AgentRemoteStartRefusal {
+nonisolated extension AgentRemoteStartRefusal {
     /// `text` as one shell word: as it is when it needs no quoting, else in single quotes.
     static func shellWord(_ text: String) -> String {
         let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
