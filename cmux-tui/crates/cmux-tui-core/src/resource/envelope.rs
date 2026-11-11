@@ -140,6 +140,10 @@ impl ResponseEnvelope {
 pub struct ResourceCursor {
     pub generation: String,
     pub revision: WireDecimal,
+    /// The position of the live terminal facts the client has. Only on a
+    /// connection that sent `session-live-cursor-v1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

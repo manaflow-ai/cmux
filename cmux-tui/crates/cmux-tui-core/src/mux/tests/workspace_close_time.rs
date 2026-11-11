@@ -22,9 +22,9 @@
 //!   pays what a new registry pays on its first close.
 //!
 //! The test-only check of each tree entity against the whole tree's JSON
-//! (`server::tree_entity_json`) is off on this test's thread, with the switch that #40700 added
-//! for its bench: it costs about 14 ms of each close at 826 workspaces (1 ms at 60) in a test
-//! build and is not in a daemon.
+//! (`server::tree_entity_json`) is off on the measuring thread that this test starts, with the
+//! switch that #40700 added for its bench: it costs about 14 ms of each close at 826 workspaces
+//! (1 ms at 60) in a test build and is not in a daemon.
 
 use std::time::{Duration, Instant};
 
@@ -77,7 +77,8 @@ fn the_time_of_one_workspace_close_is_printed() {
 fn print_the_close_times() {
     // `server` gives the switch of `tree_json` under a second name: under its own name the call
     // `tree_json::skip_entity_check_on_this_thread_for_bench()` in the open bench of `server`
-    // would be an unnecessary qualification for clippy.
+    // would fail the rustc lint `unused_qualifications` (the workspace lint table in
+    // `cmux-tui/Cargo.toml`; `clippy -D warnings` makes it an error).
     crate::server::skip_tree_entity_check();
     let build = if cfg!(debug_assertions) {
         "debug assertions on (the dev profile)"
