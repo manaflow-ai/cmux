@@ -14,7 +14,13 @@
 /* The strip's height is the composer's, so the card's rim can reach up around it (below). */
 .acpmux-composer,
 .nt-composer {
-  --acpmux-strip-height: 30px;
+  --acpmux-strip-height: calc(30px * var(--acpmux-density, 1));
+  /* The room a new chat's strip takes over the card (its chips, their gap), kept after the first send. */
+  --acpmux-strip-slot: calc(46px * var(--acpmux-density, 1));
+  /* A location chip's height: the small ghost button's 22 px at Default. */
+  --acpmux-location-height: calc(22px * var(--acpmux-density, 1));
+  --acpmux-strip-under: calc(6px * var(--acpmux-density, 1));
+  --acpmux-ring-gap: calc(2px * var(--acpmux-density, 1));
 }
 .acpmux-composer-strip {
   position: relative;
@@ -54,16 +60,18 @@
      bottom-anchored composer controls do not jump while the first transcript rows mount. A queue
      replaces this slot below. */
   flex: none;
-  height: 46px;
+  height: var(--acpmux-strip-slot);
   visibility: hidden;
   pointer-events: none;
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip-placeholder { display: none; }
 :root[data-top-strip="bump"] .acpmux-composer > .acpmux-composer-strip-placeholder {
-  height: calc(46px + var(--acpmux-strip-gap, 4px));
+  --acpmux-strip-slot-gapped: calc(var(--acpmux-strip-slot) + var(--acpmux-strip-gap, 4px));
+  height: var(--acpmux-strip-slot-gapped);
 }
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip-placeholder {
-  height: calc(46px + var(--acpmux-strip-gap, 4px));
+  --acpmux-strip-slot-gapped: calc(var(--acpmux-strip-slot) + var(--acpmux-strip-gap, 4px));
+  height: var(--acpmux-strip-slot-gapped);
 }
 .acpmux-composer-context {
   display: flex;
@@ -309,17 +317,19 @@
    leading padding gives + its inset back).
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
-  --acpmux-row-inset: 6px;
+  --acpmux-row-inset: calc(6px * var(--acpmux-density, 1));
   /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
      and Send draw apart with the trailing cluster's own 4 px gap below. */
-  --acpmux-row-gap: 4px;
-  --acpmux-row-group-gap: 10px;
-  --acpmux-row-icon-gap: 4px;
-  --acpmux-row-edge: 12px;
-  min-height: 52px;
+  --acpmux-row-gap: calc(4px * var(--acpmux-density, 1));
+  --acpmux-row-group-gap: calc(10px * var(--acpmux-density, 1));
+  --acpmux-row-icon-gap: calc(4px * var(--acpmux-density, 1));
+  --acpmux-row-edge: calc(12px * var(--acpmux-density, 1));
+  --acpmux-bar-min-height: calc(52px * var(--acpmux-density, 1));
+  --acpmux-bar-pad-block: calc(6px * var(--acpmux-density, 1));
+  min-height: var(--acpmux-bar-min-height);
   height: auto;
   gap: var(--acpmux-row-group-gap);
-  padding-block: 6px;
+  padding-block: var(--acpmux-bar-pad-block);
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
@@ -337,7 +347,7 @@
   gap: 1px;
   padding: 0 3px;
 }
-.acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: 12px; height: 12px; }
+.acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: var(--acpmux-composer-chevron, 12px); height: var(--acpmux-composer-chevron, 12px); }
 .acpmux-access-trigger { color: var(--agent-muted); }
 .acpmux-access-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-access-menu {
@@ -456,10 +466,28 @@
   margin-left: 0;
   margin-inline-start: auto;
 }
-/* + draws a 16 px glyph, so a 28 px button keeps the row's inset. */
-.acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button .acpmux-icon {
-  width: 16px;
-  height: 16px;
+/* Every glyph in and around the box at the composer's one glyph size, and every chip's chevron one
+   step smaller (the tokens on the composer's root). + is a 16 px glyph in a 28 px button at Default,
+   so the button keeps the row's inset. The provider mark is the model chip's first child. New Tab's +
+   is outside a bar and drew 18 px before. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-plus .acpmux-picker-button .acpmux-icon,
+:is(.acpmux-composer, .nt-composer) .acpmux-picker-button > :is(.acpmux-icon, .agent-mark):first-child {
+  width: var(--acpmux-composer-glyph);
+  height: var(--acpmux-composer-glyph);
+}
+:is(.acpmux-composer, .nt-composer) .acpmux-picker-button > .acpmux-icon:last-child:not(:first-child),
+:is(.acpmux-composer, .nt-composer) .acpmux-location-button > .ui-ghost-icon:last-child > .acpmux-icon {
+  width: var(--acpmux-composer-chevron);
+  height: var(--acpmux-composer-chevron);
+}
+/* The location strip (folder, computer, environment, branch) is the composer's chrome too: the same
+   glyph, the chips' text size, and a height on the density. */
+:is(.acpmux-composer, .nt-composer) .acpmux-location-button,
+:is(.acpmux-composer, .nt-composer) .acpmux-location-readonly {
+  --ui-ghost-icon-size: var(--acpmux-composer-glyph);
+  height: var(--acpmux-location-height);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
 }
 /* The trailing glyphs, Send (and Stop in its slot) and the mic, one size and one line weight in
    both looks and on New Tab (newtab/screen.css restates the tokens). */
@@ -875,8 +903,8 @@
    fill, rim or frost of their own. The card is a started chat's: its four corners and its whole
    rim. The chips and their gap take the 30 px the tab took, so nothing under them moves. */
 :root:not([data-top-strip]) .acpmux-composer:not([data-composer-look="codex"]) > .acpmux-composer-strip {
-  --acpmux-strip-height: 24px;
-  margin-bottom: 6px;
+  --acpmux-strip-height: calc(24px * var(--acpmux-density, 1));
+  margin-bottom: var(--acpmux-strip-under);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -907,7 +935,7 @@
 
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
-.acpmux-composer-strip .acpmux-location-readonly { height: 22px; }
+.acpmux-composer-strip .acpmux-location-readonly { height: var(--acpmux-location-height); }
 /* Queued prompts (ComposerQueue.tsx) stack right above the strip, or the card when there is no
    strip, at the column's edges, so the queue, the strip and the card read as one surface; the queue
    takes the rounded top corners, what is under it squares off and its top hairline gives way to the
@@ -1134,10 +1162,10 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* A lower floor than the location menu's 200 px: with only short rows (Add folder…, No folder,
-     short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
-     gallery invariants.ts menu-fit). */
-  min-width: 184px;
+  /* As wide as the hero's project menu (styles.css .acpmux-project-menu): 240 px at least, so a project and
+     its path read whole (Lucas 2026-11-11: the menu was "still too skinny" at 184 px). */
+  min-width: min(240px, calc(100vw - 32px));
+  max-width: min(360px, calc(100vw - 32px));
   /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
   overflow: hidden;
@@ -1286,7 +1314,7 @@
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
      under the row (below), so these 8 px are all the room there is: never on the window's edge
      (Leo 2026-10-20), room for a control's focus outline, and no band. */
-  margin-bottom: 8px;
+  margin-bottom: calc(8px * var(--acpmux-density, 1));
   padding-block: 0;
   /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
      starts on the box's left edge and the last control's ends on its right edge, so the row adds no
@@ -1317,6 +1345,13 @@
   margin-inline-start: calc(var(--acpmux-composer-inset, 8px) - 3px);
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
+/* The context ring left of the model chip (Lawrence and Lucas 2026-11-11): it starts the
+   right-aligned group, so the row ends on the effort, the mode keeps the row's left. */
+.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-access { order: -2; }
+.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context { order: -1; }
+.acpmux-composer.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring {
+  margin-inline: 0 var(--acpmux-ring-gap);
+}
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
    look already drops the shield and the chevrons). The mode in the soft tone; the model and the
    effort one muted label, as every composer's model chip is. */
@@ -1378,21 +1413,58 @@
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
 .acpmux-dock,
 :is(.acpmux-composer, .nt-composer) {
-  --acpmux-composer-action-gap: 4px;
-  --acpmux-composer-control: 28px;
-  /* The trailing glyphs (Send's ↵ or ↑, Stop's square, the mic): Claude Code desktop's size and
-     weight, a touch over + (Leo 2026-11-02: "our icons should be a tiny bit bigger at least our send
-     button i think can be nicer lokoing ... compared to claude code"). The glyph set's 18 px step
-     (design/grid.md, the icon scale) and a 1.5 px line: the stroke is in the 16 grid's units, so
-     1.35 draws 1.5 px at 18. The control stays 28, so every center and inset holds. */
-  --acpmux-composer-trail-glyph: 18px;
-  --acpmux-composer-trail-stroke: 1.35;
-  --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
+  /* Density (Lawrence 2026-11-11: "if I change densities, this should change the size of everything
+     on this page"; "the Ask Anything thing is still too fat" at the most compact one). The host's
+     --cmux-density-scale is the density's control height over Default's and goes below 1, where the
+     page-wide --cmux-interface-scale stops at 1 (Typography+PageDensity.swift). Every size in the
+     composer is drawn from these two: the controls, glyphs and insets from the size scale, the chrome
+     text from the text scale. The prompt keeps the reading size (--text-content). Outside the app (the
+     gallery) both fall back to the interface scale. */
+  --acpmux-density: var(--cmux-density-scale, var(--cmux-interface-scale, 1));
+  --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
+  /* The shared type and grid steps the composer reads, restated at its density: a token computed on
+     :root keeps the page scale, so the composer redeclares the ones it uses. */
+  --text-caption: calc(11px * var(--acpmux-density-text));
+  --text-caption--line-height: calc(14px * var(--acpmux-density-text));
+  --text-detail: calc(12px * var(--acpmux-density-text));
+  --text-detail--line-height: calc(16px * var(--acpmux-density-text));
+  --text-body: calc(13px * var(--acpmux-density-text));
+  --text-body--line-height: calc(18px * var(--acpmux-density-text));
+  --text-control: var(--text-body);
+  --text-control--line-height: var(--text-body--line-height);
+  --text-title: calc(15px * var(--acpmux-density-text));
+  --text-title--line-height: calc(20px * var(--acpmux-density-text));
+  --grid-composer-inset: calc(8px * var(--acpmux-density));
+  --grid-composer-control: calc(28px * var(--acpmux-density));
+  --grid-composer-block-inset: calc(10px * var(--acpmux-density));
+  --grid-composer-box: calc(48px * var(--acpmux-density));
+  --grid-composer-radius: calc(12px * var(--acpmux-density));
+  --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
+  --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));
+  --grid-composer-quiet-row-text: calc(14px * var(--acpmux-density));
+  --grid-gap-foot: calc(4px * var(--acpmux-density));
+  --acpmux-composer-action-gap: calc(4px * var(--acpmux-density));
+  --acpmux-composer-control: var(--grid-composer-control);
+  /* One glyph size for every icon in and around the box: +, the mic, Send, the mode's shield, the
+     model's provider mark, the computer and the folder (Austin 2026-11-11: the Mac icon was smaller
+     than the GPT icon, the full access icon too, and the mic a bit too big). A chip's chevron is
+     one smaller step. */
+  --acpmux-composer-glyph: calc(16px * var(--acpmux-density));
+  --acpmux-composer-chevron: calc(12px * var(--acpmux-density));
+  /* The trailing glyphs (Send's ↵ or ↑, Stop's square, the mic) take the same glyph, with Claude Code
+     desktop's 1.5 px line (in the 16 grid's units, so 1.5 at 16 px). */
+  --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
+  --acpmux-composer-trail-stroke: 1.5;
+  --acpmux-context-control-size: calc(22px * var(--acpmux-density));
+  --acpmux-context-glyph-size: calc(12px * var(--acpmux-density));
+  --acpmux-permission-pill-height: var(--acpmux-composer-control);
+  --acpmux-permission-pill-inset: calc(8px * var(--acpmux-density));
+  --acpmux-composer-inset: var(--grid-composer-inset);
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text
      never sits on the box's bottom edge (Leo 2026-11-01: "this is all still not aligned there's not
      enough of a space at the bottom"). The top and the bottom are always equal. */
-  --acpmux-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1));
-  --acpmux-composer-lead-gap: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-composer-block-inset: var(--grid-composer-block-inset);
+  --acpmux-composer-lead-gap: calc(8px * var(--acpmux-density));
   /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
      sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
      and its ink centers on the box's middle, where the controls are. */

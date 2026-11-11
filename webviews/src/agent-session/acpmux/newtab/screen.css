@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
+.nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:calc(1lh + 2 * var(--nt-input-pad-block));--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -400,15 +400,20 @@
 :root,
 .nt-composer,
 .nt-popover {
-  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--text-content) - 28px) / 2));
+  /* The box is the chat composer's one-line height at the density (composerLocation.css,
+     --grid-composer-box: 48 px at Default), so New Tab's box and a chat's are one size (Austin
+     2026-11-11: standardize; Lawrence: the box was still too tall at the most compact density). */
+  --nt-input-pad-block: max(4px, calc((48px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)) - var(--text-content--line-height)) / 2));
+  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1))) / 2));
 }
 /* The composer's control tokens (composerLocation.css), restated here so a page that loads only this
    sheet draws the same row. */
 .nt-screen .nt-composer {
-  --acpmux-composer-control: 28px;
-  --acpmux-composer-trail-glyph: 18px;
-  --acpmux-composer-trail-stroke: 1.35;
-  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
+  --acpmux-composer-control: calc(28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-glyph: calc(16px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
+  --acpmux-composer-trail-stroke: 1.5;
+  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
 }
@@ -450,8 +455,8 @@
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
-  width: 24px;
-  height: 24px;
+  width: calc(24px * var(--acpmux-density, 1));
+  height: calc(24px * var(--acpmux-density, 1));
 }
 /* Send is the mic's plain glyph at the mic's size and weight (Leo 2026-10-21: no disc;
    composerStates.css), the composer's trailing glyph tokens (composerLocation.css). */
