@@ -22,7 +22,8 @@ This file is the same, byte for byte, in manaflow-ai/cmux tests/, manaflow-ai/cm
 manaflow-ai/cmuxterm-hq tests/ and teamleaderleo/leo-workspace tools/; each repo's noclobber sweep pins its SHA-256.
 Change it in all four at once. Run as a script it reads a JSON list of strings on stdin and prints the list of their
 scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
---bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON.
+--bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON (an
+OracleUnavailable as {"oracle unavailable": reason}).
 """
 from __future__ import annotations
 
@@ -1264,6 +1265,30 @@ def _deep(levels: int, write: str = "") -> str:
 
 UNPARSED = NOT_SHELL + (_deep(MAX_DEPTH + 1), _deep(200), "x=${a:-" * 300 + "}" * 300 + " > /tmp/out.$$")
 
+# The bash oracle's budget (manaflow-ai/cmux#41336 review at 911fed64, F1: _deep(200) ran bash out of processes past its
+# timeout, and the TimeoutExpired stopped the whole sweep). Each substitution is a bash, and a mktemp in one is two
+# more, so a row may hold ORACLE_SUBS of them; bash_writes() refuses a row over that, and stops one past
+# ORACLE_SECONDS. A depth fixture meant for the parser is tree-only (TREE_ONLY, with why) and has an ORACLE_DEPTH twin
+# bash runs, so the differential still covers nesting.
+ORACLE_DEPTH = 20
+ORACLE_SUBS = 24
+ORACLE_SECONDS = 10.0
+TREE_ONLY = {
+    _deep(200): "200 nested substitutions are 200 bash processes at once, past any runner's process budget; the "
+                "parser's refusal past MAX_DEPTH is what it checks, and _deep(ORACLE_DEPTH) is its bash twin",
+    _deep(MAX_DEPTH + 1): "MAX_DEPTH + 1 levels check the parser's depth refusal, over the oracle's ORACLE_SUBS budget; "
+                          "_deep(ORACLE_DEPTH) is its bash twin",
+    _deep(MAX_DEPTH): "MAX_DEPTH levels check the parser's deepest parse, over the oracle's ORACLE_SUBS budget; "
+                      "_deep(ORACLE_DEPTH) is its bash twin",
+    _deep(MAX_DEPTH, "; echo > /tmp/out.$$"): "the MAX_DEPTH write, over the oracle's ORACLE_SUBS budget; "
+                                              "_deep(ORACLE_DEPTH, the same write) is its bash twin",
+}
+
+
+def substitutions(text: str) -> int:
+    """How many substitutions TEXT holds at most (each $(, <(, >( and backtick pair, escaped ones too): one bash each."""
+    return text.count("$(") + text.count("<(") + text.count(">(") + text.count("`") // 2
+
 
 def _wrap(inner: str, form: str) -> str:
     if form == "`":
@@ -1317,6 +1342,8 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
+    out[_deep(ORACLE_DEPTH)] = False  # the bash twins of the depth fixtures TREE_ONLY keeps from the oracle
+    out[_deep(ORACLE_DEPTH, "; echo > /tmp/out.$$")] = True
     for line in MISSES:
         out[line] = True
     return sorted(out.items())
@@ -1409,13 +1436,19 @@ MAX_BASH_PROCESSES = 48
 PROCESS_BUDGET = 64
 
 
-class BashTimeout(RuntimeError):
-    """A bash run past its time; its process group (PGID) is killed, and the message names the fixture."""
+@dataclass(frozen=True)
+class OracleUnavailable:
+    """bash gave no answer for a row: tree-only, over the budget, past the time (its process group PGID killed), or
+    unable to fork. Never a pass, and never an exception that stops the sweep (manaflow-ai/cmux#41336 review at
+    911fed64, F1)."""
+    reason: str
+    pgid: int = 0
 
-    def __init__(self, text: str, timeout: float, pgid: int):
-        super().__init__(f"bash ran past {timeout:g} s on this fixture, and its process group {pgid} was killed: "
-                         f"{text}")
-        self.pgid = pgid
+    def __bool__(self) -> bool:
+        raise TypeError("an OracleUnavailable is no verdict: check for it before reading one (" + self.reason + ")")
+
+
+FORK_FAILED = re.compile(r"fork: (?:retry: )?(?:Resource temporarily unavailable|Cannot allocate memory)")
 
 
 def bash_processes(text: str) -> int:
@@ -1424,22 +1457,30 @@ def bash_processes(text: str) -> int:
     return 4 + text.count("(") + text.count("`") // 2 + text.count("|") + text.count("&")
 
 
-def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bool | None:
+def bash_writes(text: str, timeout: float = ORACLE_SECONDS, stats: dict | None = None
+                ) -> bool | None | OracleUnavailable:
     """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
     mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
-    no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
-    no stdin (it is /dev/null). Past TIMEOUT its whole process group is killed and BashTimeout names TEXT. STATS, when
-    given, gets "runs" (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
+    no mktemp made; None when bash -n refuses TEXT. Bash reads no stdin (it is /dev/null). OracleUnavailable, never an
+    exception, when TEXT is TREE_ONLY, over ORACLE_SUBS or MAX_BASH_PROCESSES, bash runs past TIMEOUT (its whole
+    process group killed, the reason naming TEXT) or bash cannot fork. STATS, when given, gets "runs" (0 or 1) and
+    "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
     if stats is not None:
         stats.update(runs=0, peak=0)
+    if text in TREE_ONLY:
+        return OracleUnavailable("tree-only: " + TREE_ONLY[text])
+    if substitutions(text) > ORACLE_SUBS:
+        return OracleUnavailable(f"{substitutions(text)} substitutions, over the oracle's budget of {ORACLE_SUBS}: "
+                                 "give it a bash-sized twin and list it in TREE_ONLY")
     if bash_processes(text) > MAX_BASH_PROCESSES:
-        return None
+        return OracleUnavailable(f"up to {bash_processes(text)} processes at once, over MAX_BASH_PROCESSES "
+                                 f"({MAX_BASH_PROCESSES}): give it a bash-sized twin and list it in TREE_ONLY")
     bash = shutil.which("bash")
     try:
         if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True, timeout=timeout).returncode:
             return None
     except subprocess.TimeoutExpired:
-        raise BashTimeout(text, timeout, 0) from None
+        return OracleUnavailable(f"bash -n ran past {timeout:g} s on this fixture: {text}")
     root = tempfile.mkdtemp(prefix="shell-tree-")
     try:
         tmp, bindir, work = (os.path.join(root, d) for d in ("t", "bin", "work"))
@@ -1472,14 +1513,21 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         if stats is not None:
             stats["runs"] = 1
         try:
-            run.communicate(timeout=timeout)
+            output = run.communicate(timeout=timeout)[0]
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            run.communicate()
-            raise BashTimeout(text, timeout, pgid) from None
+            try:  # a process that left the group (setsid) may still hold the pipe; never wait on it unbounded
+                run.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                run.stdout.close()
+                run.wait()
+            return OracleUnavailable(f"bash ran past {timeout:g} s on this fixture, and its process group {pgid} was "
+                                     f"killed: {text}", pgid)
+        if FORK_FAILED.search(output.decode(errors="replace")):
+            return OracleUnavailable("bash could not fork: the host is out of processes")
         if stats is not None and os.path.exists(peak_log):
             with open(peak_log) as f:
                 stats["peak"] = max((int(n) for n in f.read().split()), default=0)
@@ -1503,13 +1551,13 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         shutil.rmtree(root, ignore_errors=True)
 
 
-def bash_verdicts(texts: list[str]) -> list[bool | None]:
+def bash_verdicts(texts: list[str]) -> list[bool | None | OracleUnavailable]:
     """bash_writes() of each of TEXTS, several bash runs at a time, with the processes they may hold together
-    (bash_processes) kept under PROCESS_BUDGET."""
+    (bash_processes) kept under PROCESS_BUDGET, each run stopped past ORACLE_SECONDS."""
     room = threading.Condition()
     free = [PROCESS_BUDGET]
 
-    def one(text: str) -> bool | None:
+    def one(text: str) -> bool | None | OracleUnavailable:
         cost = min(bash_processes(text), MAX_BASH_PROCESSES)
         with room:
             room.wait_for(lambda: free[0] >= cost)
@@ -1525,6 +1573,17 @@ def bash_verdicts(texts: list[str]) -> list[bool | None]:
         return list(pool.map(one, texts))
 
 
+def oracle_failures(texts: list[str], verdicts: list[bool | None | OracleUnavailable]) -> list[str]:
+    """The rows bash gave no answer for, each with why: a row the oracle cannot answer fails the differential, never
+    passes it. A TREE_ONLY row is not one: it was never meant for bash, and its twin is."""
+    return [f"oracle unavailable for {t[:120]!r}: {v.reason}" for t, v in zip(texts, verdicts)
+            if isinstance(v, OracleUnavailable) and t not in TREE_ONLY]
+
+
+def verdict_json(verdict: bool | None | OracleUnavailable):
+    return {"oracle unavailable": verdict.reason} if isinstance(verdict, OracleUnavailable) else verdict
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--corpus"]:
         json.dump(corpus(), sys.stdout)
@@ -1535,6 +1594,6 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--file-corpus"]:
         json.dump(FILES, sys.stdout)
     elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [bash_writes(text), ...]
-        json.dump(bash_verdicts(json.load(sys.stdin)), sys.stdout)
+        json.dump([verdict_json(v) for v in bash_verdicts(json.load(sys.stdin))], sys.stdout)
     else:
         json.dump([scan_text(code(t)) for t in json.load(sys.stdin)], sys.stdout)
