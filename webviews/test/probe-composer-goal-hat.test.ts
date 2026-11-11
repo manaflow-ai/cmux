@@ -84,11 +84,6 @@ await requireBrowserLane("probe-composer-goal-hat.test.ts", async () => {
       return { frames: log.frames, clicks: log.clicks } as Log;
     });
 
-  const percentile = (values: number[], p: number) => {
-    const sorted = [...values].sort((a, b) => a - b);
-    return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!;
-  };
-
   // PROBE (TIP REDS 4, never lands): 5 runs of the one flake candidate.
   test.each([1, 2, 3, 4, 5])(
     "run %d: fifteen clicks 60 ms apart: each turns the fold around at once, none queues, the last wins",

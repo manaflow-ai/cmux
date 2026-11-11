@@ -103,16 +103,6 @@ await requireBrowserLane("probe-streaming-text-frames.test.ts", async () => {
     return report as StreamReport;
   }
 
-  /// What the report breaks of the work budget, one line each.
-  function overWork(report: StreamReport): string[] {
-    const over: string[] = [];
-    const { totalMs, heaviest } = report.work;
-    if (totalMs.max > BUDGET.maxWorkMs)
-      over.push(`a frame's work took ${totalMs.max} ms (budget ${BUDGET.maxWorkMs}): ${JSON.stringify(heaviest)}`);
-    if (totalMs.p95 > BUDGET.p95WorkMs) over.push(`p95 frame work ${totalMs.p95} ms (budget ${BUDGET.p95WorkMs})`);
-    return over;
-  }
-
   /// What the report breaks of the layout budget, one line each.
   function overLayout(report: StreamReport): string[] {
     const over: string[] = [];

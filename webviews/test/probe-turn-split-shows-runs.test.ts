@@ -14,7 +14,6 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
   at: (at += 1_000),
   ...extra,
 });
-type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const call = (id: string, status = "completed"): AcpmuxActivity => ({
   kind: "tool",
   text: "",
