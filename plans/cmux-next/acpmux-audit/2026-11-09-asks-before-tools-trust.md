@@ -111,6 +111,14 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
     `_AUTH_TOKEN`, `_BASE_URL`, `_MODEL`, each with a value that names nothing of the folder.
     Every other name refuses (also `PYTHONPATH`, `NODE_OPTIONS`, `HOME`). The test fake agent now
     takes its `FAKE_*` settings as `--fake KEY VALUE` words, not env (no product exception).
+- Delta SHIP at 2fc67b6b (w5l-delta-rev), lead additions, fail closed: an argument word with a
+  backslash refuses (an escape such as `\u006eode` in a TOML or JSON value can spell a program past
+  the part checks). The folder rule (a program that `PATH` finds in the folder) and the relative or
+  empty `PATH` entry rule have tests on `opencode`, of the program allowlist, so only those rules
+  can refuse them.
+- Known limit: acpmux does not read an agent CLI's own config outside the launch, such as
+  `~/.codex/config.toml` (its `mcp_servers`, `notify`) or opencode's global config. A program those
+  files start is not judged; the claim believes the agent CLI as the lead accepted.
 ## Still open
 - F1 (codex review of #40158, deferred by the lead, cmux#40605): a pooled agent is judged at
   take time. The pool prewarm spawns with no claim (`spawn.rs` `spawn_profile_for`,

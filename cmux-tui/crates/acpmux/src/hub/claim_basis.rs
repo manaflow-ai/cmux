@@ -475,6 +475,11 @@ impl Launch<'_> {
     /// an agent CLI that follows no option (`opencode acp`) is a subcommand: the one form acpmux
     /// takes as no path without proof (lead).
     fn args_understood(&self, args: &[String], interpreted: bool) -> bool {
+        // An escape (`\u006eode` in TOML or JSON, `\x` in a shell string) can spell any program
+        // or path past the part checks: a word with a backslash refuses (lead, #40158).
+        if args.iter().any(|arg| arg.contains('\\')) {
+            return false;
+        }
         let cwd = self.folder.written.as_path();
         let mut after_option = false;
         let mut option: Option<&str> = None;
@@ -920,6 +925,27 @@ mod tests {
         assert_eq!(judge(&root, Path::new("/"), &paths(".")), None);
     }
 
+    /// A word with a backslash refuses: an escape in a TOML, JSON or shell string can spell a
+    /// program that no part check sees (`-c mcp_servers.x.command="\u006eode"`) (lead, #40158).
+    #[test]
+    fn an_argument_word_with_a_backslash_reads_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_tools, path) = tools();
+        let refused: &[&[&str]] = &[
+            &["codex", "-c", r#"mcp_servers.x.command="\u006eode""#],
+            &["codex", "-c", r#"mcp_servers.x.args=["sr\u0076.js"]"#],
+            &["opencode", "--mcp-config", r#"{"s":{"command":"\u006eode"}}"#],
+            &["opencode", "--hook", r"n\ode hook.js"],
+            &["opencode", r"--log-level=\info"],
+        ];
+        for argv in refused {
+            let why = judge(&launch(argv, &[]), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
+        let plain = launch(&["codex", "-c", r#"model="gpt-5""#], &[]);
+        assert_eq!(judge(&plain, dir.path(), &path), None);
+    }
+
     /// A value literal of the words acpmux reads (`true`, `false`, `yes`, the log level `info`) is
     /// no program as a value, in any case, though `PATH` holds programs of those names; any other
     /// bare word that `PATH` resolves is one. As the program, a bare word that follows no option,
@@ -1019,18 +1045,25 @@ mod tests {
         // A reviewed env name whose value names the folder.
         reads(&["opencode"], &[("OPENCODE_BASE_URL", folder)], &tp);
         reads(&["opencode"], &[("NO_COLOR", inside.as_str())], &tp);
-        // PATH entries: relative, empty, or inside the folder (the login shell's too).
-        reads(&["agent"], &[], "bin:/usr/bin");
-        reads(&["agent"], &[], ":/usr/bin");
-        reads(&["agent"], &[], ".:/usr/bin");
-        // A bare program that PATH finds in the folder.
+        // PATH entries: relative, empty, or inside the folder (the login shell's too). The program
+        // is `opencode`, of the program allowlist, and `PATH` finds a stand-in of it outside the
+        // folder after the entry: only the `PATH` rule can refuse these.
+        let tools_dir = tools.path().display();
+        for entries in ["bin", "", "."] {
+            reads(&["opencode", "acp"], &[], &format!("{entries}:{tools_dir}"));
+        }
+        // A bare program that PATH finds in the folder: an `opencode` of the folder's own, found
+        // before the stand-in outside it. Only the folder rule refuses it (lead, #40158).
         let bin = cwd.join("node_modules").join(".bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("agent"), "#!/bin/sh\n").unwrap();
+        std::fs::write(bin.join("opencode"), "#!/bin/sh\n").unwrap();
         use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(bin.join("agent"), std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(bin.join("opencode"), std::fs::Permissions::from_mode(0o755))
             .unwrap();
-        reads(&["agent"], &[], &format!("{}:/usr/bin", bin.display()));
+        reads(&["opencode", "acp"], &[], &format!("{}:{tools_dir}", bin.display()));
+        // The same launch with the stand-in first keeps the claim: the folder's copy decided.
+        let first = paths(&format!("{tools_dir}:{}", bin.display()));
+        assert_eq!(judge(&launch(&["opencode", "acp"], &[]), cwd, &first), None);
     }
 
     /// The PATH judged is the one the agent gets: the launch's own entries, as written, then the
@@ -1039,9 +1072,13 @@ mod tests {
     fn the_launchs_own_path_is_judged_as_written() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path();
-        for own in ["bin:/usr/bin", ":/usr/bin"] {
-            let why = unbelieved_launch(&launch(&["agent"], &[("PATH", own)]), cwd);
-            assert_eq!(why, Some("launch_reads_folder"), "{own}");
+        // `opencode`, of the program allowlist, found outside the folder after the entry: only
+        // the relative or empty entry refuses.
+        let (tools, _) = tools();
+        for entry in ["bin", ""] {
+            let own = format!("{entry}:{}", tools.path().display());
+            let launch = launch(&["opencode", "acp"], &[("PATH", own.as_str())]);
+            assert_eq!(unbelieved_launch(&launch, cwd), Some("launch_reads_folder"), "{own}");
         }
     }
 
