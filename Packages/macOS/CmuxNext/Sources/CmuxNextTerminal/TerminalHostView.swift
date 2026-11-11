@@ -292,6 +292,7 @@ public final class TerminalHostView: NSView {
         let area = CGRect(x: terminalBounds.minX, y: terminalBounds.minY,
                           width: max(0, terminalBounds.width - scrollerWidth), height: terminalBounds.height)
         if sizeHatch.frame != area { sizeHatch.frame = area }
+        sizeHatch.ground = hatchGround
         sizeHatch.show(grid: grid.map { $0.offsetBy(dx: -area.minX, dy: -area.minY) })
     }
 
@@ -591,6 +592,7 @@ public final class TerminalHostView: NSView {
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
+        sizeHatch?.ground = hatchGround
         let (scope, tokens) = (themeScope, themeTokens)
         // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
@@ -615,6 +617,14 @@ public final class TerminalHostView: NSView {
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's
+    /// own (OSC 11), else the theme's or the config's.
+    private var hatchGround: CGColor {
+        performWithTheme { Palette.surfaceOverride(.terminal) }?.cgColor
+            ?? current?.session?.model.backgroundOverride?.cgColor
+            ?? Self.opaqueGround(theme)
     }
 
     /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).

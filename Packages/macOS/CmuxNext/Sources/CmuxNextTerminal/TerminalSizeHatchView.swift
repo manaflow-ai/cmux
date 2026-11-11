@@ -3,7 +3,10 @@ import CmuxNextDesign
 
 /// The pane space a terminal does not use while another view sets its grid ("Sized for"): classic's
 /// hatch (`TerminalSizeBoundsOverlayView`), 0.5 pt lines rising at 45° every 8 pt in the split
-/// divider's color at 60%, and a 1 pt divider-colored border on the grid's sides that face it.
+/// divider's color at 60%, and a 1 pt divider-colored border on the grid's sides that face it. As in
+/// classic, the divider color comes from the terminal background under the hatch (``ground``), as
+/// Ghostty's `split-divider-color` does, not from the app's appearance: a light app over a dark
+/// terminal theme still shows it. A user's split divider color (`surfaces.splitDivider`) wins.
 ///
 /// Drawn by Core Animation, never in `draw(_:)`: one shape layer holds the lines for a size rounded
 /// up to ``pathQuantum`` (rebuilt only when the pane grows past it), and an even-odd mask cuts the grid
@@ -25,6 +28,10 @@ final class TerminalSizeHatchView: NSView {
     private var linesSize: CGSize = .zero
     /// The grid's rect in this view (y up), nil while hidden.
     private(set) var gridRect: CGRect?
+    /// The terminal background under the hatch; the host sets it whenever it paints its background.
+    var ground: CGColor? {
+        didSet { if ground != oldValue { applyThemeColors() } }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -88,11 +95,23 @@ final class TerminalSizeHatchView: NSView {
 
     private func applyThemeColors() {
         performWithTheme {
-            let divider = Palette.surfaceOverride(.splitDivider) ?? Palette.separator
+            let divider = Palette.surfaceOverride(.splitDivider)
+                ?? ground.flatMap(NSColor.init(cgColor:)).map(Self.divider(over:))
+                ?? Palette.separator
             let line = divider.usingColorSpace(.sRGB) ?? divider
             lines.strokeColor = line.withAlphaComponent(line.alphaComponent * Self.hatchOpacity).cgColor
             border.strokeColor = line.cgColor
         }
+    }
+
+    /// Ghostty's default split divider over `ground`: its brightness lowered 8% on a light ground, 40% on a dark one.
+    static func divider(over ground: NSColor) -> NSColor {
+        let rgb = ground.usingColorSpace(.sRGB) ?? ground
+        let luminance = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+        var (hue, saturation, brightness, alpha): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        let darken: CGFloat = luminance > 0.5 ? 0.08 : 0.4
+        return NSColor(colorSpace: .sRGB, hue: hue, saturation: saturation, brightness: min(brightness * (1 - darken), 1), alpha: alpha)
     }
 
     private static func quantized(_ length: CGFloat) -> CGFloat {
