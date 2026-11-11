@@ -55,6 +55,13 @@ import Testing
         view.isHidden = true
         #expect(await services.previews.previewImage(for: TabID(key), maxPixelSize: Self.size) != nil)
         #expect(camera.taken == 2, "a page that showed again kept its old picture")
+
+        // Light to dark (or back): the page drew again in the other theme, so the next hover
+        // pictures it once more. A capture of the light card showed the page's dark picture.
+        let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        view.appearance = NSAppearance(named: dark ? .aqua : .darkAqua)
+        #expect(await services.previews.previewImage(for: TabID(key), maxPixelSize: Self.size) != nil)
+        #expect(camera.taken == 3, "a page kept its picture from the other theme")
     }
 
     @Test func aFlatPageCaptureIsNoPictureAndIsNotKept() async throws {
