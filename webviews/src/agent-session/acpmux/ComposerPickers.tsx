@@ -92,9 +92,11 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudStartAgent,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
+  remoteStartMode,
   shownModes,
 } from "./harnessModes";
 import {
@@ -977,7 +979,47 @@ export function ComposerPickers({
   // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
   // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
   // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  // A new chat whose first send starts it on a Cloud machine (`startsOnCloud`) begins in the
+  // harness's asking mode there (Claude's Manual, the Codex bridge's Ask: acpmux sets no start mode
+  // on a remote start and holds the `ask` policy, web_modes.rs). The chip names that mode, as the
+  // model chip names its model, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird").
+  // A mode the person picked for that start (`cloudStartMode`, cloudModePick.ts) is what the
+  // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
+  // allowed to just go through with stuff?"); with no pick, the asking mode above.
+  const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
+  // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
+  // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
+  const cloudAgent = cloudStartAgent(chipFamily, chipHarness);
+  const cloudKnown = cloudAgent.named;
+  const cloudFamily = cloudAgent.family;
+  const cloudHarness = cloudAgent.harness;
+  // The chat starts on the machine, not here: a session this Mac's acpmux already opened for the
+  // new chat (a real app's New Agent Chat does, with or without modes) is not the one that runs, so
+  // its session id and modes never decide the chip (journey run 43021965230: every cell read "Mode").
+  const cloudAsking =
+    fresh && snapshot.startsOnCloud && snapshot.switching?.phase !== "failed"
+      ? remoteStartMode(cloudFamily, cloudHarness)
+      : undefined;
+  const cloudPick = cloudAsking && snapshot.cloudStartMode;
+  const cloudStart = cloudPick
+    ? {
+        id: cloudPick,
+        name:
+          harnessFamilyMenu(cloudFamily, cloudHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
+          (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
+      }
+    : cloudAsking;
+  // The modes a Cloud start can be picked into: the asking mode it starts in and the harness's
+  // highest level. acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
+  // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
+  const cloudPickable = cloudAsking
+    ? [cloudAsking.id, highestMode(cloudFamily, cloudHarness)?.id].filter((id): id is string => id !== undefined)
+    : undefined;
+  // The default agent's own menu, not the face harness's modes, for a Cloud start that runs it.
+  const cloudDefaultMenu = cloudAsking && !cloudKnown ? harnessFamilyMenu(cloudFamily, cloudHarness) : undefined;
   const startMode: KeptStartMode | undefined =
+    (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
     (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
     (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
@@ -985,6 +1027,7 @@ export function ComposerPickers({
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
   const pendingMenu =
+    cloudDefaultMenu ??
     modeMenu ??
     harnessModeMenu(undefined, chipHarness, [
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
@@ -993,7 +1036,8 @@ export function ComposerPickers({
   // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
   // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
   // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
-  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  // sets none here (the harness's own mode applies) and for a chat on another machine (a peer, a
+  // remote host) or a harness whose Cloud start mode cmux does not know.
   const shownStart: StartMode | undefined = startMode?.borrowed
     ? startMode.modeId
       ? startMode
@@ -1016,6 +1060,9 @@ export function ComposerPickers({
   // for this folder) it checks none and says "Mode", still a pick (Lucas 2026-10-24: a New Tab's
   // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
   // access row.
+  // The modes the access chip lists: this session's, except for a Cloud start, whose own modes
+  // (pendingAccessModes) are the ones the machine starts in.
+  const accessModes = cloudAsking ? [] : modes;
   const pendingAccessModes: ModeChoice[] = (() => {
     if (!(holdsModePick || holdsStartMode) || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
     const menu =
@@ -1024,13 +1071,13 @@ export function ComposerPickers({
         summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
         chipHarness,
       );
-    const profileModes = harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [];
+    const profileModes = cloudDefaultMenu ? [] : (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []);
     const rows: readonly { id: string; name?: string; description?: string }[] =
       profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
       menu,
       rows
-        .filter((choice) => !isPlan(choice.id))
+        .filter((choice) => !isPlan(choice.id) && (cloudPickable === undefined || cloudPickable.includes(choice.id)))
         .map((choice) => ({
           id: choice.id,
           name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,
@@ -1246,18 +1293,20 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+      {picksModel && accessModes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingMode
           label={startModeName}
           modeId={shownStart?.modeId}
           icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
         />
       )}
-      {(modes.length > 0 || pendingAccessModes.length > 0) && (
+      {(accessModes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
+          modes={accessModes.length > 0 ? accessModes : pendingAccessModes}
+          current={
+            (cloudAsking ? undefined : mode?.id) ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
+          }
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           managed={fullAccessManaged}
