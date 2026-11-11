@@ -412,6 +412,17 @@ impl RemoteSession {
         let forget = || {
             self.sidebar_doc.pending().remove(&id);
         };
+        // A shutdown sets the flag before it wakes every waiting request
+        // (`begin_shutdown`): one that came after the check above and before
+        // this insert missed this request, which would wait for an answer
+        // that never comes. Nothing was sent yet.
+        if self.shutdown.load(Ordering::Acquire) {
+            forget();
+            return Err(self
+                .request_shutdown_error()
+                .unwrap_or(RemoteRequestError::Shutdown)
+                .into());
+        }
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
