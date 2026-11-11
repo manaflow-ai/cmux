@@ -301,7 +301,7 @@ private func runDeltas(_ deltas: Int, workspaces: Int, seed: UInt64) async throw
         run.resnapshots += 1
         tree = try await projection.reset(snapshot: truth.snapshot(), macID: "m1")
     }
-    let names = Dictionary(uniqueKeysWithValues: tree.workspaces.map { ($0.id, $0.name) })
+    let names = Dictionary(uniqueKeysWithValues: tree.workspaces.map { ($0.id, $0.title) })
     for index in truth.names.indices where names["w\(index + 1)"] != truth.names[index] { run.mismatched += 1 }
     run.virtual = clock.now
     return run
