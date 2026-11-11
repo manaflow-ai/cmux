@@ -590,9 +590,9 @@ mod tests {
     /// dialog list` read it through `blocked_dialog`.
     #[test]
     fn w6bc_a_stale_screen_guess_of_blocked_is_no_dialog() {
+        // The daemon keeps one agent record per terminal: the plugin's guess
+        // replaced the hook's record.
         let (terminal, agents) = denied_terminal(json!([
-            {"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
-             "updated_at_ms": "1100", "extra": {"agent": "claude"}},
             {"terminal_id": "term_w6bc", "state": "blocked", "source": "plugin",
              "updated_at_ms": "1902", "extra": {"agent": "claude-code"}},
         ]));
@@ -606,6 +606,10 @@ mod tests {
             Some(json!("No"))
         );
         assert!(blocked_dialog(&terminal, &agents, "").is_some());
+        // Claude's own OSC 7501 report, when it says blocked, holds.
+        let mut reported = terminal.clone();
+        reported["extra"]["program_status"][0]["state"] = json!("blocked");
+        assert!(blocked_dialog(&reported, &agents, DENIED_CLAUDE_2_1_322).is_some());
         // The agent's own report of blocked is never overruled by the screen.
         let (terminal, agents) = denied_terminal(json!([
             {"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
@@ -644,12 +648,8 @@ mod tests {
         let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
             "program_status": [{"app": "claude-code", "state": "blocked", "kind": "permission",
                                 "updated_at_ms": "1050"}]}});
-        let agents: Vec<Value> = vec![
-            json!({"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
-                   "updated_at_ms": "1100", "extra": {"agent": "claude"}}),
-            json!({"terminal_id": "term_w6bc", "state": "blocked", "source": "plugin",
-                   "updated_at_ms": "1902", "extra": {"agent": "claude-code"}}),
-        ];
+        let agents: Vec<Value> = vec![json!({"terminal_id": "term_w6bc", "state": "blocked",
+            "source": "plugin", "updated_at_ms": "1902", "extra": {"agent": "claude-code"}})];
         let dialog = blocked_dialog(&terminal, &agents, HINT_IN_TRANSCRIPT);
         assert_eq!(dialog.map(|dialog| dialog["kind"].clone()), Some(json!("permission")));
     }
@@ -705,16 +705,22 @@ mod tests {
     /// nothing about Qwen.
     #[test]
     fn w6bc_only_an_agent_whose_hooks_report_dialogs_ends_a_screen_guess() {
-        let terminal = json!({"id": "term_w6bc", "lifecycle": "running"});
+        // One agent record per terminal (the plugin's guess); the agent's
+        // own idle report is an OSC 7501 record of its app.
         let cases = [
-            ("kiro", vec![record("hook", "kiro", "idle", "1500")]),
-            ("qwen", vec![record("hook", "claude", "done", "500")]),
-            ("copilot", vec![record("hook", "copilot", "idle", "1500")]),
-            // Muse installs PermissionRequest, but when it fires is not verified.
-            ("muse", vec![record("hook", "muse", "idle", "1500")]),
+            ("kiro", "kiro"),
+            ("copilot", "copilot"),
+            // Muse and Rovo Dev install approval hooks, but when they fire
+            // is not verified.
+            ("muse", "muse"),
+            ("rovodev", "rovodev"),
+            // An earlier Claude session's idle report says nothing of Qwen.
+            ("qwen", "claude-code"),
         ];
-        for (harness, mut agents) in cases {
-            agents.push(record("plugin", harness, "blocked", "1902"));
+        for (harness, app) in cases {
+            let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+                "program_status": [{"app": app, "state": "idle", "updated_at_ms": "1637"}]}});
+            let agents = vec![record("plugin", harness, "blocked", "1902")];
             let dialog = blocked_dialog(&terminal, &agents, UNPARSED_DIALOG);
             assert!(dialog.is_some(), "{harness}: the block must hold");
         }

@@ -588,15 +588,15 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
 /// refuse a send once the screen shows the agent's input box and no dialog.
 #[test]
 fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
+    // The daemon keeps one agent record per terminal: the plugin's guess
+    // (1902) replaced the hook's record; Claude's own OSC 7501 report (1637)
+    // says idle, as in the real build.
     let mut stale = snapshot();
-    stale["agents"][1]["source"] = json!("plugin");
-    // The agent's hook reported the dialog, and its own newest report
-    // (OSC 7501) says the dialog ended.
-    stale["agents"].as_array_mut().expect("agents").push(json!({
-        "terminal_id": "term_c0dec000000000000000000000000004", "state": "blocked",
-        "source": "hook", "updated_at_ms": "50", "extra": {"agent": "codex"}}));
-    stale["terminals"][3]["extra"] =
-        json!({"program_status": [{"app": "codex", "state": "idle", "updated_at_ms": "90"}]});
+    stale["agents"][1] = json!({"terminal_id": "term_c0dec000000000000000000000000004",
+        "state": "blocked", "source": "plugin", "updated_at_ms": "1902",
+        "extra": {"agent": "claude-code"}});
+    stale["terminals"][3]["extra"] = json!({"program_status": [
+        {"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]});
     let screen = "› \n\n  ? for shortcuts                                100% context left";
     let daemon = FakeDaemon::new(stale, &[(1, screen)]);
     let request = SendRequest {
@@ -615,10 +615,12 @@ fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
 #[test]
 fn w6bc_a_send_is_refused_at_a_reported_or_plugin_only_dialog() {
     let target = "term_c0dec000000000000000000000000004";
+    // One plugin record; Claude's own OSC 7501 report says blocked.
     let mut reported = snapshot();
-    reported["agents"].as_array_mut().expect("agents").push(json!({
-        "terminal_id": target, "state": "blocked", "source": "plugin",
-        "updated_at_ms": "200", "extra": {"agent": "codex"}}));
+    reported["agents"][1] = json!({"terminal_id": target, "state": "blocked",
+        "source": "plugin", "updated_at_ms": "200", "extra": {"agent": "claude-code"}});
+    reported["terminals"][3]["extra"] = json!({"program_status": [
+        {"app": "claude-code", "state": "blocked", "kind": "permission", "updated_at_ms": "150"}]});
     let hint =
         "⏺ I turn accept edits on once you pick.\n Which checks?\n ❯ [ ] 1. Unit\n     [ ] 2. Lint";
     let radio = " Allow execution of: 'touch'?\n ● 1. Yes, allow once\n   2. No, suggest changes (esc)\n ~/p   (99% context left)";
@@ -642,15 +644,14 @@ fn w6bc_a_send_is_refused_when_no_own_report_can_end_the_dialog() {
     let target = "term_c0dec000000000000000000000000004";
     let screen =
         " The agent wants to run: touch /tmp/w6bc-k\n Allow this action? (y/n)\n\n ? for shortcuts";
-    for (harness, own_agent, own_state) in
-        [("kiro", "kiro", "idle"), ("qwen", "claude", "done"), ("copilot", "copilot", "idle")]
-    {
+    for (harness, app) in [("kiro", "kiro"), ("qwen", "claude-code"), ("copilot", "copilot")] {
+        // One plugin record; the OSC 7501 idle report is the agent's own
+        // (Kiro, Copilot) or an earlier Claude session's (before Qwen).
         let mut snapshot = snapshot();
-        snapshot["agents"][1]["extra"]["agent"] = json!(own_agent);
-        snapshot["agents"][1]["state"] = json!(own_state);
-        snapshot["agents"].as_array_mut().expect("agents").push(json!({
-            "terminal_id": target, "state": "blocked", "source": "plugin",
-            "updated_at_ms": "200", "extra": {"agent": harness}}));
+        snapshot["agents"][1] = json!({"terminal_id": target, "state": "blocked",
+            "source": "plugin", "updated_at_ms": "200", "extra": {"agent": harness}});
+        snapshot["terminals"][3]["extra"] = json!({"program_status": [
+            {"app": app, "state": "idle", "updated_at_ms": "150"}]});
         let daemon = FakeDaemon::new(snapshot, &[(1, screen)]);
         let request = SendRequest { target: target.into(), wait: Wait::None, ..quick("yes") };
         let failure = send::run(&daemon, None, &request).expect_err("refused");
