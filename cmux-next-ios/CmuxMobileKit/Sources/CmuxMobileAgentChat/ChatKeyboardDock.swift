@@ -1150,11 +1150,9 @@ final class ChatKeyboardTrace {
 #endif
 
 #if os(iOS)
-/// Solid over the status bar, then fades to clear at the content inset so the
-/// first row at rest is unobscured. Matches the embedded terminal's fallback.
-@MainActor
 /// Clear over the stack's top, then the background from the stack's top down to the screen's
 /// bottom: rows scrolled under the composer fade out instead of reading through its glass.
+@MainActor
 private final class BottomFadeView: UIView {
     static let tail: CGFloat = 24
 
@@ -1188,6 +1186,9 @@ private final class BottomFadeView: UIView {
     }
 }
 
+/// Solid over the status bar, then fades to clear at the content inset so the
+/// first row at rest is unobscured. Matches the embedded terminal's fallback.
+@MainActor
 private final class TopFadeView: UIView {
     private static let tail: CGFloat = 18
 

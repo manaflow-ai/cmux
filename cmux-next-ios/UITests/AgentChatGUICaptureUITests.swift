@@ -64,7 +64,7 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 self.openComposer(app)
                 app.typeText("/")
             }
-            scene("select-text", look, Self.history) { app in
+            scene("select-text", look, Self.history, dock: false) { app in
                 // The newest answer's first paragraph (a table, links and code follow it),
                 // brought fully under the navigation bar with small drags (ChatSelectTextUITests).
                 let paragraph = app.descendants(matching: .any)
@@ -117,13 +117,15 @@ final class AgentChatGUICaptureUITests: XCTestCase {
 
     @MainActor
     private func scene(_ id: String, _ look: Look, _ args: [String], env: [String: String] = [:], settle: TimeInterval = 6,
-                       after: [(String, TimeInterval)] = [], _ drive: (XCUIApplication) -> Void) {
+                       after: [(String, TimeInterval)] = [], dock: Bool = true, _ drive: (XCUIApplication) -> Void) {
         XCUIDevice.shared.appearance = look == .dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         for (key, value) in env { app.launchEnvironment[key] = value }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.settings.appearance", look.rawValue] + args
+                                "-cmuxMobile.settings.appearance", look.rawValue, "-cmux-mobile-kbd-trace"] + args
+        // Each scene reads its own launch's frames.
+        for trace in Self.traceFiles() { try? FileManager.default.removeItem(at: trace) }
         app.launch()
         defer { app.terminate() }
         let more = app.navigationBars.buttons["More"].firstMatch
@@ -135,10 +137,63 @@ final class AgentChatGUICaptureUITests: XCTestCase {
         drive(app)
         pause(1.2)
         attach(app, "agentgui~\(id)~\(look.rawValue)")
+        if dock { checkDock("\(id) \(look)") }
         for (name, delay) in after {
             pause(delay)
             attach(app, "agentgui~\(name)~\(look.rawValue)")
+            if dock { checkDock("\(name) \(look)") }
         }
+    }
+
+    /// The dock as the app drew its last frame (`-cmux-mobile-kbd-trace`): the transcript's
+    /// stack height is the stack's laid-out height, and a transcript resting on its newest
+    /// row ends 8 pt (`ChatTranscriptController.contentGap`) above the stack. A height left
+    /// on an earlier composer (the expanded 96 pt one) held the rows ~40 pt above the
+    /// collapsed capsule.
+    @MainActor
+    private func checkDock(_ what: String) {
+        guard let frame = Self.lastTraceFrame() else {
+            XCTFail("\(what): no trace frame (-cmux-mobile-kbd-trace) in the app's Documents")
+            return
+        }
+        let line = frame.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
+        let attachment = XCTAttachment(string: line)
+        attachment.name = "agentgui~\(what.replacingOccurrences(of: " ", with: "~"))~dock"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        func num(_ key: String) -> Double? { frame[key].flatMap(Double.init) }
+        guard let stack = num("stackH"), let laidOut = num("reportedH") else {
+            XCTFail("\(what): the trace has no stack heights (\(line))")
+            return
+        }
+        XCTAssertEqual(stack, laidOut, accuracy: 0.5, "\(what): the transcript keeps a \(stack) pt stack, the stack is \(laidOut) pt")
+        if let dockTop = num("dockTop"), let content = num("contentBottom"), let offset = num("offset"),
+           let maxOffset = num("maxOffset"), abs(offset - maxOffset) < 1, frame["tracking"] == "0" {
+            XCTAssertEqual(dockTop - content, 8, accuracy: 1.5, "\(what): the newest row ends \(dockTop - content) pt above the stack")
+        }
+    }
+
+    /// `Documents/kbd-trace.txt` of the apps on this simulator (their data containers are
+    /// siblings of this runner's).
+    private static func traceFiles() -> [URL] {
+        let containers = URL(fileURLWithPath: NSHomeDirectory()).deletingLastPathComponent()
+        let manager = FileManager.default
+        let dirs = (try? manager.contentsOfDirectory(at: containers, includingPropertiesForKeys: nil)) ?? []
+        return dirs.map { $0.appendingPathComponent("Documents/kbd-trace.txt") }.filter { manager.fileExists(atPath: $0.path) }
+    }
+
+    private static func lastTraceFrame() -> [String: String]? {
+        for url in traceFiles() {
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  let last = text.split(separator: "\n").last(where: { $0.hasPrefix("t=") }) else { continue }
+            var frame: [String: String] = [:]
+            for pair in last.split(separator: " ") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                if kv.count == 2 { frame[String(kv[0])] = String(kv[1]) }
+            }
+            return frame
+        }
+        return nil
     }
 
     @MainActor
