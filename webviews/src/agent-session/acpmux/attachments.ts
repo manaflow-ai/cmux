@@ -3,7 +3,7 @@
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
-import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
@@ -38,6 +38,12 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /**
+   * A video link's tile shape (width over height), read from its file's header when it was pasted,
+   * dropped or picked (composer/videoShape.ts): the loading tile, the chip and the sent message's tile
+   * all draw it, so the poster arriving fills the box and never resizes it. Unset, its video's.
+   */
+  videoShape?: number;
   /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
   transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
@@ -444,7 +450,12 @@ export async function readAttachment(
 async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
   const prepared = await prepareImageOffThread(file);
   if (!prepared) return undefined;
-  if (prepared.thumb) keepThumb(id, prepared.thumb);
+  if (prepared.thumb) {
+    keepThumb(id, prepared.thumb);
+    // Decoded before its chip draws, so the chip that takes a loading tile's place shows its
+    // picture from its first frame (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
+    await decoded(prepared.thumb.url);
+  }
   return {
     id,
     kind: "image",

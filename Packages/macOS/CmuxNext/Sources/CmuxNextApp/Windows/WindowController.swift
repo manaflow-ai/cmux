@@ -28,9 +28,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var focus: FocusCoordinator { state.focus }
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
-    private(set) var content: WorkspaceContentController? { // an open Dock section follows the shown workspace (#37374)
-        didSet { if content !== oldValue, rightSidebar.isVisible { (rightSidebarView?.shownSection as? DockSectionHostView)?.refresh() } }
-    }
+    private(set) var content: WorkspaceContentController?
     /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
     /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
     /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
@@ -81,10 +79,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
         self?.agentCursor.stack?.host
     }
-    /// This window's right sidebar (`WindowController+RightSidebar`).
-    let rightSidebar: RightSidebarModel
-    /// Its view, made the first time it shows.
-    var rightSidebarView: RightSidebarView?
     /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
     var pagePresentation: BrowserPagePresentation?
     /// A full screen enter is under way (AppKit ignores a toggle until it ends).
@@ -99,7 +93,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
@@ -159,7 +152,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
-        if rightSidebar.isVisible { showRightSidebar() }
     }
 
     @available(*, unavailable)
@@ -261,8 +253,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
-        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        let unlisted = services.windows.registry.unlisted(parked.keys, in: state.id) // O(parked), never the window's whole list
+        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
             controller.teardown()
         }
@@ -453,7 +445,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        pagePresentation = nil
+        pagePresentation = nil; chiefPanelView?.closeLauncher() // the floating Chief's own window goes with this one
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)

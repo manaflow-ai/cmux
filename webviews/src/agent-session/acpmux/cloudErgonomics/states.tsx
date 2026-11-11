@@ -211,6 +211,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
     openOnMachine: () => NEVER,
     finish: () => NEVER,
     apiKey: inPlace(record, "save an API key on the machine"),
+    gateway: inPlace(record, "run the agent on cmux's gateway"),
     cancel: () => {},
     reserve: () => Promise.resolve(undefined),
     resend: () => NEVER,
@@ -314,6 +315,13 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   { id: "cloud-login-missing", kind: "auth", error: "Claude failed to authenticate: credential is missing" },
   { id: "cloud-login-expired", kind: "subscription-login", error: "OAuth token expired (HTTP 401)" },
   { id: "cloud-login-rejected", kind: "auth", error: "HTTP 403 Forbidden" },
+  // The card's three ways in: the machine's team has cmux's gateway (acpmux names it).
+  {
+    id: "cloud-login-gateway",
+    kind: "subscription-login",
+    error:
+      "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)",
+  },
 ];
 
 /// Every failure kind, so a kind added to failureCopy.ts is a typecheck error here until it has a fixture.

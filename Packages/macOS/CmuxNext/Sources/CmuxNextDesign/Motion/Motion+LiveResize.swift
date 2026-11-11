@@ -27,6 +27,12 @@ extension Motion {
         return false
     }
 
+    /// A count that goes up each time a live resize or a full screen transition of a window starts or ends (and when
+    /// a window closes). An answer that is held for the length of a resize (the divider hover's,
+    /// `LayoutViewContext.hoverReaches`) is good only while this count is the one it was taken at: the next resize
+    /// or transition has a new count, also when nothing was read between the two.
+    public static var liveResizeChanges: Int { LiveResizeWindows.shared.changes }
+
     /// Starts the app's live-resize tracker: from now on it sees every window's live resize and
     /// full screen transition. The app calls this when it makes a main window, before the window
     /// is ordered in (``MotionGate/windowOpenBehavior(restoring:)``, `WindowManager`), so a
@@ -64,6 +70,8 @@ final class LiveResizeWindows {
     static var shared = LiveResizeWindows()
     private var resizing: Set<ObjectIdentifier> = []
     private var transitioning: Set<ObjectIdentifier> = []
+    /// Goes up with each start and each end that this tracker sees (``Motion/liveResizeChanges``).
+    private(set) var changes = 0
 
     /// `window` is between its `willStartLiveResize` and its `didEndLiveResize` (or its close).
     func isResizing(_ window: NSWindow) -> Bool { resizing.contains(ObjectIdentifier(window)) }
@@ -71,7 +79,10 @@ final class LiveResizeWindows {
     var isFullScreenTransitionActive: Bool { !transitioning.isEmpty }
     func isTransitioning(_ window: NSWindow) -> Bool { transitioning.contains(ObjectIdentifier(window)) }
     /// A transition AppKit gave up on (`windowDidFailToEnterFullScreen`, `windowDidFailToExitFullScreen`).
-    func endTransition(of window: NSWindow) { transitioning.remove(ObjectIdentifier(window)) }
+    func endTransition(of window: NSWindow) {
+        transitioning.remove(ObjectIdentifier(window))
+        changes += 1
+    }
 
     init(center: NotificationCenter = .default) {
         let changes: [(Notification.Name, Bool)] = [
@@ -88,6 +99,7 @@ final class LiveResizeWindows {
                 MainActor.assumeIsolated { // main-proof: AppKit posts window notifications on the main thread
                     if resizing { self?.resizing.insert(id) } else { self?.resizing.remove(id) }
                     if closes { self?.transitioning.remove(id) }
+                    self?.changes += 1
                 }
             }
         }
@@ -102,6 +114,7 @@ final class LiveResizeWindows {
                 let id = ObjectIdentifier(window)
                 MainActor.assumeIsolated { // main-proof: AppKit posts window notifications on the main thread
                     if starts { self?.transitioning.insert(id) } else { self?.transitioning.remove(id) }
+                    self?.changes += 1
                 }
             }
         }

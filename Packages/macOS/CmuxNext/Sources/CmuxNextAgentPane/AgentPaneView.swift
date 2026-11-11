@@ -111,8 +111,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
-    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
-    var actAsMeBadge: AgentPaneActAsMeBadge?
+    /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
+    let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -277,6 +277,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
@@ -412,7 +413,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -436,7 +437,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
-            actAsMeBadge?.stop()
+            actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }
@@ -447,7 +448,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        let frame = topBar.contentFrame(in: bounds)
+        let frame = topBar.pageFrame(in: bounds)
         // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
         let shown = holdsPageAway ? heldPageFrame(of: frame) : frame
         if let page {

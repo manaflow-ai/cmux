@@ -203,7 +203,8 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           } else expect(model.right).toBeLessThanOrEqual(codexSend.left);
           const claudeRing = at(claude, ".acpmux-context-ring");
           if (claudeRing)
-            expect(claudeRing.left).toBeGreaterThanOrEqual(at(claude, ".acpmux-model .acpmux-picker-button")!.right);
+            // The ring stands just left of the model button (Lawrence and Lucas 2026-11-11).
+            expect(claudeRing.right).toBeLessThanOrEqual(at(claude, ".acpmux-model .acpmux-picker-button")!.left + 0.5);
           console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
           // The switch keeps every control and both horizontal edge insets.
           expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);

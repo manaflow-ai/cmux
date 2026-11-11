@@ -12,6 +12,7 @@ so it can never mask the Swift god-type check.
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -31,6 +32,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/process_gone.py, loaded by path the same way.
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -46,10 +58,12 @@ def steps() -> list[dict]:
 
 def is_setup(step: dict) -> bool:
     """Checkout and toolchain steps: an action, not a check script; the reset of a reused
-    workspace's submodule checkouts that follows checkout on a mini; and the start of the slow
-    checks in the background, whose own steps wait for their results."""
+    workspace's submodule checkouts that follows checkout on a mini; the check Python (PyYAML)
+    a mini lacks; and the start of the slow checks in the background, whose own steps wait for
+    their results."""
     run = str(step.get("run", ""))
     return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+            or step.get("name") == "Prepare check Python (PyYAML) and timeout"
             or "scripts/ci/run-checks-concurrently.sh --start" in run)
 
 
@@ -314,11 +328,13 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.git("init", "-q", "-b", "base")
         self.commit("sources")
         self.pinned = self.rev("HEAD")
+        # The pin: app-ffi-pin.json, and Package.swift holding its one loader block (scripts/ci/app_ffi_pin.py).
+        spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
+        pin = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pin)
         (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
-            "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{self.pinned}/"
-            "CCmuxAppFFI.xcframework.zip\",\n"
-            f"    checksum: \"{self.ZEROS}\"\n)\n")
+            "import Foundation\nimport PackageDescription\n\n" + pin.loader(self.ZEROS))
+        (self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json").write_text(pin.render(self.pinned, self.ZEROS))
         self.commit("pin")
         # The pull request changes an FFI source and not the pin: its own stale pin, red on the base's check.
         self.git("checkout", "-q", "-b", "pr")
@@ -344,7 +360,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
 
     def run_step(self, path_prefix: Path | None = None, home: Path | None = None) -> subprocess.CompletedProcess:
         step = next(step for step in steps() if step.get("id") == "app-ffi-pin")
-        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         env.update(EVENT_NAME="pull_request", GITHUB_SHA=self.merge, RUNNER_TEMP=str(self.runner_temp))
         if home is not None:
             env["HOME"] = str(home)
@@ -373,10 +389,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
 
     def test_ffi_inputs_rewritten_on_disk_do_not_count(self):
         # An earlier step's code deletes the FFI crate's Cargo.toml (no FFI inputs are left to compare) and repins
-        # Package.swift to the merge commit on disk. The pull request's commit still has both as they were.
+        # app-ffi-pin.json to the merge commit on disk. The pull request's commit still has both as they were.
         (self.repo / "cmux-tui/crates/cmux-app-ffi/Cargo.toml").unlink()
-        manifest = self.repo / "Packages/macOS/CmuxNext/Package.swift"
-        manifest.write_text(manifest.read_text().replace(self.pinned, self.merge))
+        pin_file = self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json"
+        pin_file.write_text(pin_file.read_text().replace(self.pinned, self.merge))
         self.assert_own_stale_pin(self.run_step())
 
     def planted_hook(self, directory: Path) -> None:
@@ -551,7 +567,7 @@ class GodfileScopes(unittest.TestCase):
         cls.tmp.cleanup()
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -648,7 +664,7 @@ class GodfilePullRequestScope(unittest.TestCase):
         self.git("commit", "-qm", message, "--allow-empty")
 
     def run_check(self, *args: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["bash", str(GODFILES), *args, str(self.package)],
                               capture_output=True, text=True, env=env, timeout=120)
 
@@ -1232,14 +1248,9 @@ class StepRunnerLeavesNoChild(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 run_step(f"sleep 60 & echo $! > {pid_file}; wait", dict(os.environ), timeout=1)
             child = int(pid_file.read_text())
-        # A killed child is gone once its new parent reaps it, well within a second.
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            try:
-                os.kill(child, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.05)
+        # A killed child is gone once it has exited (a zombie its new parent has not reaped yet counts).
+        if process_gone.died(child, within=2):
+            return
         os.kill(child, signal.SIGKILL)
         self.fail(f"step child {child} outlived the timed-out step")
 
@@ -2433,7 +2444,7 @@ class FastTierStartsWarm(unittest.TestCase):
             (repo / "Packages/macOS/A").mkdir(parents=True)
             (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version: 6.2\n")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"}
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(repo / "out"), "GITHUB_SHA": "abc"})
             script = re.search(r"(?s)inputs=\"\$\((.*?)\)\"", run).group(1)
             got = subprocess.run(["/bin/bash", "-c", script.replace("scripts/cmux-next/", str(ROOT / "scripts/cmux-next") + "/")],
                                  cwd=repo, env=env, check=True, capture_output=True, text=True).stdout.strip()
@@ -2871,7 +2882,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
 
     def run_fast_linux_read(self, codes: list[str], reply: dict | None) -> tuple[str, str, float]:
         """Run the fast check's Linux route with a fake curl: each probe read prints the next code;
-        the blocking read writes `reply` (or fails when None)."""
+        the blocking read writes `reply` and prints 200 (or prints 404 when None)."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         run = next(step["run"] for step in jobs["release-compile-fast"]["steps"] if step.get("id") == "compile")
         with tempfile.TemporaryDirectory() as temp:
@@ -2882,12 +2893,13 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(f"""#!/bin/bash
 echo "$*" >> "{temp}/calls"
-if [[ " $* " == *" -w "* ]]; then
+if [[ " $* " == *" -o /dev/null "* ]]; then
   code=$(head -1 "{temp}/codes"); sed -i.bak 1d "{temp}/codes"; printf '%s' "${{code:-404}}"
   [[ "${{code:-404}}" == 000 ]] && exit 7; exit 0
 fi
-[[ -s "{temp}/reply.json" ]] || exit 22
+[[ -s "{temp}/reply.json" ]] || {{ printf 404; exit 0; }}
 while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift; done
+printf 200
 """)
             curl.chmod(0o755)
             output = Path(temp) / "out"
@@ -2916,12 +2928,14 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{temp}/reply.json" "$2"; shift;
     def test_fast_check_still_waits_for_a_live_results_service(self):
         verdict = {"sha": "a" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2,
                    "configuration": "release-onone", "state": "pass"}
-        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read.
+        # A 404 (service up, no result yet), or one 530 blip then a 404, keeps the blocking read. The read
+        # retries nothing inside curl: a 530 there would be retried until the deadline (note-82).
         for codes in (["404"], ["530", "404"]):
             with self.subTest(codes=codes):
                 out, log, _ = self.run_fast_linux_read(codes, verdict)
                 self.assertIn("verdict=pass", out)
-                self.assertIn("--retry-all-errors", log)
+                self.assertIn("&wait=", log)
+                self.assertNotIn("--retry-all-errors", log)
                 self.assertNotIn("results service down", log)
 
     def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
@@ -3250,7 +3264,7 @@ class AppSizeCapOnPush(unittest.TestCase):
 
     def run_step(self, before: str) -> subprocess.CompletedProcess:
         step = next(s for s in steps() if s.get("id") == "app-size")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
                    GITHUB_SHA=self.head())
         return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
@@ -3603,9 +3617,9 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             output = Path(tmp) / "output"
             output.touch()
             summary = Path(tmp) / "summary"
-            env = {"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
-                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release}
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
             # The step's own shell: bash -e {0}.
             result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
@@ -3854,12 +3868,12 @@ esac
             out, summary, calls = tmp_path / "out", tmp_path / "summary", tmp_path / "calls"
             script = tmp_path / "step.sh"
             script.write_text(step["run"])
-            env = {"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
+            env = git_fixture_env.fixture_env({"PATH": str(tmp_path / "nothing-here"), "HOME": str(tmp_path / "home"),
                    "CMUX_CI_CLIENT": str(fake) if client else str(tmp_path / "missing"),
                    "RUNNER_TEMP": tmp, "RUNNER_NAME": "gateway-1", "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(summary), "REF": self.REF if ref is None else ref,
                    "FAKE_REF": self.REF, "FAKE_OTHER": self.OTHER, "FAKE_CALLS": str(calls),
-                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario}
+                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario})
             done = subprocess.run(["/bin/bash", "-e", str(script)], env=env, capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=60)
             output = out.read_text() if out.exists() else ""
@@ -4163,8 +4177,8 @@ esac
             with self.subTest(verdict=verdict, result=result), tempfile.TemporaryDirectory() as tmp:
                 done = subprocess.run(["/bin/bash", "-e", "-c", report["run"]], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL, timeout=30,
-                                      env={"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
-                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")})
+                                      env=git_fixture_env.fixture_env({"VERDICT": verdict, "RESULT": result, "PATH": os.environ["PATH"],
+                                           "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}))
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
 

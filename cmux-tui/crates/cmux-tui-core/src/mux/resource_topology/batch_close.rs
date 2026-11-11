@@ -14,6 +14,7 @@
 //! for a kept one), exactly as a plain close leaves it.
 
 use super::*;
+use crate::mux::resource_content::WorkspaceRows;
 use crate::workspace_registry::TopologyCloseCommit;
 use cmux_json::JsonSet as _;
 
@@ -186,12 +187,22 @@ impl Mux {
         }
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
-        let notifications = self.tree_decorations();
+        // A workspace close serializes that workspace only.
+        let notifications = match &request.target {
+            BatchCloseTarget::Workspace(workspace) => {
+                self.tree_decorations_of_workspace(*workspace)
+            }
+            _ => self.tree_decorations(),
+        };
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        // The closed workspace's public id and its position before the close.
+        let mut closed_workspace = None;
         if let BatchCloseTarget::Workspace(workspace) = &request.target {
             let index = state.workspace_index(*workspace).context("close target disappeared")?;
             Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
+            let closed = state.workspaces.get(index).context("close target disappeared")?;
+            closed_workspace = Some((closed.public_id.clone(), index));
         }
 
         let mut tab_groups = None;
@@ -287,8 +298,24 @@ impl Mux {
                 result[key] = value.clone();
             }
         }
-        let projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // A workspace close changes the closed workspace (its rows go) and the workspaces after it
+        // (their position): project the closed workspace's subtree alone, with the existing scoped
+        // walk, and state again only the workspaces after it. The full projection read the whole
+        // stored topology and checked one row and one public value for every workspace, under both
+        // locks, so one close cost 132 ms at 826 workspaces against 14 ms in an empty session. A
+        // walk that meets a change outside its scope falls back to the full projection, as for a
+        // tab close; the other closes of this path keep the full projection.
+        let projection = match closed_workspace {
+            Some((workspace, index)) if registry.public_fold_seeded() => self
+                .resource_effect_projection_scoped_rows_locked(
+                    &registry,
+                    &mut plan.state,
+                    &[workspace],
+                    WorkspaceRows::From(index),
+                    json!({}),
+                )?,
+            _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
+        };
         let committed: TopologyCloseCommit = registry.commit_topology_close(
             request.mutation,
             request.operation,
@@ -303,6 +330,7 @@ impl Mux {
             tab_groups.as_ref(),
             request.record_closed,
             request.room.as_ref().map(|room| room.before_patch),
+            projection.restates_all,
         )?;
         if committed.resource.replayed {
             state.resource_revision = state.resource_revision.max(committed.resource.revision);

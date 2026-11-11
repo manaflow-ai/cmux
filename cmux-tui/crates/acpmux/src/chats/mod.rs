@@ -225,8 +225,8 @@ impl ChatService {
 
     /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
     /// the time of its newest chat (a chat another chat started left out), by harness id then
-    /// path. acpmux groups its own index, so the app relays a few rows, never every chat. None
-    /// while chats are off.
+    /// path. acpmux groups its own index, so the cmux daemon reads a few rows, never every chat.
+    /// None while chats are off.
     pub fn projects(&self, activity: &ChatActivity) -> Option<Vec<Value>> {
         let state = lock(&self.state);
         if !state.settings.enabled {
@@ -415,7 +415,9 @@ impl ChatService {
                 // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
                 let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
                     .map_err(std::io::Error::other)
-                    .and_then(|()| state.recorded.record(spec.clone()));
+                    .and_then(|()| {
+                        state.recorded.record_with(spec.clone(), &crate::home_fs::write_index_file)
+                    });
                 match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
@@ -535,8 +537,9 @@ impl ChatService {
     fn save(&self, index: &ChatIndex) {
         let path = cache_path(&self.sources);
         // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
-        let saved = crate::config::refuse_lost_home(&path)
-            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        let saved = crate::config::refuse_lost_home(&path).and_then(|()| {
+            index.save_with(&path, &crate::home_fs::write_index_file).map_err(anyhow::Error::from)
+        });
         if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }

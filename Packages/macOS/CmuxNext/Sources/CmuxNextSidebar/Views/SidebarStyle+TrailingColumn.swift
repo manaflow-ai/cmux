@@ -7,14 +7,13 @@ import CmuxNextDesign
 /// sidebar resize band.
 extension SidebarStyle {
     /// The one column source every sidebar row kind reads, in its highlight's coordinates.
-    /// `lead` sits `horizontalInset` inside the highlight: the highlight keeps the base list inset
-    /// (6 compact, 8 comfortable), and an iconless title starts as far left as the row allows
-    /// (Lawrence 2026-10-23), so lead lands 12 / 16 from the sidebar edge. The trailing line is
-    /// `trailingCenterInset` inside the fill, mirroring that inset: 19 / 23 from the sidebar edge.
+    /// `lead` sits `contentInset` inside the highlight, the padding the row's text has above and below it (Lawrence
+    /// 2026-11-09: even on all four sides), and an iconless title starts there (Lawrence 2026-10-23: as far left as the
+    /// row allows). The trailing line is `trailingCenterInset` inside the fill, mirroring that inset.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: LayoutGrid.sidebarLead - horizontalInset,
+                       leadingInset: LayoutGrid.sidebarLead - contentInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
                        minTrailingCenterInset: minTrailingCenterInset)
     }
@@ -26,13 +25,13 @@ extension SidebarStyle {
     static var titlebarPlusTrailingInset: CGFloat { max(Metrics.space3, trailingCenterFromEdge - toolbarButtonSize / 2) }
 
     /// How far inside a row's fill the trailing column centers: a status glyph's box (`statusGlyphSize`, the
-    /// spinner's and the band's marks' side) ends the row's leading inset short of the fill's end, as a row's leading
-    /// glyph box starts that inset after its start (11 compact, 14 comfortable). Lawrence 2026-11-05: "padding on
+    /// spinner's and the band's marks' side) ends the row's content inset short of the fill's end, as a row's leading
+    /// glyph box starts that inset after its start (`contentInset`; Lawrence 2026-11-09, even on all four sides). Lawrence 2026-11-05: "padding on
     /// left/right of every workspace needs to be even": centering on half the 14 pt mark box (`statusMarkSide`), and the
     /// old floor below, left a compact 10 pt glyph's box 8 pt short of the fill's end against 6 at its start (the running
     /// app's spinner ink 9 vs 6). Leo 2026-11-04 replaced the grid's fixed 24 pt line from the sidebar edge with the
     /// inset rule.
-    static var trailingCenterInset: CGFloat { horizontalInset + statusGlyphSize / 2 }
+    static var trailingCenterInset: CGFloat { contentInset + statusGlyphSize / 2 }
 
     /// The trailing column center's distance from the sidebar's edge, past the row's gap; the resize clearance
     /// below still wins if a larger control needs more room.

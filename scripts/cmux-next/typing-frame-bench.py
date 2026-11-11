@@ -7,22 +7,24 @@ time (`debug.key` with the client's send time as the event timestamp, so the wai
 real key waits in the event queue) into:
 
   terminal   a zsh prompt (`zsh -f`): send to the frame whose layer contents show the echo (`contents_ms`)
-  dock       the docked Home the app opens at launch (the real Home owner, its home-messages page focused through
-             home_page.py), when it shows a conversation
+  home       the native Home composer (the Home fixture: the same MessagesLab view and field over the mock
+             owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
+  dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
 
 each in two phases:
 
   idle       nothing else runs
   load       --busy terminals print without pause (three of them visible next to the typed surface, the rest in
-             other workspaces), --chats mock agent chats stream (debug.agent_pane stream)
+             other workspaces), --chats mock agent chats stream (debug.agent_pane stream), and for home the
+             fixture's Chief streams a reply into the transcript at 30 tokens/s
 
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
-  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,dock,omnibar]
+  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
 
 Fleet (an owned mini with a console; the step builds the app):
@@ -33,14 +35,13 @@ Fleet (an owned mini with a console; the step builds the app):
 import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
-import home_page  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--surfaces", default="dock,terminal,omnibar")
+parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
@@ -225,6 +226,16 @@ def chat_streams():
             if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
                 replies.append(json.dumps(reply)[:200])
     return Streamer(step, 3.0)
+
+
+def home_stream(tab=None):
+    words = ("the chief streams a reply into the transcript while you type in the composer, token by token, " * 40).split()
+
+    def step(index):
+        text = " ".join(words[: 1 + index % len(words)])
+        params = {"action": "stream", "text": text, "done": index % len(words) == len(words) - 1}
+        rpc("debug.home.drive", params, timeout=10)
+    return Streamer(step, 1 / 30)
 
 
 # ---------------------------------------------------------------- STRESS
@@ -441,11 +452,41 @@ def surface_terminal(phase, pid):
     return entry
 
 
+def surface_home(phase, pid):
+    # The Home fixture in a workspace of its own (a whole content area, in the light session and in STRESS).
+    if not LOAD.get("home_ws"):
+        cli("workspace", "create", "--name", "home typing", "--focus")
+        ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("home typing")), 20) or (None, [])
+        LOAD["home_ws"] = ws
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        time.sleep(1)  # the workspace shows
+        opened = rpc("debug.home_native_fixture.open", {"new": True})
+        note(f"home fixture in {ws}: {json.dumps(opened)[:160]}")
+        time.sleep(2)  # the transcript lays out
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["home_ws"]}, "focus": True, "origin": "script"})
+    time.sleep(0.5)  # the workspace shows
+    if phase == "load":
+        make_load(None)
+    focused = rpc("debug.home.drive", {"action": "focus"})
+    if not (isinstance(focused, dict) and focused.get("ok")):
+        note(f"home: no composer to focus ({json.dumps(focused)[:160]})")
+        return None
+    streams = [home_stream()] if phase == "load" else []
+    if phase == "load":
+        s = chat_streams()
+        if s:
+            streams.append(s)
+    LOAD["focus"] = focus_report()
+    entry = measure("home", phase, {"probe": "commit"}, "commit_ms", pid, streams)
+    rpc("debug.home.drive", {"action": "stream", "text": "done", "done": True})
+    return entry
+
+
 def surface_dock(phase, pid):
     # The docked Home the app opened at launch: the home workspace's page.
     homes = rpc("debug.home") or {}
     action("home.show", settle=1.5)
-    focused = home_page.drive(rpc, {"action": "focus"})
+    focused = rpc("debug.home.drive", {"action": "focus"})
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"dock: no Home composer to focus ({json.dumps(focused)[:160]}; debug.home {json.dumps(homes)[:200]})")
         return None
@@ -473,7 +514,7 @@ def surface_omnibar(phase, pid):
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "dock": surface_dock, "omnibar": surface_omnibar}
+SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
 def run_session(session):

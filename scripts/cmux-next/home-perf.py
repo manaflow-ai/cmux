@@ -5,7 +5,7 @@ Launches the tagged app with no activation, seeds a local channel through
 `debug.home.api` (the same data path the React Home uses), shows it with
 `home.openConversation`, and measures through the debug socket only:
   - frame pacing (`debug.frames`) while the transcript scrolls
-    (home_page.py scroll), during sends, and while keys are typed;
+    (`debug.home.drive scroll`), during sends, and while keys are typed;
   - key dispatch latency: the `debug.key` round trip per key (the key event
     goes through the window's responder chain into the field and the text is
     in the field when the call returns; the glyph is on screen at the next
@@ -18,7 +18,6 @@ Usage: home-perf.py --tag <tag> --out results.json [--messages 300]
 import argparse, json, os, re, socket, statistics, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-import home_page  # noqa: E402
 # The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
 # (its scratch working folder, its own session).
 from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
@@ -119,7 +118,7 @@ try:
         rpc("debug.home.api", {"call": "submit", "op": {"kind": "send", "conversation": channel, "text": text}})
     results["seed"] = {"messages": opts.messages, "seconds": round(time.time() - seed_started, 2)}
     opened = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": channel}, "focus": True})
-    shown = poll(lambda: (g := home_page.drive(rpc, {"action": "geometry"})) and g.get("ok") and g, timeout=60)
+    shown = poll(lambda: (g := rpc("debug.home.drive", {"action": "geometry"})) and g.get("ok") and g, timeout=60)
     results["open"] = {"action": opened, "geometry": shown}
     if not shown:
         sys.exit(f"FAIL the channel is not shown: {opened}")
@@ -128,22 +127,22 @@ try:
 
     def scroll():
         for _ in range(60):
-            home_page.drive(rpc, {"action": "scroll", "dy": -120})
+            rpc("debug.home.drive", {"action": "scroll", "dy": -120})
             time.sleep(1 / 30)
         for _ in range(60):
-            home_page.drive(rpc, {"action": "scroll", "dy": 120})
+            rpc("debug.home.drive", {"action": "scroll", "dy": 120})
             time.sleep(1 / 30)
     frames("scroll", scroll)
 
     def send():
         for index in range(20):
-            home_page.drive(rpc, {"action": "type", "text": f"send during measure {index}"})
-            home_page.drive(rpc, {"action": "send"})
+            rpc("debug.home.drive", {"action": "type", "text": f"send during measure {index}"})
+            rpc("debug.home.drive", {"action": "send"})
             time.sleep(0.5)
     frames("send", send)
 
     def typing():
-        home_page.drive(rpc, {"action": "focus"})
+        rpc("debug.home.drive", {"action": "focus"})
         trips = []
         for char in "the quick brown fox jumps over the lazy dog " * 2:
             started = time.perf_counter()

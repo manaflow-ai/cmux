@@ -175,6 +175,93 @@ fn own_choice_only_on_a_cloud_image() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The gateway fallback is off unless the daemon's environment says exactly on (founders turn
+/// billing on first).
+#[test]
+fn gateway_fallback_is_off_by_default() {
+    assert!(!gateway_fallback(None));
+    for off in ["", "0", "false", "off", "no", "maybe"] {
+        assert!(!gateway_fallback(Some(off)), "{off:?}");
+    }
+    for on in ["1", "true", "TRUE", "yes", "on", " on "] {
+        assert!(gateway_fallback(Some(on)), "{on:?}");
+    }
+    assert_eq!(GATEWAY_FALLBACK_ENV, "CMUX_GATEWAY_FALLBACK");
+}
+
+#[test]
+fn gateway_agents_are_claude_and_codex() {
+    assert_eq!(gateway_agent("claude@gateway"), Some(Agent::Claude));
+    assert_eq!(gateway_agent("codex@gateway"), Some(Agent::Codex));
+    assert_eq!(gateway_agent("claude"), None);
+    assert_eq!(gateway_agent("gemini@gateway"), None);
+    assert_eq!(gateway_agent("@gateway"), None);
+}
+
+/// A fake image library: `cmux_agent_team_access` as the image's, answering from a file the test
+/// writes, and only with the model plane loaded.
+const FAKE_AGENT_AUTH: &str = r#"cmux_agent_team_access() {
+  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 2
+  [ "$1" = claude ] || return 1
+  return "$(cat "$HOME/access" 2>/dev/null || echo 1)"
+}
+"#;
+
+#[tokio::test]
+async fn gateway_access_asks_the_image() {
+    let root = dir("gw-access");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let m = Machine { root: root.clone(), home: home.clone() };
+    // Not a cmux Cloud image: no answer, and no choice recorded.
+    assert_eq!(m.gateway_access(Agent::Claude).await, None);
+    assert!(!m.choose_team(Agent::Claude).unwrap());
+    assert!(!home.join(".config/cmux/agent-auth/claude").exists());
+    std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
+    std::fs::write(root.join("etc/cmux/agent-auth.sh"), FAKE_AGENT_AUTH).unwrap();
+    // No model plane: the image cannot ask.
+    if std::env::var_os("CMUX_CODEROUTER_URL").is_none() {
+        assert_eq!(m.gateway_access(Agent::Claude).await, None);
+    }
+    std::fs::write(
+        root.join("etc/cmux/model-plane.env"),
+        "CMUX_CODEROUTER_URL=http://127.0.0.1:9\n",
+    )
+    .unwrap();
+    assert_eq!(m.gateway_access(Agent::Claude).await, Some(false));
+    std::fs::write(home.join("access"), "0").unwrap();
+    assert_eq!(m.gateway_access(Agent::Claude).await, Some(true));
+    assert_eq!(m.gateway_access(Agent::Codex).await, Some(false));
+    // Agents the image does not route are never asked.
+    assert_eq!(m.gateway_access(Agent::Gemini).await, None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn team_choice_is_cr_use_team() {
+    let root = dir("gw-team");
+    let home = root.join("home");
+    std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
+    std::fs::write(root.join("etc/cmux/agent-auth.sh"), "# image\n").unwrap();
+    let m = Machine { root: root.clone(), home: home.clone() };
+    // An own choice before, and a kept access answer.
+    assert!(m.choose_own(Agent::Claude).unwrap());
+    std::fs::create_dir_all(home.join(".cache/cmux")).unwrap();
+    std::fs::write(home.join(".cache/cmux/agent-access"), "claude=0\n").unwrap();
+    assert!(m.choose_team(Agent::Claude).unwrap());
+    let file = home.join(".config/cmux/agent-auth/claude");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "team\n");
+    assert!(!home.join(".cache/cmux/agent-access").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    // Again, with no kept answer: still fine.
+    assert!(m.choose_team(Agent::Claude).unwrap());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn claude_key_merges_into_settings() {
     let store = dir("settings");
