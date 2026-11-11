@@ -127,7 +127,7 @@ impl Hub {
             (gone, changed, moved)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
-            self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes += 1;
+            self.remote_sessions.write().writes += 1;
         }
         for (peer, summary) in gone {
             self.announce_remote(&peer, summary, "purged");

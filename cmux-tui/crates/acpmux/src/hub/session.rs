@@ -436,6 +436,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The other sessions' messages its Claude Code holds now, oldest first
+    /// (`native_messaging.rs`): in memory only.
+    pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
     /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
