@@ -983,7 +983,10 @@ mod tests {
             let before_resource = mux.with_state(|state| state.resource_revision);
             let before_workspace = mux.with_state(|state| state.workspace_revision);
             let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;
-            let request = || parsed(operation, selectors.clone(), json!({}), Some(&key));
+            // `terminals: keep`: a close that ends its terminals changes
+            // their lifetime stream by design (W7-C).
+            let fields = json!({"terminals": "keep"});
+            let request = || parsed(operation, selectors.clone(), fields.clone(), Some(&key));
 
             let closed = dispatch(&mux, request()).unwrap();
             assert_eq!(closed["replayed"], false, "{operation:?}");
@@ -1087,7 +1090,7 @@ mod tests {
             parsed(
                 ResourceOperation::PaneClose,
                 selectors(None, None, Some(first_pane_id), None),
-                json!({}),
+                json!({"terminals": "keep"}),
                 Some("close-pane-with-exit-waits"),
             ),
         )

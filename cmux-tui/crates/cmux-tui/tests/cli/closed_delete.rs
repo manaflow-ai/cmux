@@ -237,7 +237,8 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
         "a tab create published no screen with tab {created}: {changes:?}"
     );
 
-    state_cli(&server, None, &["tab", &created, "close"]);
+    // Keep the terminal, so the reopen projects it (a plain close ends it).
+    state_cli(&server, None, &["tab", &created, "close", "--keep-terminals"]);
     let before = tab_ids(&server);
     assert!(!before.contains(&created), "the closed tab is still open: {before:?}");
     let reopen = state_cli(&server, None, &["closed", "reopen"]);

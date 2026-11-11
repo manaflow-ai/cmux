@@ -53,6 +53,9 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "focus",
     "force",
     "end-terminals",
+    // `<level> <selector> close --keep-terminals`: without this it would
+    // swallow a following `--json` (W7-C).
+    "keep-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.

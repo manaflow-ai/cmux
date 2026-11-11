@@ -179,7 +179,7 @@ fn one_terminal_can_be_detached_reprojected_and_closed_explicitly() {
             parsed_request(
                 "tab.close",
                 &tab_selectors,
-                json!({}),
+                json!({"terminals": "keep"}),
                 Some(&format!("terminal-multiview-detach-{index}")),
             ),
         )
