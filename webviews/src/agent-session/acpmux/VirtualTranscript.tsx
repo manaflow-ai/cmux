@@ -153,6 +153,8 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
+import { Slot } from "../../slots/Slot";
+import { jumpToBottomSlot } from "../../slots/jumpToBottom";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
 import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
@@ -938,8 +940,9 @@ const JUMP_LATEST_SIZE = 32;
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
-/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
-/// the working state is already represented by the shared transcript spinner. It stays mounted while
+/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). Its mark is the `chat.jumpToBottom` theme slot:
+/// the default variant stays a static arrow while the agent works (the shared transcript spinner shows the work),
+/// and a theme's variant may move while `working`. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
 export function JumpToLatest({
   shown,
@@ -980,9 +983,9 @@ export function JumpToLatest({
         // A click does not focus a button in WebKit, so focus on it means Return or Space.
         onClick={(event) => onJump(event.currentTarget === document.activeElement)}
       >
-        <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-          <ArrowDown size={14} />
-        </span>
+        {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
+            draws exactly the static arrow this button drew before. */}
+        <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
       </button>
     </>
   );
@@ -2471,7 +2474,11 @@ function TranscriptView({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    /// This transcript's box as last measured (`shown` below compares the box on show with it).
+    const box = { height: -1, width: -1 };
     const measure = (resized: boolean) => {
+      box.height = node.clientHeight;
+      box.width = node.offsetWidth;
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
       if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
       // The column's width is the scroller's with its scrollbar's lane (`lane`). Measured as the
@@ -2493,7 +2500,26 @@ function TranscriptView({
     });
     observer.observe(node);
     measure(false);
-    return () => observer.disconnect();
+    // Shown again (a workspace switch back): the host sized the page while it was away, and the
+    // ResizeObserver reports that size only in the rendering steps of the first frame back, after
+    // that frame's own callbacks. When nothing committed at the new size while away, the first frame
+    // drew the rows at the old box's offset, then the observer's pass moved them by the difference
+    // (a shorter pane: 80 px up, the newest lines under the composer for a frame;
+    // agent-pane-reveal-in-place.test.ts "hidden, shorter"). The box is read as the page shows, so
+    // the placement pass for it runs before any frame draws (Leo, 2026-11-11: "a sliver of space at
+    // the bottom that the newest few lines started from the top").
+    const doc = node.ownerDocument;
+    const shown = () => {
+      if (doc.visibilityState === "hidden" || node.clientHeight <= 0) return;
+      if (node.clientHeight === box.height && node.offsetWidth === box.width) return;
+      noteQueue();
+      flushSync(() => measure(true));
+    };
+    doc.addEventListener("visibilitychange", shown);
+    return () => {
+      observer.disconnect();
+      doc.removeEventListener("visibilitychange", shown);
+    };
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
