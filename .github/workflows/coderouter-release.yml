@@ -635,10 +635,11 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coderouter-build-linux-x64
-          path: dist
+          path: ${{ runner.temp }}/linux-build
       - name: Check the Linux build against the digests build-linux recorded
         id: verified
         env:
+          LINUX_BUILD: ${{ runner.temp }}/linux-build
           BINARY_SHA256: ${{ needs.build-linux.outputs.binary_sha256 }}
           WHEEL_NAME: ${{ needs.build-linux.outputs.wheel_name }}
           WHEEL_SHA256: ${{ needs.build-linux.outputs.wheel_sha256 }}
@@ -647,8 +648,8 @@ jobs:
           [[ "$BINARY_SHA256" =~ ^[0-9a-f]{64}$ && "$WHEEL_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$WHEEL_NAME" =~ ^coderouter-[A-Za-z0-9_.+-]+\.whl$ ]]
           # Exactly the two files build-linux recorded, nothing beside them.
-          [[ "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2 && -f dist/coderouter-linux-x64 && -f "dist/$WHEEL_NAME" ]]
-          printf '%s  %s\n' "$BINARY_SHA256" dist/coderouter-linux-x64 "$WHEEL_SHA256" "dist/$WHEEL_NAME" \
+          [[ "$(find "$LINUX_BUILD" -maxdepth 1 -type f | wc -l)" -eq 2 && -f "$LINUX_BUILD/coderouter-linux-x64" && -f "$LINUX_BUILD/$WHEEL_NAME" ]]
+          printf '%s  %s\n' "$BINARY_SHA256" "$LINUX_BUILD/coderouter-linux-x64" "$WHEEL_SHA256" "$LINUX_BUILD/$WHEEL_NAME" \
             | sha256sum --check --strict
           {
             echo "binary_sha256=$BINARY_SHA256"

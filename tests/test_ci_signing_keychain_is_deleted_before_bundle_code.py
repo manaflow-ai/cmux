@@ -630,15 +630,15 @@ def invocations(run: str) -> list[list[str]]:
     """The one invocation detector: each simple command a `run:` block runs, as its words (the program first, a
     leading `./` dropped). Only a command's program counts as run, so text that only names a script runs nothing:
     comments (whole-line or trailing), echo and printf arguments and quoted strings (words after the program), and
-    heredoc bodies (skipped up to their delimiter). Env assignments, the _COMMAND_PREFIX words and a shell's
+    heredoc bodies (skipped up to their delimiter; several on one line close in order). Env assignments, the _COMMAND_PREFIX words and a shell's
     options before its script are skipped; `;`, `&&`, `||`, `|` and parentheses start a new command. A line shlex
     cannot read runs nothing here, so a reader built on this fails closed (the job is named, not exempted)."""
     found: list[list[str]] = []
-    delimiter: str | None = None
+    pending: list[str] = []  # heredoc delimiters opened on one line, closed in order (`cat <<A <<B`: A's body, then B's)
     for line in re.sub(r"\\\n\s*", " ", run).splitlines():
-        if delimiter is not None:
-            if line.strip() == delimiter:
-                delimiter = None
+        if pending:
+            if line.strip() == pending[0]:
+                pending.pop(0)
             continue
         lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
@@ -648,8 +648,8 @@ def invocations(run: str) -> list[list[str]]:
             continue
         words: list[str] = []
         for index, token in enumerate(tokens):
-            if token in ("<<", "<<-") and index + 1 < len(tokens) and delimiter is None:
-                delimiter = tokens[index + 1].lstrip("-")
+            if token in ("<<", "<<-") and index + 1 < len(tokens):
+                pending.append(tokens[index + 1].lstrip("-"))
             if _command_break(token):
                 if words:
                     found.append(words)

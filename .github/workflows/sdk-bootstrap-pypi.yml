@@ -289,7 +289,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: bootstrap-dist
+          path: ${{ runner.temp }}/bootstrap-dist
 
       - name: Verify the immutable bootstrap distributions
         env:
@@ -298,7 +298,7 @@ jobs:
           set -euo pipefail
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
           actual_sha256="$(
-            cd bootstrap-dist
+            cd "$RUNNER_TEMP/bootstrap-dist"
             sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
           )"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {
@@ -337,7 +337,7 @@ jobs:
         continue-on-error: true
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: bootstrap-dist
+          packages-dir: ${{ runner.temp }}/bootstrap-dist
           attestations: true
           skip-existing: true
 
