@@ -565,6 +565,7 @@ mod slow_request_log;
 mod socket_and_render;
 mod subscribe_scroll_on_attach;
 mod terminal_close_if_unplaced;
+mod terminal_progress_follower;
 mod test_socket_path;
 mod tree_selection_deltas;
 mod view_leases;

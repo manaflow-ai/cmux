@@ -15,7 +15,7 @@ extension SidebarLayoutMetrics {
             sectionSpacing: SidebarDensityTokens.sectionSpacing,
             rowHeight: row,
             rowHeightWithSubtitle: SidebarDensityTokens.rowHeightWithSubtitle,
-            rowSpacing: Metrics.space1,
+            rowSpacing: SidebarDensityTokens.rowSpacing,
             emptySectionHeight: row
         )
         let font = SidebarStyle.subtitleFont
