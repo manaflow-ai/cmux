@@ -934,7 +934,24 @@ fn every_way_ax_reports_a_non_character_key_is_matched_or_fails_closed() {
     // A key equivalent no table places is reported, not dropped: an unknown
     // glyph, a control character with no key (backtab), two characters.
     assert!(key(None, None, Some(0x05)).unplaceable);
-    assert!(key(Some("\u{19}"), None, None).unplaceable);
+    // Backtab is shift+Tab: placed on Tab, with its Shift.
+    let backtab = key(Some("\u{19}"), None, None);
+    assert!(!backtab.unplaceable && backtab.codes == vec![48] && backtab.implied_shift);
+    assert!(m("cmd+shift+tab", &backtab) && !m("cmd+tab", &backtab));
+    assert_eq!(
+        keymap::service_shortcut("@\u{19}", false),
+        Some((48, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT))
+    );
+    // Option, Control and Command rule an item out whatever its key.
+    let combo = |c: &str| KeyCombo::parse(c).unwrap();
+    assert!(keymap::menu_mods_match(&combo("cmd+x"), 0));
+    assert!(!keymap::menu_mods_match(&combo("cmd+x"), keymap::MENU_OPTION));
+    assert!(!keymap::menu_mods_match(&combo("ctrl+x"), 0));
+    assert!(keymap::menu_mods_match(
+        &combo("ctrl+x"),
+        keymap::MENU_CONTROL | keymap::MENU_NO_COMMAND
+    ));
+    assert!(key(Some("\u{1}"), None, None).unplaceable);
     assert!(key(Some("ab"), None, None).unplaceable);
     // No key equivalent at all, and glyph 0 ("no glyph").
     assert!(key(None, None, None).is_empty() && key(Some(""), None, Some(0)).is_empty());
