@@ -6,7 +6,9 @@
 
 use std::time::Instant;
 
-use super::scoped_projection::{LiveTreeInput, check_scope_containment, tab_row_unchanged};
+use super::scoped_projection::{
+    LiveTreeInput, WorkspaceRows, check_scope_containment, tab_row_unchanged,
+};
 use super::*;
 use crate::diagnostics::ProjectionSpans;
 use crate::workspace_registry::RegistryTerminal;
@@ -65,6 +67,7 @@ impl Mux {
             tab_order: &tab_order,
             stored_live: &stored_live,
             active_terminal_hosts: None,
+            rows: WorkspaceRows::All,
         };
         let projection = self.project_live_tree(&input, state, result)?;
         let spans = ProjectionSpans {
@@ -123,6 +126,13 @@ impl Mux {
 
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             live_workspaces.insert(workspace.public_id.clone());
+            let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
+            if !in_scope && !input.rows.states(workspace_index) {
+                // The caller knows this workspace's row and public value did not change. Its key
+                // stays live, so the walk does not publish a delete of it.
+                unchanged_keys.insert(("workspace".into(), workspace.public_id.to_string()));
+                continue;
+            }
             changes.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
                     id: workspace.id,
@@ -154,7 +164,7 @@ impl Mux {
                     ),
                 }),
             ));
-            if scope.is_some_and(|scope| !scope.contains(&workspace.public_id)) {
+            if !in_scope {
                 continue;
             }
             let screen_ids =

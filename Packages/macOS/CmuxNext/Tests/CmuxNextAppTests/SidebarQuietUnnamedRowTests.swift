@@ -50,7 +50,7 @@ import Testing
     private static func expected(_ sidebar: SidebarView, _ id: String, secondary: Bool) throws -> NSColor {
         let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID(id))] as? WorkspaceRowView)
         var color = NSColor.clear
-        row.performWithTheme { color = secondary ? Palette.textSecondary : Palette.textPrimary }
+        row.performWithTheme { color = secondary ? Palette.textSecondary : Palette.sidebarTitle }
         return color
     }
 

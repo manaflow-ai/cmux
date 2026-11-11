@@ -95,15 +95,15 @@ final class ScreenSharingLiveUITests: XCTestCase {
             }
         }
 
-        // Trackpad mode (Trackpad › Viewer Settings › Input): one finger moves the pointer, a tap clicks where it is.
+        // Trackpad mode (trackpad drawer › Viewer Settings › Input): one finger moves the pointer, a tap clicks where it is.
         openViewerSettings(app)
         let input = app.buttons["Input"].firstMatch
         if input.waitForExistence(timeout: 5) {
             input.tap()
             app.buttons["Trackpad"].firstMatch.tap()
             settle(app, 1)
-            // Close the overlay so the strokes below land on the screen, not on it.
-            app.buttons["screen.trackpad.hide"].firstMatch.tapIfExists()
+            // Hide the drawer so the strokes below land on the screen, not on it.
+            hideTrackpad(app)
             screen.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55))
                 .press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.56)))
             settle(app, 1)
@@ -145,12 +145,22 @@ final class ScreenSharingLiveUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// The viewer settings live in the trackpad overlay (CMUX-14): open it first when it is closed.
+    /// The viewer settings live in the trackpad drawer (CMUX-14): swipe it up first when it is closed.
     @MainActor
     func openViewerSettings(_ app: XCUIApplication) {
-        let show = app.buttons["screen.trackpad.show"]
-        if show.exists { show.tap() }
+        if app.otherElements["screen.trackpad.drawer"].value as? String == "closed" {
+            app.descendants(matching: .any)["screen.trackpad.handle"].swipeUp()
+            _ = app.buttons["screen.options"].waitForExistence(timeout: 5)
+        }
         app.buttons["screen.options"].firstMatch.tap()
+    }
+
+    /// Swipes the trackpad drawer down, so strokes land on the screen.
+    @MainActor
+    func hideTrackpad(_ app: XCUIApplication) {
+        if app.otherElements["screen.trackpad.drawer"].value as? String == "open" {
+            app.descendants(matching: .any)["screen.trackpad.handle"].swipeDown()
+        }
     }
 
     /// First-run setup on a fresh simulator: personal space, then past the optional steps.

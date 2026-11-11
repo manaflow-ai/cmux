@@ -40,7 +40,49 @@ impl Cursor {
         let remaining = (64 * 1024usize).saturating_sub(self.reply.chars().count());
         self.reply.extend(text.chars().take(remaining));
     }
+    /// A reply chunk that came as a stub (`hub/paging.rs` `stub_msg`): the serving side said
+    /// whether its whole text held the pattern, and kept the text's ends. The head joins the
+    /// last chunk's tail, so a match across the two is still found; the tail is what the next
+    /// chunk joins.
+    fn stub_text(&mut self, omitted: &Value, pattern: Option<&str>) {
+        self.text(omitted["textHead"].as_str().unwrap_or(""), pattern);
+        self.matched |= omitted["matched"] == true;
+        if let (Some(pattern), Some(tail)) = (pattern, omitted["textTail"].as_str()) {
+            let skip = tail.chars().count().saturating_sub(pattern.chars().count());
+            self.tail = tail.chars().skip(skip).collect();
+        }
+    }
 }
+/// The record kinds `collect` reads. A watch's page from a peer asks for these alone: an
+/// unfiltered page carried a 1 MB prompt image the 250 ms read gave up on, and the watch asked
+/// for the same page every few seconds for good (cosmic-gray, 2026-11-10).
+pub const WATCH_KINDS: &[&str] = &[
+    "turn_started",
+    "agent_message_chunk",
+    "tool_call",
+    "tool_call_update",
+    "agent_thought_chunk",
+    "plan",
+    "permission_request",
+    "permission_reissued",
+    "permission_decision",
+    "turn_result",
+    "status",
+];
+
+/// The most a watch's page from a peer may hold, and the most one record in it may: a page
+/// always carries its first record, so a record past this goes as a stub (`hub/paging.rs` `fit`)
+/// and the page still moves the cursor. A tool call update can carry megabytes of output.
+pub const WATCH_PAGE_BYTES: u64 = 64 * 1024;
+
+/// A watch's `_acpmux/events` ask of a peer: after `after`, only `WATCH_KINDS`, bounded in
+/// all and per record, with its `match` text: a reply chunk past the bound comes as a stub that
+/// says whether its whole text held it (`Cursor::stub_text`).
+pub fn remote_page(id: &str, after: u64, pattern: Option<&str>) -> Value {
+    json!({"sessionId": id, "afterSeq": after, "limit": 256, "kinds": WATCH_KINDS,
+        "maxBytes": WATCH_PAGE_BYTES, "recordMaxBytes": WATCH_PAGE_BYTES, "match": pattern})
+}
+
 pub fn seed(hub: &Hub, key: &str, _pattern: Option<&str>) -> Cursor {
     let s = summary(hub, key);
     let await_fresh = s["stale"] == true || s["status"] == "unreachable";
@@ -66,23 +108,27 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     let mut candidates = Vec::new();
     let mut end = None;
     let mut more = false;
+    let mut through = None;
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
         } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
             let page = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
-                peer.request(
-                    method::MUX_EVENTS,
-                    json!({"sessionId": id, "afterSeq": c.seq, "limit": 256}),
-                ),
+                peer.request(method::MUX_EVENTS, remote_page(&id, c.seq, w.match_text.as_deref())),
             )
             .await
             .map_err(|_| RpcError::internal("peer watch page timed out"))??;
             end = page["lastSeq"].as_u64();
             more = page["hasMore"] == true;
-            serde_json::from_value(page["events"].clone())
-                .map_err(|e| RpcError::internal(format!("watch events: {e}")))?
+            let events: Vec<crate::store::EventRecord> =
+                serde_json::from_value(page["events"].clone())
+                    .map_err(|e| RpcError::internal(format!("watch events: {e}")))?;
+            // The page holds only the kinds read below: the records it passed over (a prompt
+            // and its images, tool output) are read all the same, so the cursor moves past
+            // them and the next page never asks for them again.
+            through = page["pageThrough"].as_u64();
+            events
         } else {
             Vec::new()
         };
@@ -104,19 +150,24 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                     c.turn_mark.clear();
                 }
                 ("in", "agent_message_chunk")
-                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none() =>
+                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+                        && e.msg.pointer("/_meta/acpmux/omitted/subagent").is_none() =>
                 {
                     if !c.reply_open {
                         c.reply.clear();
                         c.reply_open = true;
                     }
-                    c.text(
-                        e.msg
-                            .pointer("/params/update/content/text")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        w.match_text.as_deref(),
-                    );
+                    if let Some(omitted) = e.msg.pointer("/_meta/acpmux/omitted") {
+                        c.stub_text(omitted, w.match_text.as_deref());
+                    } else {
+                        c.text(
+                            e.msg
+                                .pointer("/params/update/content/text")
+                                .and_then(Value::as_str)
+                                .unwrap_or(""),
+                            w.match_text.as_deref(),
+                        );
+                    }
                 }
                 ("in", "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan") => {
                     c.reply_open = false
@@ -165,6 +216,11 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         }
         emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
+        // `pageThrough` never passes a record the page held back for its byte bound (the page
+        // then ends on its own last record), so nothing the watch reads is skipped.
+        if let Some(through) = through.filter(|t| *t > c.seq && end.is_none_or(|end| *t <= end)) {
+            c.seq = through;
+        }
         if c.seq > before && (more || end.is_some_and(|end| c.seq < end)) {
             return Ok((found, true));
         }
