@@ -5593,6 +5593,18 @@ for _suffix in (".ts", ".tsx", ".js"):
         )
     )
 
+# After a `}` the lexer cannot classify (a label's block or an object's value), `<a>` may open a JSX element or
+# compare: unresolved, never a guess.
+ATTRIBUTION_FIXTURES.append(
+    (
+        "jsx tag or comparison after a label's } is unresolved",
+        "web/tests/b28.test.tsx",
+        _js_attribution_fixture("    label: {} <a>http://x</a>; const o = {\n      a: 1 };\n"),
+        RULE_SLEEP_THEN_ASSERT,
+        {7: f"{UNRESOLVED_SCOPE_PREFIX}: JSX tag or comparison at 3:15>"},
+    )
+)
+
 # Guards: what the lexer must still read as code (each passed before the lexer too).
 ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
     ("js division is no regex literal", "web/tests/g1.test.ts",
@@ -5622,6 +5634,12 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      _js_attribution_fixture("    return {} / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("jsx self-closing tag after an attribute's } in a .js file", "web/tests/g14.test.js",
      _js_attribution_fixture("    const el = <Tile size={2} />;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
+    ("jsx attributes named extends", "web/tests/g15.test.tsx",
+     _js_attribution_fixture("    const el = <div extends=\"x\" data-extends=\"y\">a // b</div>; const o = {\n      a: 1 };\n"),
+     RULE_SLEEP_THEN_ASSERT, {7: "pane.b"}),
+    ("tsx defaulted type parameters are no JSX", "web/tests/g16.test.tsx",
+     _js_attribution_fixture("    const f = <T = string>(x: T) => x / 2; const re = /\\}/;\n"), RULE_SLEEP_THEN_ASSERT,
+     {6: "pane.b"}),
     ("jsx text: an apostrophe and a closing tag", "web/tests/g2.test.tsx",
      _js_attribution_fixture("    const el = cond && <p>Don't {name}</p>;\n"), RULE_SLEEP_THEN_ASSERT, {6: "pane.b"}),
     ("python comment holding a triple quote", "tests/test_g3.py",

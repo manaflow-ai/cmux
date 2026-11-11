@@ -2,7 +2,9 @@
   "about": [
     "A / in JS or TS starts a regex literal or divides, by the token before it. A tokenizer that guesses division where a regex starts reads a regex's \\/ and closing / as //, takes the rest of the line for a comment, and a lint reading the code drops what is written there. The rule: after the ) of an if, while, for or with head, a / starts a regex; after any other ), after ], ++, --, a word, a number, a string, a template or a regex, it divides (after a postfix ++ or -- the expression is complete, and a prefix one cannot take a regex); after (, [, a comma, an operator, ;, :, {, the } of a block, or a keyword such as return or typeof, it starts a regex. Where the tokenizer cannot decide (a ) or } whose opener it has not seen or cannot classify), it scans both readings and keeps the union of what each reads as code, so it fails closed.",
     "rows: each source, as a whole file read as TSX (a .tsx file: TypeScript with JSX), and whether the unsafe text after the slash is code (hit) or a comment.",
-    "generate: regex_line over regex_before and undecided_before x bodies is always a hit; division_line over division_before is never one, and over undecided_before always one (the union). Run by manaflow-ai/cmux-platform test/node/no-guessable-temp-names.test.ts; written so any other hand-rolled JS tokenizer (manaflow-ai/cmux scripts/check-test-determinism.py) can run it as is, where a case its lexer reports as unresolved counts as failing closed."
+    "unresolved: a row with \"unresolved\": true has a token one lookahead cannot classify (a / or a < after a ) or } whose opener is unseen: a regex or a division, a JSX tag or a comparison). A lexer must not guess there: it scans both readings and reports their union (hit is that union), or reports the case as unresolved, which fails closed. Generated cases over undecided_before follow the same convention. A < starts a JSX tag only where an expression can start and the name after it is not followed by extends, = or , (those are type parameters: <T extends U>, <T = V>, <T,>).",
+    "generate: regex_line over regex_before and undecided_before x bodies is always a hit; division_line over division_before is never one, and over undecided_before always one (the union). Run by manaflow-ai/cmux-platform test/node/no-guessable-temp-names.test.ts; written so any other hand-rolled JS tokenizer (manaflow-ai/cmux scripts/check-test-determinism.py) can run it as is, where a case its lexer reports as unresolved counts as failing closed.",
+    "This file is shared by byte (other repos pin its sha256): after an edit, run `vp fmt test/node/fixtures/regex-after-token.json` in manaflow-ai/cmux-platform; a test fails a table written any other way."
   ],
   "rows": [
     {
@@ -209,6 +211,37 @@
       "source": "const f = <T extends U>(x: T) => x / 2 // echo > /tmp/out.$$",
       "hit": false,
       "why": "<T extends U>( is a generic arrow's type parameters, not a JSX tag: the arrow's body is code and its // a comment"
+    },
+    {
+      "source": "const el = <div data-extends=\"x\">//x</div>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F1: an attribute named data-extends is no type parameter; the element's text //x is text, and what follows the element is code"
+    },
+    {
+      "source": "const el = <div extends=\"x\">//x</div>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "an attribute named extends (followed by =) is an attribute, not a type parameter's constraint"
+    },
+    {
+      "source": "const f = <T = string>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux-platform#1275, F2: <T = string> is a defaulted type parameter, not a JSX tag; the // after the arrow is a comment"
+    },
+    {
+      "source": "const f = <T extends U = V>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a constrained type parameter with a default"
+    },
+    {
+      "source": "const f = <T,>(x: T) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "<T,> is a type parameter list"
+    },
+    {
+      "source": "x) <a>http://x</a>; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "unresolved": true,
+      "why": "after a ) whose ( is unseen, < may be a comparison (then //x</a>; ... is a comment) or a JSX tag (then run(...) is code): the < is undecided, and the union of both readings is a hit"
     }
   ],
   "generate": {
@@ -275,18 +308,8 @@
       "n++",
       "n--"
     ],
-    "undecided_before": [
-      "x)",
-      "label: {}"
-    ],
-    "bodies": [
-      "\\/\\/",
-      "[/]\\/",
-      "a\\/\\/b",
-      "\\\\\\/\\/",
-      "\\/[/]",
-      "[\\]/]\\/"
-    ],
+    "undecided_before": ["x)", "label: {}"],
+    "bodies": ["\\/\\/", "[/]\\/", "a\\/\\/b", "\\\\\\/\\/", "\\/[/]", "[\\]/]\\/"],
     "regex_line": "{before} /{body}/.test(s); run(\"echo > /tmp/out.$$\")",
     "division_line": "{before} / 2 // echo > /tmp/out.$$"
   }
