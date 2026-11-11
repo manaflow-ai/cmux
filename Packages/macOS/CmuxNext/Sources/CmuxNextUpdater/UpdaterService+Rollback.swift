@@ -52,7 +52,6 @@ extension UpdaterService {
         guard keptRunningBuild == nil else { return }
         keptRunningBuild = .running
         let store = keptVersions, bundle = Bundle.main.bundleURL, build = identity.build, limit = preferences.keepPreviousVersions
-        let hasPlistSchemas = Bundle.main.object(forInfoDictionaryKey: "CmuxStoreSchemas") != nil
         let partialRecord = runningRecord()
         let log = log
         let work = work
@@ -61,8 +60,7 @@ extension UpdaterService {
         keepTask = Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             // The stores this build reads, from its own CLI when its Info.plist does not say: asked
             // now, so going back to it never waits on that probe.
-            var record = partialRecord
-            if !hasPlistSchemas { record.storeSchemas = await StoreSchemaProbe(bundle: bundle).readable() }
+            let record = partialRecord
             let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { [record] () -> Bool in
                 #if DEBUG || CMUX_BENCH_HOOKS
                 UpdateHarness.mark("keep_previous_start")
@@ -81,6 +79,10 @@ extension UpdaterService {
                     return false
                 }
             }) ?? false
+            // The kept copy's own CLI runs once now (KeptWarmup): macOS checks a new bundle's code on
+            // its first launch (3.4 s for a NIGHTLY clone), so going back to it later does not; its
+            // answer is the stores the copy reads when its Info.plist does not say.
+            if kept { await KeptWarmup.warm(store: store, build: build, log: log) }
             self?.keptRunningBuild = kept ? .kept : nil
         }
     }
@@ -178,10 +180,13 @@ extension UpdaterService {
         let store = keptVersions, bundle = Bundle.main.bundleURL, log = log, work = work
         // task-owner: a launch tidy that ends by itself; nobody waits on it.
         Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
-            let tidied = (try? await work.run(.bestEffort, mayBlock: .files) {
-                RollbackSwap.recover(current: bundle, store: store) + store.sweep() + store.sealPending().map { "sealed \($0)" }
+            let sealed = (try? await work.run(.bestEffort, mayBlock: .files) { () -> [String] in
+                let tidied = RollbackSwap.recover(current: bundle, store: store) + store.sweep()
+                if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
+                return store.sealPending()
             }) ?? []
-            if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
+            // A keep made at a click (the swap, an install) is checked and sealed now, then warmed.
+            for build in sealed { await KeptWarmup.warm(store: store, build: build, log: log) }
             await self?.refreshRevertOffer()
         }
     }

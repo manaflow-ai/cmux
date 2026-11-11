@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Darwin
 
@@ -69,7 +70,7 @@ nonisolated public struct KeptVersionStore: Sendable {
         written.keptAt = now()
         written.seal(target, check: check, fullCheck: teamID)
         // Best effort: without a record the next list checks the signature in full, as before.
-        try? written.write(to: folder.appending(path: Self.recordName))
+        try? written.save(to: folder.appending(path: Self.recordName))
         if let limit { prune(limit: limit, keeping: build) }
     }
 
@@ -119,7 +120,7 @@ nonisolated public struct KeptVersionStore: Sendable {
             var record = KeptRecord.read(from: file) ?? KeptRecord(build: kept.build)
             guard record.seal == nil else { return nil }
             record.seal(kept.bundle, check: .full, fullCheck: teamID)
-            guard record.seal != nil, (try? record.write(to: file)) != nil else { return nil }
+            guard record.seal != nil, (try? record.save(to: file)) != nil else { return nil }
             return kept.build
         }
     }
@@ -206,10 +207,10 @@ nonisolated public struct KeptRecord: Codable, Equatable, Sendable {
         return try? decoder.decode(KeptRecord.self, from: data)
     }
 
-    func write(to file: URL) throws {
+    func save(to file: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(self).write(to: file, options: .atomic)
+        try encoder.encode(self).blockingWrite(to: file, options: .atomic)
     }
 }

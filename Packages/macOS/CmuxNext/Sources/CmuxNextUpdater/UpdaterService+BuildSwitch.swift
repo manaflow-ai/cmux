@@ -45,6 +45,9 @@ extension UpdaterService {
                 log.append("switch: \(build) not kept: \(failure)")
                 return failed(UpdaterStrings.channelsSwitchFailed(failure), build)
             }
+            // Its first launch is the relaunch below: the check macOS makes of a new bundle runs now,
+            // under Verifying, rather than with the windows already gone (KeptWarmup).
+            await KeptWarmup.warm(store: keptVersions, build: build, log: log)
         }
         log.append("switch: \(identity.build) -> \(build)")
         return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories())
