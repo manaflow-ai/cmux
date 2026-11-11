@@ -7,6 +7,8 @@ type Props = TaskCheckboxProps & { taskList?: boolean; label?: string };
 function TaskCheckboxGallery({ checked, className, taskList, label = "Task list item" }: Props) {
   const checkbox = <TaskCheckbox checked={checked} className={className} />;
   if (!taskList) return checkbox;
+  // PROBE (never merged): a red state so gallery health's base replay runs, to time it (cmux#41429).
+  throw new Error("probe: gallery health base replay timing");
   return (
     <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
       <li style={{ alignItems: "center", display: "flex", gap: 8 }}>
