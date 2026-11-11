@@ -445,7 +445,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        pagePresentation = nil
+        pagePresentation = nil; chiefPanelView?.closeLauncher() // the floating Chief's own window goes with this one
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)

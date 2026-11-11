@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import affected_tests  # noqa: E402
+import glaeda_log  # noqa: E402
 import cargo_affected  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -172,7 +173,11 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
                 for job in jobs:
                     if job["conclusion"] != "failure" or any(x in job["name"] for x in NO_TESTS):
                         continue
-                    log = cached_gh(cache, f"log-{job['id']}.txt", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['id']}/logs")
+                    # this host's glaeda-gh keeps failed jobs' logs: no API read for one its daemon saw
+                    log = glaeda_log.cached_job_log(REPO, job["id"])
+                    if log is None:
+                        log = cached_gh(cache, f"log-{job['id']}.txt", "api", "--allow-escape-sequences",
+                                        f"repos/{REPO}/actions/jobs/{job['id']}/logs")
                     if log is None:
                         continue
                     for f in failures_in_log(log):
