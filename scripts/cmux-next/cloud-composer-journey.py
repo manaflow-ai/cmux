@@ -665,6 +665,18 @@ def main(argv=None) -> int:
                 report["result"] = f"fail: not machine ids: {', '.join(bad)}"
                 return finish(report, out, 1)
             gone = [m for m in named if journey.kill(m)]
+            # Why one would not go: the CLI's own answer (already gone, another team, not signed in).
+            report["kill_answers"] = {}
+            for m in named:
+                if m in gone:
+                    continue
+                code, out_, err_ = journey.cmux("cloud", "kill-machine", "--target", f"machine:{m}", "--confirm",
+                                                "--json", timeout=120)
+                report["kill_answers"][m] = {"code": code, "said": clean(err_ or out_, 400)}
+            code, out_, err_ = journey.cmux("cloud", "list-machines", "--json", timeout=60)
+            listed = {str(r.get("machine_id") or "") for r in (journey.parsed(out_).get("machines") or [])}
+            report["listed_here"] = sorted(set(named) & listed)
+            report["team"] = journey.team_id()
             report["swept"] = gone
             report["machines_left"] = [m for m in named if m not in gone]
             report["result"] = "pass: swept" if not report["machines_left"] else (
