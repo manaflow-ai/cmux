@@ -91,6 +91,32 @@ import Testing
         #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 180000 https://p t-1 team_x ")
     }
 
+    /// A desktop dial asks for progress lines; their text reaches the caller in order before the dial line,
+    /// and the stream after the dial line is the service's alone.
+    @Test func theDesktopDialHandsOverItsProgressText() async throws {
+        let cli = try Self.standIn("""
+        [ "$CMUX_CARRIER_PROGRESS" = 1 ] || exit 9
+        printf '{"progress":{"stage":"waking","text":"Waking up the machine, about 25 s left","eta_ms":25000,"deadline_ms":170000}}\\n' >&2
+        printf '{"progress":{"stage":"desktop","text":"Opening the desktop, about 2 s left","eta_ms":2000,"deadline_ms":150000}}\\n' >&2
+        printf '{"ok":true,"path_state":"relay","route":"carrier"}\\n' >&2
+        printf 'rd'
+        """)
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .desktop))) { [:] }
+        let (texts, sink) = AsyncStream.makeStream(of: String.self)
+        let stream = try await connector.open { sink.yield($0) }
+        sink.finish()
+        var bytes = Data()
+        while let chunk = await stream.read() { bytes.append(chunk) }
+        stream.close()
+        var seen: [String] = []
+        for await text in texts { seen.append(text) }
+        #expect(seen == ["Waking up the machine, about 25 s left", "Opening the desktop, about 2 s left"])
+        #expect(String(decoding: bytes, as: UTF8.self) == "rd")
+        let mux = try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))
+        #expect(mux.bridge(cli: cli, environment: [:]).environment["CMUX_CARRIER_PROGRESS"] == nil, "only the desktop dial asks")
+    }
+
     /// The session's link is the serve child's socket: the ready line hands it over, a later connect gives
     /// the same child a fresh token on stdin, closing stdin stops it, and the next starts after it exited.
     @Test func theServeSocketIsTheLinksSocket() async throws {

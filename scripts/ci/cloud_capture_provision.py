@@ -41,6 +41,19 @@ CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud ch
 key belongs to that project; each target names the one project it may touch. The run also prints the account's
 Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
 
+`--target production-team` makes a second production account (cmux-cloud-capture-prod-team@manaflow.dev) the same
+way, sealed to cmuxterm-hq's cloud-capture environment as CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL and _PASSWORD: the
+probe's shared-team row (cmuxterm-hq cloud-chat-replies-production-team), which joins a shared team through the
+platform's own invitation API with its own session. The probe account above must stay in no shared team. This
+account is also made a member of the company team "cmux" (COMPANY_TEAM_ID, a production Stack team) with the server
+key: the membership is added when it is missing (POST /team-memberships/TEAM/USER) and read back from the account's
+team list (GET /teams?user_id=USER); a read-back without the team fails the run before anything is sealed. Nobody
+invites it by hand, and no person's account stands in for it (a person's account would put the capture runs'
+machines on that person's team).
+
+`--target production-team --team-only` does only that membership step for the existing account: no password
+change, nothing sealed, and a missing account is never created.
+
 `--target journey-production` does the same for the production Cloud journey's own account
 (cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
 CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
@@ -77,6 +90,8 @@ STAGING_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 PRODUCTION_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
 STACK_API = "https://api.stack-auth.com/api/v1"
 PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
+# The company team "cmux" in the production Stack project (CmuxNextCrashReporting CrashReportIdentity.cmuxTeamID).
+COMPANY_TEAM_ID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
 
 class Target:
@@ -86,8 +101,10 @@ class Target:
     `put` checks both against the live key."""
 
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
-                 project=STAGING_PROJECT_ID, profile_image_url=None):
+                 project=STAGING_PROJECT_ID, profile_image_url=None, team_id=None):
         self.email, self.display_name, self.project = email, display_name, project
+        # The Stack team the account is made a member of on every run; None keeps it out of every team.
+        self.team_id = team_id
         # Set on create and on every rotation when given, so a person looking at a two-account test tells them apart.
         self.profile_image_url = profile_image_url
         self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
@@ -114,12 +131,20 @@ TARGETS = {
                             "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD",
                             profile_image_url="https://cmux.com/icon.png"),
     # The hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production): the shipped
-    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`. The only target in the production project.
+    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`, in its personal scope.
     "production": Target("cmux-cloud-capture-prod@manaflow.dev", "cmux cloud probe (production)",
                          "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
                          "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
                          "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
                          project=PRODUCTION_PROJECT_ID),
+    # The production probe's shared-team row (cmuxterm-hq synthetic-probes.yml app-chat-production,
+    # cloud-chat-replies-production-team): a second production account that joins a shared team, since the probe
+    # account above must stay in none. Sealed beside it in cmuxterm-hq cloud-capture under its own names.
+    "production-team": Target("cmux-cloud-capture-prod-team@manaflow.dev", "cmux cloud probe (production, team)",
+                              "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
+                              "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                              "CLOUD_PROBE_PRODUCTION_TEAM_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_TEAM_STACK_PASSWORD",
+                              project=PRODUCTION_PROJECT_ID, team_id=COMPANY_TEAM_ID),
     # The production Cloud journey (cloud-journey-prod.yml hourly, backend.yml journey-production): both run in this
     # repository's cmux-next-cloud-journey environment and read the production pair as CMUX_DOGFOOD_STACK_*, which
     # shadows the repository's dev pair (production refuses that one with EMAIL_PASSWORD_MISMATCH). Its own
@@ -194,12 +219,15 @@ class Stack:
             raise ProvisionError("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY is empty")
         self.project_id, self.server_key, self.client_key, self.transport = project_id, server_key, client_key, transport
 
-    def server(self, method, path, body=None, ok=(200, 201)):
+    def server(self, method, path, body=None, ok=(200, 201), ok_known=()):
+        """OK_KNOWN: Stack known-error codes that count as success (answered with an empty body)."""
         headers = {"content-type": "application/json", "x-stack-access-type": "server",
                    "x-stack-project-id": self.project_id, "x-stack-secret-server-key": self.server_key}
         status, reply_headers, parsed = self.transport(method, STACK_API + path, headers, body)
         if status not in ok:
             known = reply_headers.get("x-stack-known-error", "")
+            if known and known in ok_known:
+                return {}
             raise ProvisionError(f"Stack {method} {path.split('?')[0]} answered HTTP {status}"
                                  + (f" ({known})" if known else ""))
         return parsed or {}
@@ -252,6 +280,18 @@ class Stack:
         metadata = self.read(user_id).get("client_read_only_metadata")
         return metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None
 
+    def teams(self, user_id):
+        """The ids of the Stack teams USER_ID is a member of now."""
+        items = self.server("GET", f"/teams?user_id={urllib.parse.quote(user_id)}").get("items")
+        if not isinstance(items, list):
+            raise ProvisionError("Stack's team list returned no items list")
+        return {str(t.get("id")) for t in items if isinstance(t, dict) and t.get("id")}
+
+    def add_member(self, team_id, user_id):
+        """Adds USER_ID to TEAM_ID as a plain member (no creator defaults); a membership already there is fine."""
+        self.server("POST", f"/team-memberships/{urllib.parse.quote(team_id)}/{urllib.parse.quote(user_id)}", {},
+                    ok_known=("TEAM_MEMBERSHIP_ALREADY_EXISTS",))
+
     def signs_in(self, email, password):
         headers = {"content-type": "application/json", "x-stack-access-type": "client",
                    "x-stack-project-id": self.project_id, "x-stack-publishable-client-key": self.client_key}
@@ -267,6 +307,20 @@ def new_password():
         # A workflow command, consumed by the runner: from here on the value shows as *** in every log.
         print(f"::add-mask::{password}", flush=True)
     return password
+
+
+def join_team(stack, user_id, team_id, log=print):
+    """Makes USER_ID a member of TEAM_ID unless it already is, then reads the membership back; fails without it."""
+    if team_id in stack.teams(user_id):
+        action = "already a member of"
+    else:
+        stack.add_member(team_id, user_id)
+        action = "added as a member of"
+    if team_id not in stack.teams(user_id):
+        raise ProvisionError(f"the account read back as not a member of the company team {team_id}")
+    log(f"Stack user id {user_id}: {action} the company team {team_id} (read back: member of the company team "
+        f"{team_id})")
+    return action
 
 
 def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_password=new_password, target=CAPTURE):
@@ -292,6 +346,8 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
             raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
         if not stack.signs_in(email, password):
             raise ProvisionError("the new password did not sign in")
+        if target.team_id:
+            join_team(stack, user["id"], target.team_id, log)
         bundle = sealed_secrets.seal_bundle(target.repo, target.environment, key_id, key,
                                             {target.email_secret: email, target.password_secret: password}, lib)
     finally:
@@ -323,11 +379,25 @@ def grant_only(stack, email, log=print):
         "metadata are unchanged")
 
 
+def team_only(stack, target, log=print):
+    """Makes TARGET's existing account a member of its company team; no rotation, nothing sealed, never a create."""
+    if not target.team_id:
+        raise ProvisionError("this target has no company team; --team-only refuses it")
+    if stack.project_id != target.project:
+        raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
+    user = stack.find(target.email)
+    if user is None:
+        raise ProvisionError("no account has the target's email; --team-only never creates one")
+    return join_team(stack, user["id"], target.team_id, log)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
     mode.add_argument("--grant-only", metavar="EMAIL", help="only grant the operator plan to this existing capture account")
+    mode.add_argument("--team-only", action="store_true",
+                      help="only make the target's existing account a member of its company team")
     parser.add_argument("--target", choices=sorted(TARGETS), default="capture",
                         help="which test account to provision and where its credential is sealed")
     args = parser.parse_args(argv)
@@ -339,6 +409,8 @@ def main(argv=None):
                       os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""), expected_project=target.project)
         if args.grant_only is not None:
             grant_only(stack, args.grant_only.strip().lower())
+        elif args.team_only:
+            team_only(stack, target)
         else:
             provision(stack, args.out, target=target)
     except (ProvisionError, sealed_secrets.SealError) as error:

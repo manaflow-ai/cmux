@@ -50,6 +50,74 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-large") == large)
     }
 
+    /// A Cloud start's sending tab: what its page typed while the chat started is read back by tab and
+    /// machine (CloudStartChat `openUploaded` seeds the started chat's composer with it), and each tab
+    /// reads only its own, so two starts of the same prompt never swap their text.
+    @Test func aSendingTabsTypedTextIsReadBackByItsTab() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let first = AgentPaneModel(host: MockAgentPaneHost()), second = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(first) { "tab-1" }
+        drafts.wire(second) { "tab-2" }
+        _ = await first.respond(to: Self.request("chat.unsentDraft", ["text": "first tab's note"]))
+        _ = await second.respond(to: Self.request("chat.unsentDraft", ["text": "second tab's note"]))
+        #expect(drafts.draft(forTab: "tab-1", machine: "this-mac") == "first tab's note")
+        #expect(drafts.draft(forTab: "tab-2", machine: nil) == "second tab's note")
+        #expect(drafts.draft(forTab: "tab-1", machine: "other-mac") == nil)
+        withExtendedLifetime((first, second)) {}
+    }
+
+    /// A Cloud start's chat takes the sending tab's text as it is at the hand-off, not as it was when the
+    /// chat's tab was made: the sending composer stays open while the App still awaits the tab and the
+    /// folder's trust, and what is typed then goes too (cmux#39913 review at c29c9b11). The page asking
+    /// for its seed meanwhile waits for the hand-off; reading where the chat starts (`peek`) never does.
+    @Test func aCloudStartsChatTakesTheSendingTabsTextAsItIsAtTheHandOff() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        #expect(await source.peek()?.cwd == "/w")
+        // The started chat's page asks for its seed while the start still awaits its tab and the trust.
+        let taking = Task { @MainActor in await source.take() }
+        for _ in 0..<5 { await Task.yield() }
+        // The person keeps typing on the sending tab meanwhile.
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
+        handOff(true)
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "too late"]))
+        handOff(false)
+        let seed = await taking.value
+        #expect(seed?.draft == "and the nightly")
+        #expect(seed?.prompt == "fix the build")
+        withExtendedLifetime(sender) {}
+    }
+
+    /// However long the folder's trust runs, the page's seed waits for the hand-off and gets the text
+    /// as it is then, typed after any wait included (cmux#39913 review at 7f5a1b22): no snapshot is
+    /// taken early and dropped. A start that fails hands off none.
+    @Test func aCloudStartsChatWaitsForTheHandOffHoweverLongTheTrustRuns() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (late, give) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        let taking = Task { @MainActor in await late.take() }
+        // A long trust: the page has waited a while, and the person typed on through it.
+        try await Task.sleep(for: .milliseconds(200))
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly, after the wait"]))
+        give(true)
+        let seed = await taking.value
+        #expect(seed?.prompt == "fix the build")
+        #expect(seed?.draft == "and the nightly, after the wait")
+        let (failed, fail) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) { "never read" }
+        fail(false)
+        #expect(await failed.take()?.draft == nil)
+        withExtendedLifetime(sender) {}
+    }
+
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
     /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
     /// window's next new chat takes it once, and nothing sends it.

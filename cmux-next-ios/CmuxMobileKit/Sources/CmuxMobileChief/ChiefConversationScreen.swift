@@ -51,6 +51,8 @@ public struct ChiefConversationScreen: View {
         #if DEBUG
         if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
             self.session = Self.outboxDemo
+        } else if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-stale-demo") {
+            self.session = Self.staleDemo
         } else {
             self.session = session
         }
@@ -68,6 +70,15 @@ public struct ChiefConversationScreen: View {
         session.status = "Offline"
         session.send(ConversationComposeMessage(text: "Check the latest build."), asksForAlerts: false)
         session.send(ConversationComposeMessage(text: "Let me know when the tests finish."), asksForAlerts: false)
+        return session
+    }()
+
+    /// A Mac conversation kept from a dropped link (CMUX-30), as ``MacConversationLoader``
+    /// marks it; memory only.
+    private static let staleDemo: ChiefSession = {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        MacConversationLoader.markStale(session, tryAgain: {})
+        session.send(ConversationComposeMessage(text: "Run the tests again when the Mac is back."), asksForAlerts: false)
         return session
     }()
     #endif
@@ -365,16 +376,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's questions
 
-    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
-    private lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
-        var bar = ChiefQuestionBar(session: session) { [weak self] question in
-            self?.presentQuestion(question.id)
-        }
+    /// The bar under the header: a failed turn, Chief unavailable, the Mac away (``ChiefQuestionBar``).
+    lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
+        var bar = ChiefQuestionBar(session: session)
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
         bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
             guard let self else { return }
-            UIView.animate(withDuration: duration) { self.topBand.alpha = out ? 0 : 1 }
+            Self.fadeBand(self.topBand, out: out, duration: duration, reduceMotion: UIAccessibility.isReduceMotionEnabled)
         }
         let host = UIHostingController(rootView: bar)
         host.view.backgroundColor = .clear
@@ -382,10 +391,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         return host
     }()
 
-    /// One solid band from the top of the screen to just below the bar
-    /// (R3-1): no scrolled-out bubble shows behind the clock or around the
-    /// bar, so the status bar and the bar read as one top bar. Goes once the
-    /// package can host the bar under its header (UPSTREAM-REQUESTS.md U8).
+    /// One solid band behind the bar, from the header's bottom edge to just
+    /// below the bar (R3-1): no scrolled-out bubble shows around the bar, so
+    /// the bar reads as part of the top bar. The header keeps its own wash.
     private let topBand: UIView = {
         let band = UIView()
         band.backgroundColor = .systemBackground
@@ -394,6 +402,18 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         return band
     }()
 
+    /// Fades the band behind the question bar with it; at once under Reduce Motion or with no
+    /// duration, so the system setting holds even when the bar's own reading of it lags.
+    static func fadeBand(_ band: UIView, out: Bool, duration: Double, reduceMotion: Bool) {
+        let alpha: CGFloat = out ? 0 : 1
+        guard duration > 0, !reduceMotion else {
+            band.layer.removeAllAnimations()
+            band.alpha = alpha
+            return
+        }
+        UIView.animate(withDuration: duration) { band.alpha = alpha }
+    }
+
     private func installQuestionBar() {
         view.addSubview(topBand)
         addChild(questionBar)
@@ -401,24 +421,26 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         questionBar.didMove(toParent: self)
     }
 
-    /// The bar takes its own room (R2-1), as Messages' pinned rows do:
-    /// the conversation is inset from the top by the bar's height + 8 pt, so
-    /// its header and transcript start below the bar and nothing in the
-    /// conversation is ever under it. The bar sits in that room, under the
-    /// status bar. (CmuxConversation pins its header to the safe area and the
-    /// transcript to the header, so a safe-area inset moves both; a hook to
-    /// put the bar under the header is upstream request U8.)
+    /// The bar sits under the header, as Messages pins a business chat's
+    /// request under its name (U8), and takes its own room there: the
+    /// transcript starts the bar's height + 8 pt lower
+    /// (``ConversationViewController/headerAccessoryRoom``), so nothing in
+    /// the conversation is ever under it (R2-1). The header never moves:
+    /// the back button stays in the top-left corner whether or not Chief is
+    /// asking or messages wait to send (CMUX-25: the bar used to sit above
+    /// the header and push the back button about 70 pt down).
     private func layoutQuestionBar() {
         guard questionBar.parent === self else { return }
+        conversation.view.layoutIfNeeded()
         let size = questionBar.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
         let height = size.height < 1 ? 0 : size.height
-        let top = view.safeAreaInsets.top + 4
+        let top = conversation.view.convert(CGPoint(x: 0, y: conversation.headerMaxY), to: view).y + 4
         questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: height)
-        if height > 0 { topBand.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + height + 4) }
-        let inset: CGFloat = height > 0 ? height + 8 : 0
-        guard conversation.additionalSafeAreaInsets.top != inset else { return }
+        if height > 0 { topBand.frame = CGRect(x: 0, y: top - 4, width: view.bounds.width, height: height + 8) }
+        let room: CGFloat = height > 0 ? height + 8 : 0
+        guard conversation.headerAccessoryRoom != room else { return }
         let apply = { [conversation] in
-            conversation.additionalSafeAreaInsets.top = inset
+            conversation.headerAccessoryRoom = room
             conversation.view.layoutIfNeeded()
         }
         if view.window != nil, !UIAccessibility.isReduceMotionEnabled {
@@ -485,20 +507,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubbleBottom?.isActive = false
         bottom.isActive = true
         liveBubbleBottom = bottom
-    }
-
-    public func presentQuestion(_ id: String) {
-        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
-        view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = [.medium(), .large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        // At accessibility sizes the card does not fit half a screen.
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            host.sheetPresentationController?.selectedDetentIdentifier = .large
-        }
-        present(host, animated: true)
     }
 
     private var headerAvatar: String?

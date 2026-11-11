@@ -820,7 +820,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly."
+        "upsell": "Max includes Cloud VMs with no count cap, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly. Machines are metered beyond the included usage."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -889,17 +889,17 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
+            "Cloud VMs with no count cap, metered beyond the included usage; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
             "The cmux iOS app"
           ],
           "max": [
-            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
+            "Cloud VMs with no count cap, metered beyond the included usage; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
             "Larger machine sizes",
             "Everything in Pro"
           ],
           "team": [
             "Everything in Pro for every member",
-            "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+            "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage; the team's spending cap is the stop",
             "One invoice for the whole team",
             "Priority support"
           ]
@@ -1850,7 +1850,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
+        "Cloud VMs with no count cap, metered beyond the included usage; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1870,7 +1870,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
+        "Cloud VMs with no count cap, metered beyond the included usage; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
         "Unlimited workspaces and the iOS app"
       ],
       "annual": {
@@ -1882,7 +1882,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+        "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage; the team's spending cap is the stop",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1973,18 +1973,18 @@
         {
           "label": "Saved Cloud VMs, including paused machines",
           "free": "false",
-          "pro": "5",
-          "max": "5",
-          "team": "5 per paid seat",
+          "pro": "No cap",
+          "max": "No cap",
+          "team": "No cap",
           "enterprise": "Custom",
           "go": "1"
         },
         {
           "label": "Cloud VM resources",
           "free": "false",
-          "pro": "20 vCPUs and 40 GB RAM, shared",
-          "max": "80 vCPUs and 160 GB RAM, shared",
-          "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
+          "pro": "Metered beyond the included usage",
+          "max": "Metered beyond the included usage",
+          "team": "Metered beyond the included usage; the team's spending cap is the stop",
           "enterprise": "Custom",
           "go": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"
         },
@@ -2091,11 +2091,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro has no cap on how many Cloud VMs you keep: machines are metered beyond the included usage, and your spending cap is the stop. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team is optional: it puts everyone on one shared bill and one spending cap."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and the larger Cloud VM sizes: 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB RAM / 32 vCPU on one VM. One Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Pro, Team, and Max do not cap how many VMs you keep (Plus keeps one): machines are metered beyond the included usage, and the spending cap is the stop. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4314,6 +4314,7 @@
       "nextRemote": "Remote machines and Tailscale",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
+      "nextArchitecture": "Architecture",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
@@ -4543,14 +4544,14 @@
       "planMax": "Max",
       "sizesDefault": "New machines use 8 GB of memory when you do not choose a size. Run cmux vm ls --json to see the sizes that your plan allows.",
       "limitsTitle": "Plan limits",
-      "limitsDesc": "Your active machines share one pool of vCPUs and memory. Run one large machine or several small ones. Paused machines do not use the pool. Disk is set for each machine and is not pooled.",
+      "limitsDesc": "Pro, Team, and Max have no cap on how many machines you have; Plus keeps one machine. Beyond the included usage, running machines are metered per vCPU-hour and GB-hour, and saved and paused machines per GB-month of disk. The team's spending cap is the only stop: at the cap new starts are refused, and running machines pause after a warning, with nothing lost.",
       "limitsFree": "Free accounts cannot create machines.",
-      "limitsPaid": "Pro accounts can have up to 5 machines, including paused machines that share 20 vCPUs and 40 GB of memory.",
-      "limitsTeam": "Team accounts can have up to 5 machines, including paused machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
-      "limitsMax": "Max accounts can have up to 5 machines, including paused machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
-      "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
+      "limitsPaid": "Pro accounts can have any number of machines, each up to 16 GB and 8 vCPUs.",
+      "limitsTeam": "Team is optional: it puts everyone on one shared bill and one spending cap. Seats do not change how many machines anyone can have.",
+      "limitsMax": "Max accounts can have any number of machines. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
+      "limitsPoolFull": "At the spending cap, cmux refuses a new or resumed machine and says the team reached its cap. Raise the cap to start machines again; nothing is deleted.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
-      "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
+      "limitsPricing": "See the pricing page for current prices. Use beyond the included amount is metered.",
       "agentUpdatesTitle": "Keep coding agents up to date",
       "agentUpdatesDesc": "With this setting on, the machine updates Claude Code, Codex, OpenCode, pi, and agent-browser. It checks after the machine is created and each time you connect, at most once every 24 hours. The update runs detached, so it never blocks connecting.",
       "agentUpdatesSource": "Each tool comes from its official GitHub release and is verified against the release asset's sha256 digest. npm is not used. A release installs only after it has been public for 3 days, and an update never installs an older version. A running agent keeps the files it started with, and a failed update leaves the current version in place.",
@@ -7231,7 +7232,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
+    "body": "Pro includes Cloud VMs with no count cap, metered beyond the included usage, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {

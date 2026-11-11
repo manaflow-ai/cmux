@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c. */
+/* cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c" as const;
+export const SDK_IR_SHA256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2786,7 +2786,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -2923,6 +2923,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Color strings are exactly #rrggbb.",
       "With complete:true, absent optional values reset to built-in defaults."
+    ]
+  },
+  "set-divider-visible": {
+    "authority": "control",
+    "since": 12,
+    "capability": "split-divider-visibility-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The split must not be a viewport column or row boundary; the same value again changes nothing and sends no event."
     ]
   },
   "set-frontend-browser-history": {
@@ -3170,6 +3180,42 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "shell-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Waits at most 10 s (the default) for output after `after` or the command's end.",
+      "Answers {output, next, truncated?, exit?} or {refused}: unknown_run, busy.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-run": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {run} or {refused}: too_many, folder_missing, spawn_failed, invalid.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-stop": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {} or {refused: unknown_run}."
+    ]
+  },
   "shutdown-daemon": {
     "authority": "local-admin",
     "since": 9,
@@ -3229,6 +3275,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "around": {
+        "since": 12,
+        "capability": "split-around-v1"
+      },
       "before": {
         "since": 12,
         "capability": "split-before-v1"
@@ -4056,6 +4106,22 @@ export const EVENT_METADATA = {
   "empty": {
     "since": 5,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-reports-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-view-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
     "streams": [
       "subscribe"
     ],
@@ -6430,6 +6496,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ConversationTabSplit": {
     "additional_properties": false,
     "fields": {
+      "around": {
+        "capability": "split-around-v1",
+        "default": null,
+        "description": "The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
       "direction": {
         "description": "The side of pane the new pane takes: right, down, left or up.",
         "nullable": false,
@@ -11327,6 +11404,157 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsJournalFollower": {
+    "additional_properties": false,
+    "constraints": [
+      "kinds is the stream's kind filter as sent (a trailing .* is a prefix); empty means every kind.",
+      "max_sensitivity is public, metadata or sensitive; null means no limit. A remote client's limit is metadata.",
+      "left_ms is null while the stream is live; otherwise the stream ended that long ago and still keeps rows until grace_ms is over.",
+      "keeps_hook_rows: the stream is sent agent.state.changed rows at sensitive, so every agent hook report is a journal row.",
+      "keeps_report_rows: the stream is sent agent.report rows at sensitive, so every agent plugin report is a journal row."
+    ],
+    "fields": {
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "connected_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "keeps_hook_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keeps_report_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kinds": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "left_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max_sensitivity": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "remote": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "stream_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsJournalFollowers": {
+    "additional_properties": false,
+    "constraints": [
+      "followers lists the live session.journal.subscribe streams with follow not false, and those that ended less than grace_ms ago.",
+      "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
+      "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
+      "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
+    ],
+    "fields": {
+      "followers": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsJournalFollower"
+          },
+          "kind": "array"
+        }
+      },
+      "grace_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hook_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "journal_hook_keeps_rows": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keep_all_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "report_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -11952,7 +12180,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "write_path is present only when the request names it in include.",
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
-      "disk is present only when the request names it in include and the session keeps its registry on disk."
+      "disk is present only when the request names it in include and the session keeps its registry on disk.",
+      "journal_followers is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -11977,6 +12206,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHookQueue"
+        }
+      },
+      "journal_followers": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsJournalFollowers"
         }
       },
       "journal_writer": {
@@ -13201,6 +13438,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "title": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -27077,6 +27332,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-divider-visible": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "split": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "visible": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "set-frontend-browser-history": {
     "request": {
       "additional_properties": false,
@@ -28042,6 +28334,111 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "shell-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after": {
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "wait_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "command": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "run": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "scope": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-stop": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "shutdown-daemon": {
     "request": {
       "additional_properties": false,
@@ -28206,6 +28603,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "around": {
+          "capability": "split-around-v1",
+          "default": null,
+          "description": "The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
         "before": {
           "capability": "split-before-v1",
           "default": false,
@@ -31415,6 +31824,61 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "feed-reports-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-reports-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "feed-view-changed": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-view-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "frame": {
     "additional_properties": false,
     "fields": {
@@ -33476,6 +33940,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "title-changed": {
     "additional_properties": false,
     "fields": {
+      "activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33490,6 +33963,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "title": {

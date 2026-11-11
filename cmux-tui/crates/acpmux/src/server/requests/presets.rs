@@ -23,6 +23,7 @@ pub(super) async fn handle(
             .clone()
             .ok_or_else(|| RpcError::invalid_params("name is required to change a preset"))?;
         let mut cfg = hub.config.write().await;
+        let mut logged = None;
         // REMOTE-FLOOR v3: a remote-origin client builds its settings
         // from scratch, so it never sets, changes or clears a preset
         // that shapes the harness command line (args, systemPrompt).
@@ -209,12 +210,26 @@ pub(super) async fn handle(
             }
             // The person's approval binds these contents (`hub/person.rs` (b)).
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
+            // A no-prompt preset's approval or withdrawal goes in the unattended runs log, once
+            // it is saved (#39916).
+            if let Some(approve) = approve
+                && p.policy_skips_asking()
+            {
+                logged = Some((
+                    if approve { "approved" } else { "withdrawn" },
+                    json!({"preset": name, "digest": p.approval_digest(), "person": conn.is_person(),
+                           "caller": conn.caller(), "sessionId": str_param(params, "sessionId")}),
+                ));
+            }
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
             return Err(RpcError::internal(format!("save config: {e}")));
         }
         drop(cfg);
+        if let Some((event, fields)) = logged {
+            crate::hub::unattended_presets::log(event, fields);
+        }
         // Only the person's answer closes a card: an agent's `approveMode: false` narrows, but
         // must not hide the card from the person (review 3 F3 of #39333).
         if let Some(approve) = approve

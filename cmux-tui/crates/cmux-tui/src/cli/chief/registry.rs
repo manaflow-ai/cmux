@@ -417,8 +417,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let request = match parse(args) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux: {error}\n\n{}", t.usage);
-            return 2;
+            let json = args.iter().any(|arg| arg == "--json");
+            let global = GlobalArgs {
+                output: if json { OutputMode::Json } else { global.output },
+                ..global.clone()
+            };
+            return super::usage_failure(&global, &error, t.usage);
         }
     };
     if request.help {
@@ -444,49 +448,38 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
+    // Every failure below in the one shape: the `--json` envelope under
+    // `--json` (here or before the scope), else `cmux: <message>`.
+    let output = if request.json { OutputMode::Json } else { global.output };
+    let fail = |code: &str, message: String, exit: i32| {
+        super::super::wire::print_local_error(
+            &json!({"code": code, "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
+            output,
+            exit,
+        )
+    };
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),
         Ok(Target::Home(home)) => match home.socket() {
             Ok(socket) => (socket, true),
-            Err(error) => {
-                eprintln!("cmux: {error}");
-                return 2;
-            }
+            Err(error) => return fail("usage.invalid", error.to_string(), 2),
         },
-        Err((code, message)) => {
-            eprintln!("cmux: {message}");
-            return code;
-        }
+        Err((code, message)) => return fail("chief.unavailable", message, code),
     };
     let mut link = match Link::connect(&socket.0, socket.1) {
         Ok(link) => link,
-        Err(error) => {
-            eprintln!("{}", super::super::wire::connect_failure(&socket.0, &error));
-            return 3;
-        }
+        Err(error) => return super::super::wire::report_connect_failure(&socket.0, &error, output),
     };
     match execute(&mut link, &request, global.output) {
         Ok(()) => 0,
-        Err(Failure::Usage(message)) => {
-            eprintln!("cmux: {message}");
-            2
-        }
-        Err(Failure::Link(LinkError::Transport(message))) => {
-            eprintln!("cmux: {message}");
-            3
-        }
-        Err(Failure::Unsupported) => {
-            eprintln!("cmux: {}", t.unsupported);
-            1
-        }
+        Err(Failure::Usage(message)) => fail("usage.invalid", message, 2),
+        Err(Failure::Link(LinkError::Transport(message))) => fail("transport.failed", message, 3),
+        Err(Failure::Unsupported) => fail("chief.unsupported", t.unsupported.to_string(), 1),
         Err(Failure::Link(LinkError::Rejected { code, message })) => {
-            eprintln!("cmux: {code}: {message}");
-            1
+            fail(&code, format!("{code}: {message}"), 1)
         }
         Err(Failure::Partial { done, error }) => {
-            eprintln!("cmux: {done}");
-            eprintln!("cmux: {error}");
-            1
+            fail("chief.partial", format!("{done}\ncmux: {error}"), 1)
         }
     }
 }

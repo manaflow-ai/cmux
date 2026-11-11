@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c. */
+/* cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -372,6 +372,8 @@ export type ConversationTabRecord = {
 };
 
 export type ConversationTabSplit = {
+  /** The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down. */
+  "around"?: (Id) | null;
   /** The side of pane the new pane takes: right, down, left or up. */
   "direction": string;
   /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
@@ -1171,6 +1173,27 @@ export type ServerStatsHookQueue = {
   "undeliverable_events": bigint;
 };
 
+export type ServerStatsJournalFollower = {
+  "client": bigint;
+  "connected_ms": bigint;
+  "keeps_hook_rows": boolean;
+  "keeps_report_rows": boolean;
+  "kinds": Array<string>;
+  "left_ms": (bigint) | null;
+  "max_sensitivity": (string) | null;
+  "remote": boolean;
+  "stream_id": string;
+};
+
+export type ServerStatsJournalFollowers = {
+  "followers": Array<ServerStatsJournalFollower>;
+  "grace_ms": bigint;
+  "hook_rows_kept": boolean;
+  "journal_hook_keeps_rows": (boolean) | null;
+  "keep_all_ms": bigint;
+  "report_rows_kept": boolean;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1267,6 +1290,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
+  "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
@@ -1457,6 +1481,8 @@ export type Tab = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
   "title": string;
+  "title_activity"?: (string) | null;
+  "title_text"?: string;
 };
 
 export type TabGroupEndedTerminal = {

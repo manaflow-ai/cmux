@@ -46,6 +46,7 @@ import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
+import { newestPage } from "./daemonPage";
 
 const MODES_ALL = ["down", "slow-init"] as const;
 type Mode = (typeof MODES_ALL)[number];
@@ -79,12 +80,10 @@ const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
-/// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
-/// daemon answers an attach or an older-history read with (chat-open.bench.ts).
-const newest = (limit: number, beforeSeq = Infinity) => {
-  const older = events.filter((event) => event.seq < beforeSeq);
-  return { page: older.slice(-limit), hasMore: older.length > limit };
-};
+/// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
+/// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
+  newestPage(events, { limit, beforeSeq, maxBytes });
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
 /// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
 /// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
@@ -109,8 +108,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/watch":
       return { sessions: [session] };
     case "_acpmux/attach": {
-      // As the daemon does: the newest `limit` events, and hasMore while older ones remain.
-      const { page, hasMore } = newest(Number(params.limit ?? 400));
+      // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
+      const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
       return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
     }
     case "_acpmux/events": {
@@ -123,7 +122,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq));
+        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };

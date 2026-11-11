@@ -82,6 +82,8 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.login(op, fields) }
     }
 
+    public func btw(_ question: String) async throws -> Data { try await mapped { try await client.btw(question) } }
+
     /// An observation never opens a side chat.
     public func servesSide() async -> Bool {
         guard mode != .observe else { return false }

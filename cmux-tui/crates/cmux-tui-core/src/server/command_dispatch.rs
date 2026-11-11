@@ -97,6 +97,11 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ShellRead(_) => {
+            anyhow::bail!("shell-read requires the asynchronous request path")
+        }
+        Command::ShellRun(params) => shell_wire::run(mux, client, params),
+        Command::ShellStop(params) => shell_wire::stop(mux, client, params),
         Command::ChiefWork { chief } => {
             drop(chief);
             anyhow::bail!("chief-work requires the asynchronous request path")
@@ -502,6 +507,9 @@ fn dispatch_command(
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+        }
+        Command::SetDividerVisible { split, visible, transaction } => {
+            cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)

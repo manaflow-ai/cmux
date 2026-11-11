@@ -20,7 +20,7 @@ struct SidebarRowPageBesideChatTests {
     /// Each tab's face as `AppServices.sidebarPageFace` gives it: the name of the work a page
     /// yields to (else the tab's own), and a favicon for a browser tab only.
     private static func pageFace(_: WorkspaceModel, _ tab: TabModel, _ work: TabModel?) -> SidebarMapping.PageFace? {
-        .init(title: (work ?? tab).title, favicon: tab.kind == .browser ? github : nil)
+        .init(title: (work ?? tab).titleText, favicon: tab.kind == .browser ? github : nil)
     }
 
     /// A GitHub page in its own pane, focused at 2, and with `chat` an agent chat on its left
