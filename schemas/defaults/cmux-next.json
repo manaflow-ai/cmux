@@ -310,6 +310,7 @@
     "setting.announcements.fetch": true,
     "setting.app.globalHotKey": false,
     "setting.app.hideDockIconWithoutWindows": true,
+    "setting.app.internalDeveloperMode": false,
     "setting.app.quitBehavior": "keep",
     "setting.app.showMenuBarIcon": true,
     "setting.app.startAgentGlobalHotKey": false,

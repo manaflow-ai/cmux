@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
 use fs4::FileExt;

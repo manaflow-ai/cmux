@@ -2983,8 +2983,6 @@ CmuxNextApp	extension	ShellWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources
 CmuxNextApp	extension	SidebarBridge	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarBridge+Windows.swift	Sidebar position to daemon global order mapping
 CmuxNextApp	typealias	SidebarMembership	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarMembership.swift	typealias
 CmuxNextApp	enum	SidebarToggleIcon	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIcon.swift	Titlebar/toggle/menu/band/close-motion AppKit view code
-CmuxNextApp	class	SidebarToggleIconMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIconMenu.swift	Titlebar/toggle/menu/band/close-motion AppKit view code
-CmuxNextApp	class	StatusIconSetMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/StatusIconSetMenu.swift	Titlebar/toggle/menu/band/close-motion AppKit view code
 CmuxNextApp	class	TitlebarToolbarBand	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/TitlebarToolbarBand.swift	Titlebar/toggle/menu/band/close-motion AppKit view code
 CmuxNextApp	class	WindowCloseMotion	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowCloseMotion.swift	Titlebar/toggle/menu/band/close-motion AppKit view code
 CmuxNextApp	extension	WindowController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowController+CloudCreation.swift	WindowController AppKit content/fullscreen/history buttons
@@ -6201,7 +6199,6 @@ CmuxNextDesign	enum	LayerColor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextDesign	enum	ThemeRepaint	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ColorTransition/ThemeRepaint.swift	from enum LayerColor:5: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	protocol	CursorRectHoldHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CursorRectHold.swift	from protocol CursorRectHoldPolicy:7: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	protocol	CursorRectHoldPolicy	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CursorRectHold.swift	from protocol CursorRectHoldPolicy:7: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	BlockingCallsMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/BlockingCallsMenu.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	DensityPreset	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityPreset.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	DensityTokens	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityTokens+Active.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	DensityTokens	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityTokens+Active.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing

@@ -214,6 +214,9 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            committed_snapshots: crate::resource_api::CommittedSnapshots::open(
+                registry.session_journal_database_path().as_deref(),
+            ),
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
