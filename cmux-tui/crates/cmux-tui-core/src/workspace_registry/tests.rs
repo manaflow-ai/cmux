@@ -1462,6 +1462,7 @@ fn viewport_screen() -> RegistryScreen {
     let boundary = split_id(2);
     let base_column = split_id(3);
     let first_column = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal,
         direction: "down".into(),
         ratio: 0.5,
@@ -1474,6 +1475,7 @@ fn viewport_screen() -> RegistryScreen {
         position: 0,
         name: None,
         layout: RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: boundary.clone(),
             direction: "right".into(),
             ratio: 1.0 / (1.0 + 0.5),
@@ -1534,6 +1536,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
     let fourth = pane_id(4);
     if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
         **second = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: split_id(4),
             direction: "down".into(),
             ratio: 0.5,
@@ -1542,6 +1545,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
         };
     }
     duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: split_id(1),
         direction: "down".into(),
         ratio: 0.5,
@@ -1672,6 +1676,7 @@ fn commit_browser_topology(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split,
                             direction: "right".into(),
                             ratio: 0.5,
@@ -2915,6 +2920,7 @@ fn commit_browser_topology_unchecked(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split_id(1),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -3011,6 +3017,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split.clone(),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -6293,6 +6300,41 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     assert!(!registry.terminal_keep(TERMINAL_THREE).unwrap());
     assert!(registry.terminal_keep(TERMINAL_TWO).unwrap());
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The live panes of one screen are read through an index, also in a
+/// registry an older build made without it: each open reads them once per
+/// screen (the resource invariants), and a scan of every pane row made the
+/// open O(screens x panes), 0.5 s at 4,000 workspaces (#40449).
+#[test]
+fn an_older_registry_gets_the_index_that_reads_a_screens_live_panes() {
+    let root = temp_root("live-panes-by-screen-index");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "live-panes-index-seed");
+    }
+    let older = Connection::open(&database).unwrap();
+    older.execute_batch("DROP INDEX IF EXISTS live_resource_panes_by_screen;").unwrap();
+    drop(older);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let connection = reopened.connection.get();
+    let plan = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT public_id FROM resource_panes
+             WHERE screen_id = ?1 AND deleted_revision IS NULL",
+        )
+        .unwrap()
+        .query_map(["screen"], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .join("; ");
+    assert!(plan.contains("live_resource_panes_by_screen"), "a screen's live panes: {plan}");
+    drop(connection);
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 

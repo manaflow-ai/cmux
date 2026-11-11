@@ -837,10 +837,16 @@ extension LiveCoordinator {
         // started later, or a tab shown from the list before the tree came)
         // was built unbound and cached; rebuild it on the bound session.
         for (key, used) in sourcedSessions where (used.macID == macID || used.macID.isEmpty)
-            && tree.agentTabs[used.tabID]?.session != used.session {
+            && (tree.agentTabs[used.tabID]?.session != used.session || used.provisional) {
             // A store built without its Mac (macID empty) is rebuilt when any Mac's tab changes.
             if used.macID.isEmpty, tree.agentTabs[used.tabID] == nil { continue }
             sourcedSessions[key] = nil
+            // A provisional chat on the session the tree names stays: its source is the one the
+            // rebuilt store gets (`AcpmuxHub.source` keeps one per session), so nothing redraws.
+            if used.provisional, let bound = used.session, tree.agentTabs[used.tabID]?.session == bound {
+                sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
+                continue
+            }
             AgentSessionDirectory.shared.invalidate(id: used.tabID, macID: used.macID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
@@ -897,6 +903,10 @@ extension LiveCoordinator {
         case .macOffline:
             store.handleMacData(.offline, macID: macID)
             store.macConnection[macID] = nil
+        case .signedOut:
+            // The list on screen stays (last-known data); nothing reconnects.
+            store.handleMacData(.failed("Signed out"), macID: macID)
+            store.macConnection[macID] = .failed("Signed out")
         case .connecting:
             if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.handleMacData(.connecting, macID: macID)
@@ -986,6 +996,8 @@ extension LiveCoordinator {
             banner = nil
         case .macOffline:
             banner = .macOffline(name, identity: session.macID)
+        case .signedOut:
+            banner = .signedOut
         case .connected:
             if everConnected, banner != nil, banner != .connected {
                 banner = .connected

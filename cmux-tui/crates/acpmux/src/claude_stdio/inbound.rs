@@ -329,6 +329,17 @@ impl Translator {
                     }
                 }
             }
+            // Claude Code's queue of the lines it was given: the turn's prompt waits behind a
+            // turn of Claude Code's own (`queued`) until it starts. Only the prompt's own uuid
+            // counts; a steered line's never holds a result.
+            "command_lifecycle" => {
+                let command = line.get("command_uuid").and_then(Value::as_str).unwrap_or("");
+                let prompt = self.prompt_echo.lock().await;
+                if !command.is_empty() && prompt.as_deref() == Some(command) {
+                    let state = line.get("state").and_then(Value::as_str).unwrap_or("");
+                    self.prompt_queued.store(state == "queued", Ordering::SeqCst);
+                }
+            }
             // Claude Code's echo of a user line it read (`--replay-user-messages`):
             // first the turn's prompt, then each steered line in order.
             // Matched by the line's uuid; an echo of anything else is ignored.
@@ -337,6 +348,7 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    self.prompt_queued.store(false, Ordering::SeqCst);
                     // What follows is this prompt's output, not a stopped turn's tail.
                     self.turn_output.store(false, Ordering::SeqCst);
                     return out;
@@ -782,6 +794,20 @@ impl Translator {
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
+                    return out;
+                }
+                // The result of a turn Claude Code ran while the prompt waited in its queue (a task
+                // notification's, a loop tick's): the prompt has not started, so this is not its
+                // end. The prompt, its steers and the turn stay as they are; the prompt's own
+                // result ends it. A stopped chat's result still ends it (the stop is for the whole
+                // turn), and a local command's (no model turn) cannot be another turn's.
+                if self.prompt_queued.load(Ordering::SeqCst)
+                    && !self.cancelled.load(Ordering::SeqCst)
+                    && !cancelled_compaction
+                    && !local_command
+                    && (line.get("num_turns").and_then(Value::as_u64).unwrap_or(0) > 0
+                        || line.get("duration_api_ms").and_then(Value::as_u64).unwrap_or(0) > 0)
+                {
                     return out;
                 }
                 // A normal result from the new prompt means the cancelled compaction did not

@@ -385,3 +385,55 @@ fn a_claude_code_profile_of_its_own_family_reads_the_claude_store() {
     pi.family = Some("pi".into());
     assert_eq!(store_family("pi", &pi), "pi");
 }
+
+/// A permission policy this build does not know (one a newer build added and saved, read again
+/// after a rollback) never stops the daemon: `Config::load` failed on it, so no chat could be
+/// reached until someone edited config.json by hand. It loads as `ask`, the default: a person
+/// is asked, nothing is approved that was not. Every known value, and every alias, reads as
+/// before, and what this build writes is unchanged.
+#[test]
+fn a_permission_policy_from_a_newer_build_loads_as_ask() {
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-policy-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.json");
+    std::fs::write(
+        &path,
+        r#"{"permissionPolicy": "a-policy-from-a-newer-build",
+            "defaults": {"claude": {"policy": "another-new-one"}}}"#,
+    )
+    .unwrap();
+    let loaded = Config::load_from_with(&path, &ProfileSources::none());
+    let _ = std::fs::remove_dir_all(&dir);
+    let config = loaded.expect("a config with a newer build's policy did not load");
+    assert_eq!(config.permission_policy, PermissionPolicy::Ask);
+    assert_eq!(config.defaults.get("claude").and_then(|d| d.policy), Some(PermissionPolicy::Ask));
+    for (text, policy) in [
+        ("ask", PermissionPolicy::Ask),
+        ("approve-all", PermissionPolicy::ApproveAll),
+        ("yolo", PermissionPolicy::ApproveAll),
+        ("approve-reads", PermissionPolicy::ApproveReads),
+        ("approve-edits", PermissionPolicy::ApproveEdits),
+        ("accept-edits", PermissionPolicy::ApproveEdits),
+        ("deny-all", PermissionPolicy::DenyAll),
+        ("review", PermissionPolicy::Review),
+    ] {
+        let read: PermissionPolicy = serde_json::from_value(serde_json::json!(text)).unwrap();
+        assert_eq!(read, policy, "{text}");
+    }
+    for policy in [
+        PermissionPolicy::Ask,
+        PermissionPolicy::ApproveAll,
+        PermissionPolicy::ApproveReads,
+        PermissionPolicy::ApproveEdits,
+        PermissionPolicy::DenyAll,
+        PermissionPolicy::Review,
+    ] {
+        assert_eq!(serde_json::to_value(policy).unwrap(), serde_json::json!(policy.to_string()));
+    }
+    // A value that is not a string is still an error: that is a damaged file, not a newer one.
+    assert!(serde_json::from_value::<PermissionPolicy>(serde_json::json!(3)).is_err());
+}
