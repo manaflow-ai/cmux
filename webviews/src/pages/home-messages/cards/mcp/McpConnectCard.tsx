@@ -56,7 +56,7 @@ export function useMcpConnectFlow(card: McpConnectCardData, call: HostCall) {
     cancel: () => step(...current.current.cancel()),
     submitKey: (key) => step(...current.current.submit(key)),
   };
-  /** A daemon answer (`cmux.home.messages.mcp`). */
+  /** A daemon answer (`cmux.home.mcp.state`). */
   const answer = (apply: (flow: McpConnectFlow) => McpConnectFlow) => {
     const next = apply(current.current);
     current.current = next;

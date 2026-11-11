@@ -144,6 +144,8 @@ pub(crate) fn harness_command(
     let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
     env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
+    // The team-mode marker is for the remote chain's settings only (claude_cloud_auth.rs).
+    env.remove(crate::claude_cloud_auth::TEAM_MARKER);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
     // The chat's turned-off servers are for the fold only (agent_tools.rs).

@@ -12,6 +12,8 @@
 #    build-app-ffi.sh) go to the pull request (pr);
 #  - an already pinned tip, a dry run and a push the remote refuses once.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 tmp="$(mktemp -d)"
@@ -84,7 +86,7 @@ first="$(git -C "$seed" rev-parse HEAD)"
 pin_manifest "$first"
 git -C "$seed" add -A
 git -C "$seed" commit -qm pin
-git clone -q --bare "$seed" "$tmp/remote.git"
+git_fixture_clone --bare "$seed" "$tmp/remote.git"
 export PIN_BASE_REMOTE="$tmp/remote.git"
 
 work="$tmp/work"

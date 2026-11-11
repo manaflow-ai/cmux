@@ -180,7 +180,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
         var firstSection = true, statusShown = false, statusListed = false
-        var projectsHeaded = false, recentsPlaced = false
+        var projectsHeaded = false, recentsPlaced = false, workspacesHeaded = false
         // Projects' "Show N more" and the Recents list, once, right after the last computer's rows.
         func placeRecents() {
             guard let recents, !recentsPlaced else { return }
@@ -282,6 +282,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if let recents, !projectsHeaded, section.machine != nil, !nodes.isEmpty, recents.projectCount > 0 {
                 projectsHeaded = true
                 Self.appendProjectsHeader(recents, section: section.id, metrics: m, to: &rows, y: &y)
+            }
+            // One list's "Workspaces" heading, once, over the first computer's rows (never with a filter, Recents, the
+            // session tree or Group by Status, which head or replace the list themselves).
+            if o.headsWorkspaceList, !workspacesHeaded, recents == nil, flat, !filtering, o.sessionTree == nil, !nodes.isEmpty {
+                workspacesHeaded = true
+                Self.appendWorkspacesHeader(section: section.id, count: nodes.count, metrics: m, to: &rows, y: &y)
             }
             if section.machine != nil { chats.placePinned(&y) }
             // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's

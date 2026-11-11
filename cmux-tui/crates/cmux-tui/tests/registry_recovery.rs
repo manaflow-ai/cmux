@@ -129,6 +129,9 @@ fn recovered(session_dir: &Path) -> Vec<(String, Vec<u8>)> {
     for batch in batches {
         for file in fs::read_dir(batch.unwrap().path()).unwrap() {
             let file = file.unwrap();
+            if file.path().is_dir() {
+                continue;
+            }
             files.push((
                 file.file_name().to_string_lossy().into_owned(),
                 fs::read(file.path()).unwrap(),
@@ -189,4 +192,42 @@ fn an_unreadable_registry_is_kept_with_its_sidecars() {
     assert!(kept.iter().any(|(name, bytes)| name == REGISTRY && bytes == &garbage), "{stderr}");
     assert!(kept.iter().any(|(name, _)| name == &format!("{REGISTRY}-shm")));
     assert!(start_owner(&dir.0, session).1);
+}
+
+/// A quarantine keeps the session's saved terminal output with the registry
+/// it belongs to. The start after it opens a new, empty registry, and the
+/// output store drops every file of a terminal that registry does not know:
+/// output left in place would be deleted at the very start that the
+/// quarantine message tells the person to make.
+#[test]
+fn a_quarantine_keeps_the_saved_terminal_output_with_the_registry() {
+    let dir = state_dir("output");
+    let session = "rr-output";
+    assert!(start_owner(&dir.0, session).1, "the first start serves");
+    let session_dir = session_dir(&dir.0);
+    let output_dir = session_dir.join("terminal-output");
+    fs::create_dir_all(&output_dir).unwrap();
+    let snapshot_name = "term_00000000000000000000000000000c51.snap";
+    let saved = b"a terminal screen saved by the session".to_vec();
+    fs::write(output_dir.join(snapshot_name), &saved).unwrap();
+    let _ = fs::remove_file(session_dir.join(format!("{REGISTRY}-wal")));
+    fs::write(session_dir.join(REGISTRY), vec![0x5a_u8; 8192]).unwrap();
+
+    let (output, served) = start_owner(&dir.0, session);
+    assert!(!served);
+    let stderr = String::from_utf8_lossy(&output.unwrap().stderr).into_owned();
+    assert!(stderr.contains("registry-recovery"), "{stderr}");
+    // The start after the quarantine serves a new session and prunes the
+    // output directory against it.
+    assert!(start_owner(&dir.0, session).1, "the start after the quarantine serves");
+
+    let in_place = fs::read(output_dir.join(snapshot_name)).ok();
+    let beside_registry = fs::read_dir(session_dir.join("registry-recovery"))
+        .unwrap()
+        .map(|batch| batch.unwrap().path())
+        .find_map(|batch| fs::read(batch.join("terminal-output").join(snapshot_name)).ok());
+    assert!(
+        in_place.as_ref() == Some(&saved) || beside_registry.as_ref() == Some(&saved),
+        "the saved output was deleted after the quarantine: {stderr}"
+    );
 }
