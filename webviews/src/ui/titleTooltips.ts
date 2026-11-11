@@ -14,16 +14,11 @@
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
 // which floats over the pane.
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
-// An element inside `[data-native-title]` keeps its `title` for the system's own tooltip: a page in
-// a strip shorter than its tooltips (the bookmarks bar) needs one that can leave the web view.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
-
-/// On an element whose subtree keeps the system's own `title` tooltips (see the header).
-export const NATIVE_TITLE_ATTRIBUTE = "data-native-title";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
 const SCROLL_QUIET = 150;
@@ -384,8 +379,7 @@ export function installTooltips(
   let still: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
-    const found = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
-    const element = found?.closest(`[${NATIVE_TITLE_ATTRIBUTE}]`) ? undefined : found;
+    const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
     if (element && element !== target && !motion.arrived(event)) {
       still = element;
       return;

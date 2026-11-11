@@ -230,6 +230,7 @@ public final class BrowserChromeView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         toolbar.wantsLayer = true
+        accessoryBar.wantsLayer = true
         separator.wantsLayer = true
         contentContainer.wantsLayer = true
         contentContainer.layer?.masksToBounds = true
@@ -485,6 +486,8 @@ public final class BrowserChromeView: NSView {
             // the toolbar and the page read as one surface.
             let card = paints && CornerFlush.current.isOn ? Palette.windowBackground.cgColor : surface
             toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? card
+            // The bar under the toolbar (the bookmarks bar) is the same band: it takes the toolbar's fill.
+            accessoryBar.layer?.backgroundColor = toolbar.layer?.backgroundColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }

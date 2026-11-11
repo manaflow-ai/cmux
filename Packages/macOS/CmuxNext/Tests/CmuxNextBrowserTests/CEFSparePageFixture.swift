@@ -124,6 +124,9 @@ nonisolated enum SpareSpy {
     /// in the same window (an extension's tab) before the added tab's: that browser's id.
     nonisolated(unsafe) static var chromiumTabInNextAdd: Int32?
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
+    /// A test clock (`CEFSpareWindow.now`) that each `cmux_shim_tab_add` moves by `addCost`.
+    nonisolated(unsafe) static var clock = ContinuousClock.now
+    nonisolated(unsafe) static var addCost: Duration = .zero
 
     static func reset(forkAPI: Int32 = 27) {
         clearRecords()
@@ -132,6 +135,8 @@ nonisolated enum SpareSpy {
         setFrozenAnswer = 1
         moveAnswer = 1
         chromiumTabInNextAdd = nil
+        clock = ContinuousClock.now
+        addCost = .zero
         self.forkAPI = forkAPI
         runtime = nil
     }
@@ -154,6 +159,7 @@ nonisolated enum SpareSpy {
         let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { anchor, url, _, activate in
             let browser = SpareSpy.nextBrowser
             SpareSpy.nextBrowser += 1
+            SpareSpy.clock = SpareSpy.clock.advanced(by: SpareSpy.addCost)
             let window = SpareSpy.windows[anchor] ?? 0
             SpareSpy.windows[browser] = window
             SpareSpy.added.append((anchor, url.map { String(cString: $0) } ?? "", activate, browser))
