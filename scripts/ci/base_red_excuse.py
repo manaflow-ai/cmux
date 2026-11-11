@@ -2086,14 +2086,15 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
-                   view: FailedView, github) -> tuple[str | None, str | None]:
+                   crashed: bool, github) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
     PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
     shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
     FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
     error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
     something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
-    before. The caller asks only after test_reds.read found no crash or cut-short run.
+    before. The caller asks only after test_reds.read found no crash or cut-short run. CRASHED: whether a test helper
+    died on a signal (crash_signals of the failed_view; of the whole log for an unplaced one, rollup_signature).
 
     Returns (audit line, set-aside line). The first is the excuse when the pin is the job's only red. The second, when
     other reds stand beside a pin a rule covers, says why the pin's own parts (without_ffi_pin) leave the base
@@ -2128,10 +2129,29 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
               f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
               "by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
-    if (tests or crash_signals(view) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+    if (tests or crashed or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
         return None, f"set aside '{FFI_PIN_CHECK}' (\"{FFI_PIN_ERROR}\"): {reason}"
     return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and {reason}", None
+
+
+def rollup_signature(repo: str, job: dict, github, run_reads: dict) -> tuple[set[str], set[str]] | None:
+    """(failed steps, error lines) of head JOB, a rollup job whose log step_owners does not place, read from the jobs
+    API and its rollup alone: None unless every step the jobs API does not call a success or skipped is a rollup step
+    (ROLLUP_STEPS) and rolled_up_reds names its reds. A step that is not continue-on-error fails in the jobs API, and
+    every continue-on-error check that fails is on the rollup's list, so these are all of the job's reds; the steps are
+    the rollup and the checks it names, the errors its `red check: NAME` lines. 2026-11-11: cmux#40552's checks job
+    (run 42895363602, job 130212680188) had more steps in one second than step_owners can tell apart, so since
+    #40542 the app FFI pin rule never saw it; read this way it is excused as before."""
+    failing = {str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+               if step.get("conclusion") not in ("success", "skipped")}
+    if not failing or failing - ROLLUP_STEPS:
+        return None
+    named = rolled_up_reds(repo, job, github, run_reads.setdefault("rollup-annotations", {}),
+                           run_reads.get("rollup-log-reds"))
+    if named is None:
+        return None
+    return failing | named, {normalise_error(f"red check: {red}") for red in named}
 
 
 def without_ffi_pin(head: tuple[set[str], set[str], set[str]]) -> tuple[set[str], set[str], set[str]]:
@@ -3241,7 +3261,10 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 #   (c) each of them was red in the base's newest verdict for the job at or before the merge-base: the red is the
 #       base's, which the PR inherited, never the PR's own (a step the base passed there and the head fails).
 # The rollup's reds are read from the job's check-run annotations, one read per job, not its log: a log step_owners
-# cannot place (cmux#40984's head job) still has them. The line keeps fixed_on_base's prefix, "excused 'JOB': fixed on
+# cannot place (cmux#40984's head job) still has them. A head job's check run with no red-check annotation at all has
+# them read from its log's own rollup list (rollup_log_reds) instead: a job a re-run attempt carries over without
+# running it again gets a new check run with none of its annotations (cmux#40552's job 130212680188, run attempt 2:
+# its annotations stayed on attempt 1's check run 130107053043), and its log, that same run's, still prints them. The line keeps fixed_on_base's prefix, "excused 'JOB': fixed on
 # base (", which merge_hold's actions_verdict and the lane broker's update_branch guard read, once per red job, and
 # names inside it the red's identity (`run RUN / JOB`: its head Actions run and job), its job id and workflow file,
 # each step and both base runs.
@@ -3253,9 +3276,11 @@ STEP_PRIOR_RUNS = 30  # base runs listed at or before the merge-base's commit ti
 STEP_PRIOR_JOB_READS = 4  # of them, the job lists read for a verdict for the job
 
 
-def rolled_up_reds(repo: str, job: dict, github, cache: dict) -> set[str] | None:
+def rolled_up_reds(repo: str, job: dict, github, cache: dict, logged: dict | None = None) -> set[str] | None:
     """The checks JOB's rollup step names red (its `red check: NAME` failure annotations), read once per job into
-    CACHE; None when the annotations cannot be read, name none, or may have been cut (ROLLUP_ANNOTATION_CAP)."""
+    CACHE; None when the annotations cannot be read, name none, or may have been cut (ROLLUP_ANNOTATION_CAP). When
+    they were read and name none, LOGGED (read_head's rollup_log_reds of the head's log, by job id) answers for a job
+    it holds: the same `##[error]red check: NAME` lines the annotations are made from, with the rollup's own count."""
     if job["id"] not in cache:
         notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations?per_page=100")
         found = None
@@ -3264,8 +3289,40 @@ def rolled_up_reds(repo: str, job: dict, github, cache: dict) -> set[str] | None
                     and (note.get("annotation_level") or "failure") == "failure"
                     and (match := ROLLUP_ANNOTATION.match(str(note.get("message") or "").strip()))]
             found = set(reds) if 0 < len(reds) < ROLLUP_ANNOTATION_CAP else None
+            if not reds and logged is not None:
+                found = logged.get(job["id"])
         cache[job["id"]] = found
     return cache[job["id"]]
+
+
+# The rollup's own list in its log (cmux-next.yml's "Fail on any red check"): one `::error title=cmux-next check::red
+# check: NAME` command per red check, which the runner prints as `##[error]red check: NAME` and GitHub turns into the
+# annotations rolled_up_reds reads, then `### N cmux-next check(s) failed` and one `- NAME (outcome)` line for each.
+ROLLUP_SUMMARY = re.compile(r"^### (\d+) cmux-next check\(s\) failed$")
+ROLLUP_ITEM = re.compile(r"^- (.+) \((?:failure|cancelled|skipped|timed_out|not run)\)$")
+ROLLUP_LOG_RED = re.compile(r"^##\[error\]red check: (.+)$")
+
+
+def rollup_log_reds(log: str) -> set[str] | None:
+    """The checks a rollup's log names red: its live `##[error]red check: NAME` lines (the runner's echo of the step's
+    script is never one: test_reds.lines_of), when they are the lines right before its one `### N cmux-next check(s)
+    failed` summary, N of them, each named once, and the N `- NAME (outcome)` lines under it name the same checks.
+    None otherwise: no summary, two, a count or list that differs, or a red line anywhere else in the log. The lines
+    are the ones GitHub makes the job's annotations from, so they say no more than the annotations do; the rollup's
+    count says the list is whole."""
+    lines = test_reds.lines_of(log)
+    reds = [n for n, text in enumerate(lines) if ROLLUP_LOG_RED.match(text)]
+    summaries = [n for n, text in enumerate(lines) if ROLLUP_SUMMARY.match(text)]
+    if len(summaries) != 1 or not reds:
+        return None
+    at = summaries[0]
+    count = int(ROLLUP_SUMMARY.match(lines[at]).group(1))
+    names = [ROLLUP_LOG_RED.match(lines[n]).group(1).strip() for n in reds]
+    if count != len(reds) or reds != list(range(at - count, at)) or len(set(names)) != count:
+        return None
+    items = [text for text in lines[at + 1:at + 2 + count] if text]
+    listed = [match.group(1).strip() for text in items if (match := ROLLUP_ITEM.match(text))]
+    return set(names) if len(listed) == count and set(listed) == set(names) else None
 
 
 def one_step(job: dict, step_name: str, side: str) -> dict:
@@ -3278,9 +3335,10 @@ def one_step(job: dict, step_name: str, side: str) -> dict:
     return found[0]
 
 
-def head_failing_steps(repo: str, job: dict, github, cache: dict) -> tuple[dict[str, bool], list[str]]:
+def head_failing_steps(repo: str, job: dict, github, cache: dict,
+                       logged: dict | None = None) -> tuple[dict[str, bool], list[str]]:
     """({failing step of head JOB: whether only its rollup shows it (a continue-on-error check)}, the failed rollup
-    steps naming them), (a) above; Refused when that is unknown."""
+    steps naming them), (a) above; Refused when that is unknown. LOGGED: rolled_up_reds'."""
     steps = job.get("steps") or []
     if any(not str(step.get("name") or "") for step in steps):  # step-name: classify
         raise Refused(f"head job {job.get('id')} has a step with no name, so its steps cannot be matched")
@@ -3296,10 +3354,11 @@ def head_failing_steps(repo: str, job: dict, github, cache: dict) -> tuple[dict[
         if step_name not in ROLLUP_STEPS:
             failing[step_name] = False
             continue
-        rolled = rolled_up_reds(repo, job, github, cache)
+        rolled = rolled_up_reds(repo, job, github, cache, logged)
         if rolled is None:
             raise Refused(f"rollup '{step_name}' of head job {job.get('id')} failed, and its annotations do not name "
-                          f"its reds (none, or {ROLLUP_ANNOTATION_CAP} or more, which GitHub may have cut)")
+                          f"its reds (none, or {ROLLUP_ANNOTATION_CAP} or more, which GitHub may have cut), nor does "
+                          "its log (rollup_log_reds)")
         rollups.append(step_name)
         for red in rolled:
             failing.setdefault(red, True)
@@ -3393,7 +3452,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
     # The workflow by its file (a run's name may carry a tested sha: "cmux-next · <sha>"), else GitHub's id.
     where = f"workflow {workflow_info.get('path') or workflow}"
     notes = run_reads.setdefault("rollup-annotations", {})
-    failing, rollups = head_failing_steps(repo, job, github, notes)
+    failing, rollups = head_failing_steps(repo, job, github, notes, run_reads.get("rollup-log-reds"))
     for other in others:
         if other is job or other.get("name") != name or other.get("run_id") == job.get("run_id"):
             continue
@@ -4595,6 +4654,10 @@ class Head(NamedTuple):
     view: "FailedView | Unplaced | None" = None
     chromium_without_diagnostics: bool = False
     per_test: Callable[[dict], str | None] = lambda workflow_info: None
+    # For an UNPLACED app FFI pin job (rollup_signature): whether its log prints the pin error live exactly once, and
+    # whether a test helper died on a signal anywhere in it.
+    pin_error: bool = False
+    crashed_anywhere: bool = False
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
@@ -4634,6 +4697,14 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
             pass
     view = failed_view(job, head_log, step_names=names, base=False)
     early = signature(view)
+    if any(str(step.get("name") or "") in ROLLUP_STEPS for step in job.get("steps") or []):  # step-name: classify
+        # The rollup's own list, for a check run that carries no annotation of it (rolled_up_reds).
+        run_reads.setdefault("rollup-log-reds", {})[job["id"]] = rollup_log_reds(head_log)
+    pin_error = crashed_anywhere = False
+    if early is UNPLACED and name == FFI_PIN_JOB:
+        printed = test_reds.lines_of(head_log)
+        pin_error = sum(text.startswith(FFI_PIN_ERROR) for text in printed) == 1
+        crashed_anywhere = any(CRASH.search(text) for text in printed)
     # An unplaced head has no signature: no rule that reads one (the Chromium currency step, the app FFI pin) applies
     # to it, and the base comparison refuses it; per-test web and gallery verdicts read their own evidence.
     chromium_without_diagnostics = (early is not UNPLACED and name == CHROMIUM_CURRENCY_JOB
@@ -4649,7 +4720,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     def per_test(workflow_info: dict) -> str | None:
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
                 or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
-    return Head(None, view, chromium_without_diagnostics, per_test)
+    return Head(None, view, chromium_without_diagnostics, per_test, pin_error, crashed_anywhere)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -4719,7 +4790,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         pinned, aside = (None, None)
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, view, github)
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests,
+                                           bool(crash_signals(view)), github)
+        elif (got.pin_error and (rolled := rollup_signature(repo, job, github, run_reads)) is not None
+              and FFI_PIN_CHECK in rolled[0]):
+            # An unplaced log has no signature, but when the jobs API fails the rollup alone, the rollup's own list is
+            # the job's every red: the pin rule asks no more. Only its excuse is taken; a pin set aside beside other
+            # reds leaves the job to be judged as before (by_step below), never compared without the pin.
+            pinned, _ = ffi_pin_step_a(repo, base, sha, name, rolled[0],
+                                       rolled[1] | {normalise_error(FFI_PIN_ERROR)}, set(), got.crashed_anywhere,
+                                       github)
         if pinned is not None:
             audit.append(pinned)
             continue
