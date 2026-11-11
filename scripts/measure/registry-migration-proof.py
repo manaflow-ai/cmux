@@ -337,7 +337,7 @@ class Sampler(threading.Thread):
 # history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
 HISTORY_LIST_LIMIT = 5000
 # How many times `served` asks while the History fold is not at the head (3 s apart).
-SERVED_TRIES = 100
+SERVED_TRIES = 200
 
 
 def ask(owner, operation, params):
@@ -367,26 +367,41 @@ def refusal(reply):
     """The error of a reply: its code, and its text with each absolute path cut out (the data
     is generated; a path would name the host's folders)."""
     error = reply.get("error") or {}
-    text = re.sub(r"(?<![\w.])/[\w.\-]+(?:/[\w.\-]+)+", "<path>",
-                  str(error.get("message") or ""))
-    return {"error": str(error.get("code")), "message": text[:400]}
+
+    def cut(text):
+        return re.sub(r"(?<![\w.])/[\w.\-]+(?:/[\w.\-]+)+", "<path>", text)
+
+    value = {"error": str(error.get("code")), "message": cut(str(error.get("message") or ""))[:400]}
+    details = error.get("details")
+    # A refusal by the catalog names the contract and the violation (a catalog path such as
+    # "history.entries.list.result" and field NAMES): which rule the answer broke.
+    if isinstance(details, dict) and "contract" in details:
+        kept = {key: details.get(key) for key in ("contract", "violation_code", "violation")}
+        value["violation"] = cut(json.dumps(kept, sort_keys=True))[:400]
+    return value
 
 
 def served_roster(owner):
     """The agent roster the owner SERVES (agent.list): a count and a mark, or the error."""
     try:
-        reply = ask(owner, "agent.list", {})
+        reply = ask(owner, "agent.list", {"machine": "current", "session": "current"})
     except (OSError, ValueError) as error:
         return {"error": type(error).__name__}
     if reply.get("ok") is not True:
         return refusal(reply)
-    agents = (reply.get("result") or {}).get("agents") or []
-    names = [f"{agent.get('agent')}/{agent.get('agent_session_id')}/{agent.get('terminal_id')}"
+    # The result is the array of AgentSnapshot (id, terminal_id, source_session, ...).
+    agents = reply.get("result")
+    if not isinstance(agents, list):
+        return {"error": "the result is not a list"}
+    names = [f"{agent.get('id')}/{agent.get('terminal_id')}/{agent.get('source_session')}"
              for agent in agents if isinstance(agent, dict)]
     return {"agents": len(agents), "ids_sha256": digest(names)}
 
 
-REFUSED_TRIES = 5
+# The longest time `served` asks again after a refusal (3 s apart). The daemon refuses its own
+# answer while the History fold is more than its 2 s budget behind the head (the answer then
+# has a field that the catalog type does not name), so a large journal refuses for a time.
+REFUSED_SECONDS = 300
 
 
 def served(owner):
@@ -396,7 +411,7 @@ def served(owner):
     params = {"machine": "current", "session": "current", "kinds": ["agent"],
               "limit": HISTORY_LIST_LIMIT}
     # A refusal is asked again (3 s apart): "one time" and "each time" are not the same fault.
-    refused = []
+    refused, refused_at = [], None
     for attempt in range(SERVED_TRIES):
         try:
             reply = ask(owner, "history.entries.list", params)
@@ -404,8 +419,11 @@ def served(owner):
             return {"error": type(error).__name__}
         if reply.get("ok") is not True:
             refused.append(refusal(reply))
-            if len(refused) >= REFUSED_TRIES:
+            if refused_at is None:
+                refused_at = time.monotonic()
+            if time.monotonic() - refused_at >= REFUSED_SECONDS:
                 return {**refused[0], "refused_times": len(refused),
+                        "refused_s": round(time.monotonic() - refused_at, 1),
                         "last_message": refused[-1]["message"]}
             time.sleep(3)
             continue
@@ -420,7 +438,9 @@ def served(owner):
                      "ids_sha256": digest(str(entry.get("id")) for entry in entries),
                      "roster": served_roster(owner)}
             if refused:
-                value["refused_first"] = {**refused[0], "times": len(refused)}
+                # `seconds`: from the first refusal to this answer.
+                value["refused_first"] = {**refused[0], "times": len(refused),
+                                          "seconds": round(time.monotonic() - refused_at, 1)}
             return value
         time.sleep(3)
     return {"error": "no answer"}
@@ -838,6 +858,34 @@ def in_place_arm(args, state, before, report):
     report["steps"].append(step)
 
 
+def base_sample_arm(args, state, report):
+    """The control of the lock rows: a build with NONE of this change (--base-bin) as the owner
+    of a clone from before start 1, with the same sampler as the in-place arm (one
+    rename-workspace each second) for the same dwell. It deletes nothing and builds nothing,
+    so its lock holds and request times are what the size of the file and the host cost
+    alone. Its counts are not compared: it is not a step of the migration."""
+    owner = Owner(args, state, "base-sample", binary=args.base_bin)
+    ready = owner.wait_ready()
+    step = {"arm": "base-sample", "ready_s": ready, "load_1m": os.getloadavg()[0],
+            "dwell_s": args.in_place_dwell}
+    if ready is None:
+        step["base_error"] = "not ready"
+    else:
+        sampler = Sampler(owner, write_every=2)
+        sampler.start()
+        deadline = time.monotonic() + args.in_place_dwell
+        while time.monotonic() < deadline and owner.child.poll() is None:
+            time.sleep(1)
+        sampler.stop()
+        step["samples"] = sampler.phase(ready, owner.elapsed())
+        step["locks"] = lock_sites(owner)
+        # That build's own answer: not an answer of the head build, so no verdict rule reads it.
+        step["base_served"] = served(owner)
+    step["exit"] = owner.stop()
+    say("RMP", step)
+    report["steps"].append(step)
+
+
 # Owner log lines that say what an older owner did with the state (no row contents).
 OLD_LOG_WORDS = ("schema", "roster", "snapshot", "quarantin", "recover", "registry", "reducer")
 
@@ -1060,7 +1108,8 @@ def table(report):
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "second-swap"]
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "base-sample",
+             "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -1083,7 +1132,7 @@ def table(report):
                                "advanced", "lost_by_the_advance", "lost_after_third",
                                "bases_after", "error", "dwell_s", "locks", "samples",
                                "locks_debug_build", "no_rebuild_line", "segments_deleted",
-                               "kept_name_bytes")}
+                               "kept_name_bytes", "base_served", "base_error")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1101,6 +1150,8 @@ def main():
     for name in ("bin", "synth", "state", "home", "session", "socket-dir", "scratch", "report"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--debug-bin", default="")
+    # A cmux-tui with none of this change: the base-sample arm (left out without it).
+    parser.add_argument("--base-bin", default="")
     parser.add_argument("--old-bin", default="")
     parser.add_argument("--arms",
                         default="control,main,kill-stage,kill-swap,kill-renamed,space,in-place,"
@@ -1154,7 +1205,9 @@ def main():
             old_arm(args, clone(args.state, scratch / name), before, report, name, binary,
                     migrated=False)
             shutil.rmtree(scratch / name)
-    for name in ("kill-stage", "space", "in-place"):
+    if args.base_bin:
+        args.arms.append("base-sample")
+    for name in ("kill-stage", "space", "in-place", "base-sample"):
         if name in args.arms:
             clone(args.state, scratch / name)
     if "main" not in args.arms:
@@ -1179,6 +1232,9 @@ def main():
     if "in-place" in args.arms:
         in_place_arm(args, scratch / "in-place", before, report)
         shutil.rmtree(scratch / "in-place")
+    if "base-sample" in args.arms:
+        base_sample_arm(args, scratch / "base-sample", report)
+        shutil.rmtree(scratch / "base-sample")
     if "second-swap" in args.arms and ok:
         second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
         shutil.rmtree(scratch / "second-swap")

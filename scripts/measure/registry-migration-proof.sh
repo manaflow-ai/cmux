@@ -11,6 +11,7 @@
 #     [records=N sparse_head=N sparse_records=N] [rested_agents=N] [live_rows=N]
 #     [second_records=200000] [second_build_timeout=1800]
 #     [bin=/abs/release/cmux-tui synth=/abs/release/synth_registry [debug_bin=/abs/debug/cmux-tui]]
+#     [base_bin=/abs/release/cmux-tui of a build with none of this change]
 #     [session=rmp]
 # records=, sparse_head= and sparse_records= write the SPARSE form of a long-lived journal (the
 # head far above the records the file holds; synth_registry's doc); rested_agents= adds agents
@@ -26,6 +27,9 @@
 # seconds; the row is the registry lock by site (server-stats `locks`) and the request times.
 # space_dwell= keeps the debug owner of the space arm that long after the refusal: the same
 # deletes through the product's own no-space path, with a debug build's times.
+# base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
+# in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
+# arm have a row that shows what the size of the file and the host cost with no delete.
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
 # the registry (synth_registry --shape lawrence), then runs registry-migration-proof.py: real owner
@@ -46,6 +50,7 @@ arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,second-swap,o
 old_dwell=45 space_dwell=0 in_place_dwell=150
 ready_timeout=3600 build_timeout=7200
 records= sparse_head= sparse_records= rested_agents= live_rows= bin= synth= debug_bin=
+base_bin=
 second_records=200000 second_build_timeout=1800
 for kv in "$@"; do
   case "$kv" in
@@ -72,6 +77,7 @@ for kv in "$@"; do
     bin=*) bin="${kv#*=}" ;;
     synth=*) synth="${kv#*=}" ;;
     debug_bin=*) debug_bin="${kv#*=}" ;;
+    base_bin=*) base_bin="${kv#*=}" ;;
     session=*) session="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
@@ -83,6 +89,9 @@ for one in ${old_bin//,/ }; do
     echo "error: old_bin= needs the absolute path of an executable cmux-tui: $one" >&2; exit 2
   fi
 done
+if [[ -n "$base_bin" && ( "$base_bin" != /* || ! -x "$base_bin" ) ]]; then
+  echo "error: base_bin= needs the absolute path of an executable cmux-tui: $base_bin" >&2; exit 2
+fi
 if [[ -n "$state" && ( "$state" != /* || ! -d "$state" ) ]]; then
   echo "error: state= needs the absolute path of a generated state dir" >&2; exit 2
 fi
@@ -147,7 +156,8 @@ fi
 python3 "$root/scripts/measure/registry-migration-proof.py" \
   --bin "$bin" --synth "$synth" --state "$scratch/state" --home "$scratch/home" \
   --session "$session" --socket-dir "$socket_dir" --scratch "$scratch" \
-  --debug-bin "$debug_bin" --old-bin "$old_bin" --arms "$arms" --old-dwell "$old_dwell" \
+  --debug-bin "$debug_bin" --base-bin "$base_bin" --old-bin "$old_bin" --arms "$arms" \
+  --old-dwell "$old_dwell" \
   --ready-timeout "$ready_timeout" --build-timeout "$build_timeout" \
   --seal-age-minutes "$seal_age_minutes" --second-records "$second_records" \
   --second-build-timeout "$second_build_timeout" \
