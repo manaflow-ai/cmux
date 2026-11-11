@@ -53,8 +53,9 @@ import Testing
         return RowDraw.bodyRect(row).minX
     }
 
-    /// The leftmost column (row coordinates, whole points) the row draws ink in, nil when it draws none.
-    static func firstInk(_ spec: RowSpec) throws -> CGFloat? {
+    /// The leftmost column (row coordinates, whole points) the row draws ink in at or right of `from`, nil when it draws
+    /// none. A run's last frame draws the sender's avatar in the avatar column: pass its right edge to look past it.
+    static func firstInk(_ spec: RowSpec, from: CGFloat = 0) throws -> CGFloat? {
         let size = CGSize(width: spec.width, height: spec.height + 2 * RowDraw.margin)
         let image = try #require(WideBitmap.make(size: size, scale: 1, opaque: false) { ctx in
             RowDraw.drawStatic(spec, ctx, windowY: .nan)
@@ -69,7 +70,7 @@ import Testing
             return true
         }
         #expect(drawn)
-        for x in 0..<w {
+        for x in max(0, Int(from.rounded(.up)))..<w {
             for y in 0..<h where pixels[(y * w + x) * 4 + 3] > 8 { return CGFloat(x) }
         }
         return nil
@@ -91,7 +92,8 @@ import Testing
         let first = try #require(HomeAgentPills(payload, shape: .pill, width: body.width).pills.first)
         #expect(body.minX + first.rect.minX == bubble)
         // What is drawn: the pill's outline starts within a point of the bubble's edge (antialiasing).
-        let drawnInk = try Self.firstInk(pillsRow)
+        // The pills row is the run's last frame: the Chief's avatar draws beside it, in the avatar column.
+        let drawnInk = try Self.firstInk(pillsRow, from: SenderAvatar.left + SenderAvatar.diameter + 1)
         let ink = try #require(drawnInk)
         #expect(abs(ink - bubble) <= 1, "the pill draws from x \(ink), the bubble from \(bubble)")
     }
