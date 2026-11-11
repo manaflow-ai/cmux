@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42998280151",
+  "recorded_at": "2026-11-11T09:57:07Z",
+  "reason": "cmux-tui e7bcfdfaf3ca changes the image's cmux-tui (pinned a31311693583)",
+  "dry_run": false,
+  "cmux_tui": "e7bcfdfaf3ca488120f88134d945c9d65d816d2a",
+  "fixes": [
+    {
+      "sha": "e7bcfdfaf3ca488120f88134d945c9d65d816d2a",
+      "mergedAt": "2026-11-11T01:32:48-08:00",
+      "subject": "acpmux tests: the restart fixtures stand in at the socket the CLI dials"
+    },
+    {
+      "sha": "7e6bc83e444c8c51dc08c887622586310f84e97a",
+      "mergedAt": "2026-11-11T01:32:46-08:00",
+      "subject": "perf(cmux-tui): a flood compacts its output tail at most once a second"
+    },
+    {
+      "sha": "62271db775a6495025a6b50fd994f5bc8e924aa4",
+      "mergedAt": "2026-11-11T01:32:45-08:00",
+      "subject": "test(cmux-tui): a flood compacts its output tail at most once a second"
+    },
+    {
+      "sha": "0a8b4dc607f5ec729db31b150145dc86e393e202",
+      "mergedAt": "2026-11-11T01:32:44-08:00",
+      "subject": "perf(cmux-tui): read a terminal's pwd into a String only when it changed"
+    },
+    {
+      "sha": "0e237d2b94d36bf467d033f88687ea9b86298e99",
+      "mergedAt": "2026-11-11T01:32:42-08:00",
+      "subject": "perf(cmux-tui): snapshot viewers' output events are written straight into the outbound buffer"
+    },
+    {
+      "sha": "d908e8be6510b54f197bba75fb29fa8c5f0f9dc5",
+      "mergedAt": "2026-11-11T01:32:42-08:00",
+      "subject": "perf(cmux-tui): a terminal's output reaches its store log without the global map lock"
+    },
+    {
+      "sha": "8f73c8a0e42861439e776dc2953b17fbbe48f76c",
+      "mergedAt": "2026-11-11T01:32:41-08:00",
+      "subject": "perf(cmux-tui): the last attach viewer takes the output frame, not a copy"
+    },
+    {
+      "sha": "25fae131b2fe63ca4451bd7070e9354602711cb9",
+      "mergedAt": "2026-11-11T01:32:40-08:00",
+      "subject": "perf(cmux-tui): apply a backlog of small host Output frames in one parse"
+    },
+    {
+      "sha": "28f6cc4a7d93e4b73de17c4d37245076f24070eb",
+      "mergedAt": "2026-11-11T01:32:39-08:00",
+      "subject": "perf(cmux-tui): output scanners jump to the next ESC instead of stepping each byte"
+    },
+    {
+      "sha": "c7dc0a693a82b2c3d09dcd7395070f792d4f8715",
+      "mergedAt": "2026-11-11T01:32:38-08:00",
+      "subject": "perf(cmux-tui): read the host link through a 64 KiB buffer"
+    },
+    {
+      "sha": "ed21d9f61e3e303b0511d37754d7808c967833ad",
+      "mergedAt": "2026-11-11T01:32:37-08:00",
+      "subject": "fix(cmux-tui): a prompt mark split across output chunks still resets modes"
+    },
+    {
+      "sha": "d722ba34670cd448db6a30cb798dd6bcf3b49f62",
+      "mergedAt": "2026-11-11T01:32:35-08:00",
+      "subject": "test(cmux-tui): a prompt mark split across output chunks still resets modes"
+    },
+    {
+      "sha": "2a91f9ffb92bff0d82413292d2b0e6edd399adc9",
+      "mergedAt": "2026-11-11T01:32:34-08:00",
+      "subject": "A TUI pane draws a synchronized update as one frame"
+    },
+    {
+      "sha": "b0d4b4830fd60bd262d38a10f519b58ac38cb035",
+      "mergedAt": "2026-11-11T01:32:32-08:00",
+      "subject": "Test: a TUI pane never draws a half-finished synchronized update"
+    },
+    {
+      "sha": "ef999c98bbc27af81bfcd9919d974117940a3f79",
+      "mergedAt": "2026-11-11T01:32:32-08:00",
+      "subject": "Render rows and cursor serialise from typed structs, not serde_json values"
+    },
+    {
+      "sha": "88286464a6d78ba20039862801518300d7afeea4",
+      "mergedAt": "2026-11-11T01:32:30-08:00",
+      "subject": "A panic building one terminal's frame no longer stops every terminal's frames"
+    },
+    {
+      "sha": "e1fc93955a400a2215b866d4130b42a7a080e3ee",
+      "mergedAt": "2026-11-11T01:32:29-08:00",
+      "subject": "Test: a panic building one terminal's frame must not stop the shared frame producer"
+    },
+    {
+      "sha": "5bdf76089c971ad45149e7049f00283a6e5cceab",
+      "mergedAt": "2026-11-11T01:32:29-08:00",
+      "subject": "An unviewed terminal builds no render frame for a scroll, resize, clear or colors"
+    },
+    {
+      "sha": "4356966ef43431b587dc54a6a2c2769801bdab85",
+      "mergedAt": "2026-11-11T01:32:28-08:00",
+      "subject": "Test: an unviewed terminal builds no render frame for a scroll, resize, clear or colors"
+    },
+    {
+      "sha": "bbac4b02af77f37eb1468dada6ee0d9258386d02",
+      "mergedAt": "2026-11-11T01:32:27-08:00",
+      "subject": "A render frame reads only its dirty rows; clean rows are the previous frame's"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T09:57:07Z",
+    "snapshot_id": "sh-8fdb11908c5f42f998825d3a139705d1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42998280151): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "629678fedc8d41edadaef9b407261982a4ab120b",
+    "image": "cloud-native-auto-e7bcfdfa-42998280151-1",
+    "revision": "ci-42998280151-1",
+    "at": "2026-11-11T09:57:07Z"
+  },
+  "rolled_back": false
+}
