@@ -47,9 +47,7 @@ enum NewTabSlot {
     /// (close-focus.md, "One close-selection rule"): bound right after it, as a link's tab does; at the end or the start, the quick look-up.
     static func target(current: TabModel?, in controller: PaneController?, pane: [TabModel], explicit: NewTabPosition?, user: Bool, setting: NewTabPosition?) -> Target? {
         let slot = target(current: current, pane: pane, explicit: explicit, user: user, setting: setting)
-        var quick = true
-        if case .some(.after) = slot { quick = false }
-        if user, let current, let controller, ActionRunScope.viewChangeAllowed() { controller.state?.selection.closeRule.expect(in: controller.paneKey, opener: current.id, listed: pane.map(\.id), quick: quick) }
+        if user, let current, let controller, ActionRunScope.viewChangeAllowed() { controller.state?.selection.closeRule.expect(in: controller.paneKey, opener: current.id, listed: pane.map(\.id), quick: slot.map { if case .after = $0 { false } else { true } } ?? true) }
         return slot
     }
 
