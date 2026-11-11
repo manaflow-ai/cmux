@@ -38,7 +38,7 @@ pub(crate) use committed_snapshot::CommittedSnapshots;
 #[cfg(test)]
 pub(crate) use committed_snapshot::{
     route_wait_times_on_this_thread, route_waits_on_this_thread,
-    set_route_wait_start_hook_on_this_thread,
+    set_live_terminal_hook_on_this_thread, set_route_wait_start_hook_on_this_thread,
 };
 
 #[cfg(test)]
@@ -878,6 +878,10 @@ fn public_terminal_values(
         .into_iter()
         .map(|terminal_id| {
             let surface = surface_of(&terminal_id);
+            #[cfg(test)]
+            if let Some(surface) = &surface {
+                committed_snapshot::run_live_terminal_hook(surface);
+            }
             let host_id = terminal_hosts_by_resource
                 .get(&terminal_id)
                 .with_context(|| format!("terminal {terminal_id} omitted its durable identity"))?;
