@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42977942432",
+  "recorded_at": "2026-11-11T07:20:44Z",
+  "reason": "cmux-tui d360007811fd changes the image's cmux-tui (pinned 2e3698e13fc6)",
+  "dry_run": false,
+  "cmux_tui": "d360007811fd84e12f722cd539a5b5a8b53031a8",
+  "fixes": [
+    {
+      "sha": "d360007811fd84e12f722cd539a5b5a8b53031a8",
+      "mergedAt": "2026-11-11T07:01:16Z",
+      "subject": "fix(cmux-tui): the terminal builder reads a runtime's identity one time (#41140)"
+    },
+    {
+      "sha": "3e05f227ca1e3b555171d666fe4d227e0b7f21c7",
+      "mergedAt": "2026-11-10T22:54:52-08:00",
+      "subject": "cmux-command-class: cursor and index steps use saturating or checked math (123 arithmetic hits to 0) (#40864)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T07:20:44Z",
+    "snapshot_id": "sh-7501e267ab53473dab0d53fe94bd4a3a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42977942432): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9917e74e56118893442566f38587edacdebfa9e6",
+    "image": "cloud-native-auto-d3600078-42977942432-1",
+    "revision": "ci-42977942432-1",
+    "at": "2026-11-11T07:20:44Z"
+  },
+  "rolled_back": false
+}
