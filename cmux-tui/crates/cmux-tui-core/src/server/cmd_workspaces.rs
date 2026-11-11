@@ -8,8 +8,10 @@ use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
 
 use super::MutationRequest;
+use super::frontend_browser_history;
 use super::list_workspaces_reply;
 use super::optional_surface_size;
+use super::origin_gate;
 use super::personal;
 use super::workspace_mutation;
 use super::zeroize_string;
@@ -48,12 +50,16 @@ pub(super) fn create_workspace(
     client: u64,
     name: Option<String>,
     key: Option<String>,
+    first_tab: Option<frontend_browser_history::FirstTabParams>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
         && !crate::workspace_registry::is_canonical_workspace_key(key)
     {
         anyhow::bail!("workspace key must be a lowercase UUID");
+    }
+    if let Some(first_tab) = &first_tab {
+        first_tab.validate()?;
     }
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
     let placement = mux.create_empty_workspace_with_mutation(
@@ -63,8 +69,26 @@ pub(super) fn create_workspace(
         mutation.expected_revision,
         &workspace_mutation,
     )?;
+    // `workspace-first-tab-v1`: the first tab in the same request. A replayed
+    // create replays a keyed tab and makes no second unkeyed one; a tab that
+    // cannot be made takes the workspace this request made back.
+    let first_tab = match first_tab {
+        Some(tab) if !placement.replayed || tab.is_keyed() => {
+            match tab.create(mux, client, placement.workspace) {
+                Ok(created) => Some(created),
+                Err(error) => {
+                    if !placement.replayed {
+                        let actor = origin_gate::connection_actor(mux, client);
+                        mux.close_workspace_as(&actor, placement.workspace);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        _ => None,
+    };
     let (registry_id, generation) = mux.registry_identity();
-    Ok(json!({
+    let mut reply = json!({
         "workspace": placement.workspace,
         "key": placement.key,
         "index": placement.index,
@@ -72,7 +96,11 @@ pub(super) fn create_workspace(
         "replayed": placement.replayed,
         "registry_id": registry_id,
         "generation": generation,
-    }))
+    });
+    if let Some(first_tab) = first_tab {
+        reply.set("first_tab", first_tab);
+    }
+    Ok(reply)
 }
 
 pub(super) fn move_workspace(
