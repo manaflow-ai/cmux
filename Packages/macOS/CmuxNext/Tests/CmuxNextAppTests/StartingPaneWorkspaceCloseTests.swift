@@ -23,9 +23,11 @@ struct StartingPaneWorkspaceCloseTests {
         case closeWorkspace, closeScreen
     }
 
-    /// Whether a close path told that it closes the workspace (written and read on the main actor only).
+    /// Whether a close path told that it closes the workspace, and the keys that were still held for the window at that
+    /// time (written and read on the main actor only).
     private nonisolated final class Told: @unchecked Sendable {
         var closing = false
+        var stillHeld = Data()
     }
 
     @Test(arguments: Way.allCases)
@@ -54,6 +56,10 @@ struct StartingPaneWorkspaceCloseTests {
             let told = Told()
             let before = WorkspaceClose.willClose
             WorkspaceClose.willClose = { workspace in
+                // Close Workspace tells this when it SENDS the close. The window showed its next workspace earlier in the
+                // same press (the row left and the selection moved), and a terminal that gets the focus there takes what
+                // is held. So the keys must be gone before this point, not from it.
+                if workspace === closing { GivenBackInput.shared.deliver(window: windowID, to: { told.stillHeld.append($0) }) }
                 before?(workspace)
                 if workspace === closing { told.closing = true }
             }
@@ -68,6 +74,7 @@ struct StartingPaneWorkspaceCloseTests {
                         "Close Workspace was refused")
                 let went = await StartingPaneFixture.eventually(within: .milliseconds(2500)) { told.closing }
                 try #require(went, "Close Workspace did not go ahead inside 2.5 s")
+                #expect(told.stillHeld.isEmpty, "the keys were still held when Close Workspace sent its close, after the window showed the next workspace: \(String(decoding: told.stillHeld, as: UTF8.self))")
             case .closeScreen:
                 // The one function every screen close runs (the screen's menu, the bar, the actions, a group's close).
                 let screen = try #require(store.screen(containing: starting.standIn.pane.handle), "the starting pane is in no screen")
