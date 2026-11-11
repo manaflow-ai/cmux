@@ -1476,5 +1476,179 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotIn("85305", result.stderr)
 
 
+
+def _load_refresh_checks():
+    spec = importlib.util.spec_from_file_location("refresh_checks", SOURCE / "scripts/git-hooks/refresh_checks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CopyInputsConfinementTests(unittest.TestCase):
+    """Codex on #40894 (F1, security): checks-copy-inputs names a source in the repository and a destination in the
+    checks copy, and the install (install_copy) and a pre-push refresh (refresh) copy through it. An entry whose
+    source leaves the repository (absolute, `..`, a symlink out) would read any local file into the hook folder, and
+    one whose destination leaves the copy would overwrite any local file. Each form is refused, by name, before any
+    file is written; legitimate entries still copy."""
+
+    INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-copy-inputs-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        # ../../outside from the repository and from the stage both land in OUTSIDE.
+        self.repo = self.root / "r" / "repo"
+        self.hook_dir = self.root / "h"
+        self.stage = self.hook_dir / "stage"
+        self.outside = self.root / "outside"
+        for folder in (self.repo / "scripts/cmux-next", self.repo / "scripts/git-hooks", self.stage, self.outside):
+            folder.mkdir(parents=True)
+        (self.outside / "secret").write_text("SECRET\n")
+        (self.outside / "victim").write_text("VICTIM\n")
+        (self.repo / "scripts/ok.py").write_text("OK = 1\n")
+        (self.repo / "scripts/cmux-next/check.py").write_text("CHECK = 1\n")
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, HOME=str(self.root))
+        git_fixture_env.without_auto_maintenance(self.env)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.rc = _load_refresh_checks()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=True).stdout
+
+    def commit(self, inputs):
+        (self.repo / self.INPUTS).write_text(inputs)
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-qm", "inputs")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def snapshot(self, folder):
+        out = {}
+        for dirpath, dirnames, filenames in os.walk(folder):
+            for name in dirnames + filenames:
+                path = Path(dirpath) / name
+                out[str(path.relative_to(folder))] = (os.readlink(path) if path.is_symlink()
+                                                      else None if path.is_dir() else path.read_bytes())
+        return out
+
+    def assert_install_refused(self, entry, rule, names):
+        before_stage, before_outside = self.snapshot(self.stage), self.snapshot(self.outside)
+        self.commit(f"scripts/cmux-next/\n{entry}\n")
+        with self.assertRaises(ValueError) as caught:
+            self.rc.install_copy(self.repo, self.stage)
+        message = str(caught.exception)
+        self.assertIn(names, message)
+        self.assertIn(rule, message)
+        self.assertEqual(self.snapshot(self.stage), before_stage, "a refused install wrote into the stage")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused install wrote outside")
+
+    def assert_refresh_refused(self, entry, rule, names):
+        commit = self.commit(f"scripts/cmux-next/\n{entry}\n")
+        before_hooks, before_outside = self.snapshot(self.hook_dir), self.snapshot(self.outside)
+        with self.assertRaises(ValueError) as caught:
+            self.rc.refresh(self.repo, self.hook_dir, commit)
+        self.assertIn(names, str(caught.exception))
+        self.assertIn(rule, str(caught.exception))
+        self.assertEqual(self.snapshot(self.hook_dir), before_hooks, "a refused refresh wrote into the hook folder")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused refresh wrote outside")
+
+    def assert_refused(self, entry, rule, refresh=True, names=None):
+        """ENTRY is refused under RULE, by a message naming NAMES (the entry itself by default)."""
+        with self.subTest("install"):
+            self.assert_install_refused(entry, rule, names or entry)
+        if refresh:
+            with self.subTest("refresh"):
+                self.assert_refresh_refused(entry, rule, names or entry)
+
+    # Sources.
+    def test_an_absolute_source_is_refused(self):
+        self.assert_refused(str(self.outside / "secret"), "is an absolute path")
+
+    def test_a_dot_dot_source_is_refused(self):
+        self.assert_refused("../../outside/secret", "has a .. component")
+
+    def test_a_source_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/../../../outside/secret", "has a .. component")
+
+    def test_a_source_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.repo / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("linked/secret", "resolves outside")
+
+    def test_a_source_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/leak.py", "resolves outside")
+
+    def test_a_folder_member_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/cmux-next/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/ok.py", "resolves outside", refresh=False, names="scripts/cmux-next/leak.py")
+
+    def test_an_empty_source_is_refused(self):
+        self.assert_refused("-> renamed.py", "is empty")
+
+    # Destinations.
+    def test_an_absolute_destination_is_refused(self):
+        self.assert_refused(f"scripts/ok.py -> {self.outside / 'victim'}", "is an absolute path")
+
+    def test_a_dot_dot_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py -> ../../outside/victim", "has a .. component")
+
+    def test_a_destination_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/ok.py -> a/../../../outside/victim", "has a .. component")
+
+    def test_a_destination_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.stage / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("scripts/ok.py -> linked/victim", "resolves outside", refresh=False)
+
+    def test_a_destination_that_is_a_symlink_out_of_the_copy_is_refused(self):
+        (self.stage / "victim.py").symlink_to(self.outside / "victim")
+        self.assert_refused("scripts/ok.py -> victim.py", "resolves outside", refresh=False)
+
+    def test_an_empty_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py ->", "is empty")
+
+    def test_the_cli_names_the_refused_entry_and_exits_non_zero(self):
+        self.commit("scripts/ok.py -> ../../outside/victim\n")
+        result = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/git-hooks/refresh_checks.py"),
+                                 "--repo", str(self.repo), "--install-copy", str(self.stage)],
+                                env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/ok.py -> ../../outside/victim", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual((self.outside / "victim").read_text(), "VICTIM\n")
+
+    def test_post_merge_refuses_an_entry_that_leaves_the_repository(self):
+        # post-merge reads the same list (to diff each source against the trusted branch); an entry that leaves the
+        # repository stops it with the helper's refusal before the installer runs.
+        for relative in ("scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py"):
+            shutil.copyfile(SOURCE / relative, self.repo / relative)
+        installer = self.repo / "scripts/install-git-hooks.sh"
+        marker = self.root / "installer-ran"
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
+        head = self.commit("scripts/cmux-next/\n../../outside/secret\n")
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", head)
+        hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env, text=True,
+                              capture_output=True)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertIn("../../outside/secret", hook.stderr)
+        self.assertIn("has a .. component", hook.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a list that leaves the repository")
+
+    # Legitimate entries.
+    def test_legitimate_entries_still_copy(self):
+        commit = self.commit("scripts/cmux-next/\nscripts/ok.py\nscripts/ok.py -> renamed/ok2.py\n")
+        pairs = self.rc.install_copy(self.repo, self.stage)
+        self.assertEqual(sorted(pairs), sorted([("scripts/cmux-next/check.py", "check.py"), ("scripts/ok.py", "ok.py"),
+                                                ("scripts/ok.py", "renamed/ok2.py")]))
+        self.assertEqual((self.stage / "check.py").read_text(), "CHECK = 1\n")
+        self.assertEqual((self.stage / "ok.py").read_text(), "OK = 1\n")
+        self.assertEqual((self.stage / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual(self.rc.refresh(self.repo, self.hook_dir, commit)[:30], "pre-push: refreshed the cmux-n")
+        copy = self.hook_dir / "cmux-next-checks"
+        self.assertEqual((copy / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual((copy / "check.py").read_text(), "CHECK = 1\n")
+
 if __name__ == "__main__":
     unittest.main()
