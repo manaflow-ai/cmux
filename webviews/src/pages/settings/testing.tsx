@@ -55,7 +55,8 @@ export async function renderPage(
   options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);
   const started = store.start();
-  if (!options.drawBeforeStart) await act(async () => await started);
+  if (options.drawBeforeStart) void started.catch(() => undefined);
+  else await act(async () => await started);
   const history = createMemoryHistory({ initialEntries: [options.path ?? "/settings/general"] });
   const container = document.createElement("div");
   container.id = "root";

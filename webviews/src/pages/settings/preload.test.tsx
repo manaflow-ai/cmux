@@ -1,6 +1,6 @@
 // Settings on TanStack Router (Lawrence 2026-10-21, msg 8948): a section link preloads its section
 // on hover (the router's intent preload runs the section route's loader), the click then reads
-// nothing again, and the sidebar search lives in the route (`?q=`, `?changed=1`).
+// nothing again, and the sidebar search lives in the route (`?q=`).
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";

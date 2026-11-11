@@ -17,7 +17,8 @@ import type { SettingsStore } from "./store";
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
- * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
+ * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
+ * ignores it. Plain `?a=b` pairs, never JSON. */
 export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {

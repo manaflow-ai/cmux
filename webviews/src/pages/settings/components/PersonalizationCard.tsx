@@ -63,7 +63,8 @@ export function PersonalizationCard({
   // (the parts above it have their height: the host adds the Theme part's override lines and the
   // Background part's picker, so a reveal before it landed ~180 px short as they grew above):
   // Change Background… (a new route each time, with `open`) and a jump alike.
-  const hostLoaded = state.host !== null;
+  // A host that refused its lists still lets the reveal run: the page draws without them.
+  const hostLoaded = state.hostSettled;
   const revealed = useRef<string | null>(null);
   useEffect(() => {
     if (!state.readable || !hostLoaded || opened === null || revealed.current === href) return;

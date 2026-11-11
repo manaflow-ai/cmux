@@ -118,6 +118,14 @@ export function DurationEditor({ row, value, disabled, labelId }: EditorProps) {
     <span className="choice-or-number">
       {/* The field opens left of the menu, so the menu the person just used stays in place. */}
       {customPicked && (
+        // Leaving the field without a new value (the same number, or nothing typed) writes nothing, so
+        // the field closes here and the menu shows the row's value again instead of "Custom…".
+        <span
+          className="choice-or-number-custom"
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCustomPicked(false);
+          }}
+        >
         <NumberField
           value={stored}
           range={range}
@@ -129,6 +137,7 @@ export function DurationEditor({ row, value, disabled, labelId }: EditorProps) {
             void store.set(row.key, next);
           }}
         />
+        </span>
       )}
       <Select
         value={customPicked ? custom : String(current)}

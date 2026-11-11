@@ -277,7 +277,9 @@
   background-color: var(--polish-pressed, var(--row-focus));
 }
 
-.more-options:focus-visible {
+.more-options:focus-visible,
+:root[data-settings-look="refined"] .settings .more-options:focus-visible {
+  /* The ring is the rounded shape's (below); the page's square button ring must not draw too. */
   outline: none;
 }
 
