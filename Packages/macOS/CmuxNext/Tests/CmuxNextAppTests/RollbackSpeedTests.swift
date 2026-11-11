@@ -118,6 +118,24 @@ import Testing
         #expect(store.list().map(\.bundle.lastPathComponent) == ["cmux.app"])
     }
 
+    @Test func aRecordForAnotherBundleOrInTheOldFormIsNeverRead() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try Self.store(keeping: ["100"], in: root, checks: Checks())
+        store.recordSchemas(["workspace_registry": 3], for: "100")
+
+        // Another bundle kept under the same number (a different seal): the record names the old one.
+        let other = root.appending(path: "other/cmux.app", directoryHint: .isDirectory)
+        try Self.makeBundle(at: other, build: "100")
+        try Data("another seal".utf8).write(to: other.appending(path: "Contents/_CodeSignature/CodeResources"))
+        try store.keep(bundle: other, build: "100", limit: 1)
+        #expect(store.list().first?.storeSchemas == nil)
+
+        // A bare schemas object (no seal) claims nothing.
+        try Data(#"{"workspace_registry": 99}"#.utf8).write(to: store.root.appending(path: "100/store-schemas.json"))
+        #expect(store.list().first?.storeSchemas == nil)
+    }
+
     @Test func aRecordForABuildNotKeptIsNotWritten() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CryptoKit
 public import Foundation
 import Darwin
 import os
@@ -58,7 +59,7 @@ nonisolated public struct KeptVersionStore: Sendable {
             let bundle = folder.appending(path: app, directoryHint: .isDirectory)
             let info = NSDictionary(contentsOf: bundle.appending(path: "Contents/Info.plist")) as? [String: Any] ?? [:]
             let schemas = (info["CmuxStoreSchemas"] as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.intValue }
-                ?? Self.recordedSchemas(in: folder)
+                ?? Self.recordedSchemas(in: folder, bundle: bundle)
             return KeptVersion(build: info["CFBundleVersion"] as? String ?? build,
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
                                bundle: bundle, storeSchemas: schemas, teamID: nil)
@@ -78,19 +79,35 @@ nonisolated public struct KeptVersionStore: Sendable {
 
     /// Records the schemas `build` reads (its own CLI's answer), so the next rollback to it reads
     /// a file instead of starting that CLI cold (a first run of a new binary waits on the system's
-    /// scan of it, past the probe's timeout on a busy Mac).
+    /// scan of it, past the probe's timeout on a busy Mac). The record names the bundle it was
+    /// read from by the digest of its signed seal (`Contents/_CodeSignature/CodeResources`, which
+    /// the signature covers and the rollback checks afresh): a record for any other bundle, a
+    /// stale one or one written for another copy, is never read, and the target's CLI runs again.
     public func recordSchemas(_ schemas: [String: Int], for build: String) {
         let folder = root.appending(path: build, directoryHint: .isDirectory)
-        guard FileManager.checked.fileExists(atPath: folder.path),
-              let data = try? JSONSerialization.data(withJSONObject: schemas, options: [.sortedKeys]) else { return }
+        guard let app = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path))?.first(where: { $0.hasSuffix(".app") }),
+              let seal = Self.seal(of: folder.appending(path: app, directoryHint: .isDirectory)),
+              let data = try? JSONSerialization.data(withJSONObject: ["seal": seal, "schemas": schemas], options: [.sortedKeys])
+        else { return }
         try? data.blockingWrite(to: Self.schemasFile(in: folder), options: .atomic)
     }
 
     static func schemasFile(in folder: URL) -> URL { folder.appending(path: "store-schemas.json") }
 
-    static func recordedSchemas(in folder: URL) -> [String: Int]? {
-        guard let data = try? Data(blockingContentsOf: schemasFile(in: folder)) else { return nil }
-        return StoreSchemaProbe.parse(data)
+    /// The record's schemas when it was read from `bundle` as it is on disk now, else nil.
+    static func recordedSchemas(in folder: URL, bundle: URL) -> [String: Int]? {
+        guard let data = try? Data(blockingContentsOf: schemasFile(in: folder)),
+              let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let recorded = record["seal"] as? String, recorded == seal(of: bundle),
+              let schemas = record["schemas"], let inner = try? JSONSerialization.data(withJSONObject: schemas)
+        else { return nil }
+        return StoreSchemaProbe.parse(inner)
+    }
+
+    /// The SHA-256 of `bundle`'s signed seal, hex; nil for a bundle without one.
+    static func seal(of bundle: URL) -> String? {
+        guard let data = try? Data(blockingContentsOf: bundle.appending(path: "Contents/_CodeSignature/CodeResources")) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func prune(limit: Int) {
