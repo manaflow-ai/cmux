@@ -28,7 +28,7 @@ export function PartReadState({ card, read, onRetry }: { card: string; read: Par
           <div className="row-main">
             <div className="row-label">
               <div className="row-error" role="alert">
-                {t("settingsWindow.agentIntegrations.error.noAnswer")}
+                {t("settingsPage.partRead.noAnswer")}
               </div>
             </div>
             <div className="row-control action-row-control">
