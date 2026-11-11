@@ -153,6 +153,8 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
+import { Slot } from "../../slots/Slot";
+import { jumpToBottomSlot } from "../../slots/jumpToBottom";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
 import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
@@ -938,8 +940,9 @@ const JUMP_LATEST_SIZE = 32;
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
-/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
-/// the working state is already represented by the shared transcript spinner. It stays mounted while
+/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). Its mark is the `chat.jumpToBottom` theme slot:
+/// the default variant stays a static arrow while the agent works (the shared transcript spinner shows the work),
+/// and a theme's variant may move while `working`. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
 export function JumpToLatest({
   shown,
@@ -980,9 +983,9 @@ export function JumpToLatest({
         // A click does not focus a button in WebKit, so focus on it means Return or Space.
         onClick={(event) => onJump(event.currentTarget === document.activeElement)}
       >
-        <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-          <ArrowDown size={14} />
-        </span>
+        {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
+            draws exactly the static arrow this button drew before. */}
+        <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
       </button>
     </>
   );
