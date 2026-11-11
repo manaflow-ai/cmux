@@ -61,7 +61,11 @@ from urllib.request import urlopen
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
-ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or the line's end, whichever comes first:
+# a body that ran to the log's last ST deleted every line between two titles, a new failure with them, and the judge
+# excused it (cmux#41382's review F1). One opened on a line and closed on a later one is cut at each line's end, its
+# stray BEL or ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\\)|\x07")
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
@@ -794,16 +798,17 @@ def read_bun(lines: list[str], result: Result, steps: list[list[str]] | None = N
             mine = diagnostics.setdefault(name, [])
             mine.extend(message for message in found if message not in mine)
     for attempt in kept:
-        # A `FAIL file` is unnamed unless the file's last attempt that counts named a failure: the one in its own
-        # step, else anywhere; never another file's or an earlier run's (#41329's follow-up F2: a global flag let one
-        # `(fail)` name every file). A file no header names (run-webviews-tests.sh prints `FAIL file` and the file's
-        # results under its own group, no `file:` line) is named when an attempt of its step named a failure.
+        # A `FAIL file` is unnamed unless the file's last attempt that counts named a failure, in its own step only;
+        # never another file's, an earlier run's (#41329's follow-up F2: a global flag let one `(fail)` name every
+        # file) or another step's (cmux#41382's review F2: an earlier step's passing run of the file unnamed a later
+        # step's named failure, and an earlier step's named one hid a later step's unnamed marker). A file no header
+        # of its step names (run-webviews-tests.sh prints `FAIL file` and the file's results under its own group, no
+        # `file:` line) is named when an attempt of its step named a failure.
         for line in attempt.fail_files:
             of = BUN_PACKAGE.sub("", BUN_RESULT.match(line).group(2))
-            # The runs of the file printed before this line: in its step (up to its attempt), else anywhere.
-            runs = ([other for other in kept if other.file == of and other.step == attempt.step
-                     and other.number <= attempt.number]
-                    or [other for other in kept if other.file == of and other.step < attempt.step])
+            # The runs of the file printed before this line in its step, up to its attempt.
+            runs = [other for other in kept if other.file == of and other.step == attempt.step
+                    and other.number <= attempt.number]
             named = runs[-1].named if runs else any(other.named for other in kept if other.step == attempt.step)
             if not named:
                 result.unnamed.append(line)

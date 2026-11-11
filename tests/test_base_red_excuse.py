@@ -7480,7 +7480,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
-    VENDORED_FINGERPRINT = "b25a8e4f61d1d373e53ae5fe0797484f4adf9c6cf104dda2d1472f1e8af5a61a"
+    VENDORED_FINGERPRINT = "4fa56d9a188f4792111ea17fd85ac3f1e32e17a0e4c64e35f7825a41030dc241"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
