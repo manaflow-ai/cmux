@@ -203,3 +203,38 @@ test("New since you looked stays under a reply the person read", () => {
   expect(shown.indexOf(SINCE_DIVIDER)).toBeGreaterThan(shown.indexOf("a"));
   expect(shown.indexOf(`${WORKED}-p`)).toBeLessThan(shown.indexOf("a"));
 });
+
+// Leo, 2026-11-11: "Background command completed. Do those not count as the fucking works for?"
+const shellEnd = (id: string, at: number, state: "completed" | "stopped" | "failed"): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "backgroundTask",
+  backgroundTask: { toolCallId: `${id}-call`, command: "cargo test", state },
+});
+
+for (const family of ["claude", "codex", "gemini", "muse"])
+  test(`${family}: a background command that finished or stopped folds under Worked for`, () => {
+    const rows = [
+      prompt,
+      work("w1", 1_000, 2),
+      shellEnd("bg1", 5_000, "completed"),
+      shellEnd("bg2", 8_000, "stopped"),
+      work("w2", 20_000, 1),
+      say("a", 50_000, "Done."),
+      end,
+    ];
+    const closed = drawn(family, new Set(), rows);
+    const worked = closed.find((row) => row.kind === WORKED)!;
+    expect(ids(closed.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
+    // Opened, they draw in their places among the work.
+    const opened = ids(drawn(family, new Set([worked.id]), rows));
+    expect(opened.indexOf("bg1")).toBeGreaterThan(opened.indexOf(worked.id));
+    expect(opened.indexOf("bg2")).toBeLessThan(opened.indexOf("a"));
+  });
+
+test("a background command that failed stays in sight beside the closed Worked for", () => {
+  const rows = [prompt, work("w1", 1_000, 2), shellEnd("bg", 5_000, "failed"), say("a", 50_000, "Done."), end];
+  const shown = ids(drawn("claude", new Set(), rows).filter((row) => row.kind !== "turnSummary"));
+  expect(shown).toEqual([`${WORKED}-p`, "bg", "a"]);
+});
