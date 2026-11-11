@@ -95,6 +95,7 @@ async fn open_and_close_50_chats_then_the_hub_leaves_no_task_or_process() {
     hub.stop_idle_reaper();
     let _ = hub.shutdown_all().await;
     hub.close_owned_tasks().await;
+    let hub_refs = Arc::strong_count(&hub);
     drop(hub);
     let (tasks_after, children_after) = settle(tasks_before, children_before).await;
 
@@ -104,7 +105,8 @@ async fn open_and_close_50_chats_then_the_hub_leaves_no_task_or_process() {
     );
     println!(
         "owned-scope-bench detail: open max tasks={tasks_open_max} children={children_open_max}; \
-         after 50 closes tasks={tasks_closed} children={children_closed}"
+         after 50 closes tasks={tasks_closed} children={children_closed}; \
+         hub handles at its drop={hub_refs}"
     );
     assert!(tasks_after <= tasks_before, "the hub left {} task(s)", tasks_after - tasks_before);
     assert!(

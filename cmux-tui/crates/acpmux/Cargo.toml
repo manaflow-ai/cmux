@@ -94,6 +94,7 @@ toml_edit.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
+cmux-scope.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true
 # A cold-archived chat's log, one compressed file (src/store/cold.rs).

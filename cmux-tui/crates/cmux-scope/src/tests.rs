@@ -117,3 +117,33 @@ fn a_report_reads_as_a_sentence() {
         "hub: 1 task(s) ignored the cancellation and were aborted at the deadline: idle-reaper"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn work_spawned_until_cancelled_stops_at_the_cancellation_and_is_not_reported() {
+    let scope = Scope::new("test");
+    let retry = scope.spawn_until_cancelled("retry", async {
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        "retried"
+    });
+    let quick = scope.spawn_until_cancelled("quick", async { "done" });
+    assert_eq!(quick.await.unwrap(), Some("done"));
+    let report = scope.close(Duration::from_secs(1)).await;
+    assert!(report.joined(), "{report}");
+    assert_eq!(retry.await.unwrap(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_that_holds_the_last_handle_of_its_owner_drops_it_quietly() {
+    struct Owner {
+        scope: Scope,
+    }
+    let owner = Arc::new(Owner { scope: Scope::new("owner") });
+    let held = owner.clone();
+    let task = owner.scope.spawn(async move {
+        tokio::task::yield_now().await;
+        let _kept_until_the_end = &held;
+    });
+    drop(owner);
+    // The owner, and its scope, drop as the task that held it ends: no panic (strict here).
+    task.await.unwrap();
+}

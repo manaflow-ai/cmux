@@ -59,12 +59,47 @@ mod review_policy_tests;
 impl Hub {
     // ------------------------------------------------------------- inbound
 
+    /// The chat's inbound loop, spawned once per start in the hub's scope (`spawn_inbound_loop`):
+    /// it ends when the hub closes, or when the chat closes after what was already queued. Then
+    /// it hands the receiver back, so the start that reopens the chat starts it again; a chat
+    /// reopened before the hand-back keeps this loop.
     pub(super) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
         mut rx: mpsc::Receiver<Inbound>,
     ) {
-        while let Some(item) = rx.recv().await {
+        let stop = self.scope.token();
+        let mut closed = session.closed.subscribe();
+        closed.borrow_and_update();
+        loop {
+            self.clone().inbound_items(session.clone(), &mut rx, &stop, &mut closed).await;
+            if stop.is_cancelled() {
+                return;
+            }
+            let mut slot = session.inbound_rx.lock().await;
+            if session.status() == SessionStatus::Closed {
+                *slot = Some(rx);
+                return;
+            }
+        }
+    }
+
+    /// Start the chat's inbound loop when no loop holds its receiver.
+    pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Some(rx) = session.inbound_rx.lock().await.take() {
+            let (hub, s) = (self.clone(), session.clone());
+            self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
+        }
+    }
+
+    async fn inbound_items(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        rx: &mut mpsc::Receiver<Inbound>,
+        stop: &tokio_util::sync::CancellationToken,
+        closed: &mut tokio::sync::watch::Receiver<bool>,
+    ) {
+        while let Some(item) = next_inbound(rx, stop, closed).await {
             match item {
                 Inbound::Notification {
                     method: m,
@@ -1900,6 +1935,27 @@ mod probe_env_tests {
         // The real remote base carries HOME when the daemon has one.
         if std::env::var_os("HOME").is_some() {
             assert!(super::remote_base().contains_key("HOME"));
+        }
+    }
+}
+
+/// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat
+/// closed with nothing left queued (`Hub::inbound_loop`).
+async fn next_inbound(
+    rx: &mut mpsc::Receiver<Inbound>,
+    stop: &tokio_util::sync::CancellationToken,
+    closed: &mut tokio::sync::watch::Receiver<bool>,
+) -> Option<Inbound> {
+    loop {
+        tokio::select! {
+            biased;
+            item = rx.recv() => return item,
+            () = stop.cancelled() => return None,
+            changed = closed.changed() => {
+                if changed.is_err() || *closed.borrow_and_update() {
+                    return None;
+                }
+            }
         }
     }
 }

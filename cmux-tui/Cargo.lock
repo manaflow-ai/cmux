@@ -38,6 +38,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",

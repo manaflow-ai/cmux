@@ -68,13 +68,6 @@ impl Live {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u64, (TaskName, Option<AbortHandle>)>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
-
-    fn names(&self) -> Vec<String> {
-        let mut names: Vec<String> =
-            self.lock().values().map(|(name, _)| name.to_string()).collect();
-        names.sort();
-        names
-    }
 }
 
 /// What a task is called in a report: its name, or where it was spawned.
@@ -94,6 +87,11 @@ impl fmt::Display for TaskName {
 }
 
 static NEXT_TASK: AtomicU64 = AtomicU64::new(0);
+
+tokio::task_local! {
+    /// The scope task this code runs in (its id in the live tables).
+    static CURRENT_TASK: u64;
+}
 
 /// Removes a finished (or aborted) task from every live table it is in, and
 /// holds the ancestors' tracker tokens until then.
@@ -201,6 +199,29 @@ impl Scope {
         self.spawn_as(TaskName::Named(name), future)
     }
 
+    /// [`Scope::spawn_named`] for work that may simply stop at the
+    /// cancellation (a retry loop, a wait, a projection that the next start
+    /// redoes): `future` is dropped there, so the task never counts as
+    /// ignoring it. `None` when it was cancelled first.
+    pub fn spawn_until_cancelled<F>(
+        &self,
+        name: &'static str,
+        future: F,
+    ) -> JoinHandle<Option<F::Output>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let stop = self.cancelled();
+        self.spawn_as(TaskName::Named(name), async move {
+            tokio::select! {
+                biased;
+                () = stop => None,
+                output = future => Some(output),
+            }
+        })
+    }
+
     fn spawn_as<F>(&self, name: TaskName, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -217,10 +238,12 @@ impl Scope {
             tables: tables.clone(),
             _ancestors: self.ancestors.iter().map(|(tracker, _)| tracker.token()).collect(),
         };
-        let handle = self.tracker.spawn(async move {
+        // The task knows its own id: a task that holds the last handle of its owner drops the
+        // owner, and this scope, as it ends, and that drop leaves the task itself out.
+        let handle = self.tracker.spawn(CURRENT_TASK.scope(id, async move {
             let _running = running;
             future.await
-        });
+        }));
         // A task that already ended removed its rows: nothing to fill in.
         for table in &tables {
             if let Some((_, abort)) = table.lock().get_mut(&id) {
@@ -305,10 +328,19 @@ impl Drop for Scope {
         if self.closed.load(Ordering::SeqCst) {
             return;
         }
-        let running = self.live.names();
+        // A task of this scope that drops it (it held the owner's last handle) is ending.
+        let current = CURRENT_TASK.try_with(|id| *id).ok();
+        let mut running: Vec<String> = self
+            .live
+            .lock()
+            .iter()
+            .filter(|(id, _)| Some(**id) != current)
+            .map(|(_, (name, _))| name.to_string())
+            .collect();
         if running.is_empty() {
             return;
         }
+        running.sort();
         tracing::warn!(
             owner = self.owner,
             tasks = ?running,
