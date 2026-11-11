@@ -150,6 +150,18 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
+    /// Whether this client has a machine build to install on a Cloud machine: false only when
+    /// ``machinePin()`` answers `machine_update_unavailable` (no manifest ships with it and none is
+    /// published for its commit or cmux-tui tree, as for a DEV build of an unpublished commit).
+    public func hasMachineBuild() async -> Bool {
+        struct Pin: Decodable {
+            var errorCode: String?
+            enum CodingKeys: String, CodingKey { case errorCode = "error_code" }
+        }
+        guard let data = await machinePin(), let pin = try? JSONDecoder().decode(Pin.self, from: data) else { return true }
+        return pin.errorCode != "machine_update_unavailable"
+    }
+
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
     /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
     public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {

@@ -49,12 +49,22 @@ public struct CloudMachineRoute: Sendable {
     /// A Cloud start's machine before its first chat: it runs this app's machine software (`update`, a no-op
     /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
     /// start's failure, its reason as the start card shows it, with a retry on the same machine.
-    public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
-        Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-            .info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
+    ///
+    /// `hasMachineBuild` answers whether this app has a machine build of its own to install. An app without
+    /// one (a DEV build of a commit whose machine build is not published) cannot update any machine, so a
+    /// machine whose software predates the report (``Verdict/unsupported``) starts the chat on the software
+    /// its image came with instead of refusing every start. It is asked only after that refusal.
+    public func prepare(hasMachineBuild: @escaping @Sendable () async -> Bool,
+                        _ update: @escaping @Sendable () async -> Void) async throws {
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+        logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
             try await afterUpdate(update)
         } catch let refused as Refused {
+            if refused.verdict == .unsupported, await !hasMachineBuild() {
+                logger.info("cloud start chat: this app has no machine build to install; \(machineID ?? "", privacy: .public) starts on its image's software")
+                return
+            }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
         }
     }
