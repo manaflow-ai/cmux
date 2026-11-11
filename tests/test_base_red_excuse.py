@@ -2650,9 +2650,11 @@ class BaseRedWindow(unittest.TestCase):
         self.base(30, 12)
         self.base(29, 11, (ISSUE,))
         text = self.judge()
-        self.assertIn("run 30", text)
-        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
-        self.assertIn("runs 29", text)
+        # Excused by run 29 alone, which holds every failure (#41422's review F1: one verdict, never a mix), and named
+        # as the older verdict it is.
+        self.assertIn("feat-cmux-next run 29", text)
+        self.assertIn("before the newest, run 30", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
 
     def test_the_newest_red_verdict_that_covers_every_test_reads_no_older_log(self):
         self.base(30, 12, (ISSUE,))
@@ -9075,7 +9077,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed", "view_signature"})
+    "owned_unnamed", "view_signature", "one_verdict"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -10125,8 +10127,9 @@ class OneVerdictCoversTheHeadsIdentity(unittest.TestCase):
     def test_a_failure_and_a_cancel_split_over_two_verdicts_is_not_excused(self):
         self.base(30, 12, ["failure"])
         self.base(29, 11, ["cancelled"])
-        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next any of runs 30, 29 with the "
-                                                    r"same conclusion, as often, each verdict alone"):
+        with self.assertRaisesRegex(excuse.Refused, r"no one feat-cmux-next verdict of runs 30, 29 holds every failure "
+                                                    r"alone .*failed steps not on feat-cmux-next run 30 with the same "
+                                                    r"conclusion, as often"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_one_verdict_with_both_is_still_excused(self):
@@ -11705,6 +11708,8 @@ NOT_SWEPT = {
                                        "workflow's headers, which HostileLog has none of",
     "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
                                       "test_reds.classify_web_window, each swept",
+    "base_red_excuse.one_verdict": "compare_window's comparison with one verdict: signature, step_errors and "
+                                   "test_reds.classify, each swept",
     "test_reds._kept": "the parse cache: it calls the reader it is given",
 }
 

@@ -1509,6 +1509,13 @@ class FailedView:
             return self._text
         return test_reds.Steps(["\n".join(lines) for _, status, lines in self.sections if status == FAILED])
 
+    def evidence_text(self) -> str:
+        """Its FAILED and ERRORED sections' lines, in log order, as a test_reds.Steps: every line the comparison of a
+        test by name and diagnostic reads (test_reds.classify_any); each section is still counted like for like
+        (failed_text, errored_text)."""
+        found = sorted({k: (k, lines) for k, _, lines in [*self.sections, *self.errored]}.values())
+        return test_reds.Steps(["\n".join(lines) for _, lines in found])
+
     def errored_text(self) -> str:
         """Its ERRORED (continue-on-error) sections' lines, as a test_reds.Steps, a head's and a base's alike: what a
         head's count of a failing test there is compared with (compare_window, view_signature). Dropping them dropped
@@ -4811,33 +4818,28 @@ class Final(Refused):
 def compare_window(repo: str, base: str, name: str, head: tuple, head_view: FailedView, window: list,
                    chromium_without_diagnostics: bool, *, flake_state: dict | None = None,
                    workflow: str = "", head_pairs: set | None = None) -> str:
-    """The audit line for red job NAME (HEAD: the signature of HEAD_VIEW, its failed_view) when each of its failures is
-    on some red base verdict of WINDOW (newest first: (run, its failed_view, signature[, step_errors])); raises Refused
-    naming the first that is on none, Final when the newest verdict alone (the Chromium check, a process signal, the
-    panic ratchet) refuses it. With HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a
-    failed step of the same name. Every line it reads, head and base alike, is a failed_view's."""
+    """The audit line for red job NAME (HEAD: the signature of HEAD_VIEW, its failed_view) when ONE red base verdict of
+    WINDOW (newest first: (run, its failed_view, signature[, step_errors])) alone holds every failure of it
+    (one_verdict); raises Refused naming why each verdict alone does not, Final when the newest verdict alone (the
+    Chromium check, a process signal, the panic ratchet) refuses it. With HEAD_PAIRS (step_errors), each compared head
+    error must be printed on that verdict by a failed step of the same name. Every line it reads, head and base alike,
+    is a failed_view's.
+    Every fact an excuse uses (a failed step's identity, a failing test's name, diagnostic, files and count, an error
+    line and the step that printed it) comes from one base verdict, never mixed across the window (#41422's review F1:
+    a test only in the head's continue-on-error sections took its identity from one verdict and its count from
+    another, so `beta()` x10 in Mine.swift was excused by a newest verdict failing it x10 in Other.swift and an older
+    one failing it x1 in Mine.swift, though each alone refuses it). Before it, the window's failed steps, test names
+    and error lines were merged (#41166's and #41329's review F1 each closed one of those joins); the per-test window
+    let two tests rest on two verdicts. A quarantined flake (test_reds.flaky_failures) is the base's however often it
+    fails, on any verdict: it is no fact of a base verdict."""
     base_run, base_view, *_ = window[0]
-    runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
     head_crash = crash_signals(head_view)
-    # A failure no parser names (#41166's review F2) is refused by the reading every consumer shares: read_head's
-    # test_reds.read of the raw log, and classify_any's of HEAD_VIEW below (its per-test results are not whole).
-    base_steps, base_tests, base_errors, on = set(), set(), set(), {}
-    for run, _, (steps, tests, errors), *_ in window:
-        base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
-        for test in tests:
-            on.setdefault(test, run["id"])
     if chromium_without_diagnostics and (window[0][2][1] or window[0][2][2] or crash_signals(base_view)):
         raise Final(f"'{name}': no failing test or error line to match; nothing to compare with the base")
     head_text = view_text(head_view)
     known = test_reds.flaky_failures(head_text, name, workflow, flake_state) if base == "feat-cmux-next" else {}
-    base_tests |= known.keys()
-    verdict = test_reds.classify_any(head_text, [(f"{base} run {run['id']}", view_text(view))
-                                                 for run, view, *_ in window], name,
-                                   flake_state=flake_state if base == "feat-cmux-next" else None, workflow=workflow)
-    if verdict is not None and verdict.own:
-        raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
-    # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
+    # Not a test job (a compile or tool that died on a signal): the newest base must have died the same way.
     if missing := sorted(head_crash - crash_signals(base_view)):
         raise Final(f"'{name}': the process died on signal {', '.join(missing)}, "
                     f"and {base} run {base_run['id']} did not")
@@ -4851,85 +4853,101 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
         if unmatched:
             raise Final(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
                         f"{'; '.join(unmatched)[:600]}")
+    why = []
+    for entry in window:
+        try:
+            return one_verdict(repo, base, name, head, head_view, entry, window[0][0], known,
+                               flake_state=flake_state, workflow=workflow, head_pairs=head_pairs)
+        except Final:
+            raise
+        except Refused as refused:
+            why.append(str(refused))
+    if len(why) == 1:
+        raise Refused(why[0])
+    raise Refused(f"'{name}': no one {base} verdict of runs {', '.join(str(w[0]['id']) for w in window)} holds "
+                  "every failure alone (each verdict alone): " + " | ".join(text.split(": ", 1)[-1] for text in why)[:900])
+
+
+def one_verdict(repo: str, base: str, name: str, head: tuple, head_view: FailedView, entry: tuple, newest: dict,
+                known: dict, *, flake_state: dict | None, workflow: str, head_pairs: set | None) -> str:
+    """The audit line for red job NAME when the one base verdict ENTRY ((run, its failed_view, signature[,
+    step_errors]); NEWEST: the window's newest run) alone holds every failure of HEAD_VIEW (compare_window); raises
+    Refused naming the first it does not hold. A head's FAILED sections are compared with the verdict's FAILED ones and
+    its ERRORED (continue-on-error) sections with the verdict's ERRORED ones (FailedView.errored_text): a failing test
+    by name, diagnostic and files (classify's shared) and as often, in each (#41220's review F2)."""
+    run, view, (steps, tests, errors), *pairs = entry
+    runs = f"run {run['id']}"
+    head_steps, head_tests, head_errors = head
+    head_text = view_text(head_view)
+    # Names on this verdict: its failed sections', and its continue-on-error sections' for what the head has in its own
+    # (each counted like for like below), and the quarantined flakes.
+    errored_names = set(test_reds.failed_in(view.errored_text()))
+    base_tests = tests | errored_names | known.keys()
+    verdict = test_reds.classify_any(head_text, [(f"{base} {runs}", view.evidence_text())], name,
+                                     flake_state=flake_state if base == "feat-cmux-next" else None, workflow=workflow)
+    if verdict is not None and verdict.own:
+        raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
+    if missing := sorted(crash_signals(head_view) - crash_signals(view)):
+        raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, and {base} {runs} did not")
+    ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
+    if ratchet:
+        if unmatched := ratchet_unmatched(head_view, view):
+            raise Refused(f"'{name}': panic ratchet failures not on {base} {runs}: {'; '.join(unmatched)[:600]}")
         head_errors = head_errors - ratchet
-    compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
+    compared = [("failed steps", head_steps, steps), ("failing tests", head_tests, base_tests)]
     # A crash-class or check rule line is a named failure, but its job also has steps that print only error lines
     # (the concurrency rule): those stay compared unless a real test failed.
     if not any(not test_reds.is_rule_failure(test) for test in head_tests):
-        compared.append(("errors", head_errors, base_errors))
-    for kind, head, seen in compared:
-        if missing := sorted(head - seen):
+        compared.append(("errors", head_errors, errors))
+    for kind, mine, seen in compared:
+        if missing := sorted(mine - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
     # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
-    # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
-    # the window's keys were merged (Counter |, the most of each key over the verdicts), so a head whose step failed
-    # and another of that name was cancelled matched a base verdict with the failure and an older one with the cancel,
-    # an identity no base run had.
+    # the base's one failure).
     mine = failed_step_keys(head_view.job)
-    gaps = [mine - failed_step_keys(view.job) for _, view, *_ in window]
-    if all(gaps):
-        missing = min(gaps, key=lambda gap: sum(gap.values()))
-        each = ", each verdict alone" if len(window) > 1 else ""
-        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{each}: "
-                      f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
-    # Each failing test whole on ONE verdict of the window: its name, its diagnostic (classify's shared: the same error
-    # and the same files) and as often as the head fails it (#41222's review F1 at 6719ba22: a name failing twice is
-    # two failures). #41329's review F1: the name and diagnostic were taken from any verdict and the count from the
-    # most any verdict had, so a head failing A twice with no error matched a base that failed it once that way and
-    # an older one that failed it twice with a TypeError, a failure no base run had. Each test may still be on its own
-    # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
-    # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
-    # it fails.
-    # Counted like for like (merging #41220's step mapping): the head's FAILED sections with a base's FAILED ones, and
-    # its ERRORED (continue-on-error) sections with a base's ERRORED ones (FailedView.errored_text), each on the same
-    # verdict. Counting the head's ERRORED sections with a base's FAILED ones refused the very red the base has
-    # (cmux#41001's head served as its own base: everyMenuKeepsAShortTopLevel() x6, at most x2, for the catalog check's
-    # ERRORED section); dropping them dropped their count, so `alpha()` x11 against at most x1 was excused with ten in
-    # a continue-on-error step (#41220's review F2).
+    if gap := mine - failed_step_keys(view.job):
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often: "
+                      f"{step_keys_text(gap)[:400]} (the head's: {step_keys_text(mine)[:200]})")
+    # Each failing test whole on this verdict: its name, its diagnostic and files (classify's shared) and as often as
+    # the head fails it (#41222's review F1: a name failing twice is two failures), in its failed sections and in its
+    # continue-on-error ones, each with the verdict's like sections.
     times = test_reds.failed_in(head_view.failed_text())
     continued = test_reds.failed_in(head_view.errored_text())
-    alone = []
-    for (run, view, *_), gap in zip(window, gaps):
-        if gap:
-            continue
-        text = view_text(view)
-        judged = test_reds.classify(head_text, text, name, f"{base} run {run['id']}")
-        alone.append((set(judged.shared) if judged is not None else set(),
-                      test_reds.failed_in(text), test_reds.failed_in(view.errored_text())))
-
-    def holds(test: str, same: set, counts: Counter, errored: Counter) -> bool:
-        return ((not times[test] or (test in same and counts[test] >= times[test]))
-                and errored[test] >= continued[test])
-    if lone := sorted(f"{test} x{times[test]}" + (f" (+x{continued[test]} continue-on-error)" if continued[test] else "")
-                      + f" (at most x{max([counts[test] for same, counts, _ in alone if test in same] or [0])}"
-                      + (f", +x{max([errored[test] for *_, errored in alone] or [0])} continue-on-error"
-                         if continued[test] else "") + ")"
-                      for test in sorted(times.keys() | continued.keys()) if test not in known
-                      and not any(holds(test, *entry) for entry in alone)):
-        raise Refused(f"'{name}': failing tests more often than on any of {base} {runs} that fails them the same way with the head's failed steps, "
-                      f"each verdict alone: {'; '.join(lone)[:600]}")
+    judged = test_reds.classify(head_view.failed_text(), view_text(view), name, f"{base} {runs}")
+    same = set(judged.shared) if judged is not None else set()
+    judged = (test_reds.classify(head_view.errored_text(), view.errored_text(), name, f"{base} {runs}")
+              if continued else None)
+    same_errored = set(judged.shared) if judged is not None else set()
+    counts, errored = test_reds.failed_in(view_text(view)), test_reds.failed_in(view.errored_text())
+    if lone := [f"{test} x{times[test]}" + (f" (+x{continued[test]} continue-on-error)" if continued[test] else "")
+                + f" (at most x{counts[test] if test in same else 0}"
+                + (f", +x{errored[test] if test in same_errored else 0} continue-on-error" if continued[test] else "")
+                + ")"
+                for test in sorted(times.keys() | continued.keys()) if test not in known
+                and not ((not times[test] or (test in same and counts[test] >= times[test]))
+                         and (not continued[test] or (test in same_errored and errored[test] >= continued[test])))]:
+        raise Refused(f"'{name}': failing tests more often than on any of {base} {runs} that fails them the same way "
+                      f"with the head's failed steps, each verdict alone: {'; '.join(lone)[:600]}")
     if head_pairs is not None and compared[-1][0] == "errors":
-        printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
+        printed = pairs[0] if pairs else set()
         if missing := sorted(f"{error} (step '{step}')" for step, error in head_pairs
                              if error in head_errors and (step, error) not in printed):
             raise Refused(f"'{name}': errors not printed by the same failed step on {base} {runs}: "
                           f"{'; '.join(missing)[:600]}")
     rows = [f"{crate}: clippy::{lint} {count} > {where}"
             for (crate, lint, where), count in sorted(ratchet_red(head_view)[0].items())] if ratchet else []
-    what = ("; ".join(test if on.get(test) == base_run["id"] else
-                      f"{test} ({known[test]})" if test in known else f"{test} (red on run {on[test]})"
+    what = ("; ".join(f"{test} ({known[test]})" if test in known and test not in tests | errored_names else test
                       for test in sorted(head_tests))
             or "; ".join(rows + sorted(head_errors)))
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
-    # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
-    # once every 15 minutes, so name the commit and time it is from.
-    at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
-    when = f", {base_run['created_at']}" if base_run.get("created_at") else ""
-    older = (f" or one of the {len(window) - 1} red {base} verdict(s) before it (runs "
-             f"{', '.join(str(w[0]['id']) for w in window[1:])})") if len(window) > 1 else ""
-    return (f"excused '{name}': {base} run {base_run['id']}{at} (the newest {base} verdict for it{when}){older} "
-            f"fails the same way ({url}): {what[:400]}")
+    url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+    # The base verdict is the newest one, or an older red one in the window (BASE_WINDOW): name the commit and time
+    # it is from (the base tier runs at most once every 15 minutes).
+    at = f" at {tested_sha(run)[:10]}" if tested_sha(run) else ""
+    when = f", {run['created_at']}" if run.get("created_at") else ""
+    which = (f"the newest {base} verdict for it{when}" if run["id"] == newest["id"]
+             else f"a red {base} verdict for it before the newest, run {newest['id']}{when}; alone")
+    return f"excused '{name}': {base} {runs}{at} ({which}) fails the same way ({url}): {what[:400]}"
 
 
 class Infra(Refused):
