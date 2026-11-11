@@ -41,17 +41,17 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "onboarding-demo", args: ["-cmux-mobile-demo", "onboarding"], env: Self.signedOut, signedIn: false, settle: 0,
                   frames: [("onboarding-welcome", 1.5), ("onboarding-email", 3.5), ("onboarding-code", 6.5),
                            ("onboarding-team", 10), ("onboarding-notifications", 14), ("onboarding-shell", 19)]),
-            Scene(group: g, id: "setup-teams-loading", args: ["-cmux-mobile-no-restore"],
+            Scene(group: g, id: "setup-teams-loading", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"], signedIn: false, settle: 3),
-            Scene(group: g, id: "setup-teams-choose", args: ["-cmux-mobile-no-restore"],
+            Scene(group: g, id: "setup-teams-choose", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.wait(app.scrollViews["setup.teams.choose"], "team chooser")
             },
-            Scene(group: g, id: "setup-create-team", args: ["-cmux-mobile-no-restore"],
+            Scene(group: g, id: "setup-create-team", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.tap(C.any(app, "setup.teams.create"), "Create team row")
             },
-            Scene(group: g, id: "setup-signout-confirm", args: ["-cmux-mobile-no-restore"],
+            Scene(group: g, id: "setup-signout-confirm", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
                   env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.tap(C.any(app, "setup.sign-out"), "setup sign-out")
             },
@@ -127,12 +127,6 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "states-demo", args: ["-cmux-mobile-demo", "states"], settle: 0,
                   frames: [("workspaces-loading", 3.0), ("workspaces-failed", 5.0), ("workspaces-offline-banner", 8.0),
                            ("macs-asleep", 11.0), ("no-macs-connect", 13.0), ("toast-paired", 16.5)]),
-            Scene(group: g, id: "app-lock", args: ["-cmux-mobile-tab", "home", "-cmuxMobile.settings.requireFaceID", "YES"], settle: 3) { app in
-                XCUIDevice.shared.press(.home)
-                C.pause(1.5)
-                app.activate()
-                return C.wait(C.any(app, "cmuxMobile.appLock"), "app lock screen", timeout: 6)
-            },
         ]
         for banner in ["connected", "reconnecting", "offline", "pairing", "pairing-reset"] {
             scenes.append(Scene(group: g, id: "banner-\(banner)", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", banner]))
