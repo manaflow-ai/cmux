@@ -217,9 +217,14 @@ pub fn ultra_mode() -> bool {
     if cfg!(test) {
         return false;
     }
-    let path = config_path();
-    match std::fs::metadata(&path) {
-        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+    ultra_mode_at(&config_path())
+}
+
+/// [`ultra_mode`] of the settings file at `path` (a CLI in a cmux terminal
+/// reads its owner's file).
+pub fn ultra_mode_at(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(path)
             .map(|text| ultra_mode_from_config_text(&text))
             .unwrap_or(false),
         _ => false,

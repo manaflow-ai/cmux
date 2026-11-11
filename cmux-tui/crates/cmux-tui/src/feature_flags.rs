@@ -131,17 +131,29 @@ pub(crate) fn cohort(env: &dyn Fn(&str) -> Option<String>, settings: Option<&Val
         .unwrap_or_else(|| DEFAULT_COHORT.to_string())
 }
 
-/// cmux.json as JSON, when it parses.
+/// Which settings file a CLI reads: its own, or its terminal owner's.
+pub(crate) mod settings_file;
+
+/// cmux.json as JSON, when it parses: the file of this process's own launch
+/// (an owner's background checks).
 pub(crate) fn settings() -> Option<Value> {
-    std::fs::read_to_string(cmux_config::config_path())
-        .ok()
-        .and_then(|text| cmux_config::jsonc::parse(&text).ok())
+    settings_at(&cmux_config::config_path())
+}
+
+/// [`settings`] for a CLI: in a cmux terminal, the file of that terminal's
+/// owner ([`settings_file`]).
+pub(crate) fn cli_settings() -> Option<Value> {
+    settings_at(&settings_file::path())
+}
+
+fn settings_at(path: &Path) -> Option<Value> {
+    std::fs::read_to_string(path).ok().and_then(|text| cmux_config::jsonc::parse(&text).ok())
 }
 
 /// The cohort and what the cached, verified document turns off for it.
 pub(crate) fn report() -> (String, Vec<String>) {
     let env = |name: &str| std::env::var(name).ok();
-    let cohort = cohort(&env, settings().as_ref());
+    let cohort = cohort(&env, cli_settings().as_ref());
     let disabled = state_root()
         .and_then(|root| cached(&root, &public_key()))
         .and_then(|document| resolve(&document, &cohort))

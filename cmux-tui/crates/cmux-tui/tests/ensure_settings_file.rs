@@ -9,6 +9,10 @@
 //! a restarting client that names a file of its own moves the owner to it.
 //! A real owner process; the clients after the launch name no settings file
 //! unless the test says so.
+//!
+//! A CLI reader (`cmux settings validate`) with the owner's socket in its
+//! environment, as in a terminal of that owner, asks the owner for `path`
+//! within a deadline, and reads the default file when no owner answers.
 
 // `server restart` reads the old owner's launch from the OS on these two.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
@@ -17,7 +21,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -67,6 +71,7 @@ impl Fixture {
             .env("LC_ALL", "C")
             .env_remove("CMUX_NEXT_CONFIG_FILE")
             .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_TUI_TERMINAL_ID")
             .env_remove("CMUX_BUNDLE_ID")
@@ -106,6 +111,30 @@ impl Fixture {
             String::from_utf8_lossy(&output.stderr)
         );
         serde_json::from_slice(&output.stdout).unwrap()
+    }
+
+    /// Starts the session's owner on the settings file `settings`.
+    fn ensure_on(&self, settings: &std::path::Path) {
+        let ensured =
+            self.server("ensure").env("CMUX_NEXT_CONFIG_FILE", settings).output().unwrap();
+        assert!(ensured.status.success(), "{}", String::from_utf8_lossy(&ensured.stderr));
+    }
+
+    /// `cmux --json settings validate` with no file, as a process with the
+    /// environment `env` over [`Self::cmux`]: the file the reader used, and
+    /// whether that file exists.
+    fn validated(&self, env: &[(&str, &std::path::Path)]) -> (Value, Value) {
+        let mut command = self.cmux();
+        command.envs(env.iter().copied()).args(["--json", "settings", "validate"]);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "settings validate failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (answer["file"].take(), answer["exists"].take())
     }
 }
 
@@ -214,4 +243,64 @@ fn a_restarting_clients_settings_file_wins_and_an_empty_one_keeps_the_owners() {
     assert_eq!(fixture.owner_file(), json!(second.to_str().unwrap()));
     let default = fixture.default_file();
     assert!(!default.exists(), "an owner made {}", default.display());
+}
+
+/// `cmux settings validate` with no file, run without the variable and with
+/// the owner's socket in its environment (as in a terminal of that owner),
+/// reads the owner's file. The reader's own variable still wins, and a
+/// reader outside a cmux terminal asks nobody and reads the default file.
+#[test]
+fn a_cli_reader_with_the_owners_socket_reads_the_owners_settings_file() {
+    let fixture = Fixture::new("settings-file-reader");
+    let settings = fixture.dir.join("app").join("cmux-next.json");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    fs::write(&settings, TOP).unwrap();
+    fixture.ensure_on(&settings);
+
+    let started = Instant::now();
+    let (file, exists) = fixture.validated(&[("CMUX_TUI_SOCKET", fixture.socket.as_path())]);
+    let with_ask = started.elapsed();
+    assert_eq!(file, json!(settings.to_str().unwrap()));
+    assert_eq!(exists, true);
+
+    let own = fixture.dir.join("own.json");
+    fs::write(&own, BOTTOM).unwrap();
+    let (file, exists) = fixture.validated(&[
+        ("CMUX_TUI_SOCKET", fixture.socket.as_path()),
+        ("CMUX_NEXT_CONFIG_FILE", own.as_path()),
+    ]);
+    assert_eq!(file, json!(own.to_str().unwrap()), "the reader's own variable wins");
+    assert_eq!(exists, true);
+
+    let started = Instant::now();
+    let (file, exists) = fixture.validated(&[]);
+    let without_ask = started.elapsed();
+    assert_eq!(file, json!(fixture.default_file().to_str().unwrap()));
+    assert_eq!(exists, false);
+    // What the ask costs a reader in a cmux terminal (shown with --nocapture).
+    eprintln!("settings validate: {with_ask:?} with the owner ask, {without_ask:?} without");
+}
+
+/// With no owner at the socket its environment names, and with one that
+/// accepts and never answers, the reader reads the default file and exits 0;
+/// the silent owner costs it the ask's deadline, not a hang.
+#[test]
+fn a_cli_reader_without_a_reachable_owner_reads_the_default_file() {
+    // No owner is started: the fixture's stop at the end finds none.
+    let fixture = Fixture::new("settings-file-no-owner");
+    let default = json!(fixture.default_file().to_str().unwrap());
+
+    let gone = fixture.dir.join("gone.sock");
+    let (file, exists) = fixture.validated(&[("CMUX_TUI_SOCKET", gone.as_path())]);
+    assert_eq!(file, default, "no socket at the path");
+    assert_eq!(exists, false);
+
+    let silent = fixture.dir.join("silent.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&silent).unwrap();
+    let started = Instant::now();
+    let (file, exists) = fixture.validated(&[("CMUX_TUI_SOCKET", silent.as_path())]);
+    let waited = started.elapsed();
+    assert_eq!(file, default, "an owner that never answers");
+    assert_eq!(exists, false);
+    assert!(waited < Duration::from_secs(15), "the ask has a short deadline, took {waited:?}");
 }
