@@ -1621,6 +1621,17 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-27b
+      - name: Prepare check Python (PyYAML) and timeout
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/checks-venv"
+          "$RUNNER_TEMP/checks-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          if ! command -v timeout >/dev/null && command -v gtimeout >/dev/null; then
+            ln -s "$(command -v gtimeout)" "$RUNNER_TEMP/checks-venv/bin/timeout"
+          fi
+          echo "$RUNNER_TEMP/checks-venv/bin" >> "$GITHUB_PATH"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
         run: |
