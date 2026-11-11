@@ -38,25 +38,28 @@ function galleryHost(answer: Props["answer"]): PageClient {
 function ChiefSlashGallery({ typed, answer }: Props) {
   const box = useRef<HTMLDivElement | null>(null);
   const skills = useMemo(() => new ChiefSkills(galleryHost(answer), "gallery"), [answer]);
-  // Types the variant's text once the field is made, as the person would.
+  // Types the variant's text once the field takes it, as the person would: until the editor is made
+  // the handle's typing does nothing, so it tries each frame until the text is in.
   useEffect(() => {
-    const node = box.current;
-    if (!node) return;
-    let done = false;
+    let frame = 0;
     const type = () => {
-      const field = node.querySelector<MarkdownFieldElement>(".acpmux-md-field")?.acpmuxMarkdownField;
-      if (done || !field || !node.querySelector(".ProseMirror")) return;
-      done = true;
-      field.focus();
-      field.insertTyped(typed);
+      const field = box.current?.querySelector<MarkdownFieldElement>(".acpmux-md-field")?.acpmuxMarkdownField;
+      if (field) {
+        field.focus();
+        if (field.value() !== typed) {
+          field.writeText("", 0, 0);
+          field.insertTyped(typed);
+        }
+        if (field.value() === typed) return;
+      }
+      frame = requestAnimationFrame(type);
     };
-    const watch = new MutationObserver(type);
-    watch.observe(node, { childList: true, subtree: true });
-    type();
-    return () => watch.disconnect();
+    frame = requestAnimationFrame(type);
+    return () => cancelAnimationFrame(frame);
   }, [typed]);
   return (
-    <div ref={box} style={{ display: "flex", height: "100%", flexDirection: "column", justifyContent: "flex-end" }}>
+    // The transcript's own box (its tokens and type), the message box at its foot as in a chat.
+    <div ref={box} className="mt-transcript look-imessage" style={{ justifyContent: "flex-end" }}>
       <MessageComposer
         strings={strings}
         sendEnabled
