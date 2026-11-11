@@ -246,12 +246,13 @@ impl LocalStore {
             let mut file = crate::config::private_state_file(&path)?;
             let copy =
                 if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
-            let end = offset_of_seq(&mut file, before)?;
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what comes after
-                // them is read from the segment, then the copy.
+                // them (a log load copies up to the end; less than `COPY_AFTER` grows past it
+                // before a scan copies again) is read from the segment, then the copy. No seek
+                // for `before`: its probes would read more of the segment than the copy holds.
                 Some((lines, from, _)) => {
-                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
+                    for_each_line_rev_between(&mut file, from, u64::MAX, &mut line)?;
                     if !done.get() {
                         for copied in lines.split(|b| *b == b'\n').rev() {
                             if !copied.is_empty() && !line(copied) {
@@ -260,7 +261,10 @@ impl LocalStore {
                         }
                     }
                 }
-                None => for_each_line_rev_from(&mut file, end, &mut line)?,
+                None => {
+                    let end = offset_of_seq(&mut file, before)?;
+                    for_each_line_rev_from(&mut file, end, &mut line)?;
+                }
             }
             if done.get() {
                 return Ok(());
