@@ -258,7 +258,9 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{
+    DeltaMutation, GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind,
+};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -295,6 +297,8 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 #[cfg(test)]
 pub(crate) use signaled_mutex::plain_turns_ahead_on_this_thread;
+#[cfg(test)]
+pub(crate) use signaled_mutex::registry_locks_taken_on_this_thread;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
@@ -337,6 +341,8 @@ mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
+mod terminal_live;
+pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -544,6 +550,9 @@ pub struct Mux {
     /// The registry's id and generation, fixed when it opened: read without
     /// its lock, which durable commits hold.
     registry_identity: (String, String),
+    /// The session snapshot's committed rows and their read-only connection
+    /// (`resource_api/committed_snapshot.rs`); `None` for an in-memory registry.
+    pub(crate) committed_snapshots: Option<crate::resource_api::CommittedSnapshots>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -630,6 +639,10 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a browser target adoption after its commit failed and before
+    /// its rollback closes the adopted tab (tests).
+    #[cfg(test)]
+    browser_adopt_before_rollback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Runs in a state mutation after its apply step (inside its open
@@ -641,6 +654,10 @@ pub struct Mux {
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a session journal stream that caught up on its database
+    /// reader, just before it moves to the shared ring (tests).
+    #[cfg(test)]
+    pub(crate) journal_stream_before_ring_switch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -712,6 +729,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// The terminals whose live facts changed (`mux/terminal_live.rs`).
+    terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
     terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
@@ -985,6 +1004,24 @@ impl Mux {
                 focused_at: 0,
             },
         ))
+    }
+
+    /// The routing tables as of the last finished change of the session state, for a read that walks them with no
+    /// lock (the session snapshot). With stage S1 off they are not published: one short state lock hold copies
+    /// the tables' `Arc`s, never a walk.
+    #[track_caller]
+    pub(crate) fn published_routes(
+        &self,
+    ) -> anyhow::Result<Arc<crate::route_table::RouteSnapshot>> {
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return Ok(arc_swap::Guard::into_inner(routes));
+            }
+        }
+        let state =
+            self.state.lock().map_err(|_| anyhow::anyhow!("the session state is poisoned"))?;
+        Ok(Arc::new(crate::route_table::RouteSnapshot::of(&state)))
     }
 
     #[track_caller]

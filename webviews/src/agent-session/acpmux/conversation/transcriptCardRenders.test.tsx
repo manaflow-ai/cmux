@@ -18,6 +18,11 @@ import { teardownDom } from "../../../../test/support/domTeardown";
 
 let cardRenders = 0;
 const realUseT = i18n.useT;
+// mock.module replaces the module for the rest of the bun process: the real one goes back after this file.
+const realI18n = { ...i18n };
+afterAll(async () => {
+  await mock.module("../i18n", () => realI18n);
+});
 void mock.module("../i18n", () => ({
   ...i18n,
   useT: () => {

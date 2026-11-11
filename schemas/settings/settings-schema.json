@@ -198,7 +198,8 @@
           {
             "key" : "settings.group.quit",
             "rows" : [
-              "app.quitBehavior"
+              "app.quitBehavior",
+              "app.confirmQuit"
             ],
             "title" : {
               "key" : "settings.group.quit",
@@ -2060,6 +2061,16 @@
         ],
         "dev_only" : true,
         "groups" : [
+          {
+            "key" : "settings.group.internalDeveloperMode",
+            "rows" : [
+              "app.internalDeveloperMode"
+            ],
+            "title" : {
+              "key" : "settings.group.internalDeveloperMode",
+              "text" : "Internal Developer Mode"
+            }
+          },
           {
             "key" : "settings.group.macScreen",
             "rows" : [
@@ -7539,6 +7550,141 @@
       "title" : {
         "key" : "settings.app.quitBehavior",
         "text" : "When Quitting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.quit",
+        "text" : "Quitting"
+      },
+      "help" : {
+        "key" : "settings.app.confirmQuit.help",
+        "text" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.confirmQuit",
+      "keywords" : [
+        "quit",
+        "cmd-q",
+        "confirm",
+        "ask",
+        "warn",
+        "exit",
+        "agents",
+        "terminals"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "confirmQuit"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.confirmQuit"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.confirmQuit",
+        "text" : "Ask Before Quitting Ends Agents or Terminals"
       },
       "validation" : "portable"
     },
@@ -87116,7 +87262,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.openingLinks",
@@ -96795,7 +96941,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -103028,6 +103174,140 @@
       "title" : {
         "key" : "settings.developerTools.appPages",
         "text" : "Developer Tools for cmux Pages"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.internalDeveloperMode",
+        "text" : "Internal Developer Mode"
+      },
+      "help" : {
+        "key" : "settings.internalDeveloperMode.help",
+        "text" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.internalDeveloperMode",
+      "keywords" : [
+        "developer",
+        "internal",
+        "debug",
+        "developer mode",
+        "playground",
+        "command palette",
+        "diagnostics"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "internalDeveloperMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "development",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.internalDeveloperMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.internalDeveloperMode",
+        "text" : "Internal Developer Mode"
       },
       "validation" : "portable"
     },
