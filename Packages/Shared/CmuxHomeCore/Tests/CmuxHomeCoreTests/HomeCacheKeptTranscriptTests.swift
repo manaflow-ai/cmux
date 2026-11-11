@@ -99,7 +99,8 @@ import CmuxHomeCoreTestSupport
         mirror.seed(snapshot)
         #expect(mirror.windows[conv] == nil)
         #expect(mirror.keptTranscripts.map(\.id) == [conv])
-        #expect(mirror.restoreKept(conv))
+        let restored = mirror.restoreKept(conv)
+        #expect(restored)
         #expect(mirror.windows[conv]?.messages.map(\.seq) == [1])
     }
 }
