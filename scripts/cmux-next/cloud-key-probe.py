@@ -104,7 +104,9 @@ PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
 # (`&key`). Its alternatives start on different characters, so a failed match does not backtrack through them.
 GAP = r'(?:\s+|(?<=\s)#[^\r\n]*|[|>][-+1-9]{0,2}(?=\s)|![^\s]*|&[^\s]+)*'
 # A value: up to a quote, a space, a separator or a control byte (a NUL or a record's bytes end it in a binary file).
-VALUE = r'[^"\'\s,;)}\x00-\x1f\x7f]*'
+# One its quote opened runs to that quote instead, so a separator inside it (`"ab,c;d)e}f"`) is part of the key; every
+# pattern below takes the quote just before it.
+VALUE = r'(?:(?<=")[^"\s\x00-\x1f\x7f]*|(?<=\')[^\'\s\x00-\x1f\x7f]*|[^"\'\s,;)}\x00-\x1f\x7f]*)'
 # A name, then its value in a lookahead: a match takes only the name, so a name that is not a key's
 # (`env={MISTRAL_API_KEY:...}`) never takes the key's name with it, and every name is tried. Between them `:` or `=`,
 # also behind an index's closing quote and bracket (`os.environ["NAME"] = `) or as make's `?=` and `+=`.
@@ -123,13 +125,14 @@ ASSIGNS = (ASSIGN, CALL_ASSIGN, WORD_ASSIGN)
 # like a secret counts there, at least 16 printable characters with a letter and a digit, and no reference or stand-in.
 # Any printable character may be in a credential (base64's `+/=`, a password's `~!@#%^&*`), so the alphabet is all of
 # printable ASCII but quotes, backquote and backslash (a value's own ends); what makes a value not a literal is how it
-# reads: a reference (`$X`, `%X%`, `{{x}}`, `<x>`, `@x`, a YAML alias `*x`), code (`get(`, `env[`) or a stand-in.
+# reads: a reference (`$X`, `%X%`, `{{x}}`, `<x>`, `@x`, a YAML alias `*x`), code that starts as a call or an index
+# (`os.environ.get(`, `env[`), or a stand-in. A bracket elsewhere is a character like any other (`ab+Zq8[Kd9]`).
 # A value in the token alphabet (base64, base64url, hex) needs a letter and a digit; one with any other printable
 # character also needs a random key's variety (4 bits a character), as minified code (`useFoo:!0`) has those too.
 SECRET_LITERAL = re.compile(r"^(?=[^/]*[0-9])(?=.*[A-Za-z])[A-Za-z0-9_\-.+/=:]{16,}$")
 SECRET_TOKEN = re.compile(r"^[A-Za-z0-9_\-.+/=:]{16,}$")
 SECRET_PRINTABLE = re.compile(r"^(?=.*[0-9])(?=.*[A-Za-z])[!#-&(-\[\]-_a-~]{16,}$")
-NOT_LITERAL = re.compile(r"^[$%{<@*]|[(\[]")
+NOT_LITERAL = re.compile(r"^[$%{<@*]|^[A-Za-z_][A-Za-z0-9_.]*[(\[]")
 # A stand-in is a value that starts as one: a stand-in word at its start, after at most a short prefix (`your-key`,
 # `sk-test-1`, `placeholder_x`), or a reference (`process.env.X`, `os.environ`). Nothing inside a value counts but an
 # ellipsis: a random key can hold any word by chance (`...myenvironment7...`, `Ab3-test-9...`), and is still a key.
@@ -345,7 +348,9 @@ def redacted(value, place=False):
     if isinstance(value, list):
         return [redacted(v, place) for v in value]
     if isinstance(value, dict):
-        out = {redact(k): redacted(v, place or k in ("where", "unreadable")) for k, v in value.items() if k != "line"}
+        # Field names are the probe's own words, never the machine's: a key that spells one (`...findings...`) must
+        # not rename the answer's fields, or the answer stops parsing and its finding is lost.
+        out = {k: redacted(v, place or k in ("where", "unreadable")) for k, v in value.items() if k != "line"}
         # A file finding's line number is the probe's own count, added after the place is made safe.
         if isinstance(value.get("line"), int) and "where" in out:
             out["where"] += f":{value['line']}"
@@ -703,15 +708,18 @@ def scan_file(path, deadline=math.inf):
             if chunk and len(block) - cut > CHUNK:
                 cut, carried = len(block) - OVERLAP, OVERLAP
             whole, rest = block[:cut], block[cut - carried:]
-            seen_to, last = 0, -1
+            # `dead`: a line whose escapes lead nowhere. escape_hit reads the whole line, so each of its other `\u00`
+            # hits would read it again: a line of many escapes cost its length times their number.
+            seen_to, last, dead = 0, -1, -1
             for hit in PREFILTER.finditer(whole):
                 if time.monotonic() > deadline:
                     raise OutOfTime(out)
                 start = whole.rfind(b"\n", 0, hit.start()) + 1
-                if start == last:
+                if start == last or (start == dead and hit.group(0) == b"\\u00"):
                     continue
                 stop_at = whole.find(b"\n", hit.start())
                 if escape_hit(hit, whole[start:len(whole) if stop_at < 0 else stop_at].decode("utf-8", "replace")):
+                    dead = start
                     continue
                 line += whole.count(b"\n", seen_to, start)
                 seen_to = last = start
