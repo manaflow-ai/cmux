@@ -959,3 +959,115 @@
 .wn-card[data-mode="version"] .wn-card-version { margin: 0; }
 /* No faded last row (Lawrence 2026-11-07: a dimmed row read as disabled): the scrollbar marks more. */
 .wn-notes[data-cmux-card-scroll] { -webkit-mask: none !important; mask: none !important; }
+
+/* Going back to an earlier build (GoBack.tsx), at the foot of the Updated card's changes. The
+   footer stays in view while the list scrolls (sticky), on the popover's own surface, so the way
+   back is always one click away; the "N more" pill stands just above it. */
+.wn-goback {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) 0;
+  border-top: 1px solid var(--page-separator);
+  background: var(--page-elevated);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.wn-notes:has(.wn-goback) .wn-notes-more { bottom: calc(var(--ds-space-2) * 4 + var(--ds-space-1)); }
+.wn-goback-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.wn-goback-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  background: var(--page-hover);
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-goback-entry:hover:not(:disabled) { background: var(--page-selection); }
+.wn-goback-entry:disabled { color: var(--page-text-2); }
+.wn-goback-glyph { flex: none; color: var(--page-text-2); }
+.wn-goback-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wn-goback-more {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ds-space-1) / 2);
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-goback-more:hover { color: var(--page-text); }
+.wn-goback-more svg[data-open] { transform: rotate(180deg); }
+.wn-goback-failure { margin: var(--ds-space-1) 0 0; color: var(--cmux-danger, var(--page-text-2)); }
+.wn-goback-builds {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  max-height: calc(var(--ds-space-2) * 24);
+  overflow-y: auto;
+}
+.wn-goback-build {
+  padding: var(--ds-space-1) 0;
+  border-top: 1px solid var(--page-separator);
+}
+.wn-goback-build:first-child { border-top: 0; }
+.wn-goback-build-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.wn-goback-build-name { color: var(--page-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wn-goback-build-date { color: var(--page-text-3); white-space: nowrap; }
+.wn-goback-build-tag {
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--page-hover);
+  color: var(--page-text-2);
+  white-space: nowrap;
+}
+.wn-goback-build[data-previous] .wn-goback-build-tag { background: var(--page-selection); color: var(--page-text); }
+.wn-goback-build-go {
+  margin-inline-start: auto;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: 0 var(--ds-space-2);
+  background: var(--page-hover);
+  color: var(--page-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-goback-build-go:hover:not(:disabled) { background: var(--page-selection); }
+.wn-goback-build-change,
+.wn-goback-loading {
+  color: var(--page-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `list`: the builds stand open, the previous one marked; no separate entry above them. */
+.wn-goback[data-look="list"] .wn-goback-builds { max-height: none; }
+.wn-notes-links { display: inline-flex; align-items: baseline; gap: var(--ds-space-2); }
+:is(.wn-goback-entry, .wn-goback-more, .wn-goback-build-go):focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 2px;
+}

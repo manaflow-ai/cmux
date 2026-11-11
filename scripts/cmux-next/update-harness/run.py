@@ -185,7 +185,7 @@ def terminal_survived(r, handoff):
     a handoff, the terminal was found through a replacement cmux-tui daemon; without, the daemons stayed the same."""
     return bool(r["same_terminal_listed"] and r["pid_alive"] and r["pid_before"] == r["pid_after"]
                 and r["last_sample_after_relaunch"] and r["samples_during_swap"] > 0
-                and (r.get("replacement_daemon") if handoff else r["daemons_before"] == r["daemons_after"]))
+                and (r.get("replacement_daemon") if handoff else set(r["daemons_before"]) <= set(r["daemons_after"])))
 
 
 def end_tag(teardowns, owned, acp_home, remove_home, log):
@@ -924,7 +924,9 @@ def main():
                            and r["gate_released"] and r["turn_results"] == 1 and r["turn_status"] == "completed"
                            and not r["outcome_unknown"]
                            and r["before_gate_chunks"] == 1 and r["after_gate_chunks"] == 1
-                           and (r["host_adopted"] if a.handoff else r["daemon_before"] == r["daemon_after"])
+                           # Since #40826 the update's quit hands acpmux to the new build (AcpmuxUpdateHandoff):
+                           # the daemon may change; the agent's host and harness are what must survive.
+                           and (r["host_adopted"] if a.handoff else (r["daemon_before"] == r["daemon_after"] or r["same_host"]))
                            for r in result["agent_survivals"])
             result["session_survival_passed"] = terminal_ok and agent_ok
             log("session survival", json.dumps({k: result[k] for k in

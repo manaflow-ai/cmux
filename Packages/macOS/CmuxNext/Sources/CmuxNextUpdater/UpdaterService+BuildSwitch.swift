@@ -27,26 +27,54 @@ extension UpdaterService {
         let store = keptVersions
         let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
         if !kept {
-            guard let source = await switchDownload(for: build) else { return UpdaterStrings.channelsSwitchGone }
+            revert = RevertProgress(step: .downloading, target: build)
+            guard let source = await switchDownload(for: build) else { return failed(UpdaterStrings.channelsSwitchGone, build) }
             // The EdDSA check Sparkle makes of every update: the feed item's signature, else the one
             // published beside the DMG. A build published before that file has neither and is refused.
             var published = source.signature
             if published == nil { published = await ArchiveSignature.published(for: source.url) }
             guard let signature = published else {
                 log.append("switch: \(build) has no published signature")
-                return UpdaterStrings.channelsSwitchUnsigned
+                return failed(UpdaterStrings.channelsSwitchUnsigned, build)
             }
             log.append("switch: downloading \(build) from \(source.url.absoluteString)")
             if let failure = await BuildSwitchDownload(store: keptVersions, bundleIdentifier: identity.bundleIdentifier,
                                                        teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL),
                                                        publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)
-                .keep(build: build, from: source.url, signature: signature) {
+                .keep(build: build, from: source.url, signature: signature, progress: downloadProgress(build)) {
                 log.append("switch: \(build) not kept: \(failure)")
-                return UpdaterStrings.channelsSwitchFailed(failure)
+                return failed(UpdaterStrings.channelsSwitchFailed(failure), build)
             }
         }
         log.append("switch: \(identity.build) -> \(build)")
         return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories())
+    }
+
+    /// A switch that did not run: the notice card says why (``revert``), and the caller returns it.
+    private func failed(_ why: String, _ build: String) -> String {
+        if revert != nil { revert = RevertProgress(step: .failed, target: build, failure: why) }
+        return why
+    }
+
+    /// The download's progress on the notice card, whole percents only (one card update per
+    /// percent, not per network read), then the signature check.
+    private func downloadProgress(_ build: String) -> @Sendable (BuildSwitchDownload.Step) -> Void {
+        let last = Mutex<Int>(-1)
+        return { [weak self] step in
+            let progress: RevertProgress
+            switch step {
+            case .downloading(let fraction):
+                let percent = fraction.map { Int($0 * 100) } ?? -1
+                guard last.withLock({ old in defer { old = percent }; return old != percent }) else { return }
+                progress = RevertProgress(step: .downloading, target: build, fraction: fraction)
+            case .verifying:
+                progress = RevertProgress(step: .verifying, target: build)
+            }
+            // task-owner: one main-actor write of the card's step; ends at once.
+            Task { @MainActor [weak self] in
+                if self?.revert?.step != .failed, self?.revert?.step != .restarting { self?.revert = progress }
+            }
+        }
     }
 
     /// Where `build` downloads from: its item in this app's feed (with the item's signature), else
@@ -97,8 +125,15 @@ nonisolated struct BuildSwitchDownload: Sendable {
 
     /// Nil once `build` is kept, else why not. Off the main actor: the download, the mount, the
     /// signature check and the copy of the app all take seconds.
+    /// What the switch is doing, for the notice card.
+    enum Step: Sendable {
+        case downloading(Double?)
+        case verifying
+    }
+
     @concurrent
-    func keep(build: String, from url: URL, signature: ArchiveSignature) async -> String? {
+    func keep(build: String, from url: URL, signature: ArchiveSignature,
+              progress: @escaping @Sendable (Step) -> Void = { _ in }) async -> String? {
         guard let bundleIdentifier, let teamID else { return "this app is not signed" }
         let files = FileManager.checked
         let work = temporaryDirectory.appending(path: "cmux-build-switch-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -106,10 +141,11 @@ nonisolated struct BuildSwitchDownload: Sendable {
         let image = work.appending(path: "\(build).dmg")
         do {
             try files.createDirectory(at: work, withIntermediateDirectories: true)
-            try await downloader.download(from: url, to: image) { _ in }
+            try await downloader.download(from: url, to: image) { progress(.downloading($0)) }
         } catch {
             return "download failed: \(error)"
         }
+        progress(.verifying)
         // Before the mount: hdiutil never opens an image this app's key did not sign.
         if let failure = signature.failure(checking: image, publicKey: publicEDKey) { return failure }
         let volume: URL
@@ -133,7 +169,9 @@ nonisolated struct BuildSwitchDownload: Sendable {
         }
         // Kept without a prune: an older build than every kept one would be pruned at once. The
         // swap that follows prunes when it keeps the running build.
-        do { try store.keep(bundle: app, build: build, limit: nil) } catch { return "could not keep it: \(error)" }
+        // The full check just ran: its record lets going back to it skip that check.
+        let record = KeptRecord(build: build, teamID: teamID)
+        do { try store.keep(bundle: app, build: build, limit: nil, record: record) } catch { return "could not keep it: \(error)" }
         return nil
     }
 }

@@ -13,7 +13,7 @@ extension UpdaterService {
         let folder = store.map { Self.channelFolder(notesBase: $0.notesBase) }
         let limit = max(0, limit)
         let recent = Array(index.prefix(limit))
-        let kept = await Task.detached { [keptVersions] in Set(keptVersions.list().map(\.build)) }.value
+        let kept = await Task.detached { [keptVersions] in Set(keptVersions.list(teams: false).map(\.build)) }.value
         async let verdicts = Self.verdicts(for: recent.map(\.build), in: folder)
         async let pulled = Self.pulled(in: folder)
         async let feed = feedItems()

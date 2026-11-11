@@ -82,14 +82,11 @@ final class UpdateSurfaceProvider: PageProvider {
 
     /// The Updated card after an automatic install that relaunched cmux behind another app says so.
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
-        try highlights?.surfaceJSON(background: kind.showsLastUpdate && services?.environment.relaunchBehind != nil) ?? .null
+        try highlights == nil ? .null : services?.updater.surfaceJSON(updated: kind.showsLastUpdate, background: kind.showsLastUpdate && services?.environment.relaunchBehind != nil) ?? .null
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        if op == "cmux.changelog.surface.dismiss" {
-            onDismiss?()
-            return .null
-        }
+        if op == "cmux.changelog.surface.dismiss" { onDismiss?(); return .null }
         guard let services else { throw PageError.unknownOp(op) }
         switch op {
         case "cmux.changelog.surface.get":
@@ -105,8 +102,9 @@ final class UpdateSurfaceProvider: PageProvider {
             _ = !kind.showsLastUpdate ? services.updater.openStagedChangelog(focus: focus) : services.updater.openWhatsNewForLastUpdate(focus: focus)
             onAction?()
             return .null
-        default:
-            throw PageError.unknownOp(op)
+        default: // Go back and the recent builds (UpdateRevertSurface)
+            guard let answer = await UpdateRevertSurface(services.updater).call(op, params: params) else { throw PageError.unknownOp(op) }
+            return answer
         }
     }
 
@@ -116,7 +114,7 @@ final class UpdateSurfaceProvider: PageProvider {
         guard stream == "cmux.changelog.surface.changes" else { throw PageError.unknownOp(stream) }
         // task-owner: the page's subscription; cancelled with it.
         let task = Task { @MainActor [weak self] in
-            for await highlights in ObservationStream({ [weak self] in self?.highlights }) {
+            for await (highlights, _) in ObservationStream({ [weak self] in (self?.highlights, self?.services?.updater.revertOffer) }) {
                 guard let self else { return }
                 guard let value = try? json(highlights) else { continue }
                 services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")

@@ -167,6 +167,10 @@ public final class UpdaterService {
     @ObservationIgnored var ringFollowed = false
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
+    /// Going back to an earlier build, step by step (``UpdateDropBack``); nil when not going back.
+    public internal(set) var revert: RevertProgress?
+    /// The build Go back takes now (``refreshRevertOffer()``); nil with none kept.
+    public internal(set) var revertOffer: RevertTarget?
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):

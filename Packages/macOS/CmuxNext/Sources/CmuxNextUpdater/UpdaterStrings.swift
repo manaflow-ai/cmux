@@ -90,6 +90,35 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback.")
     }
+    static var rollbackNothingOlder: String {
+        text("updater.rollback.nothingOlder", "This Mac keeps no build older than the one running.")
+    }
+    static func rollbackRelaunchFailed(_ version: String) -> String {
+        format("updater.rollback.relaunchFailed", "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish.", version)
+    }
+    static func rollbackSwapFailed(_ why: String) -> String {
+        format("updater.rollback.swapFailed", "Could not go back: %@. Nothing changed; cmux keeps running this build.", why)
+    }
+    // Go back (the Updated card, the menu, the progress on the notice card)
+    static func versionFrom(_ version: String, _ day: String) -> String {
+        format("updater.goBack.versionFrom", "%1$@ from %2$@", version, day)
+    }
+    static func goBackTitle(_ label: String) -> String { format("updater.goBack.title", "Go Back to %@", label) }
+    static func goBackConfirmTitle(_ label: String) -> String { format("updater.goBack.confirmTitle", "Go Back to %@?", label) }
+    static var goBackDownloadBody: String {
+        text("updater.goBack.downloadBody", "This Mac did not keep that build, so cmux downloads and checks it first, then quits and reopens into it. Your terminals and agents keep running.")
+    }
+    static var goBackButton: String { text("updater.goBack.button", "Go Back") }
+    static var revertChecking: String { text("updater.goBack.checking", "Checking the kept build…") }
+    static var revertFinding: String { text("updater.goBack.finding", "Finding the previous build…") }
+    static var revertDownloading: String { text("updater.goBack.downloading", "Downloading…") }
+    static var revertVerifying: String { text("updater.goBack.verifying", "Checking the signature…") }
+    static var revertSwapping: String { text("updater.goBack.swapping", "Putting it in place…") }
+    static var revertRestarting: String { text("updater.goBack.restarting", "Restarting…") }
+    static var revertFailed: String { text("updater.goBack.failed", "Could Not Go Back") }
+    static func revertGoingBack(_ label: String) -> String { format("updater.goBack.going", "Going Back to %@", label) }
+    static var revertGoingBackPlain: String { text("updater.goBack.goingPlain", "Going Back to the Previous Build") }
+    static var revertOtherBuilds: String { text("updater.goBack.otherBuilds", "Other Builds…") }
     // The question every rollback entrypoint asks (UpdateDropBack.confirmation)
     static var rollbackConfirmTitle: String { text("updater.rollback.confirm.title", "Roll Back to the Previous Version?") }
     static var rollbackConfirmBody: String {
