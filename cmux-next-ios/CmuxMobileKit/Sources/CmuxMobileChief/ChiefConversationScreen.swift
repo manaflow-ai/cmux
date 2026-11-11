@@ -141,6 +141,10 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        // A screen rebuilt in place (a new store) takes over the old one's
+        // composer now, before either appears or disappears: SwiftUI may show
+        // the new one before the old one leaves.
+        if let previous = link.container { previous.handOffComposer() }
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
@@ -235,6 +239,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
         }
         installSendGate()
+        observeSceneActivation()
         observeAvailability()
         installPageMenu()
         installSlashSuggestions()
@@ -610,6 +615,64 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isCovered = false
+        restoreCarriedComposer()
+    }
+
+    // MARK: Composer across screens and app switches
+
+    /// This screen was replaced in place; its composer went to the new one.
+    private var handedOffComposer = false
+    /// The carried field had the keyboard: focus it once on screen.
+    private var focusesCarriedComposer = false
+    /// The field had the keyboard when the scene left the foreground.
+    private var composerFocusedWhenSceneLeft = false
+    private var sceneObservers: [any NSObjectProtocol] = []
+
+    /// Gives the unsent text and focus to the screen replacing this one.
+    func handOffComposer() {
+        guard !handedOffComposer, isViewLoaded else { return }
+        handedOffComposer = true
+        let focused = composerTextView?.isFirstResponder == true || composerFocusedWhenSceneLeft
+        session.carryComposerText(composerTextView?.text ?? "", focused: focused)
+    }
+
+    /// The text written on the screen this one replaces (or the last visit's),
+    /// in the field before the screen shows, so a reopened Chief opens with it
+    /// instead of filling it in after the push settles.
+    private func restoreCarriedComposer() {
+        guard let carried = session.takeCarriedComposer() else { return }
+        if let text = carried.text, let field = composerTextView, field.text.isEmpty {
+            field.text = text
+            field.delegate?.textViewDidChange?(field)
+        }
+        if carried.focused { focusesCarriedComposer = true }
+    }
+
+    /// Back in the foreground the field gets its keyboard again if it had it
+    /// when the app left, whatever hid it meanwhile.
+    private func observeSceneActivation() {
+        let center = NotificationCenter.default
+        sceneObservers.append(center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
+                self.composerFocusedWhenSceneLeft = self.composerTextView?.isFirstResponder == true
+            }
+        })
+        sceneObservers.append(center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
+                let refocus = self.composerFocusedWhenSceneLeft
+                self.composerFocusedWhenSceneLeft = false
+                guard refocus, self.canFocusComposer, self.composerTextView?.isFirstResponder == false else { return }
+                self.focusComposer()
+            }
+        })
+    }
+
+    /// On screen, in front, with nothing presented over it.
+    private var canFocusComposer: Bool {
+        view.window != nil && !isCovered && !handedOffComposer
+            && presentedViewController == nil && conversation.presentedViewController == nil
     }
 
     public override func viewDidLayoutSubviews() {
@@ -688,15 +751,16 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         enableEdgePop()
         Self.shown = self
         session.isVisible = true
-        // Text written on the screen this one replaced (Try Again rebuilt it on a new store).
-        if let carried = session.takeCarriedComposerText(), let field = composerTextView, field.text.isEmpty {
-            field.text = carried
-            field.delegate?.textViewDidChange?(field)
-        }
         session.markSeen()
-        if focusesComposerOnAppear {
+        if focusesComposerOnAppear || focusesCarriedComposer {
             focusesComposerOnAppear = false
-            if presentedViewController == nil { focusComposer() }
+            focusesCarriedComposer = false
+            if view.window?.windowScene?.activationState == .foregroundActive {
+                if presentedViewController == nil { focusComposer() }
+            } else {
+                // Rebuilt while the app comes back: focus once the scene is active.
+                composerFocusedWhenSceneLeft = true
+            }
         }
         #if DEBUG
         ChiefDemoHook.shared.container = self
@@ -717,8 +781,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         isCovered = true
-        // Unsent text goes with the session to a rebuilt screen (it reads it on appear).
-        session.carryComposerText(composerTextView?.text ?? "")
+        // Unsent text goes with the session to the next screen (it reads it
+        // before appearing); a screen replaced in place already handed it off.
+        if !handedOffComposer { session.carryComposerText(composerTextView?.text ?? "") }
         // Hand the recognizers back to their own delegates for the next screen.
         for recognizer in popRecognizers where recognizer.delegate === self {
             recognizer.delegate = previousPopDelegates[ObjectIdentifier(recognizer)]?.value

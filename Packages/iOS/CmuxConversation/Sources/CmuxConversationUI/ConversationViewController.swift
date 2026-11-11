@@ -104,8 +104,6 @@ public final class ConversationViewController: UIViewController {
     /// bottom in landscape.
     private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
-    /// Opt-in material above both transcript rows and reply-thread copies.
-    let headerMaterial = ConversationHeaderMaterial()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
     weak var detailsController: ConversationDetailsViewController?
@@ -265,6 +263,9 @@ public final class ConversationViewController: UIViewController {
     /// A rotation or resize is under way (iOS 27 hides and reshows the
     /// keyboard around one).
     private var isTransitioningSize = false
+    /// The scene left the foreground since the keyboard last showed
+    /// (`ConversationKeyboardFocusPolicy.KeyboardHidden.sceneLeftSinceKeyboardShown`).
+    private var sceneLeftSinceKeyboardShown = false
     var effects = ConversationEffectsState()
 
     /// The app's keyboard notifications (`MobileKeyboardDock`).
@@ -332,9 +333,6 @@ public final class ConversationViewController: UIViewController {
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
-        if #available(iOS 26.0, *), options.header.scrollEdge == .system {
-            view.insertSubview(headerMaterial, belowSubview: composerContainer)
-        }
         view.addSubview(header)
 
         let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
@@ -503,8 +501,6 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - contentTop - 3.3)
         layoutReplyOverlay()
-        headerMaterial.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: view.bounds.width,
-                                      height: header.frame.maxY - view.bounds.minY + ConversationTopEdgeGeometry.extent)
         if store.background != nil, !wantsSystemTopPocket {
             collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
         }
@@ -665,6 +661,15 @@ public final class ConversationViewController: UIViewController {
         center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
         }
+        center.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sceneLeftSinceKeyboardShown = false }
+        }
+        center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.view.window?.windowScene else { return }
+                self.sceneLeftSinceKeyboardShown = true
+            }
+        }
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
@@ -707,7 +712,8 @@ public final class ConversationViewController: UIViewController {
             keyboardGuideAtRest: keyboardDock.guide.layoutFrame.minY >= restingGuideTop - 0.5,
             hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
             sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
-            isTransitioningSize: isTransitioningSize
+            isTransitioningSize: isTransitioningSize,
+            sceneLeftSinceKeyboardShown: sceneLeftSinceKeyboardShown
         )
         guard ConversationKeyboardFocusPolicy.composerResigns(after: state) else { return }
         composer.textView.resignFirstResponder()
