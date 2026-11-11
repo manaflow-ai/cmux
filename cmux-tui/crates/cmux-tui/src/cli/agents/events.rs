@@ -120,6 +120,12 @@ struct DaemonCursor {
     revision: u64,
     #[serde(rename = "k", default, skip_serializing_if = "is_zero")]
     skip: usize,
+    /// The daemon's live position (`live` in its cursor), sent back as it
+    /// came: the next call then gets only the terminals whose live facts
+    /// changed after this one. `None` from a daemon that has no live
+    /// position, and in a cursor of a build before it.
+    #[serde(rename = "l", default, skip_serializing_if = "Option::is_none")]
+    live: Option<String>,
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -144,7 +150,12 @@ impl Cursor {
 
     fn daemon_param(&self) -> Option<Value> {
         let daemon = self.daemon.as_ref()?;
-        Some(json!({"generation": daemon.generation, "revision": daemon.revision.to_string()}))
+        let mut cursor =
+            json!({"generation": daemon.generation, "revision": daemon.revision.to_string()});
+        if let (Some(live), Some(fields)) = (&daemon.live, cursor.as_object_mut()) {
+            fields.insert("live".to_owned(), json!(live));
+        }
+        Some(cursor)
     }
 }
 
@@ -510,10 +521,14 @@ impl<'a> Poll<'a> {
                 let changes = item["changes"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for (index, change) in changes.iter().enumerate().skip(skip) {
                     if !self.change(change) {
+                        // Before this item, so its live position too: the
+                        // daemon sends the item again.
+                        let live = self.cursor.daemon.take().and_then(|from| from.live);
                         self.cursor.daemon = Some(DaemonCursor {
                             generation: next.generation,
                             revision: previous.unwrap_or(next.revision.saturating_sub(1)),
                             skip: index,
+                            live,
                         });
                         return false;
                     }
@@ -744,14 +759,16 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// `{generation, revision}` as the daemon writes it.
+/// `{generation, revision}` as the daemon writes it, with `live` when the
+/// daemon gives the live position.
 fn daemon_cursor(cursor: &Value, skip: usize) -> Option<DaemonCursor> {
     let generation = cursor["generation"].as_str()?.to_owned();
     let revision = match &cursor["revision"] {
         Value::String(text) => text.parse().ok()?,
         other => other.as_u64()?,
     };
-    Some(DaemonCursor { generation, revision, skip })
+    let live = cursor["live"].as_str().map(str::to_owned);
+    Some(DaemonCursor { generation, revision, skip, live })
 }
 
 /// The state of each daemon agent record in a session snapshot.
