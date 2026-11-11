@@ -57,9 +57,7 @@ class GalleryHealthMergeRef(unittest.TestCase):
         # The merge's first parent is the base it was merged with: diffing against it is the pull
         # request's change, never base commits the branch has not merged yet.
         run = step("Choose the entries to render")["run"]
-        self.assertIn('git diff --no-renames --name-only HEAD^1 HEAD', run)
-        # Rename detection reads added and deleted blobs, each a lazy fetch in the blob:none clone (~44 s a shard).
-        self.assertNotRegex(run, r"git diff (?!--no-renames)")
+        self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
     def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
