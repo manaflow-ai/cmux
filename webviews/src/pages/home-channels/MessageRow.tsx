@@ -3,7 +3,7 @@
 // thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
-import { memo, useContext, useState, type ReactNode } from "react";
+import { memo, useContext, useState, type ReactElement, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
 import { MessageAttachments } from "./AttachmentViews";
@@ -244,7 +244,9 @@ function Head({
   );
 }
 
-function Part({ part, strings }: { part: HomePart; strings: Strings }) {
+/** One part's view. The return type leaves out `undefined`, so a part type with no case is a type
+ * error, not a part that silently draws nothing. */
+function Part({ part, strings }: { part: HomePart; strings: Strings }): ReactElement | null {
   switch (part.type) {
     case "text":
       return <Markdown className="hc-md">{part.text}</Markdown>;
@@ -264,6 +266,7 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
     case "question":
     case "link_preview":
     case "location":
+    case "widget":
       return <p className="hc-msg-other">{partText(part)}</p>;
   }
 }
