@@ -2754,7 +2754,9 @@ jobs:
         with:
           name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
           path: ${{ steps.unavailable.outputs.marker }}
-          retention-days: 7
+          # The guard's 3-day cap: a tree whose cmux-tui is not published again within 3 days is long
+          # behind feat-cmux-next's tip, and its tiers run again on a newer tree's publish.
+          retention-days: 3
           overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
