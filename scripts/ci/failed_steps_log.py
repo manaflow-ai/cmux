@@ -112,14 +112,17 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
       taken for an unnamed step's, whose header must be it.
     STEP_NAMES is workflow_step_names' answer, {step number: whether its workflow step has a `name:`}, or
     STEP_NAMES_UNKNOWN; anything else is a TypeError.
-    Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
+    Any composite action, silent step, extra header, mismatch or step with no times places nothing by that reading
+    (_one_to_one_starts). When STEP_NAMES carries the workflow's headers (StepNames), a log it does not place is read
+    a second way (_aligned_starts): every workflow step prints its own known header first, so a composite's inner
+    `Run` lines and steps sharing a second are placed when exactly one choice of own headers fits the headers and every
+    line's time; any other choice that fits places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
     SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
     and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
     (#40542's fourth Codex BLOCK, F2)."""
     if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
         raise TypeError(f"step_names must be workflow_step_names' answer or STEP_NAMES_UNKNOWN, not {step_names!r}")
-    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
     lines = log.splitlines()
     unknown = [(line, None, AMBIGUOUS) for line in lines]
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
@@ -128,9 +131,6 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     if len(steps) < 2 or len(lines) > STEP_OWNERS_MAX_LINES:
         return unknown
     texts = lines_of(log)
-    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if len(starts) != len(steps) - 2:
-        return unknown
     windows = []
     for step in steps:
         start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
@@ -138,25 +138,11 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
                        else None)
     if None in windows:
         return unknown
-    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
-    for k, n in enumerate(starts, 1):
-        name = str(steps[k].get("name") or "")  # step-name: validate
-        header = texts[n].removeprefix("##[group]")
-        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
-        named = proven.get(steps[k].get("number"))
-        if header == "Post job cleanup." or name.startswith("Post "):
-            if not (header == "Post job cleanup." and name.startswith("Post ")):
-                return unknown
-        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
-            return unknown
-        parts = lines[n].replace("\ufeff", "").split("\t", 2)
-        stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
-        at = _stamp_time(stamp.group()) if stamp else None
-        if at is None or not windows[k][0] <= at < windows[k][1]:
-            return unknown
-        # The windows holding AT: those opened at or before it less those closed at or before it.
-        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
-            return unknown
+    starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
+    if starts is None:
+        starts = _aligned_starts(steps, lines, texts, windows, step_names)
+    if starts is None:
+        return unknown
     bounds = [0, *starts, len(lines)]
     found = []
     for k in range(len(bounds) - 1):
@@ -166,21 +152,181 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
         elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
             status = AMBIGUOUS
         else:
-            # Every line is live but the runner's echo of the step's script and env: the group its own `##[group]Run
-            # ...` header opens, up to its `##[endgroup]` with no other group opened before it. A post step's
-            # `Post job cleanup.`, a group that is not the header's, or a header group with no end skips nothing
-            # (#40542's fifth Codex BLOCK: a post step's own `##[group]` hid its `##[error]` line).
-            live = bounds[k]
-            if k and texts[bounds[k]].startswith("##[group]Run "):
-                for n in range(bounds[k] + 1, bounds[k + 1]):
-                    if texts[n].startswith("##[group]"):
-                        break
-                    if texts[n] == "##[endgroup]":
-                        live = n + 1
-                        break
-            status = ERRORED if any(SECTION_RED.match(texts[n]) for n in range(live, bounds[k + 1])) else PASSED
+            status = ERRORED if _live_red(texts, bounds[k], bounds[k + 1], opened=k > 0) else PASSED
         found += [(lines[n], k, status) for n in section]
     return found
+
+
+def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
+    """Whether the section TEXTS[LOW:HIGH] (OPENED: by its step's own header) has a live SECTION_RED line. Every line
+    is live but the runner's echo of the step's script and env: the group its own `##[group]Run ...` header opens, up
+    to its `##[endgroup]` with no other group opened before it. A post step's `Post job cleanup.`, a group that is not
+    the header's, or a header group with no end skips nothing (#40542's fifth Codex BLOCK: a post step's own
+    `##[group]` hid its `##[error]` line)."""
+    live = low
+    if opened and texts[low].startswith("##[group]Run "):
+        for n in range(low + 1, high):
+            if texts[n].startswith("##[group]"):
+                break
+            if texts[n] == "##[endgroup]":
+                live = n + 1
+                break
+    return any(SECTION_RED.match(texts[n]) for n in range(live, high))
+
+
+def _line_time(line: str) -> datetime | None:
+    """The runner's stamp on a raw log LINE (either log format), None when it has none."""
+    parts = line.replace("\ufeff", "").split("\t", 2)
+    stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+    return _stamp_time(stamp.group()) if stamp else None
+
+
+def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
+                       ) -> list[int] | None:
+    """step_owners' first reading (its docstring): the STEP_START line of each of STEPS[1:-1] when there is exactly
+    one per step, each in its own step's times alone and fitting its name; else None."""
+    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if len(starts) != len(steps) - 2:
+        return None
+    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
+    for k, n in enumerate(starts, 1):
+        name = str(steps[k].get("name") or "")  # step-name: validate
+        header = texts[n].removeprefix("##[group]")
+        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
+        named = proven.get(steps[k].get("number"))
+        if header == "Post job cleanup." or name.startswith("Post "):
+            if not (header == "Post job cleanup." and name.startswith("Post ")):
+                return None
+        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
+            return None
+        at = _line_time(lines[n])
+        if at is None or not windows[k][0] <= at < windows[k][1]:
+            return None
+        # The windows holding AT: those opened at or before it less those closed at or before it.
+        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
+            return None
+    return starts
+
+
+# Past this many STEP_START lines a log is not aligned (_aligned_starts): each is tried against each step's times.
+ALIGN_MAX_STARTS = 20_000
+
+
+def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windows: list, step_names
+                    ) -> list[int] | None:
+    """step_owners' second reading, for a log whose STEP_START lines are not one per step (a composite action's
+    inner `Run` lines; cmux#41001's "cmux-next daemon tests", job 130369194352: 38 for 31 steps) or whose steps share
+    a second (hq#9191's "Skill policy tests", job 130394322965: five steps in 07:47:29), when its workflow is proven
+    (workflow_step_names' answer carries HEADERS, the header the runner opens each step with: `Run <its uses>`, `Run
+    <its script's first line>`, `Post job cleanup.` for a post step). Each step's own header is the first STEP_START
+    line of its section, where the runner always prints it; a step's other STEP_START lines (a composite's inner
+    steps, a script's own `::group::Run`) are its section's too. The log is placed only when exactly one choice of
+    own headers, in step order, has every one fitting its step's known header and every stamped line of each section,
+    the header's and every line after it up to the next step's, within that step's times [started_at, completed_at +
+    1s) (the last section: through "Complete job"'s), and the first STEP_START line the first step's own. Any other
+    choice that fits as well (a same-second step's header that could be a composite's inner line), a header the
+    workflow does not give, or a step with no times places nothing (None): the whole-log comparison then reads it."""
+    headers = getattr(step_names, "headers", None)
+    if not isinstance(headers, dict):
+        return None
+    printing = steps[1:-1]
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if not printing or not starts or len(starts) < len(printing) or len(starts) > ALIGN_MAX_STARTS:
+        return None
+    expected = []
+    for step in printing:
+        want = headers.get(step.get("number"))
+        if not (isinstance(want, tuple) and len(want) == 3 and isinstance(want[0], str) and want[0]):
+            return None
+        expected.append(want)
+    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp.
+    bounds = [*starts, len(lines)]
+    low: list[datetime | None] = []
+    high: list[datetime | None] = []
+    for s in range(len(starts)):
+        found = [at for n in range(bounds[s], bounds[s + 1]) if (at := _line_time(lines[n])) is not None]
+        low.append(min(found) if found else None)
+        high.append(max(found) if found else None)
+    if low[0] is None:
+        return None
+    spans = [windows[k] for k in range(1, len(steps) - 1)]
+    spans[-1] = (spans[-1][0], max(spans[-1][1], windows[-1][1]))  # "Complete job" prints into the last section
+
+    count = len(starts)
+    heads = [texts[n].removeprefix("##[group]") for n in starts]
+
+    def fitting(i: int) -> list[bool]:
+        text, exact, _ = expected[i]
+        return [head == text for head in heads] if exact else [head.startswith(text) for head in heads]
+
+    def reach(i: int) -> list[int]:
+        """For each segment s, the first segment u >= s outside step I's times (COUNT when none): step I's own
+        header at s lets the next step's be at any t with s < t <= reach[s]."""
+        start, end = spans[i]
+        found = [count] * (count + 1)
+        for u in range(count - 1, -1, -1):
+            inside = low[u] is None or (start <= low[u] and high[u] < end)
+            found[u] = found[u + 1] if inside else u
+        return found
+
+    # ways[s]: how many choices (0, 1, or 2 for "more than one") place steps 0..i with step i's own header at segment
+    # s; back[i][s] the segment of step i-1's in the one choice. Each step is one pass over the headers (a difference
+    # array over the next step's segments, of counts and of segment-weighted counts, so a count of 1 names its one
+    # predecessor): O(steps x headers), never a rescan per candidate (#41220's review F1: 10,000 same-second headers
+    # over 3 steps took 17.6 s).
+    first = fitting(0)
+    ways = {0: 1} if first[0] else {}
+    back: list[dict[int, int]] = [{}]
+    for i in range(len(printing) - 1):
+        far = reach(i)
+        added = [0] * (count + 1)
+        weighed = [0] * (count + 1)
+        for s, n in ways.items():
+            top = min(far[s], count - 1)
+            if top >= s + 1:
+                added[s + 1] += n
+                added[top + 1] -= n
+                weighed[s + 1] += n * s
+                weighed[top + 1] -= n * s
+        fit = fitting(i + 1)
+        nxt: dict[int, int] = {}
+        came: dict[int, int] = {}
+        total = weight = 0
+        for t in range(count):
+            total += added[t]
+            weight += weighed[t]
+            if total and fit[t]:
+                nxt[t] = min(2, total)
+                if total == 1:
+                    came[t] = weight
+        ways, back = nxt, [*back, came]
+        if not ways:
+            return None
+    last = len(printing) - 1
+    far = reach(last)
+    ends = {s: n for s, n in ways.items() if far[s] == count}
+    if sum(ends.values()) != 1:
+        return None
+    s = next(iter(ends))
+    own = [s]
+    for i in range(last, 0, -1):
+        s = back[i][s]
+        own.append(s)
+    chosen = [starts[s] for s in reversed(own)]
+    # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
+    # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
+    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
+    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
+    # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
+    # (LocalCompositeCannotPose).
+    edges = [*chosen, len(lines)]
+    for i, step in enumerate(printing):
+        if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
+            continue
+        if (step.get("conclusion") == "failure") != _live_red(texts, edges[i], edges[i + 1], opened=True):
+            return None
+    return chosen
 
 
 def failed_steps_log(job: dict, log: str, *, step_names) -> str:

@@ -781,6 +781,12 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # cmuxterm-hq's 'Skill policy tests' runs shell tests that end a red the same way (`FAIL: plist content`, hq#9249's
 # LaunchAgent step): with no line of its own to compare, its inherited red had nothing to match on any base.
 JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: "), "Skill policy tests": re.compile(r"^FAIL: ")}
+# A shell check's own `FAIL: <what>` line (cmuxterm-hq's tests/*.sh: hq#9191's "Skill policy tests" failed only
+# `FAIL: plist content` in its LaunchAgent step), counted by the whole-log comparison (unplaced_signature) of any job,
+# so a second `FAIL:` line is a new failure there. A placed comparison keys it for JOB_ERROR's jobs alone (a `FAIL:`
+# line is no error line for another job's step_errors); a placed red with nothing else to compare is compared whole.
+# A unittest's `FAIL: test (module.Class)` is a failing test (test_reds), not this.
+SHELL_FAIL = re.compile(r"^FAIL: (?!\w+ \([\w.]+\)$)\S")
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
@@ -1116,6 +1122,17 @@ def _marker(index: int) -> str:
     return f"\0{letters}\0"
 
 
+MARKER = re.compile("\0([a-z]+)\0")
+
+
+def _marker_index(letters: str) -> int:
+    """The keep-list index _marker wrote as LETTERS."""
+    index = 0
+    for letter in letters:
+        index = index * 26 + ord(letter) - ord("a") + 1
+    return index - 1
+
+
 def mask_shas(text: str) -> str:
     """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
     return _sub_shas(text)
@@ -1145,9 +1162,12 @@ def normalise_error(text: str) -> str:
     # after the colon, is still masked.
     said = FILE_NAME.sub(keep_path, said)
     said = re.sub(r"\d+", "#", said)
-    for index, id_ in enumerate(kept):
-        said = said.replace(_marker(index), id_)
-    return said
+    # Each marker back to its id in one pass (a replace per id read the whole line once per path on it: a PR's line
+    # of N paths took N^2, PrLogReadersScale).
+    def restore(match: re.Match[str]) -> str:
+        index = _marker_index(match[1])
+        return kept[index] if index < len(kept) else match[0]
+    return MARKER.sub(restore, said) if kept else said
 
 
 # failed_steps_log.py's, used here as they are (never a copy): the reader of a log's lines and their steps.
@@ -1156,6 +1176,9 @@ FAILED, ERRORED, PASSED, AMBIGUOUS = steps_log.FAILED, steps_log.ERRORED, steps_
 SECTION_RED, STEP_OWNERS_MAX_LINES = steps_log.SECTION_RED, steps_log.STEP_OWNERS_MAX_LINES
 StepNamesUnknown, STEP_NAMES_UNKNOWN = steps_log.StepNamesUnknown, steps_log.STEP_NAMES_UNKNOWN
 step_owners, failed_steps_log = steps_log.step_owners, steps_log.failed_steps_log
+ALIGN_MAX_STARTS, _one_to_one_starts, _aligned_starts = (steps_log.ALIGN_MAX_STARTS, steps_log._one_to_one_starts,
+                                                         steps_log._aligned_starts)
+_live_red, _line_time = steps_log._live_red, steps_log._line_time
 
 
 class FailedView:
@@ -1164,16 +1187,28 @@ class FailedView:
     its FAILED and ERRORED sections, everything that may be its red; a base's keeps its FAILED ones alone, everything
     that may be base evidence (an ERRORED section is a continue-on-error step's: shown, never evidence). TEXT is the
     one way any comparator reads a log's lines."""
-    __slots__ = ("job", "base", "steps", "sections")
+    __slots__ = ("job", "base", "steps", "sections", "_text")
 
     def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]]):
         self.job, self.base, self.steps, self.sections = job, base, steps, sections
+        # Built once: every comparator reads a view's text, several times a judgment. Rebuilt per read, each read made
+        # and freed two copies of a long log (the sections' join, then Steps' own), which glibc hands back to the OS
+        # and faults in again above its trim threshold: view_text read 15x at 4x a HostileLog (PrLogReadersScale), 4x
+        # with that threshold raised. The sections are never changed after a view is made.
+        self._text = test_reds.Steps(["\n".join(lines) for _, _, lines in sections])
 
     def text(self) -> str:
         """Its sections' lines, as a test_reds.Steps: every reader of it reads each section as the failed step it was
         placed as, never splitting the text by its echoes and judging pass or fail again (#41329's review follow-up
         F3)."""
-        return test_reds.Steps(["\n".join(lines) for _, _, lines in self.sections])
+        return self._text
+
+    def failed_text(self) -> str:
+        """text() of its FAILED sections alone: all a base's view keeps, so a head's count of a failing test is
+        compared like for like with a base's (compare_window); a base view's is its text()."""
+        if self.base:
+            return self._text
+        return test_reds.Steps(["\n".join(lines) for _, status, lines in self.sections if status == FAILED])
 
     def lines(self) -> list[tuple[str, int]]:
         """(raw line, the index of its step in STEPS) for each line of the view."""
@@ -1245,11 +1280,9 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     api = sorted(job.get("steps") or [], key=lambda step: step.get("number") if isinstance(step.get("number"), int)
                  else -1)
     names = [step.get("name") for step in api]  # step-name: validate
-    if not any(isinstance(name, str) and name.startswith("Run ") for name in names):
-        return STEP_NAMES_UNKNOWN
     sha = str(job.get("head_sha") or "")
     path = str(path or "").split("@", 1)[0]
-    if ([step.get("number") for step in api] != list(range(1, len(api) + 1)) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+    if (not _numbered_in_full(api) or not re.fullmatch(r"[0-9a-f]{40}", sha)
             or not re.fullmatch(r"\.github/workflows/[\w.-]+\.ya?ml", path)
             or not all(isinstance(name, str) for name in names)):
         return STEP_NAMES_UNKNOWN
@@ -1289,16 +1322,73 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     marks = _step_marks(named[0].get("steps"), names)
     if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
         return STEP_NAMES_UNKNOWN
-    return {step["number"]: mark for step, mark in zip(api, marks) if mark is not None}
+    found = StepNames({step["number"]: mark for step, mark in zip(api, marks) if mark is not None})
+    # The headers are the named job's; a job whose name is not read and whose steps fit too must give the same ones.
+    found.headers = _step_headers(named[0]["steps"], api, marks)
+    if any(_step_marks(spec.get("steps"), names) is not None
+           and _step_headers(spec["steps"], api, marks) != found.headers for spec in unread):
+        found.headers = None
+    return found
+
+
+def _numbered_in_full(api: list[dict]) -> bool:
+    """Whether API (a job's steps, by number) lists every step: numbered 1, 2, ... up to its trailing runner steps
+    (post steps, RUNNER_TRAILING_STEPS, "Complete job"), which the runner numbers apart (cmux-next daemon tests: 1-42,
+    then 81-85), and in increasing order through them."""
+    numbers = [step.get("number") for step in api]
+    if not all(isinstance(number, int) and not isinstance(number, bool) for number in numbers):
+        return False
+    head = 0
+    while head < len(api) and not (str(api[head].get("name") or "").startswith("Post ")  # step-name: validate
+                                   or api[head].get("name") in (*RUNNER_TRAILING_STEPS, "Complete job")):
+        head += 1
+    return (numbers[:head] == list(range(1, head + 1))
+            and all(earlier < later for earlier, later in zip(numbers, numbers[1:])))
+
+
+class StepNames(dict):
+    """workflow_step_names' answer: {step number: whether its workflow step has a `name:`}, and HEADERS, {step
+    number: (the STEP_START line the runner opens it with, less `##[group]`, whether that is the whole line or its
+    start, whether its conclusion is strict)} for every step but "Set up job" and "Complete job" (_step_headers), or
+    None. step_owners' second reading
+    (_aligned_starts) reads HEADERS; a plain dict has none, and is read as before."""
+    headers: dict | None = None
+
+
+def _step_headers(declared: list[dict], api: list[dict], marks: list) -> dict[int, tuple[str, bool, bool]] | None:
+    """{the number of each of the jobs-API steps API (marks: _step_marks') but the first and the last: (its header,
+    exact, strict)}: a `uses:` step's `Run <uses>`, a `run:` step's `Run <its script's first line>` (only up to a `${{`,
+    which the runner renders: a start), a post step's `Post job cleanup.`, a job hook's (Set up runner, Complete
+    runner) any `Run ...` line. STRICT: a workflow step with no `continue-on-error`, whose conclusion says whether its
+    section has an `##[error]` line (_aligned_starts). None when an unnamed step's API name is not its header (the
+    jobs API names it by it), so the workflow and the job disagree."""
+    found: dict[int, tuple[str, bool, bool]] = {}
+    workflow = iter(declared)
+    for k, (step, mark) in enumerate(zip(api, marks)):
+        if mark is not None:
+            spec = next(workflow)
+            if isinstance(spec.get("uses"), str):
+                said, exact = f"Run {spec['uses'].strip()}", True
+            else:
+                script = str(spec.get("run") or "").strip()
+                first = script.splitlines()[0].strip() if script else ""
+                said, exact = (f"Run {first}", True) if "${{" not in first else (
+                    f"Run {first.split('${{', 1)[0]}", False)
+            if mark is False and (not exact or step.get("name") != said):  # step-name: validate
+                return None
+            found[step["number"]] = (said, exact, spec.get("continue-on-error", False) is False)
+        elif 0 < k < len(api) - 1:
+            name = str(step.get("name") or "")  # step-name: validate
+            found[step["number"]] = (("Post job cleanup.", True, False) if name.startswith("Post ")
+                                     else ("Run ", False, False))
+    return found
 
 
 def job_step_names(repo: str, job: dict, github, seen: dict, path=None) -> dict[int, bool] | StepNamesUnknown:
     """workflow_step_names for JOB, its workflow's PATH read from its run's record when not given (rest_run, once per
-    run in SEEN; an unread record is STEP_NAMES_UNKNOWN). Read only when a step's name starts with "Run ", the one case
-    the answer changes step_owners'."""
-    steps = job.get("steps") or []
-    if not any(str(step.get("name") or "").startswith("Run ") for step in steps):  # step-name: validate
-        return STEP_NAMES_UNKNOWN
+    run in SEEN; an unread record is STEP_NAMES_UNKNOWN). Read for every job: its headers (StepNames) let step_owners
+    place a log whose steps are not one header each (_aligned_starts), not only a step named "Run ..." (cmux#41001,
+    hq#9191: every step named, so neither was read and both logs went unplaced)."""
     if path is None:
         key = ("run-record", job.get("run_id"))
         if key not in seen:
@@ -1354,6 +1444,9 @@ class Unplaced:
 
 UNPLACED = Unplaced()
 # What a caller says when signature() is UNPLACED.
+# What a caller says when a placed head's failed sections name no failing test, error line or crash: compared whole.
+BARE_WHY = ("its failed steps' own lines name no failing test or error line (a shell check's `FAIL:` line is one only "
+            "in a whole-log comparison)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
 
@@ -1490,6 +1583,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             continue
         if ((ERROR.search(line)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
+             or SHELL_FAIL.match(line)
              or (not named and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(line)))
@@ -1525,31 +1619,34 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
 
 
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
-                     base_run: dict) -> str:
+                     base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
     verdict's (the rule above); raises Refused naming what differs."""
+    why = UNPLACED_WHY if why is None else why
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     where = f"{base} run {base_run['id']} ({url})"
     if not head.steps:
-        raise Refused(f"'{name}': {UNPLACED_WHY}, and it names no failed step; nothing is compared with the base")
+        raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
+        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
                       "compare with the base")
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
-            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, {side} log reports more failed tests than it names "
+            raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
                           f"({said[0][:200]}), so no failure can be told from another")
     if head.steps != found.steps:
-        raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
+        raise Refused(f"'{name}': {why}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
     for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
         if mine != theirs:
             more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
-            raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its {what} are not {where}'s"
+            raise Refused(f"'{name}': {why}; compared whole, its {what} are not {where}'s"
                           + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    return (f"excused '{name}': its log does not map onto its steps, so it was compared whole: the same failed steps "
+    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
+                else "its failed steps name no failing test or error line")
+    return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
 
@@ -3918,8 +4015,11 @@ ROLLUP_ANNOTATION = re.compile(r"^red check: (.+)$")
 # four markers hid the fifth). Every page of them is read (#41104's review F1: a first page of 100 can hide markers).
 ANNOTATION_STEP_CAP = 10
 EXIT_ANNOTATION = re.compile(r"^Process completed with exit code \d+\.?$")
-# A compiler's error line: `path/File.swift:12:5: error: message` (the column optional).
-COMPILE_ERROR = re.compile(r"([^\s:'\"]*[\w.+-]+\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
+# A compiler's error line: `path/File.swift:12:5: error: message` (the column optional). The path starts where a run
+# of path characters does (the lookbehind), and ends in one name character before its `.ext`: the same matches as
+# `[^\s:'"]*[\w.+-]+\.`, whose two overlapping repeats, tried from every character of the run, took more than 5 s on
+# one 12,000-character line of `x.x` (PrLogPatternsScale).
+COMPILE_ERROR = re.compile(r"(?<![^\s:'\"])([^\s:'\"]*[\w.+-]\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
 # The per-step reading is for one caller only: update_branch's choice to merge the base in, which only makes CI run
 # again. A land (merge_hold's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
 PER_STEP_PURPOSE = "update-branch"
@@ -4464,7 +4564,11 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
     # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
     # it fails.
-    times = test_reds.failed_in(head_text)
+    # Counted like for like (merging #41220's step mapping): the head's FAILED sections, what a base view keeps. A
+    # head's ERRORED (continue-on-error) section is never in a base's view, so counting it refused the very red the base
+    # has (cmux#41001's head served as its own base: everyMenuKeepsAShortTopLevel() x6, at most x2, for the catalog
+    # check's ERRORED section); its tests are still compared by name above and classified whole below.
+    times = test_reds.failed_in(head_view.failed_text())
     alone = []
     for (run, view, *_), gap in zip(window, gaps):
         if gap:
@@ -5521,7 +5625,8 @@ class Head(NamedTuple):
     view: "FailedView | Unplaced | None" = None
     chromium_without_diagnostics: bool = False
     per_test: Callable[[dict], str | None] = lambda workflow_info: None
-    # The whole-log signature of an unplaced head (VIEW UNPLACED), else None: unplaced_verdict compares it.
+    # The whole-log signature of an unplaced head (VIEW UNPLACED) or of a placed one with nothing to compare, else
+    # None: unplaced_verdict compares it.
     unplaced: "UnplacedSignature | None" = None
 
 
@@ -5583,8 +5688,12 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     def per_test(workflow_info: dict) -> str | None:
         return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
                 or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
+    # A placed head whose failed sections name no failing test, error line or crash (hq#9191's `FAIL: plist content`)
+    # is compared whole too, never refused for want of a key: the whole-log identity is the fallback either way.
+    bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
+            and not chromium_without_diagnostics)
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED else None)
+                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -5875,9 +5984,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
-        if view is UNPLACED:
+        bare = view is not UNPLACED and got.unplaced is not None
+        if bare and aside is None:
+            head = signature(view)
+            bare = not head[1] and not head[2]
+        why_whole = UNPLACED_WHY if view is UNPLACED else BARE_WHY
+        if view is UNPLACED or bare:
             # An unplaced head is read per step first (update-branch alone: by_step refuses a land), then compared
-            # whole with the base (#41129, carried forward): identity with one red base verdict.
+            # whole with the base (#41129, carried forward): identity with one red base verdict. So is a placed head
+            # whose failed sections name nothing to compare (BARE_WHY).
             try:
                 audit.append(by_step())
                 continue
@@ -5888,7 +6003,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             try:
                 # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
                 if got.unplaced is None:
-                    raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
+                    raise Refused(f"'{name}': {why_whole}; nothing is compared with the base")
                 # A pin red ffi_pin_step_a did not excuse or set aside raised there; one it set aside leaves the
                 # comparison. Never compared by identity: the masked pin error is the same for any pin.
                 mine = unplaced_without_ffi_pin(got.unplaced) if aside is not None else got.unplaced
@@ -5907,7 +6022,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
                         seen.append((base_run, base_job, theirs))
-                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run)
+                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=why_whole)
                                      + (f"; {aside}" if aside is not None else ""))
                         break
                     except Final:

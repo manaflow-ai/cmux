@@ -217,6 +217,82 @@ def frame_legacy(job, text):
 UNKNOWN = {"step_names": excuse.STEP_NAMES_UNKNOWN}
 
 
+def scaling_ratio(build, n, repeats=3, min_seconds=0.005):
+    """How a cost grows, with no wall-clock bound (#41236's review: a 0.04 s step failed a 0.5 s bound in a full run
+    on a loaded host). BUILD(size) makes the inputs and returns the call to time. The call is timed at N and at 4N in
+    this process, the two sizes in turn so a burst of load hits both, each sample repeating the call until it takes
+    MIN_SECONDS (the same count at both sizes), the garbage collector off, best of REPEATS each, in this process's CPU
+    seconds (time.process_time), so other processes' turns count on neither side; leo-workspace's
+    tools/scaling_check.py is the same protocol. The answer is (best at 4N / best at N, best at N, best at 4N). Linear
+    gives about 4, quadratic about 16: a test asserts well under quadratic (SCALING_LIMIT, assert_scales)."""
+    import gc
+    import math
+    import time
+
+    small, large = build(n), build(4 * n)
+
+    def sample(run, loops):
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            began = time.process_time()
+            for _ in range(loops):
+                run()
+            return (time.process_time() - began) / loops
+        finally:
+            if enabled:
+                gc.enable()
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))  # the first call also warms caches
+    best_small = best_large = math.inf
+    for _ in range(repeats):
+        best_small = min(best_small, sample(small, loops))
+        best_large = min(best_large, sample(large, loops))
+    return best_large / max(best_small, 1e-9), best_small, best_large
+
+
+# The most a 4x larger input may cost relative to the smaller one: linear is about 4, quadratic about 16.
+SCALING_LIMIT = 8
+# A hang guard for one assert_scales, never a timing bound: what it guards is how the time grows.
+SCALING_CEILING = 120
+
+
+class ScalingHang(Exception):
+    pass
+
+
+def scaling_failure(build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """None when BUILD's call at 4N costs under SCALING_LIMIT times its cost at N (scaling_ratio) in one of ATTEMPTS
+    measurements (super-linear code is over it every time, a burst of load only once), else why not. A measurement
+    still running after CEILING seconds is a failure too (SIGALRM, a hang guard: the quadratic reading this replaced
+    would run for minutes)."""
+    import signal
+
+    def expire(signum, frame):
+        raise ScalingHang()
+    tries = []
+    old = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, ceiling)
+    try:
+        for _ in range(attempts):
+            ratio, small, large = scaling_ratio(build, n)
+            if ratio < SCALING_LIMIT:
+                return None
+            tries.append(f"{ratio:.1f}x ({small:.4f} CPU s at {n:,}, {large:.4f} at {4 * n:,})")
+    except ScalingHang:
+        tries.append(f"still running after {ceiling} s (a hang guard, not a timing bound)")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    return (f"{label}: 4x the input took {', then '.join(tries)}; linear is about 4x and quadratic 16x, the bound is "
+            f"{SCALING_LIMIT}x: the reading is super-linear in its input")
+
+
+def assert_scales(case, build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """Fail CASE unless BUILD's call scales under SCALING_LIMIT from N to 4N (scaling_failure)."""
+    if failure := scaling_failure(build, n, label, attempts, ceiling):
+        case.fail(failure)
+
+
 def placed_signature(job, text, base=False):
     """excuse.signature of a fixture written before lines were placed by step order, framed as the job-log endpoint
     serves it (frame_legacy) so step_owners places it: a log it does not place has no signature (excuse.UNPLACED)."""
@@ -7702,7 +7778,8 @@ class FailingStepLogOnly(unittest.TestCase):
     def test_the_reader_base_red_watch_vendors_is_this_scripts_own(self):
         # scripts/ci/failed_steps_log.py is the source cmuxterm-hq and leo-workspace copy whole (SingleSourceLogReader,
         # VendoredCopies): this script reads lines through it, never a copy of its own.
-        for name in ("lines_of", "step_owners", "failed_steps_log", "STEP_NAMES_UNKNOWN", "STAMP"):
+        for name in ("lines_of", "step_owners", "failed_steps_log", "STEP_NAMES_UNKNOWN", "STAMP", "ALIGN_MAX_STARTS",
+                     "_one_to_one_starts", "_aligned_starts", "_live_red", "_line_time"):
             self.assertIs(getattr(excuse, name), getattr(excuse.steps_log, name), name)
 
     def adjacent_steps(self):
@@ -8094,32 +8171,39 @@ class StepOwnership(unittest.TestCase):
     def test_ten_thousand_step_starts_are_placed_in_linear_time(self):
         # LW#4181's Codex P2: a log with 10,000 `##[group]Run` lines took 21.6 s to place (each start rescanned every
         # block after it), and hq#8962's F2: 10,000 named steps took 0.62 s (each header rescanned every step's times).
-        # Placing is one pass: 10,000 unnamed steps and 10,000 named steps, each with its header in its own second,
-        # and one step printing 10,000 headers (not one to one, so nothing is placed), each in well under half a
-        # second.
-        import time
-
-        def shape(named):
-            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == 7_000 else "success",
-                      10 + n, 10 + n) for n in range(10_000)]
+        # Placing is one pass: unnamed steps and named steps, each with its header in its own second, and one step
+        # printing that many headers (not one to one, so nothing is placed). Each is placed right at N and 4N (2,500
+        # and 10,000 steps; 10,000 and 40,000 headers in one step), and 4N costs well under quadratic in N
+        # (scaling_ratio). No wall-clock bound: a loaded host broke the 0.5 s one in a full run (#41236's review). No
+        # _aligned_starts cost is in it: with no workflow headers (UNKNOWN) that reading returns at once
+        # (AlignedStartsIsLinear times it).
+        def shape(named, count):
+            red = count * 7 // 10
+            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == red else "success",
+                      10 + n, 10 + n) for n in range(count)]
             lines = [(name, start, f"##[group]Run case {n}") for n, (name, _, start, _) in enumerate(steps)]
-            lines.insert(7_001, (steps[7_000][0], 10 + 7_000 + 0.7, NEW_RED))
+            lines.insert(red + 1, (steps[red][0], 10 + red + 0.7, NEW_RED))
             lines.insert(3, (steps[2][0], 12.7, NEGATIVE_CASE))
             return steps, lines
-        one = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
-        flood = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
-                 *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(10_000)), ("Tests", 39, NEW_RED)]
-        for label, (steps, text), want in (("10,000 unnamed steps", shape(False), (excuse.FAILED, excuse.PASSED)),
-                                           ("10,000 named steps", shape(True), (excuse.FAILED, excuse.PASSED)),
-                                           ("one step's 10,000 headers", (one, flood), (excuse.AMBIGUOUS,) * 2)):
-            job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
-            started = time.perf_counter()
-            owned = excuse.step_owners(job, log_text, **UNKNOWN)
-            took = time.perf_counter() - started
-            said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+
+        def flood(count):
+            return ([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)],
+                    [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
+                     *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(count)),
+                     ("Tests", 39, NEW_RED)])
+        for label, make, n, want in (
+                ("unnamed steps", lambda count: shape(False, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("named steps", lambda count: shape(True, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("one step's headers", flood, 10_000, (excuse.AMBIGUOUS,) * 2)):  # cheaper per header: more of them
             with self.subTest(shape=label):
-                self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want)
-                self.assertLess(took, 0.5, f"step_owners took {took:.2f} s for {label}")
+                def build(count):
+                    steps, text = make(count)
+                    job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
+                    owned = excuse.step_owners(job, log_text, **UNKNOWN)
+                    said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+                    self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want, f"{count:,} {label}")
+                    return lambda: excuse.step_owners(job, log_text, **UNKNOWN)
+                assert_scales(self, build, n, f"step_owners for {label}")
 
     def test_every_case_has_its_test(self):
         self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
@@ -8686,11 +8770,14 @@ class LocalCompositeCannotPose(unittest.TestCase):
     step of the jobs API, so it never shifts the order its marks rely on, and its inner steps' `##[group]Run ...` lines
     never become another step's header. Here a failing composite's inner step is named exactly like the header of the
     unnamed step after it (`Run swift test`), which the workflow proves unnamed, so its header text alone would fit.
-    - With several inner `Run` lines and the sibling's own header, there are more headers than steps: nothing is
-      placed (every line AMBIGUOUS), and the red is refused.
+    - With several inner `Run` lines and the sibling's own header, there are more headers than steps. The one-to-one
+      reading places nothing; the workflow's headers (_aligned_starts) place it, and the inner `Run swift test` line
+      (in the composite's times alone) stays the composite's: only the sibling's own header and echo are the sibling's.
     - With one inner `Run` line and a silent sibling (the counts balance), the inner line's stamp lies in the
-      composite's window: inside it alone, it is not in the sibling's; in the second they share, it is in two windows.
-      Either way nothing is placed, and no line is ever the sibling's."""
+      composite's window: inside it alone, it is not in the sibling's; in the second they share, it fits the
+      sibling's times and header, but the failed composite's section would then have no `##[error]` line, which a
+      failed step without `continue-on-error` always prints. Either way nothing is placed, and no line is ever the
+      sibling's."""
 
     NAME = "cmux-next swift checks"
     PATH = ".github/workflows/cmux-next.yml"
@@ -8763,6 +8850,18 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     # The composite does not stop the marks: the workflow proves the sibling unnamed.
                     self.assertEqual(names, {2: False, 3: True, 4: False})
                     owned = excuse.step_owners(job, log_text, step_names=names)
+                    if several:
+                        # Placed by the workflow's headers: the composite keeps its inner lines and its red.
+                        said = {(excuse.lines_of(line)[0], excuse.STAMP.search(line.split("\t")[-1]).group()[17:19]):
+                                (index, status) for line, index, status in owned}
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(NEW_RED, "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "20")], (3, excuse.PASSED))
+                        self.assertEqual(sum(1 for _, index, _ in owned if index == 3), 2)
+                        said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps)))
+                        self.assertIn(f"excused '{self.NAME}'", said)
+                        self.assertNotIn("compared whole", said)
+                        continue
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
                     self.assertIs(excuse.failed_view(job, log_text, base=True, step_names=names), excuse.UNPLACED)
@@ -11223,6 +11322,665 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is not a red of the head's other checks"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
 
+
+STEP_MAPPING_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+
+
+class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
+    """2026-11-11: two reds that fail as their base did were refused because step_owners could not place their logs
+    one header per step, and none of their steps is named "Run ...", so their workflow was never read:
+    - cmux#41001's "cmux-next daemon tests" (PR run 42973557339, job 130369194352; feat-cmux-next run 42976173821, job
+      130375759923): two composite actions (setup-cmux-tui-rust, cache-restore) print 7 inner `Run` lines, 38 for 31
+      steps, and many steps share a second. Compared whole instead, the base's extra flake
+      (aOneWorkspaceSnapshot...) and the head's extra failed step each broke identity, so nothing was told apart.
+    - hq#9191's "Skill policy tests" (run 42981858520, job 130394322965; main run 42981664549, job 130393775750): one
+      header per step, but five steps in 07:47:29, so no header was in its step's times alone.
+    With the workflow's headers (StepNames.headers: `Run <uses>`, `Run <script's first line>`), _aligned_starts places
+    both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
+    those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
+
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
+             "seconds with 1 issue.")
+    # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
+    LIVE_LAST = "✘ Test endEverythingWithHomeEndsTheRestAndKeepsHome() failed after 216.505 seconds with 1 issue."
+
+    def fixture(self, case, side):
+        job = json.loads((STEP_MAPPING_FIXTURES / f"{case}-{side}-job.json").read_text())
+        return job, (STEP_MAPPING_FIXTURES / f"{case}-{side}.log").read_text()
+
+    def after(self, text, anchor, line):
+        """TEXT with LINE added after the line that ends with ANCHOR, at its stamp."""
+        out = []
+        for raw in text.splitlines():
+            out.append(raw)
+            if raw.endswith(anchor):
+                out.append(raw.split(" ", 1)[0] + " " + line)
+        self.assertGreater(len(out), len(text.splitlines()), anchor)
+        return "\n".join(out)
+
+    def github(self, case, head, base):
+        """A fake serving CASE's workflow and HEAD's and BASE's (job, log) as head job 1 (run 10) and base job 2 (run
+        20)."""
+        path = self.PATHS[case]
+        workflow = (STEP_MAPPING_FIXTURES / f"{case}.yml").read_text()
+
+        class Fake(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                found = super().json(route, paginate=paginate)
+                if (isinstance(found, dict) and "/actions/runs/" in route and "/jobs" not in route
+                        and "workflow_id" in found):
+                    found["path"] = path
+                return found
+
+            def blob(self, repo, ref, wanted):
+                if wanted != path:
+                    raise excuse.Refused(f"{repo}@{ref}: {wanted} is not a text file GitHub served")
+                return workflow
+
+        github = Fake()
+        github.base_runs = [{**run, "path": path} for run in github.base_runs]
+        (head_job, head_log), (base_job, base_log) = head, base
+        github.jobs = {1: dict(copy.deepcopy(head_job), id=1, run_id=10, head_sha=HEAD, status="completed",
+                               conclusion="failure"),
+                       2: dict(copy.deepcopy(base_job), id=2, run_id=20, head_sha=BASE_SHA, status="completed",
+                               conclusion="failure")}
+        github.logs = {1: head_log, 2: base_log}
+        return github
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_both_logs_are_placed_by_their_workflows_headers(self):
+        for case, failed in (("cmux-41001", {"Check generated action catalog, surfaces and inventory": "errored",
+                                             "Run the live-daemon suites": "failed", "Regenerate stale files": "failed"}),
+                             ("hq-9191", {"Shared clone maintenance LaunchAgent runs the compaction daily": "failed"})):
+            with self.subTest(case=case):
+                github = self.github(case, self.fixture(case, "head"), self.fixture(case, "base"))
+                job = copy.deepcopy(github.jobs[1])
+                names = excuse.workflow_step_names(REPO, job, self.PATHS[case], github, {})
+                view = excuse.failed_view(job, github.logs[1], step_names=names, base=False)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, failed)
+
+    def test_cmux_41001_the_bases_failures_are_excused(self):
+        # The head fails what the base fails; the base fails one test more (the flake base run 42976173821 had).
+        head = self.fixture("cmux-41001", "head")
+        base = (head[0], self.after(head[1], self.LIVE_LAST, self.FLAKE))
+        said = self.judge(self.github("cmux-41001", head, base))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+        # And the same failures exactly, compared by step, never whole.
+        said = self.judge(self.github("cmux-41001", head, head))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_cmux_41001_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("cmux-41001", "head")
+        added = (head[0], self.after(head[1], self.LIVE_LAST,
+                                     "✘ Test quitKeepsTheNewWorkspace() failed after 1.250 seconds with 1 issue."))
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", added, head))
+        self.assertIn("quitKeepsTheNewWorkspace", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41001_against_its_real_base_run_refuses_only_the_heads_own_test(self):
+        # The real pair: the live-daemon failures are the base's, everyMenuKeepsAShortTopLevel (the catalog check and
+        # "Regenerate stale files", skipped on the base) is the head's own.
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", self.fixture("cmux-41001", "head"), self.fixture("cmux-41001", "base")))
+        self.assertIn("everyMenuKeepsAShortTopLevel", str(said.exception))
+        self.assertNotIn("endEverythingWithHomeEndsTheRestAndKeepsHome", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def not_job_error(self):
+        """The hq-9191 logs judged as a job whose `FAIL:` line is no error line (any job but JOB_ERROR's: #41235 made
+        'Skill policy tests' one of them), the shape SHELL_FAIL's placed rule is for."""
+        patch = unittest.mock.patch.dict(excuse.JOB_ERROR)
+        patch.start()
+        self.addCleanup(patch.stop)
+        del excuse.JOB_ERROR["Skill policy tests"]
+
+    def test_hq_9191_the_bases_failure_is_excused(self):
+        # 'Skill policy tests' is a JOB_ERROR job (#41235): its `FAIL: plist content` is its failed step's error line,
+        # compared by step, never whole.
+        said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
+        self.assertIn("excused 'Skill policy tests': feat-cmux-next run 20", said)
+        self.assertIn("fails the same way", said)
+        self.assertIn("FAIL: plist content", said)
+        self.assertNotIn("compared whole", said)
+        # Its failed step says only `FAIL: plist content`: placed, nothing names the failure, so it is compared whole.
+        self.not_job_error()
+        said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
+        self.assertIn("excused 'Skill policy tests': its failed steps name no failing test or error line, so it was "
+                      "compared whole", said)
+        self.assertIn("FAIL: plist content", said)
+
+    def test_hq_9191_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("hq-9191", "head")
+        added = (head[0], self.after(head[1], "FAIL: plist content", "FAIL: plist label"))
+        # As a JOB_ERROR job (#41235): the added `FAIL:` line is an error line the base's step never printed.
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: FAIL: plist label"):
+            self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+        self.not_job_error()
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
+            self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+
+def one_step_flood(headers, steps):
+    """(job, log, step_names, the own headers' line numbers): STEPS workflow steps, step K from second 100 + 10K to
+    105 + 10K with its `Run x` header at its start, and the middle step printing the rest of HEADERS `Run x` lines in
+    its own times (a composite's inner steps, a script's `::group::Run`)."""
+    def at(second):
+        return f"2026-11-10T{clock(second)}Z"
+    flooded = steps // 2
+    job = {"steps": [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+                      "started_at": at(0), "completed_at": at(2)}]}
+    job["steps"] += [{"number": k + 2, "name": f"Step {k}", "status": "completed", "conclusion": "success",
+                      "started_at": at(100 + 10 * k), "completed_at": at(105 + 10 * k)} for k in range(steps)]
+    last = 105 + 10 * (steps - 1)
+    job["steps"].append({"number": steps + 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                         "started_at": at(last), "completed_at": at(last)})
+    names = excuse.StepNames({k + 2: True for k in range(steps)})
+    names.headers = {k + 2: ("Run x", True, False) for k in range(steps)}
+    lines, own = [f"{at(1.0)} Current runner version: '2.338.2'"], []
+    inner = headers - steps
+    for k in range(steps):
+        own.append(len(lines))
+        lines.append(f"{at(100.0 + 10 * k)} ##[group]Run x")
+        if k == flooded:
+            lines += [f"{at(100.0 + 10 * k + 4 * (n + 1) / (inner + 1))} ##[group]Run x" for n in range(inner)]
+    return job, "\n".join(lines), names, own
+
+
+class AlignedStartsIsLinear(unittest.TestCase):
+    """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
+    headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
+    now, with the same answers as the frozen first version (scripts/ci/bench_aligned_starts.py, which times both)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import bench_aligned_starts  # scripts/ci, on sys.path above
+        cls.bench = bench_aligned_starts
+
+    def both(self, job, log_text, names):
+        args = self.bench.reading_inputs(job, log_text)
+        return excuse._aligned_starts(*args, names), self.bench.frozen_aligned_starts(*args, names)
+
+    def test_same_second_headers_over_ten_steps_cost_linear_in_the_headers(self):
+        # 5,000 and 20,000 same-second headers over 10 steps, each ambiguous, the larger well under quadratic in the
+        # smaller (scaling_ratio, no wall-clock bound: #41236's review). Linear here: about 0.025 and 0.1 CPU s;
+        # 478a15d7's quadratic reading: about 28 and 449 s.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 10)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))  # every header fits every step: ambiguous
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts over 10 steps")
+
+    def test_twenty_steps_of_twenty_thousand_same_second_headers_cost_linear_in_the_headers(self):
+        # #41220's review at 9ae6ba5d, F1: "_aligned_starts expands `ways` to every matching header, and for each state
+        # on each step it scans all later starts. That's O(steps x starts^2). A PR-controlled log (a step printing
+        # `##[group]Run ...` 20,000 times, with 20 steps, within the new limits) takes billions of iterations, so the
+        # classifier hangs and gives no verdict." 5,000 and 20,000 (ALIGN_MAX_STARTS, the most it reads) same-second
+        # headers over 20 steps, each ambiguous (None: the whole-log comparison reads it, never an excuse). At
+        # 9ae6ba5d the 5,000 case alone runs for minutes, so assert_scales' hang guard fails it; now about 0.02 and
+        # 0.09 CPU s, a ratio near 4.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts over 20 steps")
+
+    def test_a_step_printing_twenty_thousand_headers_is_still_placed(self):
+        # The same 20,000 headers in one of 20 steps, the others each in a second of its own: one choice fits, so the
+        # log is placed (each step's own header its first), at both sizes and linear in the headers.
+        def build(headers):
+            job, log_text, names, own = one_step_flood(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertEqual(excuse._aligned_starts(*args, names), own, f"{headers:,} headers")
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts, one step's headers")
+
+    def test_the_real_logs_read_the_same(self):
+        fixtures = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+        for case, path in (("cmux-41001", ".github/workflows/cmux-next.yml"),
+                           ("hq-9191", ".github/workflows/skills-tests.yml")):
+            workflow = (fixtures / f"{case}.yml").read_text()
+
+            class Blob:
+                def blob(self, repo, ref, wanted):
+                    return workflow
+            for side in ("head", "base"):
+                with self.subTest(case=case, side=side):
+                    job = dict(json.loads((fixtures / f"{case}-{side}-job.json").read_text()), head_sha=HEAD)
+                    log_text = (fixtures / f"{case}-{side}.log").read_text()
+                    names = excuse.workflow_step_names(REPO, job, path, Blob(), {})
+                    now, then = self.both(job, log_text, names)
+                    self.assertIsNotNone(now)
+                    self.assertEqual(now, then)
+
+    def test_random_small_logs_read_the_same(self):
+        import random
+        texts = ("Run a", "Run b", "Run a b", "Post job cleanup.")
+        placed = refused = 0
+        for seed in range(4000):
+            rng = random.Random(seed)
+            count = rng.randint(1, 5)
+            second, steps = 10, []
+            for n in range(count):
+                start = second + rng.randint(0, 1)
+                second = start + rng.randint(0, 2)
+                steps.append((f"Step {n}", rng.choice(("success", "success", "failure")), start, second))
+            job = {"steps": framed_steps(steps)}
+            names = excuse.StepNames({step["number"]: True for step in job["steps"][1:-1]})
+            names.headers = {step["number"]: (rng.choice(texts[:3] if rng.random() < .8 else texts[3:]),
+                                              rng.random() < .7, rng.random() < .5)
+                             for step in job["steps"][1:-1]}
+            lines = []
+            # Mostly each step's own header in its own times (failed: an error line too), then extras anywhere.
+            for step, (_, conclusion, start, end) in zip(job["steps"][1:-1], steps):
+                if rng.random() < .9:
+                    text, exact, _ = names.headers[step["number"]]
+                    own = text if text == "Post job cleanup." else "##[group]" + text + ("" if exact else " c")
+                    at = rng.uniform(start, end + .99)
+                    lines.append(("x", round(at, 3), own))
+                    if conclusion == "failure" or rng.random() < .2:
+                        lines.append(("x", round(min(at + .001, end + .999), 3), "##[error]boom"))
+            for _ in range(rng.randint(0, 4)):
+                at = rng.uniform(9.5, second + 1.5)
+                lines.append(("x", round(at, 3), rng.choice(
+                    ("##[group]" + rng.choice(texts[:3]), "Post job cleanup.", "##[error]boom", "##[endgroup]", "ok"))))
+            lines.sort(key=lambda line: line[1])
+            log_text = framed_log(lines, columns=rng.random() < .5)
+            with self.subTest(seed=seed):
+                now, then = self.both(job, log_text, names)
+                self.assertEqual(now, then)
+            placed += now is not None
+            refused += now is None
+        # Both answers are exercised, not only "nothing placed".
+        self.assertGreater(placed, 100)
+        self.assertGreater(refused, 100)
+
+
+def hostile_block(i):
+    """One block of HostileLog: a line each parser of base_red_excuse.py and test_reds.py looks for (a compile error,
+    each test runner's failure and summary, a crash, a rollup's and a ratchet's red, bun's and the gallery's lines, a
+    mangled Swift frame), each naming its own test I so nothing is deduplicated away, and openers left unclosed."""
+    return [f"Sources/A{i}.swift:{i}:1: error: boom {i}", f"\u2718 Test t{i}() recorded an issue at A.swift:1:1: x",
+            f"\u25c7 Test t{i}() started.", f"\u2718 Test t{i}() failed after 0.1 seconds with 1 issue.",
+            f"\u2718 Suite S{i} failed", f"Test Case '-[Mod.Suite test{i}]' started.",
+            f"Test Case '-[Mod.Suite test{i}]' failed (0.1 seconds).", f"FAILED: Mod / Suite{i} / test{i}()",
+            f"test m::t{i} ... FAILED", "test result: FAILED. 1 passed; 1 failed; 0 ignored",
+            f"thread 't{i}' panicked at src/a.rs:1:1:", f"FAIL: test_{i} (a.B)", "FAILED (failures=1)",
+            f"FAILED tests/test_a.py::test_{i}", "===== 1 failed, 2 passed in 0.10s =====",
+            "\u2718 Test run with 3 tests in 1 suite failed after 1.0 seconds with 1 issue.",
+            "bun test v1.2.0", f"webviews/test/a{i}.test.ts:", f"(fail) suite > t{i} [1.00ms]",
+            "error: expect(received).toBe(expected)", f"      at <anonymous> (/w/webviews/test/a{i}.test.ts:1:1)",
+            " 1 fail", f"FAIL webviews/test/a{i}.test.ts", f"##[error]red check: c{i}", f"- c{i} (failure)",
+            f"RED crate lint{i} where", "error: exited with unexpected signal code 11",
+            f"Process 'helper{i}' exited with unexpected signal code 11", f"0 Mod $s3Mod5SuiteC5test{i}yyF + 12",
+            "Test Suite 'All tests' started at 2026-11-10 12:00:00", "::group::x", "  shell: bash", "##[endgroup]",
+            "##[warning]w", '\u2718 Test "never closed (x', "\u25c7 Test a( ${{ <!-- (signal: Test Case '-[ at /w/"]
+
+
+class HostileLog:
+    """A red job's log N blocks long (hostile_block), in its failing step "Tests" after a passing "Build": LOG, and
+    FLOOD, the same with a `##[group]Run` header opening each block (so step_owners cannot place it). Its lines keep
+    one length at every N: what grows is the log, as a PR's test output can make it grow."""
+
+    def __init__(self, n):
+        self.n = n
+        steps = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
+        self.job = {"steps": framed_steps(steps)}
+
+        def rows(headers):
+            out = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE), ("Tests", 20, "##[group]Run tests")]
+            for i in range(n):
+                at = 20 + i * 18 / n
+                if headers:
+                    out.append(("Tests", at, f"##[group]Run case {i}"))
+                out += [("Tests", at, text) for text in hostile_block(i)]
+            return [*out, ("Tests", 39, EXIT)]
+        self.log, self.flood = framed_log(rows(False)), framed_log(rows(True))
+        self.lines = excuse.test_reds.lines_of(self.log)
+        self.raw = self.log.splitlines()
+        self.view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=False)
+        self.base_view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=True)
+        self.windows = [(excuse._stamp_time(step["started_at"]),
+                         excuse._stamp_time(step["completed_at"]) + excuse.timedelta(seconds=1))
+                        for step in self.job["steps"]]
+
+
+def _package():
+    return next(iter(excuse.PACKAGE_JOBS.values()))
+
+
+TR = excuse.test_reds
+# Every reader of a PR's log in base_red_excuse.py and test_reds.py (PrLogReadersScale finds them: a function with a
+# parameter READER_PARAMS names and no `github`), each as the call the sweep times on HostileLog(N) and (4N).
+SCANNERS = {
+    "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
+    "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
+    "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
+    "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
+                                              excuse.step_owners(f.job, f.flood, **UNKNOWN)),
+    "failed_steps_log._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
+    "failed_steps_log._one_to_one_starts": lambda f: excuse._one_to_one_starts(
+        [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
+    "failed_steps_log.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
+    "base_red_excuse.failed_view": lambda f: excuse.failed_view(f.job, f.log, **UNKNOWN, base=False),
+    "base_red_excuse.view_text": lambda f: excuse.view_text(f.view),
+    "base_red_excuse.signature": lambda f: (excuse.signature(f.view), excuse.signature(f.base_view)),
+    "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
+    "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
+    "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
+    "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
+    "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
+    "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
+    "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
+    "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
+    "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
+    "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
+    "base_red_excuse.swift_without_comments": lambda f: excuse.swift_without_comments(f.log),
+    "base_red_excuse.package_tests": lambda f: excuse.package_tests(_package(), f.view),
+    "base_red_excuse.guard_tests": lambda f: excuse.guard_tests(f.view),
+    "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
+    "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
+    "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
+    "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
+    "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
+        [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
+    "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
+    "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
+    "test_reds.echoed": lambda f: TR.echoed(f.lines),
+    "test_reds.passed_steps": lambda f: TR.passed_steps(f.lines),
+    "test_reds.volatile": lambda f: TR.volatile(f.log),
+    "test_reds.log_lines": lambda f: TR.log_lines(f.log),
+    "test_reds.lines_of": lambda f: TR.lines_of(f.log),
+    "test_reds.plain": lambda f: TR.plain(f.log),
+    "test_reds.step_sections": lambda f: TR.step_sections(f.log),
+    "test_reds.unjudged": lambda f: TR.unjudged(f.log),
+    "test_reds.red_steps": lambda f: TR.red_steps(f.log),
+    "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
+    "test_reds.step_lines": lambda f: TR.step_lines(f.log),
+    "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
+    "test_reds.check_rule_failure": lambda f: TR.check_rule_failure(f.log),
+    "test_reds.failed_names": lambda f: TR.failed_names(f.lines),
+    "test_reds.unnamed_failures": lambda f: TR.unnamed_failures(f.lines),
+    "test_reds.runner_unnamed": lambda f: TR.runner_unnamed(f.lines),
+    "test_reds.failed_tests": lambda f: TR.failed_tests(f.lines, []),
+    "test_reds.issue_sites": lambda f: TR.issue_sites(f.lines),
+    "test_reds._words": lambda f: TR._words(f.log, []),
+    "test_reds._identifier": lambda f: TR._identifier("9" * 9 + f.log, 0, []),
+    "test_reds.demangle_test": lambda f: TR.demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds._demangle_test": lambda f: TR._demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds.crashed_tests": lambda f: TR.crashed_tests(f.lines, set()),
+    "test_reds.signal_of": lambda f: TR.signal_of(f.log),
+    "test_reds.bun_diagnostic": lambda f: TR.bun_diagnostic(f.lines, "a.test.ts:1"),
+    "test_reds.read_bun": lambda f: TR.read_bun(f.lines, TR.Result()),
+    "test_reds._read_bun_step": lambda f: TR._read_bun_step(f.lines, 0, [], TR.Result()),
+    "test_reds.read": lambda f: TR.read(f.log),
+    "test_reds.parse_log": lambda f: TR.parse_log(f.log),
+    "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
+    "test_reds.exported_observations": lambda f: TR.exported_observations(f.lines),
+    "test_reds.observations": lambda f: TR.observations(f.log),
+    "test_reds._observations": lambda f: TR._observations(f.log),
+    "test_reds.flaky_failures": lambda f: TR.flaky_failures(f.log, "job", "wf.yml", {"schema": "tap-tests/v1"}),
+    "test_reds.classify": lambda f: TR.classify(f.log, f.log),
+    "test_reds.classify_any": lambda f: TR.classify_any(f.log, [("base", f.log)]),
+    "test_reds.web_head_part": lambda f: TR.web_head_part(f.log),
+    "test_reds.web_failures": lambda f: TR.web_failures(f.log),
+    "test_reds.merged_web": lambda f: TR.merged_web([f.log]),
+    "test_reds.web_head": lambda f: TR.web_head([f.log]),
+    "test_reds.web_compare": lambda f: TR.web_compare(["x"], TR.web_failures(f.log), [f.log], "the base"),
+    "test_reds.classify_web": lambda f: TR.classify_web([f.log], [f.log]),
+    "test_reds.classify_web_window": lambda f: TR.classify_web_window([f.log], [("base", [f.log])]),
+    "test_reds.web_cut_short": lambda f: TR.web_cut_short(f.log),
+    "test_reds.web_base_red_files": lambda f: TR.web_base_red_files([f.log]),
+    "test_reds.classify_web_cut_short": lambda f: TR.classify_web_cut_short(f.log, [("base", [f.log])]),
+    "test_reds.bisect_report": lambda f: TR.bisect_report(f.log),
+    "test_reds.gallery_read": lambda f: TR.gallery_read(f.log),
+    "test_reds.gallery_states": lambda f: TR.gallery_states(f.log),
+    "test_reds.gallery_entries": lambda f: TR.gallery_entries(f.log),
+    "test_reds.gallery_classify": lambda f: TR.gallery_classify(f.log, f.log),
+}
+# Readers the sweep does not time, each with why.
+NOT_SWEPT = {
+    "failed_steps_log._aligned_starts": "timed on its own adversarial shapes (AlignedStartsIsLinear): it reads a "
+                                       "workflow's headers, which HostileLog has none of",
+    "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
+                                      "test_reds.classify_web_window, each swept",
+    "test_reds._kept": "the parse cache: it calls the reader it is given",
+}
+
+
+class PrLogReadersScale(unittest.TestCase):
+    """#41220's review at 9ae6ba5d, F1's class: "classifier cost driven by PR-controlled log size. Detector: add
+    base_red_excuse's log parsers to the lazy-regex/scaling sweep (SCANNERS), so every parser that reads PR logs gets
+    an adversarial-shape scaling test." Each reader in SCANNERS is timed on HostileLog at N and 4N blocks
+    (assert_scales: a ratio, never seconds); a new reader of a PR's log fails the sweep until it is in SCANNERS (or in
+    NOT_SWEPT with why). PrLogPatternsScale does the same for each pattern on a long line."""
+    READER_PARAMS = {"log", "head_log", "base_log", "view", "head_view", "lines", "texts", "stack", "said", "text",
+                     "head_text", "base_text", "head_logs", "base_logs", "logs", "symbol"}
+    N = 150  # where a per-path replace already reads about 10x (normalise_error at 9ae6ba5d; 7.7x at 60)
+
+    def readers(self):
+        found = set()
+        # failed_steps_log.py: the reader base_red_excuse.py runs as its own (SingleSourceLogReader).
+        for name in ("base_red_excuse", "test_reds", "failed_steps_log"):
+            tree = ast.parse((ROOT / "scripts/ci" / f"{name}.py").read_text())
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    args = node.args
+                    params = {a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+                    if params & self.READER_PARAMS and "github" not in params:  # a fetcher reads through the readers
+                        found.add(f"{name}.{node.name}")
+        return found
+
+    def test_every_reader_of_a_pr_log_is_swept(self):
+        found = self.readers()
+        self.assertEqual(found - SCANNERS.keys() - NOT_SWEPT.keys(), set(),
+                         "a reader of a PR's log with no scaling check: add it to SCANNERS (its call on HostileLog)")
+        self.assertEqual((SCANNERS.keys() | NOT_SWEPT.keys()) - found, set(), "a stale SCANNERS or NOT_SWEPT entry")
+        self.assertFalse(SCANNERS.keys() & NOT_SWEPT.keys())
+
+    def test_every_reader_costs_linear_in_the_log(self):
+        logs = {}
+
+        def make(size):
+            if size not in logs:
+                logs[size] = HostileLog(size)
+            return logs[size]
+        self.assertIsInstance(make(self.N).view, excuse.FailedView)  # placed: the view readers read every line
+        for name, call in SCANNERS.items():
+            with self.subTest(reader=name):
+                def build(size, call=call):
+                    log = make(size)
+
+                    def run():
+                        try:
+                            call(log)
+                        except excuse.Refused:
+                            pass  # a refusal is an answer: it is timed like one
+                    return run
+                assert_scales(self, build, self.N, name)
+
+
+# The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
+OPENER_CANDIDATES = "xa0 _-./:<>\"'=#@!,;()[]{}|*+?$^%&~`\\Z9A"
+
+
+def _class_takes(ch, items):
+    import re._constants as constants  # python 3.11 and later, as scripts/ci requires
+    negate = hit = False
+    for op, av in items:
+        if op is constants.NEGATE:
+            negate = True
+        elif op is constants.LITERAL:
+            hit |= ord(ch) == av
+        elif op is constants.RANGE:
+            hit |= av[0] <= ord(ch) <= av[1]
+        elif op is constants.CATEGORY:
+            word = ch.isalnum() or ch == "_"
+            hit |= {"CATEGORY_DIGIT": ch.isdigit(), "CATEGORY_NOT_DIGIT": not ch.isdigit(),
+                    "CATEGORY_SPACE": ch.isspace(), "CATEGORY_NOT_SPACE": not ch.isspace(),
+                    "CATEGORY_WORD": word, "CATEGORY_NOT_WORD": not word}.get(str(av), False)
+    return hit != negate
+
+
+def regex_openers(pattern, flags):
+    """The shortest text that reaches each repeat of PATTERN (greedy, lazy or possessive) and each branch's end, one
+    character per class: hq's tools/agent-guards/test_lazy_regex_sweep.py's openers, for every repeat, since a greedy
+    `.*` before a literal reads to the line's end from each opener as a lazy one does."""
+    import re._constants as constants
+    import re._parser as parser
+    out, groups, found = [], {}, []
+
+    def walk(items):
+        for op, av in items:
+            if op is constants.LITERAL:
+                out.append(chr(av))
+            elif op is constants.NOT_LITERAL:
+                out.append("y" if av == ord("x") else "x")
+            elif op is constants.ANY:
+                out.append("x")
+            elif op is constants.IN:
+                out.append(next((c for c in OPENER_CANDIDATES if _class_takes(c, av)), "x"))
+            elif op in (constants.MAX_REPEAT, constants.MIN_REPEAT, constants.POSSESSIVE_REPEAT):
+                low, _, sub = av
+                found.append("".join(out))
+                for _ in range(low):
+                    walk(sub)
+            elif op is constants.SUBPATTERN:
+                start = len("".join(out))
+                walk(av[-1])
+                if av[0]:
+                    groups[av[0]] = "".join(out)[start:]
+            elif op is constants.ATOMIC_GROUP:
+                walk(av)
+            elif op is constants.BRANCH:
+                kept = list(out)
+                for branch in av[1]:
+                    walk(branch)
+                    found.append("".join(out))
+                    out[:] = kept
+                walk(av[1][0])  # what follows reads on from the first branch
+            elif op is constants.GROUPREF:
+                out.append(groups.get(av, ""))
+            elif op is constants.GROUPREF_EXISTS:
+                walk(av[1])
+    walk(parser.parse(pattern, flags))
+    return [opener.replace("\n", " ") for opener in dict.fromkeys(found) if opener]
+
+
+def module_patterns():
+    """(name, pattern) for each compiled pattern of base_red_excuse.py and test_reds.py at module level, alone or in a
+    tuple or list (test_reds.FAILED)."""
+    for module in (excuse, excuse.test_reds):
+        short = "test_reds" if module is excuse.test_reds else "base_red_excuse"
+        for key, value in vars(module).items():
+            if isinstance(value, re.Pattern):
+                yield f"{short}.{key}", value
+            elif isinstance(value, (tuple, list)):
+                for index, item in enumerate(value):
+                    if isinstance(item, re.Pattern):
+                        yield f"{short}.{key}[{index}]", item
+
+
+# Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
+# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
+# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+KNOWN_SUPERLINEAR = {
+    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
+    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
+    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
+    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
+    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
+    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
+    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
+    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
+    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
+    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+}
+
+
+class PrLogPatternsScale(unittest.TestCase):
+    """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
+    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
+    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
+    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
+    KNOWN_SUPERLINEAR."""
+    LINE = 3000
+    MEASURABLE = 0.0005
+    MOST = 200_000
+    CEILING = 10
+
+    def superlinear(self):
+        import gc
+        import signal
+        import time
+
+        def once(rx, text):
+            gc.disable()
+            try:
+                began = time.process_time()
+                for _ in rx.finditer(text):
+                    pass
+                return time.process_time() - began
+            finally:
+                gc.enable()
+        def expire(signum, frame):
+            raise ScalingHang()
+        previous = signal.getsignal(signal.SIGALRM)
+        found, seen = {}, 0
+        for name, rx in module_patterns():
+            for opener in regex_openers(rx.pattern, rx.flags):
+                seen += 1
+                if name in found:
+                    continue  # one opener is enough
+                count = max(1, self.LINE // len(opener))
+
+                def build(size, rx=rx, opener=opener):
+                    text = opener * size
+                    return lambda: [None for _ in rx.finditer(text)]
+                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+                signal.signal(signal.SIGALRM, expire)
+                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+                try:
+                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
+                            and 16 * count * len(opener) <= self.MOST:
+                        count *= 4
+                    large = min(once(rx, opener * 4 * count) for _ in range(2))
+                except ScalingHang:
+                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+                    continue
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous)
+                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                    continue
+                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
+                if name in KNOWN_SUPERLINEAR:
+                    found.setdefault(name, f"{large / small:.1f}x")
+                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                    found.setdefault(name, why)
+        return found, seen
+
+    def test_every_pattern_costs_linear_in_a_line(self):
+        found, seen = self.superlinear()
+        self.assertGreater(seen, 300, "the sweep found the patterns")
+        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
+        self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
+                         "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
+        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
+                         "linear now: drop it from KNOWN_SUPERLINEAR")
 
 
 # cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
