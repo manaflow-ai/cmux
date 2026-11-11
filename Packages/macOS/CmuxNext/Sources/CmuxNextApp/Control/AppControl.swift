@@ -397,7 +397,8 @@ final class AppControl {
                 return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false,
                                                           fresh: fresh, transcriptLoad: load, cache: call.params["cache"]?.stringValue,
                                                           // `chief: "new"`: a Chief with no newest message; `hold`: reads held, then answer as `transcript` says.
-                                                          newChief: call.params["chief"]?.stringValue == "new", hold: call.params["hold"]?.boolValue ?? false))
+                                                          newChief: call.params["chief"]?.stringValue == "new", hold: call.params["hold"]?.boolValue ?? false,
+                                                          afterInbox: call.params["after_inbox"]?.boolValue ?? false))
             },
             // `debug.home_native_fixture.capture {action}`: the transcript load states' capture hooks (ui-state-fixes M1, M2).
             .async("debug.home_native_fixture.capture") { [weak services] call in
