@@ -239,20 +239,74 @@ web_packages_stale() { # package-dir
     return 1
 }
 
-# The bun and npm the install below runs, by absolute path. webviews/package.json
-# devEngines pins bun's version (scripts/check-webviews-bun-version.sh enforces
-# it): a bun at exactly that version, from mise, asdf, PATH or ~/.bun, comes
-# first; otherwise PATH's bun. Read as data, never run from the checkout.
-pinned_bun_version() { # never fails: no pin is an empty answer
-    [[ -f "$REPO_ROOT/webviews/package.json" ]] || return 0
-    sed -n '/"devEngines"/,/}/p' "$REPO_ROOT/webviews/package.json" 2>/dev/null \
-        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1 || true
+# Every tool the hook runs is checked before it runs: its real path (symlinks
+# resolved) must lie outside this checkout and its git directories, and a tool
+# taken from an install root (mise, asdf, ~/.bun) must resolve inside that root.
+# A checkout decides what it pins, never where the hook runs a binary from: a
+# pin like ../../../repository/payload walked out of the mise directory and ran
+# the checkout's own payload/bin/bun.
+real_path() { # path -> its real path (symlinks resolved), by the trusted interpreter
+    "$PYTHON3_BIN" -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
-absolute_tool() { # name -> its absolute path on PATH, or nothing
+CHECKOUT_REAL_DIRS=()
+checkout_real_dirs() { # fills CHECKOUT_REAL_DIRS once: the work tree, its git dir and the common git dir
+    (( ${#CHECKOUT_REAL_DIRS[@]} == 0 )) || return 0
+    local dir
+    while IFS= read -r dir; do
+        [[ -n "$dir" ]] && CHECKOUT_REAL_DIRS+=("$dir")
+    done < <("$PYTHON3_BIN" -I -c 'import os, sys; print("\n".join(os.path.realpath(p) for p in sys.argv[1:]))' \
+        "$REPO_ROOT" "$(git rev-parse --absolute-git-dir)" "$(cd "$REPO_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)")
+}
+is_within() { # path dir
+    [[ "$1" == "$2" || "$1" == "$2"/* ]]
+}
+# Prints PATH back when it may run: an executable file whose real path is outside
+# the checkout and, given ROOT, inside ROOT's real path. Otherwise says why on
+# stderr (unless the file is simply absent) and fails.
+checked_tool() { # path [install-root]
+    local real dir root_real
+    [[ -n "$1" && -e "$1" ]] || return 1
+    real="$(real_path "$1")" || return 1
+    if [[ ! -f "$real" || ! -x "$real" ]]; then
+        echo "pre-commit: $1 is not an executable file; not running it." >&2
+        return 1
+    fi
+    if [[ -n "${2:-}" ]]; then
+        root_real="$(real_path "$2")" || return 1
+        if ! is_within "$real" "$root_real"; then
+            echo "pre-commit: $1 resolves to $real, outside its install root $root_real; not running it." >&2
+            return 1
+        fi
+    fi
+    checkout_real_dirs
+    for dir in "${CHECKOUT_REAL_DIRS[@]}"; do
+        if is_within "$real" "$dir"; then
+            echo "pre-commit: $1 resolves to $real, inside this checkout ($dir); not running it." >&2
+            return 1
+        fi
+    done
+    printf '%s\n' "$1"
+}
+absolute_tool() { # name -> its absolute path on PATH, checked (checked_tool), or nothing
     local found
     found="$(command -v "$1" 2>/dev/null)" || return 1
     [[ "$found" == /* ]] || found="$(cd "$(dirname "$found")" && pwd -P)/${found##*/}"
-    [[ -x "$found" ]] && printf '%s\n' "$found"
+    checked_tool "$found"
+}
+# The bun version webviews/package.json devEngines pins, only as an exact
+# major.minor.patch (the rule scripts/check-webviews-bun-version.sh applies).
+# Anything else is refused with a warning and treated as no pin. Never fails.
+pinned_bun_version() {
+    local pin
+    [[ -f "$REPO_ROOT/webviews/package.json" ]] || return 0
+    pin="$(sed -n '/"devEngines"/,/}/p' "$REPO_ROOT/webviews/package.json" 2>/dev/null \
+        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1 || true)"
+    [[ -n "$pin" ]] || return 0
+    if [[ "$pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        printf '%s\n' "$pin"
+    else
+        echo "pre-commit: webviews/package.json pins bun '${pin//[^A-Za-z0-9._\/-]/?}', not an exact major.minor.patch version; ignoring the pin and using PATH's bun." >&2
+    fi
 }
 # Every bun and npm call runs through tool_env: BUN_OPTIONS is the caller's,
 # and bun prepends it to every command line, so a `--preload PATH` there made
@@ -260,17 +314,23 @@ absolute_tool() { # name -> its absolute path on PATH, or nothing
 tool_env() {
     env -u BUN_OPTIONS "$@"
 }
-resolve_bun() {
-    local want candidate path_bun
-    want="$(pinned_bun_version)"
+# The bun the install runs, by absolute path: a bun at exactly the pinned
+# version from mise, asdf, PATH or ~/.bun comes first; otherwise PATH's bun.
+# Each candidate path is built only from the validated pin and passes
+# checked_tool before even its --version runs.
+resolve_bun() { # pin (validated, or empty)
+    local want="$1" entry root candidate path_bun mise_root asdf_root bun_root
     path_bun="$(absolute_tool bun || true)"
     if [[ -n "$want" ]]; then
-        for candidate in \
-            "${MISE_DATA_DIR:-${XDG_DATA_HOME:-${HOME:-/nonexistent}/.local/share}/mise}/installs/bun/$want/bin/bun" \
-            "${ASDF_DATA_DIR:-${HOME:-/nonexistent}/.asdf}/installs/bun/$want/bin/bun" \
-            "$path_bun" \
-            "${BUN_INSTALL:-${HOME:-/nonexistent}/.bun}/bin/bun"; do
-            [[ -n "$candidate" && -x "$candidate" ]] || continue
+        mise_root="${MISE_DATA_DIR:-${XDG_DATA_HOME:-${HOME:-/nonexistent}/.local/share}/mise}/installs/bun"
+        asdf_root="${ASDF_DATA_DIR:-${HOME:-/nonexistent}/.asdf}/installs/bun"
+        bun_root="${BUN_INSTALL:-${HOME:-/nonexistent}/.bun}"
+        for entry in "$mise_root|$mise_root/$want/bin/bun" "$asdf_root|$asdf_root/$want/bin/bun" \
+            "|$path_bun" "$bun_root|$bun_root/bin/bun"; do
+            root="${entry%%|*}"
+            candidate="${entry#*|}"
+            [[ -n "$candidate" ]] || continue
+            candidate="$(checked_tool "$candidate" "$root")" || continue
             if [[ "$(tool_env "$candidate" --version 2>/dev/null || true)" == "$want" ]]; then
                 printf '%s\n' "$candidate"
                 return 0
@@ -311,6 +371,7 @@ bootstrap_run() { # package-dir tool args...
 }
 
 if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
+    checkout_real_dirs  # once here, not in every $(checked_tool ...) subshell
     for package in "${WEB_PACKAGES[@]}"; do
         PACKAGE_PATHS=()
         for path in "${STAGED_WEB_PATHS[@]}"; do
@@ -334,8 +395,8 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                     [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
                     sleep 1
                 done
-            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && BUN_BIN="$(resolve_bun)" && [[ -n "$BUN_BIN" ]]; then
-                BUN_PIN="$(pinned_bun_version)"
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && BUN_PIN="$(pinned_bun_version)" \
+                && BUN_BIN="$(resolve_bun "$BUN_PIN")" && [[ -n "$BUN_BIN" ]]; then
                 echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
                 bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
                 if [[ "$package" == webviews ]]; then
@@ -453,7 +514,8 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
         fi
     done <<<"$RUST_ROOTS"
     if [[ -n "$RUST_ENTRIES" ]]; then
-        RUSTFMT_BIN="$(command -v rustfmt || true)"
+        checkout_real_dirs
+        RUSTFMT_BIN="$(absolute_tool rustfmt || true)"
         if [[ -z "$RUSTFMT_BIN" ]]; then
             formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
         else
@@ -472,7 +534,7 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 toolchain="$(rust_toolchain "$package_root")"
                 if [[ -n "$toolchain" ]]; then
                     pinned="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
-                    if [[ -n "$pinned" && -x "$pinned" ]]; then
+                    if [[ -n "$pinned" ]] && pinned="$(checked_tool "$pinned")"; then
                         PACKAGE_RUSTFMT="$pinned"
                     else
                         echo "pre-commit: ${package_root:-.} pins Rust $toolchain; using $RUSTFMT_BIN (rustup toolchain install $toolchain --component rustfmt)" >&2
@@ -488,7 +550,8 @@ fi
 # cmux currently has no Swift-format configuration. Keep this branch ready for
 # the day one is added without making a formatter a setup prerequisite today.
 if (( ${#STAGED_SWIFT_PATHS[@]} > 0 && ! SKIP_FORMATTERS )) && [[ -f "$REPO_ROOT/.swift-format" ]]; then
-    SWIFT_FORMAT_BIN="$(command -v swift-format || true)"
+    checkout_real_dirs
+    SWIFT_FORMAT_BIN="$(absolute_tool swift-format || true)"
     if [[ -z "$SWIFT_FORMAT_BIN" ]]; then
         formatter_missing "swift-format is unavailable"
     else

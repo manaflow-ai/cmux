@@ -538,7 +538,7 @@ mkdir -p node_modules/.bin
         path.chmod(0o755)
         return path
 
-    def bootstrap_env(self, **extra):
+    def bootstrap_env(self, pin="1.4.4", **extra):
         """An agent commit (a missing vp is fatal) whose webviews has a bun.lock and no vp."""
         self.stage_web_file("webviews")
         web = self.repo / "webviews"
@@ -546,7 +546,7 @@ mkdir -p node_modules/.bin
         (web / "bun.lock").write_text("{}\n")
         (web / "package.json").write_text(
             '{\n  "devEngines": {\n    "packageManager": {\n      "name": "bun",\n'
-            '      "version": "1.4.4",\n      "onFail": "error"\n    }\n  }\n}\n')
+            f'      "version": "{pin}",\n      "onFail": "error"\n    }}\n  }}\n}}\n')
         env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(self.root / "vp.log"), CMUX_AGENT="1",
                                  MISE_DATA_DIR=str(self.root / "mise"), ASDF_DATA_DIR=str(self.root / "asdf"),
                                  BUN_INSTALL=str(self.root / "bun-home"), **extra)
@@ -604,6 +604,50 @@ mkdir -p node_modules/.bin
         ):
             self.assertIn(line, result.stderr)
         self.assertNotIn("/nowhere/preload.js", result.stderr, "only whether BUN_OPTIONS is set, not its value")
+
+    # A bun the checkout carries: any run of it, --version included, leaves the canary.
+    def checkout_payload(self, directory):
+        canary = self.root / "payload-ran"
+        bun = directory / "bin/bun"
+        bun.parent.mkdir(parents=True, exist_ok=True)
+        bun.write_text(f"#!/bin/sh\n: > {shlex.quote(str(canary))}\necho 1.4.4\n")
+        bun.chmod(0o755)
+        return canary
+
+    def test_a_pin_that_walks_out_of_the_install_root_runs_nothing(self):
+        """Codex review of #41001: the pin went unchecked into the mise path, so
+        ../../../repository/payload ran the checkout's payload/bin/bun with no bun on PATH."""
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "payload")
+        (self.root / "mise/installs/bun").mkdir(parents=True)
+        (self.root / "asdf/installs/bun").mkdir(parents=True)
+        env = self.bootstrap_env(pin="../../../repository/payload")
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("not an exact major.minor.patch version", result.stderr)
+        self.assertNotEqual(result.returncode, 0, "no bun: an agent commit still stops at the missing vp")
+        self.assertIn("vp is unavailable for webviews", result.stderr)
+
+    def test_a_pinned_install_resolving_into_the_checkout_is_not_run(self):
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "payload")
+        (self.root / "mise/installs/bun").mkdir(parents=True)
+        (self.root / "mise/installs/bun/1.4.4").symlink_to(self.repo / "payload")
+        env = self.bootstrap_env()
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("outside its install root", result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    def test_a_path_bun_inside_the_checkout_is_not_run(self):
+        self.assertEqual(self.install().returncode, 0)
+        canary = self.checkout_payload(self.repo / "tools")
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{self.repo / 'tools/bin'}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(canary.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
 
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
