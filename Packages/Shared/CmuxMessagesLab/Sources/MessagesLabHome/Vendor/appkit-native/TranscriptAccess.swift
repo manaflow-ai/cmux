@@ -259,8 +259,7 @@ final class TranscriptSelection {
     /// palette of the window view that draws it (SelectionHighlightStyle).
     static func highlightStyle(_ spec: RowSpec, palette: PaletteBox?) -> SelectionHighlightStyle {
         guard case let .part(p) = spec.kind else { return .screen }
-        _ = p
-        return .screen
+        return PaletteScope.with(palette) { SelectionHighlightStyle.style(on: p.outgoing ? Fixture.outgoing : Fixture.incoming) }
     }
 
     static func geometry(_ spec: RowSpec) -> RowTextGeometry? {

@@ -10,7 +10,9 @@ import AppKit
 /// light selection over white, and the text under it stays as dark as it was.
 ///
 /// Each row picks the blend that stands out more from its own bubble (`style(on:)`), so a dark bubble keeps
-/// Messages' measured look and every light one gets a visible highlight.
+/// Messages' measured look and every light one gets a visible highlight. A sent bubble is judged by its theme's
+/// first gradient stop (`Fixture.outgoing`); the live gradient shifts with the row's window position, so a theme
+/// whose stops run from light to dark can get the weaker of the two blends far from that stop.
 struct SelectionHighlightStyle: Equatable {
     enum Blend: String, Equatable {
         case screen = "screenBlendMode"

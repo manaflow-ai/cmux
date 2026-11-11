@@ -130,7 +130,7 @@
          anchor = TextPosition(key: pos.key, offset: r.location)
          focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
          downPoint = nil
-@@ -230,17 +249,50 @@
+@@ -230,15 +249,47 @@
          return true
      }
  
@@ -146,8 +146,7 @@
 +    /// palette of the window view that draws it (SelectionHighlightStyle).
 +    static func highlightStyle(_ spec: RowSpec, palette: PaletteBox?) -> SelectionHighlightStyle {
 +        guard case let .part(p) = spec.kind else { return .screen }
-+        _ = p
-+        return .screen
++        return PaletteScope.with(palette) { SelectionHighlightStyle.style(on: p.outgoing ? Fixture.outgoing : Fixture.incoming) }
 +    }
 +
 +    static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
@@ -175,19 +174,17 @@
          }
 -        return out.sorted { $0.0 < $1.0 }
 +        return out
-     }
- 
++    }
++
 +    /// Rows with text, in transcript order (model index); bodies in window content coordinates.
 +    private func textRows() -> [(index: Int, key: String, geometry: RowTextGeometry, body: CGRect)] {
 +        guard let demo = controller.demo else { return [] }
 +        return textCells().map { ($0.index, $0.key, $0.geometry, $0.cell.convert(RowDraw.bodyRect($0.spec), to: demo)) }
 +            .sorted { $0.0 < $1.0 }
-+    }
-+
+     }
+ 
      /// The text position nearest to a point (window content coordinates).
-     func position(at p: CGPoint) -> TextPosition? {
-         let rows = textRows()
-@@ -251,68 +303,93 @@
+@@ -251,68 +302,93 @@
              let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
              return da < db
          }!
