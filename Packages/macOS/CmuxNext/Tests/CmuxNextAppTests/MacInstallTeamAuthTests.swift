@@ -87,7 +87,7 @@ import Testing
     }
 }
 
-private final class RefusedTeams: @unchecked Sendable {
+nonisolated private final class RefusedTeams: @unchecked Sendable {
     private let lock = NSLock()
     private var list: [String] = []
     var teams: [String] { lock.withLock { list } }
