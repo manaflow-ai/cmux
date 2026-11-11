@@ -64,6 +64,9 @@ and takes screenshots through the app's window (`surface(_:)`) or the screen,
 never through `app` itself, judges only controls in the app's window (the
 system keyboard spans the whole screen), and tells iPad from iPhone by the
 simulator's model, since `UIDevice` says phone in compatibility mode.
+Each launch closes Safari first: after a link hands off to it, Safari stays in
+front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
+content, not a fixed number of swipes, since rows per swipe depend on the screen.
 
 It runs on every feat-cmux-next push that touches the app and on pull requests
 that change the gate. When App Review rejects us anyway, add the rejection and

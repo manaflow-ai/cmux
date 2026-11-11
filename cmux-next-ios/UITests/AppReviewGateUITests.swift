@@ -538,6 +538,14 @@ final class AppReviewGateUITests: XCTestCase {
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
+        // A link the walk tapped hands off to Safari. On iPad Safari then
+        // stays in front of the relaunched iPhone app, so the next steps
+        // judge Safari's page, and every runner kill on iPad (runs
+        // 43002601165 and 43050303670, "Test crashed with signal kill")
+        // came at the first launch after such a handoff. Each launch starts
+        // with Safari closed.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        if safari.state != .notRunning { safari.terminate() }
         app.launch()
         if signedIn && setupComplete {
             // The first mock run may still ask for a team.
@@ -628,10 +636,19 @@ final class AppReviewGateUITests: XCTestCase {
             || (environment["SIMULATOR_DEVICE_NAME"] ?? "").hasPrefix("iPad")
     }
 
+    /// Scrolls until the element is on screen or the content stops moving
+    /// (its end). A fixed swipe count measured "reachable" by screen size:
+    /// on iPad the iPhone app shows 390 x 844 points, fewer rows per swipe
+    /// than a Pro Max, and 12 slow swipes at the largest text size ended in
+    /// the Developer section above Sign out (run 43050303670).
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
+        var last = ""
+        for _ in 0..<40 where !(element.exists && element.isHittable) {
             surface(app).swipeUp(velocity: .slow)
+            let now = app.debugDescription.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
+            if now == last { break }
+            last = now
         }
     }
 
