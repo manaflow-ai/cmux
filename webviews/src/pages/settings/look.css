@@ -154,11 +154,62 @@
   background-repeat: no-repeat;
 }
 
-/* A segmented control sits on its soft fill with no outline, as the popups and buttons beside it do
-   (refined.css "Pills"), so a card holds no box drawn inside a box (standup 2026-11-11). The border
-   stays transparent so the control keeps its size. */
+/* Controls as Aside draws them (Lucas 2026-11-12: "make the inputs a little bit cleaner"): every
+   button, menu button, text field and segmented control is the same soft fill with one hairline edge
+   in the card's line color, so a control reads as a shape and not as a smudge of fill. The edge is an
+   inset shadow (or the border the control already has), so no control changes size. Hover steps the
+   fill up one notch; the edge stays. Borders: None clears the edge with the card lines. */
+:root[data-settings-look="refined"] .settings {
+  --look-control-fill: var(--polish-hover);
+  --look-control-fill-hover: var(--polish-pressed);
+  --look-control-edge: inset 0 0 0 1px var(--look-line);
+}
+
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button) {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button):is(:hover, [data-popup-open]):not(:disabled, [data-disabled]) {
+  background: var(--look-control-fill-hover);
+}
+
+:root[data-settings-look="refined"] .settings .row-control .button:not(.ui-btn),
 :root[data-settings-look="refined"] .settings .segmented {
-  border-color: transparent;
+  border-color: var(--look-line);
+  background: var(--look-control-fill);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
+/* A focused field's edge steps up to the focus ink; a refused value keeps its danger edge. */
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"]:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--polish-focus);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant][aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--ds-color-danger);
+}
+
+/* A menu button ends in the macOS pop-up's up-and-down chevron (Aside's "Google ⌃⌄"), not the
+   down-turned corner, so it reads as "pick one of these" and not as a disclosure. */
+:root[data-settings-look="refined"] .settings .ui-select-button .ui-select-chevron {
+  width: var(--ds-space-2);
+  height: var(--ds-icon-12);
+  border: 0;
+  background-color: currentColor;
+  transform: none;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 11' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 4 3.5 1.5 6 4M1 7l2.5 2.5L6 7'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+/* An off switch shows a light knob on a grey track, as the system switch and Aside's do; the dark
+   surface knob sank into the track. The on switch keeps the shared accent track and knob. */
+:root[data-settings-look="refined"] .settings .ui-switch:not([data-checked]) .ui-switch-thumb {
+  background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 90%, var(--polish-base)));
 }
 
 /* The glass cards (Chief) are their group's container already: the rows inside draw no second one. */
