@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeupsTestSupport
 
 /// The prompts pending in each session are read with one `_acpmux/info` per session. Those reads
 /// are independent: a peer whose info handler stalls must not hold this Mac's own prompt, nor any
@@ -136,5 +137,99 @@ struct AcpmuxPendingReadsTests {
         reads.release()
         #expect(reads.asked == ["peer-stalled", "peer-ready"])
         #expect(found.map(\.pending.count) == [0, 1])
+    }
+
+    /// One peer session whose info read answers only when the test says so, with one prompt.
+    @MainActor final class SlowPeer {
+        private var waiting: [CheckedContinuation<[String: Any]?, Never>] = []
+        private(set) var asked = 0
+        /// Reads asked and not answered yet.
+        var outstanding: Int { waiting.count }
+
+        func read(_ session: String) async -> [String: Any]? {
+            asked += 1
+            return await withCheckedContinuation { waiting.append($0) }
+        }
+
+        /// Answers every waiting read with its session's one prompt.
+        func answer() {
+            let waiters = waiting
+            waiting = []
+            // One dictionary per waiter: a resumed value is sent to its waiter, never shared.
+            for waiter in waiters {
+                waiter.resume(returning: ["pending": [["permissionId": "perm-late", "request": ["toolCall": ["title": "Run make"]]]]])
+            }
+        }
+
+        func close() {
+            let waiters = waiting
+            waiting = []
+            for waiter in waiters { waiter.resume(returning: nil) }
+        }
+    }
+
+    /// The prompts posted, and a bounded wait for the first.
+    @MainActor final class Posts {
+        private(set) var all: [String] = []
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func add(_ permission: String) {
+            all.append(permission)
+            waiter?.resume()
+            waiter = nil
+        }
+
+        /// Returns once a prompt is posted, or after `limit` on the wall clock.
+        func first(within limit: Duration) async {
+            guard all.isEmpty else { return }
+            let timer = Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                self.waiter?.resume()
+                self.waiter = nil
+            }
+            await withCheckedContinuation { waiter = $0 }
+            timer.cancel()
+        }
+    }
+
+    /// A peer whose info answers 15 s after a feed recovery asked, 5 s past the read's 10 s
+    /// deadline: the recovery has ended (its slot freed, the read counted as no prompts), and
+    /// no reconnect or new notification comes. The late answer's prompt is posted when it comes.
+    /// Dropped, it reached the phone only after another reconnect.
+    @Test func aPromptWhosePeerAnswersLateIsPostedWhenTheAnswerComes() async throws {
+        let clock = ManualClock()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .seconds(10), clock: clock)
+        let peer = SlowPeer()
+        let posts = Posts()
+        let rows: [[String: Any]] = [["sessionId": "acp_peer_late", "peer": "peer-a"]]
+        let recovery = Task { @MainActor in
+            await reads.forEachPrompt(rows, read: { await peer.read($0) }) { _, permission, _ in posts.add(permission) }
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        await recovery.value
+        #expect(posts.all.isEmpty, "nothing is posted before the answer")
+        clock.advance(by: .seconds(5))
+        peer.answer()
+        await posts.first(within: .seconds(5))
+        peer.close()
+        #expect(posts.all == ["perm-late"], "the late answer's prompt was not posted")
+    }
+
+    /// A peer that never answers its info read, asked on every recovery (the feed bridge after
+    /// each watch reply): a recovery that finds the session's read outstanding joins it rather
+    /// than asking again, so 100 recoveries leave one read, not one more each.
+    @Test func aSilentPeerLeavesOneOutstandingReadAfter100Recoveries() async {
+        let peer = SlowPeer()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .milliseconds(5))
+        let rows: [[String: Any]] = [["sessionId": "acp_peer_silent", "peer": "peer-a"]]
+        for _ in 0..<100 {
+            let found = await reads.pending(of: rows) { await peer.read($0) }
+            #expect(found.map(\.pending.count) == [0])
+        }
+        let (asked, outstanding) = (peer.asked, peer.outstanding)
+        peer.close()
+        #expect(asked == 1, "\(asked) info reads of one silent session after 100 recoveries")
+        #expect(outstanding <= 1, "\(outstanding) info reads of one silent session still wait")
     }
 }
