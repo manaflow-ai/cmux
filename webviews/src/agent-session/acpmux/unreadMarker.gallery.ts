@@ -56,13 +56,16 @@ const display = async (values: Record<string, unknown>) => {
 };
 
 /// Opens at the latest message, as a returning person does: the banner over the top, Jump up over
-/// the composer (the line is far above), Jump to latest hidden (at the latest message).
+/// the composer (the line is far above), Jump to latest hidden (at the latest message). With the
+/// banner off nothing draws it (SinceDivider.tsx `UnreadBanner`), so the view is ready once Jump up shows.
 const atLatest =
   (values: Record<string, unknown> = {}): Play =>
   async (ctx) => {
     await display(values);
     await settle(ctx);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump"));
+    const off = values["agentPane.display.unreadBanner"] === "off";
+    await ctx.waitFor(() => ctx.document.querySelector(off ? ".acpmux-jump-up[data-shown]" : ".acpmux-since-jump"));
+    if (off && ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
 /// Scrolled to the middle by hand: the stop is the reader's place, so Jump up waits for the line.

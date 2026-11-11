@@ -7,9 +7,13 @@
 #    pin check passes on the pushed tip;
 #  - a tip whose FFI sources moved past the release is left alone (newer), and
 #    the pin check still fails there: a stale pin is never accepted;
-#  - headers that drop or change a declaration go to the pull request (pr);
+#  - headers that drop or change a declaration, a declaration moved under a
+#    new `#if`, a new directive, and a packaging change (a module map edit in
+#    build-app-ffi.sh) go to the pull request (pr);
 #  - an already pinned tip, a dry run and a push the remote refuses once.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 tmp="$(mktemp -d)"
@@ -47,6 +51,11 @@ for f in scripts/cmux-next/check-app-ffi-pin.sh scripts/cmux-next/pin-app-ffi-on
 done
 printf '[package]\nname = "x"\n' > "$seed/cmux-tui/crates/cmux-app-ffi/Cargo.toml"
 printf '[package]\nname = "y"\n' > "$seed/cmux-tui/crates/cmux-unrelated/Cargo.toml"
+# The packaging script, an FFI input whose module maps the Swift imports depend on.
+cat > "$seed/scripts/cmux-next/build-app-ffi.sh" <<'EOF'
+#!/bin/sh
+printf 'module CCmuxX {\n    header "cmux_x.h"\n}\n' > module.modulemap
+EOF
 header="cmux-tui/crates/cmux-app-ffi/include/cmux_x.h"
 cat > "$seed/$header" <<'EOF'
 #pragma once
@@ -77,7 +86,7 @@ first="$(git -C "$seed" rev-parse HEAD)"
 pin_manifest "$first"
 git -C "$seed" add -A
 git -C "$seed" commit -qm pin
-git clone -q --bare "$seed" "$tmp/remote.git"
+git_fixture_clone --bare "$seed" "$tmp/remote.git"
 export PIN_BASE_REMOTE="$tmp/remote.git"
 
 work="$tmp/work"
@@ -155,12 +164,22 @@ if out="$(cd "$work" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
 git -C "$work" pull -q --ff-only origin feat-cmux-next
 
 # A changed declaration (a field added to a struct, a parameter changed) goes to the pull request.
-for edit in 's/int x; int y;/int x; int y; int z;/' 's/int cmux_one(int a);/int cmux_one(long a);/'; do
-  sed -i.bak "$edit" "$work/$header" && rm -f "$work/$header.bak"
+# A moved declaration (wrapped in a new #if), a new #pragma before a struct, and a module map edit in the packaging
+# script keep every declaration's text, and still go to the pull request.
+for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int a);/int cmux_one(long a);/:cmux_x.h' \
+  's/^int cmux_one(int a);$/#if defined(CMUX_ONE)\nint cmux_one(int a);\n#endif/:cmux_x.h' \
+  's/^typedef struct CmuxPoint/#pragma pack(1)\ntypedef struct CmuxPoint/:cmux_x.h' \
+  's/module CCmuxX/module CCmuxRenamed/:build-app-ffi.sh'; do
+  target="$header"
+  [[ "${edit##*:}" == build-app-ffi.sh ]] && target=scripts/cmux-next/build-app-ffi.sh
+  edit="${edit%:*}"
+  before_edit="$(git -C "$work" hash-object "$work/$target")"
+  sed -i.bak "$edit" "$work/$target" && rm -f "$work/$target.bak"
+  [[ "$(git -C "$work" hash-object "$work/$target")" != "$before_edit" ]] || fail "$edit did not apply to $target"
   changed="$(commit "ffi: $edit")"
   before="$(remote_tip)"
   [[ "$(run_pin "$changed")" == pr ]] || fail "$edit was pinned on the base: $(cat "$tmp/log")"
-  grep -q "drop or change 1 declaration" "$tmp/log" || fail "$edit: no declaration named: $(cat "$tmp/log")"
+  grep -q "drops or changes 1 thing" "$tmp/log" || fail "$edit: no difference named: $(cat "$tmp/log")"
   [[ "$(remote_tip)" == "$before" ]] || fail "$edit was pushed"
   git -C "$work" checkout -q --force feat-cmux-next
   git -C "$work" reset -q --hard "$changed"

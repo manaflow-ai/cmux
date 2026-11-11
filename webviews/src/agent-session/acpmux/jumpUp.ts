@@ -43,6 +43,21 @@ export function placeOffScreen(top: number | undefined, viewTop: number, viewHei
   return top < viewTop + margin || top > viewTop + viewHeight - margin;
 }
 
+/// What the reader sees of the rows, in their layout px (VirtualTranscript.tsx): `shownTop` is the
+/// layout offset at the view's top edge (the scroll offset less `lift`), and the rows draw `threadTop`
+/// under their layout tops, below a floating tab row's `topInset`. The view is `height` tall and the
+/// composer dock covers its last `dockSpace`.
+export type RowsView = { shownTop: number; height: number; threadTop: number; topInset: number; dockSpace: number };
+
+/// Whether a place at layout `top` is out of the reader's sight: above the view's top edge, or under the
+/// dock. Measured where the row draws, not at its bare layout top: that counted the first prompt of a chat
+/// scrolled a few px off screen while the whole bubble was in plain sight, and Jump up stood over the
+/// running turn's live line (gallery agent-pane.transcript#codex-turn-raw-commands).
+export function placeOffView(top: number | undefined, view: RowsView): boolean {
+  if (top === undefined) return false;
+  return placeOffScreen(top + view.threadTop, view.shownTop, view.height - view.topInset - view.dockSpace);
+}
+
 /// Where a press goes: back to `back` when one is held (the second press), else to the target,
 /// holding where the view is now.
 export type JumpUpPress = { kind: "back"; back: JumpBack } | { kind: "go"; back: JumpBack };

@@ -667,9 +667,10 @@ fn a_kill_all_respawns_the_visible_workspace_first_in_bounded_waves() {
 /// 8 shells in 8 workspaces, the middle one selected, a kill of everything,
 /// then a restart with 1 slot and each respawn held 1 s in its turn: the
 /// visible terminal holds the only slot. Another workspace is selected at
-/// once; its terminal takes the next free slot, so it respawns about two
-/// holds after the selection (the slot's current hold, then its own; under
-/// 4 here, for slow runners), not after the 7 waves ahead of it.
+/// once; its terminal waits only for that turn (a turn of a shown terminal,
+/// which the slot bounds), so it respawns about two holds after the
+/// selection (the slot's current hold, then its own; under 4 here, for slow
+/// runners), not after the 7 waves ahead of it.
 #[test]
 fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave() {
     const TERMINALS: usize = 8;
@@ -746,9 +747,9 @@ fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave
 /// 8 shells in 8 workspaces, the target's selected. Every host but the
 /// target's is killed with the daemon; the restart adopts the target and
 /// queues 7 hidden respawns behind 1 slot, each held 1 s. Then the target's
-/// host is killed: its respawn takes the next free slot, so it comes about
-/// two holds later (the slot's current hold, then its own; under 4 here, for
-/// slow runners), not after the hidden queue.
+/// host is killed: its respawn does not wait for the hidden queue or for
+/// the hidden turn that holds the slot, so it comes about one hold later
+/// (its own; the bound is 4 here, for slow runners).
 #[test]
 fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_it() {
     const TERMINALS: usize = 8;

@@ -16,6 +16,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 HERE = Path(__file__).resolve().parent
 # The review fields every arch-ratchet.json exception needs (reward-hacking audit 2026-10-30): an author, an
 # owner, an independent receipt and an expiry.
@@ -95,7 +103,7 @@ class Repo:
         self.git("config", "user.name", "gate")
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True,
                               env=env).stdout.strip()
 
@@ -540,7 +548,7 @@ class LayerGateTests(unittest.TestCase):
 
     def test_cli_refuses_and_no_environment_variable_skips_it(self):
         self.repo.commit({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"']))})
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         run = [sys.executable, str(SCRIPT), "--repo", str(self.repo.root), "--base", self.base]
         refused = subprocess.run(run, capture_output=True, text=True, env=env)
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
