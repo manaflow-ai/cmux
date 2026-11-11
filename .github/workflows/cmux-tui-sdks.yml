@@ -743,6 +743,13 @@ jobs:
           cache-workspace-crates: "true"
           save-if: false
 
+      # Seeds the Zig packages ghostty-vt-sys's zig build needs (and the git pins of packages,
+      # from scripts/ci/zig-git-package-mirrors.txt) before cargo, so no build fetches from
+      # a git host (codeberg's 2026-11-11 outage failed this job inside cargo).
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/ghostty-zig-packages
+
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui

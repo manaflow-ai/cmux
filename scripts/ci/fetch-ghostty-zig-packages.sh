@@ -34,7 +34,9 @@
 # minutes of a package-host outage; 3 attempts 20 and 40 s apart all got the
 # same 504 on 2026-11-08) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
-# the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
+# the curl pre-download (scripts/ci/seed-zig-package-archives.sh). A package that
+# pins a git dependency with no line in scripts/ci/zig-git-package-mirrors.txt fails
+# this script before Zig runs.
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
@@ -190,8 +192,17 @@ fetch_once() {
 if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
   "$script_dir/seed-zig-package-archives.sh" "$cache" . &
   seed_pid=$!
-  wait "$seed_pid" || true
+  seed_status=0
+  wait "$seed_pid" || seed_status=$?
   seed_pid=""
+  # Exit 3: a package pins a git dependency with no tarball in
+  # scripts/ci/zig-git-package-mirrors.txt (the seed named it). Zig would fetch it from
+  # its git host on every job, the single point that failed every ghostty-vt-sys build
+  # in codeberg's 2026-11-11 outage, so the step fails here instead.
+  if (( seed_status == 3 )); then
+    echo "error: could not fetch the Zig packages of $source_dir: a git-pinned package has no tarball in scripts/ci/zig-git-package-mirrors.txt (see above)" >&2
+    exit 1
+  fi
 fi
 
 attempt=1

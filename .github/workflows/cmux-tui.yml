@@ -1312,6 +1312,12 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
+      # Seeds the Zig packages ghostty-vt-sys's zig build needs (and the git pins of packages,
+      # from scripts/ci/zig-git-package-mirrors.txt) before cargo, so no build fetches from
+      # a git host (codeberg's 2026-11-11 outage failed this job inside cargo).
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 

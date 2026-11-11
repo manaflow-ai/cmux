@@ -12,7 +12,16 @@
 # Best effort: a package that cannot be seeded is left for Zig to fetch, and
 # this script exits 0. Packages that only a dependency's own build.zig.zon
 # names (inside zig-pkg/) are not known before the first fetch and are left to
-# Zig too.
+# Zig too, with one exception: a git dependency. A package this seed has (in p/
+# or zig-pkg/) can pin a git repository in its own build.zig.zon (translate_c
+# pins aro at git+https://codeberg.org/ziglang/arocc), and a git host outage
+# then fails every build (codeberg on 2026-11-11: ProtocolError in runs
+# 42995220980, 43000201905, 42998352626). Each such pin needs a line
+# "<hash> <tarball url>" in scripts/ci/zig-git-package-mirrors.txt (or the file
+# CMUX_ZIG_GIT_MIRRORS names); it is seeded from that tarball like any other
+# package. A pin with no line makes this script exit 3 after seeding the rest,
+# so a new git-only dependency is named at once instead of failing later at the
+# git host.
 #
 # usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]
 # CMUX_ZIG_SEED_PARALLEL (default 16) downloads run at once, and the whole seed
@@ -61,9 +70,10 @@ mkdir -p "$cache/p"
 # Every `.url = "..."` followed by its `.hash = "..."` in the source's own
 # build.zig.zon files, one "hash url" line each. A line that starts with //
 # is a comment (a URL's own // is not).
-pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
-  | while IFS= read -r zon; do
-      awk '
+# Every `.url = "..."` and its `.hash = "..."` in the build.zig.zon files given, one
+# "hash url" line each.
+zon_pairs() {
+  awk '
         # The line with any // comment outside a quoted string removed.
         function code(line,    out, i, c, quoted) {
           out = ""; quoted = 0
@@ -88,8 +98,10 @@ pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -p
           }
           if (line ~ /^[[:space:]]*\}/ || code($0) ~ /^[[:space:]]*\}/) u = ""
         }
-      ' "$zon"
-    done | sort -u)"
+  ' "$@"
+}
+pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
+  | while IFS= read -r zon; do zon_pairs "$zon"; done | sort -u)"
 
 todo="" total=0 present=0
 while read -r hash url; do
@@ -108,7 +120,7 @@ while read -r hash url; do
 done <<<"$pairs"
 
 wanted="$(printf '%s' "$todo" | grep -c . || true)"
-pool="" watchdog="" list=""
+pool="" watchdog="" list="" one=""
 # Cancelled (the fetch, or the job, was stopped): stop the downloads too. They
 # run in a process group of their own that a signal to ours does not reach.
 # xargs can exit before a worker it was stopping has run its EXIT trap, and a
@@ -129,6 +141,7 @@ drain_pool() {
 }
 stop_seed() {
   if [[ -n "$watchdog" ]]; then kill "$watchdog" 2>/dev/null || true; fi
+  if [[ -n "$one" ]]; then kill -TERM "$one" 2>/dev/null || true; wait "$one" 2>/dev/null || true; fi
   if [[ -n "$pool" ]]; then
     kill -TERM -- "-$pool" 2>/dev/null || true
     drain_pool "$pool"
@@ -168,4 +181,64 @@ while read -r hash _url; do
   [[ -n "$hash" && -e "$cache/p/$hash.tar.gz" ]] && seeded=$((seeded + 1))
 done <<<"$todo"
 echo "Seeded $seeded of $wanted Zig package archives with curl ($present of $total already here)."
+
+# Git pins in the own build.zig.zon of each package this machine has: seeded from
+# the listed tarball, or named and exit 3 when the list has no line for one.
+mirrors="${CMUX_ZIG_GIT_MIRRORS:-$(cd "$(dirname "$0")" && pwd)/zig-git-package-mirrors.txt}"
+have() { [[ -e "$source_dir/zig-pkg/$1" || -e "$cache/p/$1.tar.gz" || -e "$cache/p/$1" ]]; }
+# The package's own build.zig.zon (the shallowest one, not an example's), or nothing.
+own_manifest() {
+  local hash=$1 archive entry
+  for entry in "$source_dir/zig-pkg/$hash/build.zig.zon" "$cache/p/$hash/build.zig.zon"; do
+    if [[ -f "$entry" ]]; then cat "$entry"; return 0; fi
+  done
+  archive="$cache/p/$hash.tar.gz"
+  [[ -f "$archive" ]] || return 0
+  entry="$(tar -tzf "$archive" 2>/dev/null | grep -E '^(\./)?([^/]+/)?build\.zig\.zon$' \
+    | awk -F/ '{ print NF, $0 }' | sort -n | head -1 | cut -d' ' -f2-)" || entry=""
+  [[ -n "$entry" ]] && tar -xzOf "$archive" "$entry" 2>/dev/null || true
+}
+queue="$(while read -r hash _url; do if [[ -n "$hash" ]] && have "$hash"; then echo "$hash"; fi; done <<<"$pairs")"
+seen="" unlisted="" git_seeded=0
+while [[ -n "$queue" ]]; do
+  parent="${queue%%$'\n'*}"
+  if [[ "$queue" == *$'\n'* ]]; then queue="${queue#*$'\n'}"; else queue=""; fi
+  case " $seen " in *" $parent "*) continue ;; esac
+  seen="$seen $parent"
+  manifest="$(mktemp "${TMPDIR:-/tmp}/zig-seed-zon.XXXXXX")"
+  own_manifest "$parent" > "$manifest"
+  inner="$(zon_pairs "$manifest" | sort -u)"
+  rm -f "$manifest"
+  while read -r hash url; do
+    [[ -n "$hash" ]] || continue
+    if [[ "$url" == git+* ]] && ! have "$hash"; then
+      tarball="$(awk -v h="$hash" '$1 == h { print $2; exit }' "$mirrors" 2>/dev/null || true)"
+      if [[ -z "$tarball" ]]; then
+        unlisted="$unlisted  $hash $url (pinned by $parent)"$'\n'
+        continue
+      fi
+      # In the background with `wait`, so a TERM to this script is not held until curl ends.
+      "$0" --one "$cache" "$hash" "$tarball" &
+      one=$!
+      if wait "$one"; then
+        one=""
+        git_seeded=$((git_seeded + 1))
+      else
+        one=""
+        echo "seed: could not seed the git pin $hash from $tarball; Zig fetches $url" >&2
+      fi
+    fi
+    if have "$hash"; then queue="$queue${queue:+$'\n'}$hash"; fi
+  done <<<"$inner"
+done
+(( git_seeded == 0 )) || echo "Seeded $git_seeded git-pinned Zig packages from their listed tarballs."
+if [[ -n "$unlisted" ]]; then
+  {
+    echo "error: a Zig package pins a git dependency that $mirrors has no tarball for:"
+    printf '%s' "$unlisted"
+    echo "Add a line \"<hash> <tarball url of that commit>\" to scripts/ci/zig-git-package-mirrors.txt"
+    echo "(deps.files.ghostty.org/<name>-<commit>.tar.gz often has it; Zig checks the hash, so a wrong tarball fails, never builds)."
+  } >&2
+  exit 3
+fi
 exit 0
