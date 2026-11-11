@@ -704,6 +704,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            sender_token_file,
             status,
             supersede,
             class,
@@ -752,6 +753,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.from_harness =
                 crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
+            // This host's sender token, which proves a named sender is one the owner set up
+            // (`sender_token.rs`). Read before connecting, so a missing file fails the send at once.
+            prompt_id.sender_token =
+                crate::sender_token::of_this_send(sender_token_file.as_deref())?;
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();

@@ -6098,6 +6098,30 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             "step-A Rust change, pinned by the release its merge publishes"])
         self.assertEqual(len(self.graphql), 1)
 
+    def duplicate_rollup(self):
+        # #41158's review, F1 at 5fa1ea1d: a second "Fail on any red check", cancelled, beside the failed one. By name
+        # the two are one step, and the pin-only excuse took them as the pin's one red.
+        self.gh.jobs[1]["steps"].append(dict(self.gh.jobs[1]["steps"][-1], conclusion="cancelled"))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_placed(self):
+        self.pr_files(*self.RUST)
+        self.duplicate_rollup()
+        self.assertIsNot(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False,
+                                            **UNKNOWN), excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_unplaced(self):
+        self.pr_files(*self.RUST)
+        self.gh.logs[1] = self.unplaced_pin_log()
+        self.duplicate_rollup()
+        self.assertIs(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False, **UNKNOWN),
+                      excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+
     def unplaced_pin_log(self, *extra):
         """pin_log with its rollup step run through a composite action (two `Run` headers in one step), so step_owners
         cannot place the log (cmux#41086 at 2026-11-11, after #40542)."""
@@ -8727,6 +8751,42 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(kit(listing + ["** TEST FAILED **"] + listing, listing))
         self.assertIn("compared whole", self.judge(kit(listing, listing)))
 
+    def test_review_41158_f2_an_xcresult_line_and_each_listing_entry_both_count(self):
+        # #41158's review F2: a listing entry counted only when no line named its test alone, so with an xcresult
+        # `FAILED:` line naming it, two listings at the head matched the base's one.
+        failed = ["FAILED: CmuxMobileKit / KitTests / KitTests / reconnectsAfterSleep()"]
+        listing = ["Failing tests:", "KitTests.reconnectsAfterSleep()"]
+
+        def kit(head, base):
+            github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base)
+            framed = github.log  # xcodebuild's tab before each entry, as in the #41129 F2 test above
+            github.log = lambda repo, job: framed(repo, job).replace("Z KitTests.", "Z \tKitTests.")
+            return github
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*reconnectsAfterSleep"):
+            self.judge(kit(failed + listing + ["** TEST FAILED **"] + listing, failed + listing))
+        self.assertIn("compared whole", self.judge(kit(failed + listing, failed + listing)))
+
+    def test_review_41158_f1_bun_failures_are_named_in_a_whole_log_comparison(self):
+        # #41158's review F1: failed_names read no bun `(fail)` line, so a new head failure and an unrelated base
+        # flake, both under one `expect()` headline, gave empty test counters and the same error lines: excused.
+        def bun(test):
+            return ["bun test v1.3.0", "test/agent-pane.test.tsx:", "error: expect(received).toBe(expected)",
+                    "Expected: true", "Received: false", f"(fail) agent pane > {test} [1.20ms]", " 0 pass", " 1 fail"]
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*keeps its draft"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, bun("keeps its draft"), bun("scrolls to end")))
+        self.assertIn("compared whole", self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP,
+                                                                  bun("keeps its draft"), bun("keeps its draft"))))
+
+    def test_review_41158_f1_a_failure_count_no_test_is_named_by_is_never_compared_whole(self):
+        # The rest of #41158's review F1: a runner that says tests failed and whose failures no parser names leaves
+        # nothing to tell them apart, so the whole-log fallback refuses rather than excuse on the error lines alone.
+        for marker in (" 2 fail", "FAIL test/agent-pane.test.tsx (limit 120s)", "test result: FAILED. 3 passed; 1 failed",
+                       "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
+            with self.subTest(marker=marker):
+                said = ["error: expect(received).toBe(expected)", marker]
+                with self.assertRaisesRegex(excuse.Refused, "says tests failed and names none of them"):
+                    self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
+
     def test_a_base_that_fails_more_is_not_enough_either(self):
         # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
         # head's failures are only those (a red the base hides could be the PR's).
@@ -8738,8 +8798,24 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
     def test_another_failed_step_is_the_prs_own(self):
         github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["##[error]x"], ["##[error]x"])
         github.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
-        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \[.swift test \(macOS\).\] are not"):
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(failure\)\) are not"):
             self.judge(github)
+
+    def test_review_41158_f1_a_failed_step_is_keyed_by_name_and_conclusion_with_counts(self):
+        # #41158's review F1: failed steps were a set of names, so a cancelled step matched the base's failure and a
+        # step that failed twice matched the base's one.
+        red = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
+        cancelled = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)
+        cancelled.jobs[1]["steps"][2]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(cancelled\)\) are not "
+                                                    r".*\(swift test \(macOS\) \(failure\)\)"):
+            self.judge(cancelled)
+        twice = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)
+        twice.jobs[1]["steps"].append(dict(twice.jobs[1]["steps"][2]))
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(failure\) x2\) are not"):
+            self.judge(twice)
+        # The same steps, conclusions and counts are still excused.
+        self.assertIn("swift test (macOS) (failure)", self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)))
 
     def test_a_line_the_base_printed_from_a_passing_step_is_still_new_in_the_failing_one(self):
         # #40542's Codex BLOCK, whole: the base's passing negative case prints the error the head's failing step now
@@ -9156,6 +9232,82 @@ class LoadedModuleList(unittest.TestCase):
 # judge() refused it as "errors not on feat-cmux-next any of runs ...". fixed_on_base_by_step judges the failing steps
 # alone, keyed by (workflow, job, step): base run 20 (at NEWER, after the merge-base) is the newest base verdict, base
 # run 19 (at the merge-base, created before its commit time) the verdict the PR was built on.
+class FailedStepIdentity(unittest.TestCase):
+    """#41158's review F1, placed: compare_window matched failed steps by name, so a head step the runner cancelled
+    was excused by a base whose step of that name failed, the same tests named."""
+
+    def test_a_cancelled_step_is_not_the_bases_failure(self):
+        self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], FakeGitHub())[0].startswith("excused "))
+        github = FakeGitHub()
+        github.jobs[1]["steps"][2]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next run 20 with the same "
+                                                    r"conclusion, as often: Run package tests \(cancelled\)"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_step_failed_twice_is_not_the_bases_one_failure(self):
+        github = FakeGitHub()
+        github.jobs[1]["steps"].append(dict(github.jobs[1]["steps"][2]))
+        with self.assertRaisesRegex(excuse.Refused, r"Run package tests \(failure\) x2"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class GuardCrashIsNotItsFinding(unittest.TestCase):
+    """hq#9218: the test-integrity guard (`deleted-or-weakened-tests`) prints each `--strict` finding as an `::error`
+    naming its kind and path, and its workflow says "the guard itself failed" when it crashed. A crash and a finding,
+    or findings on two files, are different reds and never excuse each other; the same crash on both sides is the
+    base's broken guard. The reviewer's four cases, and a fifth: findings on two files whose names differ only in a
+    digit, which normalise_error masked into one."""
+
+    JOB, STEP = "deleted-or-weakened-tests", "Flag deleted or weakened tests"
+    CRASH = ["Traceback (most recent call last):", '  File "test_integrity.py", line 3, in <module>', "OSError: boom",
+             "##[error]the guard itself failed (exit 2) and judged nothing; this is not a finding, its traceback is "
+             "above", "##[error]Process completed with exit code 2."]
+
+    @staticmethod
+    def finding(path):
+        return [f"##[error]deleted-test-file: {path}: the file was deleted",
+                "##[error]this change deletes or weakens tests (findings above)",
+                "##[error]Process completed with exit code 1."]
+
+    def judge(self, head, base):
+        github = FakeGitHub()
+        github.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.STEP),
+                       2: failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.STEP)}
+        github.logs = {1: log(self.JOB, self.STEP, *head), 2: log(self.JOB, self.STEP, *base)}
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_1_a_crash_on_head_is_not_excused_by_a_finding_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: the guard itself failed"):
+            self.judge(self.CRASH, self.finding("tests/test_a.py"))
+
+    def test_2_a_finding_on_head_is_not_excused_by_a_crash_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: .*deleted-test-file: "
+                                                    "tests/test_a.py"):
+            self.judge(self.finding("tests/test_a.py"), self.CRASH)
+
+    def test_3_a_finding_on_one_file_is_not_excused_by_one_on_another(self):
+        for head, base in (("tests/test_a.py", "tests/test_b.py"), ("tests/test_1.py", "tests/test_2.py")):
+            with self.subTest(head=head, base=base), self.assertRaisesRegex(
+                    excuse.Refused, f"errors not on feat-cmux-next run 20: deleted-test-file: {re.escape(head)}"):
+                self.judge(self.finding(head), self.finding(base))
+
+    def test_4_the_same_crash_on_head_and_base_is_the_bases(self):
+        said = self.judge(self.CRASH, self.CRASH)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': feat-cmux-next run 20"), said)
+        self.assertIn("the guard itself failed", said[0])
+
+
+    def test_a_directory_that_looks_like_a_file_name_keeps_its_digits_masked(self):
+        """Codex on #41172, F1: "run123.build" inside "run123.build-extra/" was read as a file name, so the run's own
+        directory kept its digits and the same error on two runs stopped matching. A file name ends its path
+        component; the real file's digits still count."""
+        def line(run, name="A1.swift"):
+            return f"##[error]/tmp/{run}.build-extra/Sources/{name}:12:3: error: cannot find 'x' in scope"
+        self.assertEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run456")))
+        self.assertNotEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run123", "A2.swift")))
+        self.assertNotEqual(excuse.normalise_error("##[error]tests/test_1.py: weakened."),
+                            excuse.normalise_error("##[error]tests/test_2.py: weakened."))
+
 class StepFixture:
     """FixedOnBaseByStep's fixture, shared with DerivedStatusByParts (a mixin, so neither runs the other's tests)."""
     JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -9199,7 +9351,7 @@ class StepFixture:
                 found = [(f"Sources/A{n}.swift", n + 1, f"{step} broke")]
                 if state.startswith("new"):
                     found.append(("Sources/New.swift", 9, f"{step} broke anew"))
-                lines += [(name, second + 1, f"/work/cmux/{path}:{line}:3: error: {said}") for path, line, said in found]
+                lines += [(name, second + 1, f"/home/runner/work/cmux/cmux/{path}:{line}:3: error: {said}") for path, line, said in found]
                 lines.append((name, second + 1, EXIT))
                 errors += [{"annotation_level": "failure", "path": path, "start_line": line, "message": said}
                            for path, line, said in found]
@@ -9513,6 +9665,26 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                                                          else inner(route, paginate=paginate))
         with self.assertRaisesRegex(excuse.Refused, "annotations do not name its reds"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], unpaged, **self.PURPOSE)
+
+    def test_review_41158_f2_a_failing_line_is_matched_by_its_full_path(self):
+        # #41158's review F2: path_errors and step_evidence kept the file name alone, so Other/A2.swift at the head
+        # matched Sources/A2.swift at the merge-base.
+        for step, state in ((self.UNIT, "red"), (self.MOTION, "quiet-red")):
+            with self.subTest(step=step):
+                github = self.github(({step: state}, {}), ({}, {}), ({step: state}, {}))
+                github.logs[1] = github.logs[1].replace("/Sources/A", "/Other/A")
+                for note in self.notes[1]:
+                    if note.get("path"):
+                        note["path"] = note["path"].replace("Sources/", "Other/")
+                with self.assertRaisesRegex(excuse.Refused, r"failures not in feat-cmux-next run 19 at the merge-base, "
+                                                            r"so not the base's: .*Other/A\d\.swift"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+                # The same full path, printed under the runner's checkout root on one side, still matches.
+                said, _ = self.judge(({step: state}, {}), ({}, {}), ({step: state}, {}))
+                self.assertIn(f"step '{step}'", said)
+        self.assertEqual(excuse.repo_path("/home/runner/work/cmux/cmux/Sources/A.swift"), "Sources/A.swift")
+        self.assertEqual(excuse.repo_path("./Sources/A.swift"), "Sources/A.swift")
+        self.assertNotEqual(excuse.repo_path("/elsewhere/Sources/A.swift"), "Sources/A.swift")
 
     def test_a_step_absent_at_the_merge_base_and_green_on_base_is_fixed_on_base_for_update_branch_alone(self):
         # hq#9137 at e34418c5: Skill documentation tests failed in "The deleted-or-weakened-tests

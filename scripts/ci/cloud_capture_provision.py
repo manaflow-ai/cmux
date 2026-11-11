@@ -61,7 +61,8 @@ creates over its own team and N more: 3x10 needs 2, 5x10 needs 4. Each probe tea
 accounts only)" and carries the server-only marker PROBE_TEAM_KEY = {"slot": K}, which is how a rerun finds it among
 the account's teams (GET /teams?user_id=USER) instead of making another. A missing slot is made with POST /teams (no
 creator_user_id, so Stack grants no creator defaults) and the account joins it as a plain member
-(POST /team-memberships/TEAM/USER); a team the account could not join is deleted again. Every probe team then gets the
+(POST /team-memberships/TEAM/USER); a team the account could not join (an HTTP refusal or a transport error
+such as a timeout) is deleted again. Every probe team then gets the
 operator grant `cmuxVmPlan: "team"` on the team's own record (PATCH /teams/TEAM, other metadata kept): development
 reads a shared team's plan from the team record (cmux-api cloud-vm-plan.ts), and without a paid grant the team gets
 the stub plan, at most 5 machines active and 20 held (cmux-platform Plan.ts STUB_PLAN), so 10 parallel creates in one
@@ -497,11 +498,13 @@ def probe_teams(stack, count=PROBE_TEAMS_DEFAULT, log=print, target=CAPTURE):
                                                                               "members": [target.email]}})
             try:
                 stack.add_member(team["id"], uid)
-            except ProvisionError:
-                # A team the account never joined would be invisible to the next run's search: remove it.
+            except BaseException:
+                # Any failed join, not only an HTTP refusal: a transport error (URLError, a timeout, any OSError) or an
+                # interrupt leaves a team the account may never have joined, invisible to the next run's search, so a
+                # retry would make a second team for this slot. Remove it; the join's own error is what the run reports.
                 try:
                     stack.delete_team(team["id"])
-                except ProvisionError:
+                except Exception:
                     log(f"::warning::probe team {slot} {team['id']}: the join failed and so did its delete")
                 raise
             actions[slot] = "created"
@@ -566,6 +569,10 @@ def main(argv=None):
             provision(stack, args.out, target=target)
     except (ProvisionError, sealed_secrets.SealError) as error:
         print(f"::error::cloud capture provision: {error}", flush=True)
+        return 1
+    except OSError as error:
+        # A transport error (URLError, a timeout) carries no response body, so naming it echoes no account data.
+        print(f"::error::cloud capture provision: {type(error).__name__}: {error}", flush=True)
         return 1
     return 0
 
