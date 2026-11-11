@@ -102,6 +102,7 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
@@ -178,7 +179,6 @@ pub mod session_search;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
-pub mod list_bytes;
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;

@@ -172,10 +172,10 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
     assert_eq!(sorted(ids), every_id());
 }
 
-/// The detector: every list method, on every connection, answers a list of about 30 MB (one
-/// Mac's on 2026-11-11) in replies of at most [`MOST_LIST_REPLY_BYTES`], none of them skipped or
-/// repeated. The app's own connections (the Unix socket's feeds, the agent pane's) included:
-/// they were the ones sent 31 MB.
+/// The detector: every list method, on every connection, answers a list past one page (this
+/// daemon's ~6 MB; one Mac's was 34 MB on 2026-11-11) in replies of at most
+/// [`MOST_LIST_REPLY_BYTES`], none of them skipped or repeated. The app's own connections (the
+/// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
     let hub = hub().await;
