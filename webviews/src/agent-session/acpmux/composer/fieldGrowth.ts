@@ -13,7 +13,7 @@ import { sliceHoldsInline } from "./inlineNode";
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
 // motion is a CSS height transition on the motion tokens (markdownField.css `[data-field-growth]`),
 // not a spring sampled into Web Animation keyframes (Leo, 2026-11-11: "oof yeah there's some ultra
-// shitty looking slow animations when the composer goes up"): it runs on the one spring, at its end
+// bad looking slow animations when the composer goes up"): it runs on the one spring, at its end
 // by about 130 ms, turns from the height drawn when an edit retargets it, and the motion gate and
 // Reduce Motion reach it through CSS.
 //
