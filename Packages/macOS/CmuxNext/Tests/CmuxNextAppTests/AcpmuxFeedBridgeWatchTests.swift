@@ -21,13 +21,9 @@ struct AcpmuxFeedBridgeWatchTests {
         #expect(params["limit"] as? Int == 1)
     }
 
-    @Test func theSessionsWithPendingPromptsAreReadByTheirOwnFilter() throws {
-        let pending = try Self.request(Data.acpmuxPendingSessions)
-        #expect(pending["method"] as? String == "_acpmux/sessions")
-        let params = try #require(pending["params"] as? [String: Any])
-        #expect(params["pendingOnly"] as? Bool == true)
-        #expect(params["limit"] == nil)
-    }
+    // The chats with a prompt pending before the connection are read through
+    // AcpmuxSessionListGate: `pendingOnly` only from an acpmux that serves it, else page by page
+    // (AcpmuxSessionListGateTests).
 
     /// acpmux sends one message of up to `rpc::MAX_MESSAGE_BYTES` (31 MiB) as one line: a reader
     /// whose cap is below it closes on a reply the daemon may send, and asking again gets the same.

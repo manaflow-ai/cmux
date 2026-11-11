@@ -25,6 +25,9 @@ use serde_json::{Value, json};
 mod agent_message_acpmux;
 
 #[cfg(test)]
+#[path = "agent_session_list_gate_tests.rs"]
+mod list_gate_tests;
+#[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
 
