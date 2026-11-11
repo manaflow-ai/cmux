@@ -131,6 +131,9 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It fails when a job on a self-hosted selector downloads an artifact into a
     # relative directory a persistent worker may still hold files in; run it by hand after adding a download-artifact step.
     "tests/test_ci_self_hosted_downloads_are_fresh.py",
+    # lane = "manual" for the same rule. It fails when a publishing step of coderouter-release.yml or app-ffi-release.yml
+    # loses its release-ref gate or a workflow_dispatch can reach it; run it by hand after editing either workflow.
+    "tests/test_ci_release_publish_tag_gate.py",
 }
 
 
