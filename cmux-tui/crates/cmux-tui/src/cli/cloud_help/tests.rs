@@ -175,9 +175,13 @@ fn quick_start_commands_parse() {
                     && !line.contains('<')
                     && !line.contains(" | ")
             })
-            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // These (secrets, client sessions, team keys) run in this CLI, not through the app's catalog; `cloud env` lines parse in
             // `cloud_environment.rs` (`the_help_env_lines_parse`).
-            .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| {
+                !line.contains("secret")
+                    && !line.contains("client-session")
+                    && !line.contains("team-keys")
+            })
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
         // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and eight machine lines,
