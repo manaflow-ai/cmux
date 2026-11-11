@@ -22,6 +22,7 @@ import { chromium, type CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt } from "./stability";
+import { newestPage } from "./daemonPage";
 
 const TURNS = Number(process.argv[2] ?? 300);
 const OTHERS = Number(process.argv[3] ?? 200);
@@ -54,8 +55,12 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       return { sessions };
     case "_acpmux/attach": {
       if (params.sessionId !== A) return { session: others[0], lastSeq: 0, events: [], hasMore: false };
-      const limit = Number(params.limit ?? 400);
-      return { session: chat.session, lastSeq, events: chat.events.slice(-limit), hasMore: chat.events.length > limit };
+      // As the daemon does: the newest `limit` events within `maxBytes` (daemonPage.ts).
+      const { page, hasMore } = newestPage(chat.events, {
+        limit: Number(params.limit ?? 400),
+        maxBytes: params.maxBytes,
+      });
+      return { session: chat.session, lastSeq, events: page, hasMore };
     }
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq };

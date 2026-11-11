@@ -17,6 +17,17 @@ import { turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
 import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
 
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
+
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);

@@ -8,7 +8,6 @@ back to actions/download-artifact's single connection and spent 611 s fetching t
 import email.message
 import email.utils
 import importlib.util
-import io
 import json
 from pathlib import Path
 import unittest
@@ -112,19 +111,16 @@ class CallSiteTests(unittest.TestCase):
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()
-        responses = [refused(403), io.BytesIO(body)]
+        responses = [refused(403), body]
 
-        class Response(io.BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *exc): return False
-
-        def urlopen(req, timeout):
+        def request(req, seconds, *, raise_errors=False):
+            self.assertTrue(raise_errors, "with_retries retries on the HTTPError a refusal raises")
             item = responses.pop(0)
             if isinstance(item, Exception):
                 raise item
-            return Response(item.getvalue())
+            return 200, item, {}
 
-        with mock.patch.object(download.urllib.request, "urlopen", urlopen):
+        with mock.patch.object(download.deadline_http, "request", request):
             artifact = download.find_artifact("o/r", "1", "app", "token")
         self.assertEqual(artifact["name"], "app")
         self.assertEqual(self.slept, [10.0])

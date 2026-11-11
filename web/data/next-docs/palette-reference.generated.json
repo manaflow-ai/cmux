@@ -2,7 +2,7 @@
   "version": 1,
   "counts": {
     "entries": 1389,
-    "shortcuts": 188
+    "shortcuts": 190
   },
   "sections": [
     {
@@ -5122,6 +5122,30 @@
           "command": "cmux screenshots open"
         },
         {
+          "id": "browserScrollDown",
+          "title": "Scroll Down",
+          "shortcut": "J",
+          "command": null
+        },
+        {
+          "id": "browserScrollToBottom",
+          "title": "Scroll to Bottom",
+          "shortcut": "⇧G",
+          "command": null
+        },
+        {
+          "id": "browserScrollToTop",
+          "title": "Scroll to Top",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browserScrollUp",
+          "title": "Scroll Up",
+          "shortcut": "K",
+          "command": null
+        },
+        {
           "id": "browser.focusSearch",
           "title": "Search the Web",
           "shortcut": null,
@@ -5506,12 +5530,6 @@
           "command": null
         },
         {
-          "id": "focusRightSidebar",
-          "title": "Focus Right Sidebar",
-          "shortcut": "⇧⌘E",
-          "command": null
-        },
-        {
           "id": "vaultFocusSession",
           "title": "Focus Session",
           "shortcut": null,
@@ -5830,36 +5848,6 @@
           "command": "cmux sidebar section-layout-list"
         },
         {
-          "id": "switchRightSidebarToMachines",
-          "title": "Show Cloud",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToDock",
-          "title": "Show Dock",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFeed",
-          "title": "Show Feed in Right Sidebar",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFiles",
-          "title": "Show Files",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFind",
-          "title": "Show Find",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "sidebar.sections.showHidden",
           "title": "Show Hidden Sections",
           "shortcut": null,
@@ -5908,12 +5896,6 @@
           "command": "cmux sidebar show-spaces"
         },
         {
-          "id": "switchRightSidebarToSessions",
-          "title": "Show Vault",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "sidebar.noFade.on",
           "title": "Show Whole Sidebar (No Fade)",
           "shortcut": null,
@@ -5944,6 +5926,12 @@
           "command": null
         },
         {
+          "id": "sidebar.custom.toggle",
+          "title": "Toggle Custom Sidebar",
+          "shortcut": "⌃⌥⌘B",
+          "command": "cmux sidebar toggle-custom"
+        },
+        {
           "id": "toggleSidebar",
           "title": "Toggle Left Sidebar",
           "shortcut": "⌘B",
@@ -5953,12 +5941,6 @@
           "id": "sidebar.priorityView.toggle",
           "title": "Toggle Priority View",
           "shortcut": "⌥⌘K",
-          "command": null
-        },
-        {
-          "id": "toggleRightSidebar",
-          "title": "Toggle Right Sidebar",
-          "shortcut": "⌥⌘B",
           "command": null
         }
       ]
@@ -6292,12 +6274,6 @@
           "command": null
         },
         {
-          "id": "agentChat.copyAcpmuxSessionFile",
-          "title": "Copy acpmux Session File",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentChat.copyIdentifier",
           "title": "Copy Agent Identifier",
           "shortcut": null,
@@ -6312,6 +6288,12 @@
         {
           "id": "agentChat.copyHost",
           "title": "Copy Chat Host",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyAcpmuxSessionFile",
+          "title": "Copy cmux Session File",
           "shortcut": null,
           "command": null
         },
@@ -7612,6 +7594,12 @@
           "command": null
         },
         {
+          "id": "debug.blockingCalls.copy",
+          "title": "Copy Main-Thread Blocking Sites",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "fileEditor.importEditorSettings",
           "title": "Copy Settings from VS Code or Zed",
           "shortcut": null,
@@ -8152,6 +8140,12 @@
           "command": null
         },
         {
+          "id": "debug.sidebarToggleIcon",
+          "title": "Sidebar Toggle Icon…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "links.signInPagesByLinkSettings",
           "title": "Sign-In Pages: Follow Link Settings",
           "shortcut": null,
@@ -8172,6 +8166,12 @@
         {
           "id": "liveSwift.start",
           "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.statusIconSet",
+          "title": "Status Icons…",
           "shortcut": null,
           "command": null
         },

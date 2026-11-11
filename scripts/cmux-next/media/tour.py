@@ -29,7 +29,7 @@ and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
-              with no CLI verb (a DEBUG verb such as debug.page),
+              with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
               after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket

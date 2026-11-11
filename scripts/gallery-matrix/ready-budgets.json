@@ -3,6 +3,11 @@
   "states": {
     "agent-pane.changes-options-menu#keyboard": 5500,
     "agent-pane.chief-dock#toggle-stack": 5700,
+    "agent-pane.composer-hat-linger#play": 3900,
+    "agent-pane.composer-hat-linger#ttl-look": 5200,
+    "agent-pane.composer-hat-linger#ttl-look-together": 5400,
+    "agent-pane.composer-hat-linger#ttl-one-by-one": 5400,
+    "agent-pane.composer-hat-linger#ttl-only": 3900,
     "agent-pane.composer-pickers#fast-mode": 5600,
     "agent-pane.composer-row#fast-off": 5900,
     "agent-pane.composer-row#fast-on": 5900,
@@ -40,8 +45,6 @@
     "agent-pane.tool-toggle-motion#stack": 4300,
     "agent-pane.transcript#codex-turn-run-open": 900,
     "agent-pane.transcript#fold-holds-clicked-line": 5900,
-    "agent-pane.transcript#footer-actions-left": 5600,
-    "agent-pane.transcript#footer-actions-right": 5700,
     "motion.sync-list#inserts-from-second-client": 3600,
     "motion.sync-list#renames-from-another-mac": 3100,
     "motion.sync-list#reorder-from-iphone": 2800

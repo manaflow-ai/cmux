@@ -21,6 +21,34 @@ mod clone_wait;
 #[path = "folder_tests.rs"]
 mod folder;
 
+/// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
+/// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
+#[test]
+fn the_model_is_taken_from_model_or_agent_and_checked() {
+    let flag = request(&["--model", "claude-haiku-5-5", "-p", "go"]);
+    assert_eq!((flag.agent.as_str(), flag.model.as_deref()), ("claude", Some("claude-haiku-5-5")));
+    let joined = request(&["--agent", "claude/claude-sonnet-5-5", "-p", "go"]);
+    assert_eq!(
+        (joined.agent.as_str(), joined.model.as_deref()),
+        ("claude", Some("claude-sonnet-5-5"))
+    );
+    assert!(
+        again_command(&flag, &Machine::Target("vm-1".into())).contains("--model claude-haiku-5-5")
+    );
+    assert_eq!(request(&["-p", "go"]).model, None);
+    for bad in ["", "-x", "a b", "$(id)", "a'b"] {
+        assert!(
+            parse(&strings(&["--model", bad, "-p", "go"]), || Ok(String::new())).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(
+        parse(&strings(&["--agent", "claude/x", "--model", "y", "-p", "go"]), || Ok(String::new()))
+            .is_err()
+    );
+    assert!(TAKES_VALUE.contains(&"--model"));
+}
+
 #[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
@@ -29,6 +57,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Request {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
+            model: None,
             cwd: None,
             from_folder: None,
             login: None,
@@ -37,6 +66,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             wait: false,
             timeout: Duration::from_secs(900),
             make_room: false,
+            allow_large: false,
         }
     );
     let parsed = request(&[
@@ -2089,6 +2119,9 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("app.unreachable", "no app", None), None);
     // cmux-platform's `details.resource` decides over its words.
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    // The VM limit by its own code, whatever its words.
+    assert_eq!(cap_of("cloud.quota.vm_limit", "any words", None), Some(Cap::Held));
+    assert_eq!(cap_of("cmux.cloud.vm_limit", "any words", None), Some(Cap::Held));
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
     assert_eq!(
         cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
@@ -2352,6 +2385,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
     let asked = Request {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
@@ -2360,6 +2394,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         wait: true,
         timeout: Duration::from_secs(60),
         make_room: false,
+        allow_large: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2387,6 +2422,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
     let asked = |prompt: String, secs: u64| Request {
         prompt: Some(prompt),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
@@ -2395,6 +2431,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         wait: true,
         timeout: Duration::from_secs(secs),
         make_room: false,
+        allow_large: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));

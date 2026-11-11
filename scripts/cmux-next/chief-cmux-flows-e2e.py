@@ -3,7 +3,7 @@
 
 hmchief7: the Chief's `cmux workspace create` landed in the user's release app
 (session cmux-app) and the tagged sidebar stayed empty. This drives the real
-Chief through the Home composer (home_page.py type/send) with the
+Chief through the Home composer (`debug.home.drive` type/send) with the
 requests a user makes, waits for each reply, then checks the tagged daemon
 (through scripts/cmux-debug-cli.sh, as a user would) and the default sessions
 (cmux-app, main: where a misrouted call lands, read only). Prints one table
@@ -17,9 +17,6 @@ Usage: chief-cmux-flows-e2e.py --tag <tag> --app PATH --debug-cli PATH [--out DI
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -182,7 +179,7 @@ def ask(text):
     """Sends `text` through the Home composer; returns the Chief's final reply of that turn."""
     before = len(log_items())
     for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-        reply = home_page.drive(rpc, {"action": action, **extra})
+        reply = rpc("debug.home.drive", {"action": action, **extra})
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     mine = wait(lambda: next((i for i, m in enumerate(log_items()) if i >= before and m.get("kind") == "user"
@@ -225,7 +222,7 @@ def row(flow, expected, observed, ok):
 
 def show_home():
     rpc("action.run", {"id": "home.show"})
-    wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 20)
+    wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
 
 
 def tail():

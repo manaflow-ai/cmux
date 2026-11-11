@@ -5,6 +5,8 @@
 # Stubs: fleet-cas-settings.sh (node up or down) and check-release-compile.sh (records how it ran)
 # in a scratch git workspace; for check-release-compile.sh itself, a stub xcodebuild.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/cmux-release-fleet-cas-test.XXXXXX")
 SOCKDIR=$(mktemp -d /tmp/rcfc.XXXXXX)  # short: a Unix socket path has a length limit

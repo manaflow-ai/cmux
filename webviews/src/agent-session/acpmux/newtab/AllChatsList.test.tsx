@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
-import { setDeviceChats } from "./deviceChats";
+import { resetDeviceChatsForTests, setDeviceChats } from "./deviceChats";
 import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
 
 type Request = {
@@ -41,6 +41,7 @@ beforeEach(() => {
     localStorage: dom.window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  resetDeviceChatsForTests();
   resetSettledChatsForTests();
   container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  resetDeviceChatsForTests();
   resetSettledChatsForTests();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

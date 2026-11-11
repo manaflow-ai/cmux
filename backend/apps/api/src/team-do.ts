@@ -679,6 +679,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** Stack server access for SSO sign-in, and the shared pace of its webhook reads; tests replace them. */
+  /** Tests only: replaces the carry RPC to the owner's personal TeamDO (team-grant-carry.ts). */
+  carryTo: ((personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>) | undefined = undefined
   stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined; stackLowPace: (() => Promise<boolean>) | undefined = undefined
 
   private loginDeps(entity: string): LoginDeps {
@@ -722,6 +724,17 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  /**
+   * RPC from a deleted shared team's TeamDO (team-grant-carry.ts): records that team's Cloud grant on this
+   * personal team, whose cloudVmPlan then compares it. Only a personal team id (or an unbound object) takes it.
+   */
+  async receiveCarriedVmPlan(entity: string, fromTeam: string, vmPlan: string): Promise<{ ok: true } | { ok: false; code: string }> {
+    const team = this.isBound(entity) ? this.bind(entity).currentState.team : null
+    if (team && (team.id !== entity || team.kind !== "personal")) return { ok: false, code: "not_personal" }
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return { ok: false, code: "wrong_object" }
+    ;(await import("./cloud-vm-plan.ts")).storeCarriedVmPlan(this.ctx.storage.sql, fromTeam, vmPlan, Date.now())
+    return { ok: true }
+  }
   async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
   async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
@@ -753,7 +766,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return super.promptChannel(channel) || channel.startsWith("UserDO:")
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env) }))
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env), carryTo: this.carryTo ?? (async (personalTeam, fromTeam, vmPlan) => { const r = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(personalTeam)).receiveCarriedVmPlan(personalTeam, fromTeam, vmPlan); if (!r.ok) throw new Error(`carried grant refused: ${r.code}`) }) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
 }

@@ -196,7 +196,42 @@ const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
 const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
-export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
+export const TMP_LEFTOVERS = tmpLeftovers(["/tmp", "/var/tmp"]);
+
+function tmpLeftovers(dirs: readonly string[]): string {
+  return `find ${dirs.map(sq).join(" ")} -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'`;
+}
+
+/**
+ * The last step before snapshot-ready: anything under /tmp or /var/tmp now was written after clean and tmp-empty
+ * (image roll 42888042827: /tmp/opencode), and would ship in every clone. Fail, naming the writer: for each
+ * leftover its owner and mtime, the processes that hold it open (fuser, /proc/<pid>/fd) or name it on their
+ * command line, then every process of the daemon user. `dirs` is for tests.
+ */
+export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]): string {
+  const script = [
+    `left="$(${tmpLeftovers(dirs)})"`,
+    'if [ -z "$left" ]; then echo tmp-no-writer; exit 0; fi',
+    'printf \'%s\\n\' "$left" | while IFS= read -r p; do',
+    '  echo "written after clean: $p $(stat -c \'owner=%U:%G mtime=%y\' -- "$p" 2>&1)"',
+    '  if command -v fuser >/dev/null 2>&1; then fuser -v -- "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
+    '  for fd in /proc/[0-9]*/fd/*; do',
+    '    t="$(readlink "$fd" 2>/dev/null)" || continue',
+    '    case "$t" in "$p"|"$p"/*) pid="${fd#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] || echo "  open by pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)";; esac',
+    "  done | sort -u",
+    '  for c in /proc/[0-9]*/cmdline; do',
+    '    pid="${c#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] && continue',
+    '    cmd="$(tr \'\\0\' \' \' < "$c" 2>/dev/null)" || continue',
+    '    case "$cmd" in *"$p"*) echo "  named by pid $pid: $cmd";; esac',
+    "  done",
+    "done",
+    'echo "processes of $CMUX_TUI_USER:"',
+    'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
+    'echo "files under /tmp or /var/tmp were written after clean (see above)" >&2',
+    "exit 1",
+  ].join("\n");
+  return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;
+}
 // The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
 const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
@@ -848,6 +883,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+  await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
 }
 
 /**
@@ -863,12 +899,33 @@ export function acpmuxLoginEnvRefreshCommand(): string {
     cmuxTuiLayoutSelector(),
     'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-login-env-no-service; exit 0; fi',
     'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
-    'rm -f "$cache"',
+    // acpmuxHarnessChecksDoneCommand waits for this start's harness check to write it again.
+    'health="$CMUX_TUI_HOME/.acpmux/harness-health.json"',
+    'rm -f "$cache" "$health"',
     `${user} systemctl --user restart acpmux.service`,
     'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
     'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
     'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
     "echo acpmux-login-env-fresh",
+  ].join(" && ");
+}
+
+/**
+ * acpmux's restart (acpmuxLoginEnvRefreshCommand) starts its harness check once it has read the login shell
+ * (hub/health_view.rs run_health): every harness's `--version` and sign-in check, run by the daemon (probe.rs).
+ * Those programs may write under /tmp, and a write that lands after clean ships in the snapshot (image roll
+ * 42888042827: /tmp/opencode). The check saves `<acpmux home>/harness-health.json` once every probe has exited
+ * (harness_health/mod.rs check, save), and the refresh removed that file before the restart, so its return is this
+ * start's finished check. acpmux keeps running for the snapshot (snapshotReadyCommand).
+ */
+export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
+  return [
+    cmuxTuiLayoutSelector(),
+    'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-harness-checks-no-service; exit 0; fi',
+    'health="$CMUX_TUI_HOME/.acpmux/harness-health.json"',
+    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ ! -s "$health" ]; do i=$((i + 1)); sleep 1; done`,
+    `if [ ! -s "$health" ]; then echo "acpmux's harness check did not finish in ${limitSeconds}s (no $health); its processes:" >&2; ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" >&2; exit 1; fi`,
+    'echo "acpmux-harness-checks-done after ${i}s"',
   ].join(" && ");
 }
 
@@ -890,6 +947,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "tmp-no-writer", tmpWritersCommand());
   await L.step(vm, "snapshot-ready", snapshotReadyCommand());
   await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }

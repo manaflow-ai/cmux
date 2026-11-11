@@ -1504,6 +1504,28 @@
             "middle",
             "wheel"
           ]
+        },
+        {
+          "key": "browser.vimKeys",
+          "title": {
+            "key": "settings.browser.vimKeys",
+            "text": "Vim Keys in Pages"
+          },
+          "help": {
+            "key": "settings.browser.vimKeys.help",
+            "text": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserVimKeysSetting",
+          "default": true,
+          "keywords": [
+            "vim",
+            "vimium",
+            "link hints",
+            "keyboard",
+            "scroll",
+            "hjkl"
+          ]
         }
       ]
     },
@@ -1595,7 +1617,7 @@
             "text": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "github",
             "github.com",

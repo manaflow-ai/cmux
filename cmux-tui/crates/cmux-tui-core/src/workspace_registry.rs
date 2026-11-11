@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
 use fs4::FileExt;
@@ -79,7 +80,9 @@ mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
 mod workspace_rows_commit;
-use workspace_rows_commit::commit_workspace_registry_in_transaction;
+use workspace_rows_commit::{
+    commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+};
 pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
@@ -142,6 +145,10 @@ pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
+pub(crate) use public_projection_store::{
+    agent_hook_fence_rows_read_on_this_thread, agent_projection_rows_read_on_this_thread,
+};
+#[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
@@ -163,7 +170,10 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
-pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
+pub(crate) use resource_store::{
+    load_live_terminal_resource_ids, load_resource_topology_scoped, load_session_panes,
+    load_session_tabs, load_terminal_tabs, load_topology_frame,
+};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -178,6 +188,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use terminal_snapshot_read::load_terminal_rows;
 pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
@@ -190,14 +201,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
-/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
-/// power loss keeps each acknowledged commit. Unit tests open hundreds of
-/// throwaway registries in one process and never cut power: there, a plain
-/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
-/// result they check, while F_FULLFSYNC serialized the device across all test
-/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
-/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
-/// integration test's daemon, keep F_FULLFSYNC.
+/// The registry runs with `synchronous=NORMAL` in WAL mode
+/// (`wal_durability.rs`): a commit is in the WAL when it returns, which a
+/// crash, kill or restart of the daemon keeps; only a power loss or kernel
+/// panic can take acknowledged commits back, always a suffix. `fullfsync`
+/// makes the syncs SQLite still does (each WAL checkpoint, and the close)
+/// flush the device cache on macOS (F_FULLFSYNC), so a checkpoint never
+/// copies frames into the database before they are on the disk. Unit tests
+/// open hundreds of throwaway registries in one process and never cut power:
+/// there, a plain fsync keeps every ordering and restart result they check,
+/// while F_FULLFSYNC serialized the device across all test threads
+/// (notification_reads_survive_restart_and_eviction_prunes_them: 19.3 s on a
+/// fleet Mac, 0.18 s on Linux). Daemon binaries, including every integration
+/// test's daemon, keep F_FULLFSYNC.
 #[cfg(not(test))]
 const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
 #[cfg(test)]
@@ -2412,16 +2428,21 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
+/// Prepared statements each registry connection keeps compiled
+/// (`Connection::prepare_cached`, least recently used out first). The journal
+/// append, hook and journal read paths run the same few dozen statements for
+/// every agent hook; compiling them each time was about a fifth of the
+/// daemon's SQLite time on that path. A statement costs a few KiB.
+pub(crate) const REGISTRY_STATEMENT_CACHE_CAPACITY: usize = 128;
+
 fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
     #[cfg(windows)]
-    {
-        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
-    }
+    let connection = Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?;
     #[cfg(not(windows))]
-    {
-        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
-    }
+    let connection = Connection::open_with_flags(path.as_ref(), flags)?;
+    connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
+    Ok(connection)
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
@@ -2479,6 +2500,7 @@ impl WorkspaceRegistry {
 
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
+        connection.set_prepared_statement_cache_capacity(REGISTRY_STATEMENT_CACHE_CAPACITY);
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2530,6 +2552,8 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
+        // The session's locks: a wait here is an earlier owner still closing.
+        timings.lap("registry.session_locks");
         // A rollback an earlier start could not finish goes first.
         output_cleanup::finish_pending_rollback(&db_path)?;
         if roll_back_first && output_cleanup::rollback_possible(&db_path) {
@@ -2563,6 +2587,7 @@ impl WorkspaceRegistry {
         // the only copy of the session.
         output_cleanup::restore_interrupted_swap(&db_path);
         output_cleanup::refuse_open_beside_backup(&db_path)?;
+        timings.lap("registry.output_cleanup_swap");
         // The locks stay held across a failed open and its rollback: no
         // other owner can open either file in between.
         let mut session_guard = Some(session_guard);
@@ -2623,7 +2648,14 @@ impl WorkspaceRegistry {
                 open_once(&mut session_guard, &mut lease)
             }
             Err(error) => Err(error),
-        }?;
+        }
+        .inspect_err(|error| {
+            // Still under the session locks: the files of the quarantined
+            // registry follow it before the next start can misuse them.
+            if let Some(quarantined) = error.downcast_ref::<RegistryQuarantined>() {
+                open_guard::keep_with_quarantined(&db_path, quarantined);
+            }
+        })?;
         // A roster the next build folded beside the previous owner.
         premigrate::adopt(&registry);
         Ok(registry)
@@ -2694,12 +2726,20 @@ impl WorkspaceRegistry {
         if fresh_database {
             connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
         }
+        // temp_store=MEMORY: the journal writer applies each intent in a
+        // savepoint, and a savepoint journals every page it changes. Past
+        // 64 KiB (16 pages, an ordinary terminal write) SQLite spilled that
+        // journal to a new file in the temp directory: open, write, unlink
+        // and close on every commit, before the reply. In memory, it is
+        // bounded by the pages one writer batch changes. VACUUM keeps its
+        // whole-database copy on disk ([`vacuum_with_file_temp_store`]).
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
+             PRAGMA temp_store=MEMORY;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -2993,7 +3033,7 @@ impl WorkspaceRegistry {
         timings.lap("registry.migrations.foreign_key_check");
         if needs_sensitive_receipt_cleanup {
             checkpoint_and_truncate_wal(&connection)?;
-            connection.execute_batch("VACUUM;")?;
+            vacuum_with_file_temp_store(&connection, "VACUUM;")?;
             checkpoint_and_truncate_wal(&connection)?;
             let tx = connection.unchecked_transaction()?;
             tx.execute(
@@ -3015,6 +3055,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
+            resource_store::create_lookup_indexes(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             mutation_ledger::migrate_add_actor_columns(&tx)?;
@@ -3024,6 +3065,8 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            // After the repair: it can tombstone terminals too.
+            resource_store::prune_agent_records_of_closed_terminals_at_open(&tx)?;
             public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             // Additive: also on a registry a build before the table wrote.
@@ -3530,6 +3573,15 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// `(origin, mutation_id)` of the event at `revision`, if there is one.
+    pub fn event_mutation(&self, revision: u64) -> anyhow::Result<Option<(String, String)>> {
+        let Ok(revision) = i64::try_from(revision) else { return Ok(None) };
+        let db = self.connection.get();
+        let mut statement =
+            db.prepare("SELECT origin, mutation_id FROM workspace_events WHERE revision = ?1")?;
+        Ok(statement.query_row([revision], |row| Ok((row.get(0)?, row.get(1)?))).optional()?)
+    }
+
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -3825,9 +3877,20 @@ fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<AutoVa
         return Ok(AutoVacuumMigration::Deferred { live_bytes });
     }
     eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
-    connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    vacuum_with_file_temp_store(connection, "PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
     mark_journal_auto_vacuum_migrated(connection)?;
     Ok(AutoVacuumMigration::Converted)
+}
+
+/// Runs `sql` (a VACUUM) with the temp store on disk, then puts the
+/// connection's memory temp store back. VACUUM builds a copy of the whole
+/// database in the temp store; the registry connection keeps it in memory
+/// for savepoint journals only (see `initialize`).
+fn vacuum_with_file_temp_store(connection: &Connection, sql: &str) -> anyhow::Result<()> {
+    connection.execute_batch("PRAGMA temp_store=FILE;")?;
+    let result = connection.execute_batch(sql);
+    connection.execute_batch("PRAGMA temp_store=MEMORY;")?;
+    Ok(result?)
 }
 
 fn require_resource_effect_pepper_id(
@@ -4577,6 +4640,12 @@ fn normalized_workspace_resource_deltas(
         .filter(|(workspace, _)| !live_workspaces.contains(workspace))
         .map(|(workspace, _)| workspace.clone())
         .collect::<Vec<_>>();
+    workspace_commit_intent::push_focus_move_upserts(
+        &mut deltas,
+        before,
+        &live_workspaces,
+        active_workspace,
+    )?;
     let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
     let removed_screens = before
         .screens
@@ -6405,6 +6474,9 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod open_cost_tests;
+
+#[cfg(test)]
+mod temp_store_tests;
 
 #[cfg(test)]
 mod personal_tests;

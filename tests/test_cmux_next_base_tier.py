@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
 import github_quota_client as quota  # noqa: E402
+import deadline_http  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KICK = ROOT / ".github/workflows/cmux-next-base-tier-kick.yml"
@@ -769,25 +770,15 @@ class QuotaRetry(unittest.TestCase):
         self.assertEqual(slept, [])
 
     def test_it_reads_the_rate_limit_headers_off_the_http_error(self):
-        import email.message
-
-        headers = email.message.Message()
-        headers["X-RateLimit-Remaining"] = "0"
-        headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
-
-        def urlopen(request, timeout):
-            raise urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
-                                                io.BytesIO(b'{"message": "API rate limit exceeded"}'))
-
-        original = urllib.request.urlopen
-        urllib.request.urlopen = urlopen
-        try:
-            api = quota.QuotaGitHub("t", deadline=quota.Deadline(60, clock=lambda: self.NOW), now=lambda: self.NOW,
-                                    sleep=lambda _: None)
-            with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
-                api.get("repos/o/r/git/ref/heads/x")
-        finally:
-            urllib.request.urlopen = original
+        body = b'{"message": "API rate limit exceeded"}'
+        answer = (f"HTTP/1.1 403 rate limit exceeded\r\nX-RateLimit-Remaining: 0\r\n"
+                  f"X-RateLimit-Reset: {int(self.NOW + 9999)}\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body
+        server = TricklingServer(answer, 0)
+        self.addCleanup(server.stop)
+        api = quota.QuotaGitHub("t", server.url, deadline=quota.Deadline(60, clock=lambda: self.NOW),
+                                now=lambda: self.NOW, sleep=lambda _: None)
+        with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
+            api.get("repos/o/r/git/ref/heads/x")
 
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
@@ -796,6 +787,8 @@ class TricklingServer:
     def __init__(self, answer: bytes, gap: float):
         self.answer, self.gap = answer, gap
         self.done = threading.Event()
+        # When each request reached the server (time.monotonic()), in order.
+        self.arrivals: list[float] = []
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -817,7 +810,8 @@ class TricklingServer:
         with conn:
             try:
                 conn.settimeout(1)
-                conn.recv(65536)  # the request (small enough for one read here)
+                if conn.recv(65536):  # the request (small enough for one read here)
+                    self.arrivals.append(time.monotonic())
                 if not self.gap:
                     conn.sendall(self.answer)
                     return
@@ -887,6 +881,134 @@ class WholeRequestBound(unittest.TestCase):
     def test_the_dispatch_reserve_is_the_bound_plus_the_settle(self):
         self.assertEqual(quota.REQUEST_TIMEOUT_S, notify.GitHub.timeout)
         self.assertEqual(tier.DISPATCH_RESERVE_S, notify.REQUEST_TIMEOUT_S + tier.SETTLE_S)
+
+
+class NothingAfterTheBound(unittest.TestCase):
+    """Codex review of #40574: running the call on a thread joined with its bound let it outlive the bound.
+    F1: a call that timed out could still finish its name lookup and send its POST during the settle, so
+    the next kick dispatched the Mac work twice (a localhost repro got two POSTs). F2: join(bound) started
+    its clock after the thread started, and a finished thread counted as success whatever the time, so a
+    100 ms start delay returned 204 against a 50 ms bound. The call now runs on the caller's thread against
+    one deadline taken before the name lookup: nothing is sent after it, and no answer past it succeeds."""
+
+    BOUND = 0.1
+    ANSWER = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"
+
+    def serve(self) -> TricklingServer:
+        server = TricklingServer(self.ANSWER, 0)
+        self.addCleanup(server.stop)
+        return server
+
+    def clients(self, url: str):
+        tree = notify.GitHub("t", url)
+        kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
+        for api in (tree, kick):
+            api.timeout = self.BOUND
+        return {"tree notify": tree, "QuotaGitHub": kick}
+
+    def slow_lookup(self, seconds: float) -> None:
+        """Every name lookup takes SECONDS more (urllib and the transport both call socket.getaddrinfo)."""
+        real = socket.getaddrinfo
+
+        def lookup(*args, **kwargs):
+            time.sleep(seconds)
+            return real(*args, **kwargs)
+
+        socket.getaddrinfo = lookup
+        self.addCleanup(setattr, socket, "getaddrinfo", real)
+
+    def slow_start(self, seconds: float) -> None:
+        """The caller is held SECONDS right after it starts a request thread (a loaded runner)."""
+        real = threading.Thread.start
+
+        def start(thread):
+            real(thread)
+            if thread.name == "github-request":
+                time.sleep(seconds)
+
+        threading.Thread.start = start
+        self.addCleanup(setattr, threading.Thread, "start", real)
+
+    def dispatch(self, api) -> tuple[object, float, float]:
+        started = time.monotonic()
+        try:
+            outcome = api.post("repos/o/r/actions/workflows/w/dispatches", {})
+        except Exception as error:  # noqa: BLE001
+            outcome = error
+        return outcome, started, time.monotonic()
+
+    def test_a_timed_out_post_is_never_sent_after_its_bound(self):
+        """F1: the name lookup outlasts the bound. The call times out, and no POST reaches the server
+        after that, however long the lookup takes."""
+        server = self.serve()
+        self.slow_lookup(2.5 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, _, ended = self.dispatch(api)
+                self.assertIsInstance(outcome, notify.RequestTimeout, f"{name} returned {outcome!r}")
+                # Long enough for an abandoned lookup to finish and its POST to land.
+                time.sleep(5 * self.BOUND)
+                late = [round(at - ended, 3) for at in server.arrivals if at > ended]
+                self.assertEqual(late, [], f"{name}: a POST reached the server after the call timed out")
+                self.assertLessEqual(len(server.arrivals), 1)
+
+    def test_a_late_start_gets_no_fresh_bound(self):
+        """F2: the bound runs from the call, not from when its work got going. With a lookup past the
+        bound and the caller held after it starts its work, the call never succeeds."""
+        server = self.serve()
+        self.slow_lookup(1.5 * self.BOUND)
+        self.slow_start(4 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                outcome, started, ended = self.dispatch(api)
+                self.assertNotEqual(outcome, 204, f"{name}: a 204 after {ended - started:.3f} s "
+                                                  f"against a {self.BOUND} s bound")
+                self.assertIsInstance(outcome, notify.RequestTimeout)
+
+    def test_a_slow_lookup_ends_the_call_at_its_bound(self):
+        """Codex review of #40631, F2: getaddrinfo takes no timeout, so a 663 ms lookup ran 663 ms against a
+        100 ms bound. The lookup is now waited on for the time left, and nothing is sent after it."""
+        server = self.serve()
+        self.slow_lookup(8 * self.BOUND)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, started, ended = self.dispatch(api)
+                self.assertIsInstance(outcome, notify.RequestTimeout, f"{name} returned {outcome!r}")
+                self.assertLess(ended - started, self.BOUND + 0.3, f"{name} waited out the lookup")
+                time.sleep(9 * self.BOUND)
+                self.assertEqual(server.arrivals, [], f"{name}: the abandoned lookup led to a request")
+
+    def test_an_answer_buffered_in_time_but_finished_after_the_bound_is_a_timeout(self):
+        """Codex review of #40631, F1: the whole answer arrives in one receive, then the caller pauses past
+        the deadline. No receive is left to check the time, so the answer used to succeed late."""
+        server = self.serve()
+        late = [0.0]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: time.monotonic() + late[0])
+        real = deadline_http._DeadlineReader.readinto
+
+        def readinto(reader, buffer):
+            read = real(reader, buffer)
+            late[0] += 2 * self.BOUND  # a pause once these bytes sit in the buffer
+            return read
+
+        deadline_http._DeadlineReader.readinto = readinto
+        self.addCleanup(setattr, deadline_http._DeadlineReader, "readinto", real)
+        with self.assertRaises(deadline_http.RequestTimeout):
+            deadline_http.request(urllib.request.Request(server.url + "/x", method="POST", data=b"{}"),
+                                  deadline=deadline)
+        self.assertEqual(len(server.arrivals), 1)
+
+    def test_an_answer_within_the_bound_still_succeeds(self):
+        server = self.serve()
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                server.arrivals.clear()
+                outcome, started, ended = self.dispatch(api)
+                self.assertEqual(outcome, 204)
+                self.assertEqual(len(server.arrivals), 1)
+                self.assertLess(ended - started, self.BOUND + 0.4)
 
 
 class DispatchWithNoAnswer(unittest.TestCase):
@@ -982,6 +1104,7 @@ class RouteStep(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/cmux_next_base_tier.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
+            shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"

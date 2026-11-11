@@ -8,7 +8,7 @@
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
 // states run a longer turn (a third run of calls) whose fold moves the answer far enough that the
-// fold's clock grows past the settle's 180 ms (turnEndFold.ts `turnEndFoldMs`): each frame keeps
+// fold's clock grows past the settle's 180 ms (turnEndFold.ts `turnEndFoldTiming`): each frame keeps
 // under 0.6 of a line, and nothing is drawn back as the clock grows.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";

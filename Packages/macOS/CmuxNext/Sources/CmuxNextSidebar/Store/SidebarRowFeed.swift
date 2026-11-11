@@ -85,6 +85,7 @@ public final class SidebarRowFeed {
         /// batch at a time (batches may share buffers). Nil for a row whose batch could not run. `observing` runs each
         /// row's stage and finish (the feed observes each under the row's own observation).
         public static func rows(_ makes: [Self], observing: (Int, () -> Void) -> Void = { _, body in body() }) -> [SidebarWorkspace?] {
+            SidebarPerfCounters.add(.rowsMade, makes.count)
             var rows = [SidebarWorkspace?](repeating: nil, count: makes.count)
             var batches: [(batch: any SidebarRowBatch, members: [Int])] = []
             for (index, make) in makes.enumerated() {

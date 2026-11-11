@@ -10,7 +10,7 @@
 //! changes nothing in a list reply.
 
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
-use crate::hub::list_guard::Snapshot;
+use crate::hub::list_guard::{RequestStage, Snapshot};
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
@@ -20,23 +20,34 @@ use std::sync::atomic::Ordering;
 /// Lists read again for a reply whose list a notice overtook, before it goes with a lag.
 const REBUILDS: usize = 1;
 
+/// A list reply's request: its id, its list method ([`list_method`]), its claim on its
+/// connection's in-flight entry (`in_flight.rs`), and whether its reply was sent here: then
+/// whether it went whole.
+struct Reply {
+    id: Value,
+    method: Option<&'static str>,
+    claim: Option<super::in_flight::Claim>,
+    sent: Option<bool>,
+}
+
 tokio::task_local! {
-    /// The request's id and list method ([`list_method`]), and whether its reply was sent here:
-    /// then whether it went whole.
-    static REPLY: RefCell<(Value, Option<&'static str>, Option<bool>)>;
+    static REPLY: RefCell<Reply>;
 }
 
 /// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
-/// true if the reply went whole (not as its too-large error). The request's future is made on the
+/// true if the reply went whole (not as its too-large error), false if it was not sent because a
+/// cancel answered the request first (its `claim` lost). The request's future is made on the
 /// heap (`heap_future.rs`): this future, the task's, and their poll frames hold only its pointer.
 pub(super) async fn scope<F: Future>(
     id: Value,
     method: &str,
+    claim: Option<super::in_flight::Claim>,
     request: impl FnOnce() -> F,
 ) -> (F::Output, Option<bool>) {
     let request = crate::heap_future::heap(request);
-    let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
-    REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
+    let run = async move { (request.await, REPLY.with(|r| r.borrow().sent)) };
+    let reply = Reply { id, method: list_method(method), claim, sent: None };
+    REPLY.scope(RefCell::new(reply), run).await
 }
 
 /// `method` as the name a list reply sent here goes by in the size watch (`wire_size.rs`):
@@ -91,14 +102,17 @@ async fn reply(
             }
         };
         let text = make(&list)?;
-        let Ok((id, method)) = REPLY.try_with(|r| {
+        let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
-            (r.0.clone(), r.1)
+            (r.id.clone(), r.method, r.claim.clone())
         }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().2 = Some(whole));
+        hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
+        let last = reads == REBUILDS;
+        if let Some(whole) = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last) {
+            REPLY.with(|r| r.borrow_mut().sent = Some(whole));
+            hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
             break;
         }
     }
@@ -378,11 +392,37 @@ fn masked(result: Value) -> String {
 }
 
 /// The reply line for `id` whose result is `result`, serialized: the bytes
-/// `Message::ok(id, result).to_line()` writes.
+/// `Message::ok(id, result).to_line()` writes. The daemon makes it with [`reply_line_in`].
+#[cfg(test)]
 pub(super) fn reply_line(id: &Value, result: &str) -> String {
     let id = id.to_string();
     let mut line = String::with_capacity(id.len() + result.len() + 32);
     for part in ["{\"id\":", &id, ",\"jsonrpc\":\"2.0\",\"result\":", result, "}\n"] {
+        line.push_str(part);
+    }
+    line
+}
+
+/// [`reply_line`], made in `result`'s own buffer when no one else holds it and its spare
+/// capacity holds the frame (a page made by `list_guard::page_text`): no second buffer of the
+/// page's size. A shared result (the cached whole list) is copied as before.
+pub(super) fn reply_line_in(id: &Value, result: Arc<String>) -> String {
+    let id = id.to_string();
+    let head = ["{\"id\":", &id, ",\"jsonrpc\":\"2.0\",\"result\":"].concat();
+    match Arc::try_unwrap(result) {
+        Ok(mut text) if text.capacity() - text.len() >= head.len() + 2 => {
+            text.insert_str(0, &head);
+            text.push_str("}\n");
+            text
+        }
+        Ok(text) => reply_line_parts(&head, &text),
+        Err(shared) => reply_line_parts(&head, &shared),
+    }
+}
+
+fn reply_line_parts(head: &str, result: &str) -> String {
+    let mut line = String::with_capacity(head.len() + result.len() + 2);
+    for part in [head, result, "}\n"] {
         line.push_str(part);
     }
     line
@@ -429,5 +469,34 @@ mod tests {
         for p in [json!({"limit": 5}), json!({"cursor": "k1.2"}), json!({"status": 3})] {
             assert!(!whole(&p), "{p}");
         }
+    }
+
+    #[test]
+    fn a_page_becomes_its_reply_line_in_its_own_buffer() {
+        use crate::hub::list_guard::page_text;
+        let rows = [r#"{"sessionId":"a"}"#, r#"{"sessionId":"b","t":"x\n"}"#];
+        for next in [None, Some(Value::String("h1.2".into()).to_string())] {
+            let text = page_text(next.clone(), &rows);
+            let parsed: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(parsed["sessions"][1]["sessionId"], "b");
+            assert_eq!(parsed.get("nextCursor").is_some(), next.is_some());
+            for id in [json!(7), json!("req-1")] {
+                let page = Arc::new(page_text(next.clone(), &rows));
+                let (at, room) = (page.as_ptr(), page.capacity());
+                let line = reply_line_in(&id, page);
+                assert_eq!(line, reply_line(&id, &text));
+                assert_eq!((line.as_ptr(), line.capacity()), (at, room), "made in place");
+                // A shared result (the cached whole list) is copied and stays as it was.
+                let shared = Arc::new(text.clone());
+                assert_eq!(reply_line_in(&id, shared.clone()), reply_line(&id, &text));
+                assert_eq!(*shared, text);
+            }
+        }
+        // An id too long for the spare room still gives the same line.
+        let id = json!("i".repeat(4096));
+        assert_eq!(
+            reply_line_in(&id, Arc::new(page_text(None, &rows))),
+            reply_line(&id, &page_text(None, &rows))
+        );
     }
 }

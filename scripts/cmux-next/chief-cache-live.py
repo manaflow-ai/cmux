@@ -21,9 +21,6 @@ Submit the nx-remote job with --allow-agents, under `zsh -lic` (the subrouter ro
 """
 import argparse, glob, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -150,7 +147,7 @@ def end_run(app):
 
 def send(text):
     for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-        drive = home_page.drive(rpc, {"action": action, **extra}) or {}
+        drive = rpc("debug.home.drive", {"action": action, **extra}) or {}
         if not drive.get("ok"):
             return drive
     return {"ok": True}
@@ -182,7 +179,7 @@ def main():
         if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 300):
             sys.exit("the app's control socket never answered")
         rpc("action.run", {"id": "home.show"})
-        if not wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 240):
+        if not wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 240):
             sys.exit(f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}")
         wait(chief_listed, 180, step=1)
         wait(lambda: "daemon connected" in host_log() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180, step=1)

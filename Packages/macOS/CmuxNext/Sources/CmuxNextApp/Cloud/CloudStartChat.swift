@@ -84,14 +84,9 @@ struct CloudStartChat {
     /// CLI gets a connection beside the app's (``CloudMove/connected(_:_:)``). Not behind Labs (Leo,
     /// 2026-10-30: "that seems dumb. i dont like putting so much stuff in labs"): the person picked
     /// Cloud for this send.
-    static func refusal(_ services: AppServices) -> String? {
-        refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud,
-                signedIn: services.cloud.isSignedIn)
-    }
+    static func refusal(_ services: AppServices) -> String? { refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud, signedIn: services.cloud.isSignedIn) }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { // the rule: cmux-cloud-start-core `start`
-        CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
-    }
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn) } // the rule: cmux-cloud-start-core `start`
 
     /// Where a start comes from: the tab that sent (this Mac's new tab, or for a repick the chat's tab on
     /// the machine it was on), the chat's folder on this Mac, the Mac workspace and account the send
@@ -346,6 +341,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder)
+                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder, model: request.model)
     }
 }
