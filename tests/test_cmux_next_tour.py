@@ -1023,6 +1023,9 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
         tour = json.loads((ROOT / "scripts/cmux-next/media/tours/customize-templates.json").read_text(encoding="utf-8"))
         texts = [step["cmux"][step["cmux"].index("--text") + 1] for step in tour["steps"]
                  if "--text" in step.get("cmux", [])]
+        # A typed command runs only when it ends with Return; without it the tour shows a line nobody ran.
+        unsent = [text[-40:] for text in texts if not text.endswith("\r")]
+        self.assertEqual(unsent, [], "a typed command does not end with \\r")
         written = {}
         for text in texts:
             for payload, target in re.findall(r'echo ([A-Za-z0-9+/=]+) \| base64 -d > "([^"]+)"', text):

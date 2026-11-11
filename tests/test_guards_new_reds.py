@@ -393,13 +393,47 @@ class ARatchetFindingCannotMaskAnother(unittest.TestCase):
         done = self.compare(self.results([self.MOVED]), self.results([self.OLD]))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_a_long_finding_that_shares_a_base_findings_start_is_its_own_check(self):
+        import guard_findings  # scripts/ci is on sys.path above
+        start = "Tests/C.swift: some-rule: " + "x" * guard_findings.MAX_CHECK_CHARS
+        base, new = start + " (the base's)", start + " (the change's)"
+        names = [guard_findings.check_name(base), guard_findings.check_name(new)]
+        self.assertNotEqual(names[0], names[1])
+        self.assertTrue(all(len(name) <= guard_findings.MAX_CHECK_CHARS for name in names), names)
+        self.assertEqual(guard_findings.check_name(base.replace("C.swift:", "C.swift:12:")), names[0],
+                         "a long finding that only moved keeps its name")
+        done = self.compare(self.results([base, new]), self.results([base]))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red on this change::" + self.STEP + " :: " + names[1], done.stdout)
+
+    def test_one_more_copy_of_a_base_violation_in_the_same_file_is_the_changes(self):
+        # The same violation twice in one file reads the same once line numbers are out: counted, not merged.
+        done = self.compare(self.results([self.MOVED, self.OLD]), self.results([self.OLD]))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red on this change::" + self.STEP
+                      + " :: Tests/A.swift: some-rule: try await wait(for: 200) (copy 2)", done.stdout)
+        # Both copies only moved: still the base's.
+        moved_both = self.OLD.replace(":25:", ":40:")
+        done = self.compare(self.results([self.MOVED, moved_both]), self.results([self.OLD, self.MOVED]))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_new_errno_violation_in_a_file_already_red_is_the_changes(self):
+        # The errno lint's finding shape: path:line: the assertion that reads errno. The file is red on the base
+        # already; a second, identical-looking read added to it is the change's red, not masked by the first.
+        old = "Tests/Sock.swift:40: errno read inside an assertion: #expect(rc == 0, \"socketpair: \\(errno)\")"
+        added = old.replace(":40:", ":88:")
+        done = self.compare(self.results([old, added]), self.results([old]))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("(copy 2)", done.stdout)
+        self.assertIn("::error title=Guard red on this change::", done.stdout)
+
     def test_outside_the_guard_runner_nothing_is_written(self):
         import guard_findings  # scripts/ci is on sys.path above
         self.assertEqual(guard_findings.report([self.OLD], env={}), 0)
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "checks.tsv"
             env = {guard_findings.CHECK_RESULTS_ENV: str(out)}
-            self.assertEqual(guard_findings.report([self.OLD, self.MOVED], env=env), 1, "a moved copy is one finding")
+            self.assertEqual(guard_findings.report([self.OLD], env=env), 1)
             self.assertEqual(out.read_text(encoding="utf-8"),
                              "0\tTests/A.swift: some-rule: try await wait(for: 200)\n")
             # A guard that scanned another tree (a self-test's fixture repository) reports nothing.
