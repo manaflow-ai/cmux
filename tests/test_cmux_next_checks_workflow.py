@@ -54,10 +54,12 @@ def steps() -> list[dict]:
 
 def is_setup(step: dict) -> bool:
     """Checkout and toolchain steps: an action, not a check script; the reset of a reused
-    workspace's submodule checkouts that follows checkout on a mini; and the start of the slow
-    checks in the background, whose own steps wait for their results."""
+    workspace's submodule checkouts that follows checkout on a mini; the check Python (PyYAML)
+    a mini lacks; and the start of the slow checks in the background, whose own steps wait for
+    their results."""
     run = str(step.get("run", ""))
     return ("uses" in step or "scripts/ci/reset-stale-submodules.sh" in run
+            or step.get("name") == "Prepare check Python (PyYAML) and timeout"
             or "scripts/ci/run-checks-concurrently.sh --start" in run)
 
 
