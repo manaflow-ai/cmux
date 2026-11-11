@@ -1452,8 +1452,10 @@ impl RemoteSession {
     /// what they close, as the CLI's closes do), on a daemon with
     /// `batch-close-v1`; an older one gets the plain close.
     pub(super) fn closing_terminals(&self, mut close: Value) -> Value {
-        if self.supports_capability(cmux_tui_core::server::BATCH_CLOSE_CAPABILITY) {
-            close["end_terminals"] = Value::Bool(true);
+        if self.supports_capability(cmux_tui_core::server::BATCH_CLOSE_CAPABILITY)
+            && let Some(fields) = close.as_object_mut()
+        {
+            fields.insert("end_terminals".into(), Value::Bool(true));
         }
         close
     }

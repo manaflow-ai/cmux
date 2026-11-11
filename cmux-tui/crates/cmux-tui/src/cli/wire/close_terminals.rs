@@ -36,8 +36,8 @@ pub(in crate::cli) fn drop_unsupported(
     socket: &Path,
     request: &mut Value,
 ) -> bool {
-    if !is_close(&request["operation"])
-        || request["params"].get("terminals").is_none()
+    if !request.get("operation").is_some_and(is_close)
+        || request.get("params").and_then(|params| params.get("terminals")).is_none()
         || super::super::launch_credential::advertises(
             reader,
             socket,
