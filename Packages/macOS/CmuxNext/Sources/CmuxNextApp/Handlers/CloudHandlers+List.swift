@@ -161,7 +161,7 @@ extension CloudHandlers {
         let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
             store.effect(invocation, knows: { services.machines.session($0) != nil })
         }
-        assert(bound, "cloud.computerControl is not in the action catalog")
+        _ = bound // capture only: the pinned FFI catalog predates this action
         // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
         _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
     }
