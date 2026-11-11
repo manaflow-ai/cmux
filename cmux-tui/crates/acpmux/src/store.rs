@@ -2187,6 +2187,9 @@ mod permission_tests;
 mod torn_tail_tests;
 
 #[cfg(all(test, unix))]
+mod list_entry_tests;
+
+#[cfg(all(test, unix))]
 mod line_rev_tests;
 
 #[cfg(test)]
