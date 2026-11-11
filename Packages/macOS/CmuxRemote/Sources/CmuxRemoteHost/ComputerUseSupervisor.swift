@@ -2,6 +2,7 @@
 import CmuxRemoteWire
 import Darwin
 import Foundation
+import SystemConfiguration
 import os
 
 private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "computer-use")
@@ -47,13 +48,29 @@ final class ComputerUseSupervisor: Sendable {
         /// The latest PolicyConfig JSON and cursor motion the app sent (`computer_use.config`).
         var policy = Data("{}".utf8)
         var motion: [String: Any] = ["enabled": true, "speed": 1.0]
-        var machine = ProcessInfo.processInfo.hostName
+        /// The computer's name until the app sends its own (`configure`). Not
+        /// `ProcessInfo.hostName`: that resolves the host through DNS and blocks
+        /// while the network has no answer, and this runs before the host
+        /// reports ready, so a slow network left Computer Use unavailable.
+        var machine = ComputerUseSupervisor.localMachineName()
         var pending: [Int: CheckedContinuation<WorkerReply, Never>] = [:]
         var nextID = 1
         var backoff = RestartBackoff()
         var restarts = 0
         var startAfterExit = false
         var generation = 0
+    }
+
+    /// The computer's name with no network lookup: the name set in System
+    /// Settings > General > Sharing, else the local host name, else "Mac".
+    static func localMachineName() -> String {
+        if let name = SCDynamicStoreCopyComputerName(nil, nil) as String?, !name.isEmpty { return name }
+        var buffer = [CChar](repeating: 0, count: 256)
+        if gethostname(&buffer, buffer.count) == 0 {
+            let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            if !name.isEmpty { return name }
+        }
+        return "Mac"
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())

@@ -39,7 +39,7 @@ let package = Package(
             name: "CmuxRemoteHost",
             dependencies: ["CmuxRemoteWire"],
             swiftSettings: swiftSettings,
-            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security")]
+            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
         ),
         .target(name: "CCmuxComputerUse"),
         .target(
@@ -68,7 +68,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxRemoteComputerUseTests",
-            dependencies: ["CmuxRemoteComputerUse"],
+            dependencies: ["CmuxRemoteComputerUse", "CmuxRemoteHost"],
             swiftSettings: swiftSettings
         ),
         .testTarget(
