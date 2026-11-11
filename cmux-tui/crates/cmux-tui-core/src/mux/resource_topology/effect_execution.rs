@@ -95,6 +95,14 @@ impl Mux {
                 None => SplitPublicId::random()?,
             };
             intent.set("split_reservation", json!({ "split_id": split_id }));
+            // `split-around-v1`: refused here, before anything is spawned.
+            if let Some(around) = fields.get(AROUND_SPLIT_FIELD).and_then(Value::as_u64) {
+                let target = resolved.pane.context("bad request: around needs a target pane")?;
+                anyhow::ensure!(
+                    around_split_ends_at(state, around, target),
+                    "bad request: around split {around} does not end at pane {target}"
+                );
+            }
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -515,7 +523,7 @@ impl Mux {
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
                     // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
-                    let decorations = self.tree_decorations();
+                    let decorations = self.tab_tree_decorations(&[surface.id]);
                     let renamed = self.with_state(|state| {
                         presentation::tab_changed_delta(state, &decorations, surface.id)
                     });
@@ -830,6 +838,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     })
                 }
                 None => None,
@@ -948,6 +957,10 @@ impl Mux {
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
+        let around = intent
+            .get("fields")
+            .and_then(|fields| fields.get(AROUND_SPLIT_FIELD))
+            .and_then(Value::as_u64);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is
@@ -995,19 +1008,36 @@ impl Mux {
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
                 let in_viewport_column = screen.layout_columns_active();
-                let root = if in_viewport_column {
+                let (root, around) = if in_viewport_column {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
                     column.creation_order_auto_layout = None;
-                    &mut column.root
+                    // A row's chain split is no subtree to wrap (rows-v1):
+                    // the new pane splits the target alone, in its row.
+                    let around = around.filter(|split| !column.is_row_split(*split));
+                    (&mut column.root, around)
                 } else {
-                    &mut screen.root
+                    (&mut screen.root, around)
                 };
-                anyhow::ensure!(
-                    root.split_leaf(target, split, dir, pane_id),
-                    "target pane disappeared from its layout"
-                );
+                if let Some(around) = around {
+                    // `split-around-v1`: the new pane after the whole split.
+                    // Refused with the layout unchanged when the split does
+                    // not end at the target.
+                    anyhow::ensure!(
+                        !before_target,
+                        "bad request: around needs direction \"right\" or \"down\""
+                    );
+                    anyhow::ensure!(
+                        root.split_around(around, target, split, dir, pane_id, false),
+                        "bad request: around split {around} does not end at pane {target}"
+                    );
+                } else {
+                    anyhow::ensure!(
+                        root.split_leaf(target, split, dir, pane_id),
+                        "target pane disappeared from its layout"
+                    );
+                }
                 if before_target {
                     anyhow::ensure!(
                         root.swap_leaves(target, pane_id),
@@ -1094,6 +1124,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction,
+                    mutation: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },
@@ -1120,5 +1151,25 @@ impl Mux {
         let mut state = self.state.lock().unwrap();
         let slots = self.effect_slots_in_state(&state, path)?;
         apply_resource_layout_document(self, &mut state, slots, document)
+    }
+}
+
+/// `split-around-v1`: whether split `around` is in `target`'s tree (its
+/// viewport column's, in columns mode) and ends at `target`, so the new
+/// split can wrap it whole. A row's chain split passes: the effect splits
+/// the target alone there.
+fn around_split_ends_at(state: &State, around: SplitId, target: PaneId) -> bool {
+    let Some((workspace, screen)) = state.screen_of(target) else { return false };
+    let Some(screen) =
+        state.workspaces.get(workspace).and_then(|workspace| workspace.screens.get(screen))
+    else {
+        return false;
+    };
+    if screen.layout_columns_active() {
+        screen.layout_columns.iter().find(|column| column.root.contains(target)).is_some_and(
+            |column| column.is_row_split(around) || column.root.split_ends_at(around, target),
+        )
+    } else {
+        screen.root.split_ends_at(around, target)
     }
 }

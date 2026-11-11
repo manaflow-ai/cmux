@@ -174,6 +174,22 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
+    /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
+    pub(super) catalog_after: Option<Duration>,
+    /// `_acpmux/harnesses` asks the fake hangs up on (its connection closed, no answer) before it
+    /// answers one: an acpmux restarting under the start (the app's keyed restart).
+    pub(super) catalog_hang_ups: Arc<AtomicU64>,
+    /// When set, `_acpmux/status` reports a person key for this acpmux run (`personInstance`);
+    /// each catalog hang-up ([`Fixture::catalog_hang_ups`]) brings the run named `restarted`.
+    pub(super) keyed_run: Option<KeyedRun>,
+}
+
+/// The acpmux run the fake reports a person key for, and the run a restart brings.
+#[derive(Clone)]
+pub(super) struct KeyedRun {
+    pub(super) current: Arc<Mutex<&'static str>>,
+    pub(super) restarted: &'static str,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -241,11 +257,35 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
-            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+            "_acpmux/harnesses"
+                if fixture.phone.is_some()
+                    && fixture
+                        .catalog_hang_ups
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok() =>
+            {
+                if let Some(run) = &fixture.keyed_run {
+                    *run.current.lock().unwrap() = run.restarted;
+                }
+                // The test holds a clone of this stream: close it for every holder.
+                let _ = writer.shutdown(Shutdown::Both);
+                return;
+            }
+            "_acpmux/status" if fixture.keyed_run.is_some() => Some(json!({
+                "personKey": true,
+                "personInstance": *fixture.keyed_run.as_ref().unwrap().current.lock().unwrap(),
+                "ready": true, "agentHosts": true, "liveAgents": 0, "remoteSessions": 0,
+            })),
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some({
+                if let Some(delay) = fixture.catalog_after {
+                    std::thread::sleep(delay);
+                }
+                json!({
                 "defaultHarness": fixture.phone.as_ref().unwrap().family,
                 "families": {"claude": {}, "codex": {}, "opencode": {}},
                 "harnesses": {},
-            })),
+                })
+            }),
             "session/set_mode" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if !phone.stuck {
@@ -376,6 +416,10 @@ fn serve(
             }
             "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" if params["agent"] == json!("grok") => {
+                Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                    "userCode": "WDJB-MJHT", "needsCode": false}))
+            }
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
@@ -1238,6 +1282,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             "_acpmux/agent_login/api_key",
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
+        ),
+        // Gemini saves a key; Grok runs its device flow (acpmux words each refusal).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "grok", "sessionId": SESSION}),
+            json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                   "userCode": "WDJB-MJHT", "needsCode": false}),
         ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
