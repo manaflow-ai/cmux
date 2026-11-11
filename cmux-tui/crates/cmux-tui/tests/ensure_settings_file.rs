@@ -10,19 +10,23 @@
 //! A real owner process; the clients after the launch name no settings file
 //! unless the test says so.
 //!
-//! A CLI reader (`cmux settings validate`) with the owner's socket in its
-//! environment, as in a terminal of that owner, asks the owner for `path`
-//! within a deadline, and reads the default file when no owner answers.
+//! The owner's terminal children do not get the variable, so a daemon that a
+//! test starts in a terminal with only its own `HOME` writes its own default
+//! file. A CLI reader in the terminal (`cmux settings validate`) asks the
+//! owner for `path` instead, within a deadline, and reads the default file
+//! when no owner answers.
 
 // `server restart` reads the old owner's launch from the OS on these two.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 struct Fixture {
@@ -135,6 +139,38 @@ impl Fixture {
         );
         let mut answer: Value = serde_json::from_slice(&output.stdout).unwrap();
         (answer["file"].take(), answer["exists"].take())
+    }
+
+    /// Runs `script` with `/bin/sh` in a new terminal of the session's owner
+    /// and returns what the script writes to `$OUT`. `$OUT` is a FIFO: the
+    /// read ends when the script closes it, so nothing polls.
+    fn in_terminal(&self, name: &str, script: &str) -> String {
+        let fifo = self.dir.join(format!("{name}.fifo"));
+        let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+        assert!(made.success(), "mkfifo {}", fifo.display());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(fs::read_to_string(reader));
+        });
+        let script = script.replace("$OUT", fifo.to_str().unwrap());
+        let run = json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", script],
+            "new_workspace": true,
+            "name": name,
+        });
+        let stream = transport::connect(&self.socket).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        writeln!(writer, "{run}").unwrap();
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer).unwrap();
+        let created: Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(created["ok"], true, "{created}");
+        receiver
+            .recv_timeout(Duration::from_secs(120))
+            .unwrap_or_else(|_| panic!("the terminal never wrote {}", fifo.display()))
+            .unwrap()
     }
 }
 
@@ -303,4 +339,86 @@ fn a_cli_reader_without_a_reachable_owner_reads_the_default_file() {
     assert_eq!(file, default, "an owner that never answers");
     assert_eq!(exists, false);
     assert!(waited < Duration::from_secs(15), "the ask has a short deadline, took {waited:?}");
+}
+
+/// A terminal child of an owner started on a settings file has the owner's
+/// socket and not the settings file variable, and `cmux settings validate`
+/// in that terminal still reads the owner's file.
+#[test]
+fn a_terminal_child_has_no_settings_file_variable_and_its_cli_reads_the_owners_file() {
+    let fixture = Fixture::new("settings-file-child");
+    let settings = fixture.dir.join("app.json");
+    fs::write(&settings, TOP).unwrap();
+    fixture.ensure_on(&settings);
+
+    let (env, validated) = (fixture.dir.join("env.out"), fixture.dir.join("validate.out"));
+    let errors = fixture.dir.join("validate.err");
+    let script = format!(
+        "env > {env}; {bin} --json settings validate > {validated} 2> {errors}; echo $? > $OUT",
+        env = env.display(),
+        bin = env!("CARGO_BIN_EXE_cmux-tui"),
+        validated = validated.display(),
+        errors = errors.display(),
+    );
+    let status = fixture.in_terminal("child", &script);
+    let env = fs::read_to_string(&env).unwrap();
+    assert!(env.contains("CMUX_TUI_SOCKET="), "not a terminal of the owner:\n{env}");
+    assert!(
+        !env.lines().any(|line| line.starts_with("CMUX_NEXT_CONFIG_FILE=")),
+        "the terminal child got the owner's settings file variable:\n{env}"
+    );
+    let validated = fs::read_to_string(&validated).unwrap();
+    let errors = fs::read_to_string(&errors).unwrap_or_default();
+    assert_eq!(status.trim(), "0", "stdout:\n{validated}\nstderr:\n{errors}");
+    let answer: Value = serde_json::from_str(&validated).unwrap();
+    assert_eq!(answer["file"], json!(settings.to_str().unwrap()), "{answer}");
+}
+
+/// The hazard the removal closes: in a terminal of an owner started on a
+/// settings file, a second daemon started with only its own `HOME`, state
+/// and socket writes its own default file, never the first owner's file.
+#[test]
+fn a_daemon_started_in_a_terminal_with_its_own_home_writes_its_own_default_file() {
+    let outer = Fixture::new("settings-file-outer");
+    let settings = outer.dir.join("app.json");
+    fs::write(&settings, TOP).unwrap();
+    outer.ensure_on(&settings);
+
+    // Declared after `outer`, so its owner stops first.
+    let inner = Fixture::new("settings-file-inner");
+    let (ensured, set) = (inner.dir.join("ensure.out"), inner.dir.join("set.out"));
+    let params = json!({
+        "key": "tabs.barPosition",
+        "value": "bottom",
+        "machine": "current",
+        "session": "current",
+    });
+    let script = format!(
+        "export HOME={home} CFFIXED_USER_HOME={home} CMUX_TUI_STATE_DIR={state}; \
+         {bin} server ensure --json --session {session} --socket {socket} > {ensured} 2>&1 && \
+         {bin} --json --socket {socket} raw operation settings.set --params-json '{params}' \
+         --mutation > {set} 2>&1; echo $? > $OUT",
+        home = inner.dir.join("home").display(),
+        state = inner.dir.join("state").display(),
+        bin = env!("CARGO_BIN_EXE_cmux-tui"),
+        session = inner.session,
+        socket = inner.socket.display(),
+        ensured = ensured.display(),
+        set = set.display(),
+    );
+    let status = outer.in_terminal("inner", &script);
+    assert_eq!(
+        status.trim(),
+        "0",
+        "ensure:\n{}\nset:\n{}",
+        fs::read_to_string(&ensured).unwrap_or_default(),
+        fs::read_to_string(&set).unwrap_or_default()
+    );
+
+    let default = inner.default_file();
+    assert_eq!(inner.owner_file(), json!(default.to_str().unwrap()));
+    let text = fs::read_to_string(&default).unwrap();
+    assert!(text.contains("\"barPosition\": \"bottom\""), "the inner owner's file:\n{text}");
+    assert_eq!(fs::read_to_string(&settings).unwrap(), TOP, "the outer owner's file changed");
+    assert_eq!(outer.owner_file(), json!(settings.to_str().unwrap()));
 }
