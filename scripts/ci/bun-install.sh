@@ -26,6 +26,8 @@ registry="${BUN_CONFIG_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmjs.o
 # The registry as the log shows it: any user:password@ in the URL removed.
 shown_registry="$(printf '%s' "$registry" | sed -E 's#^([a-z]+://)[^/@]*@#\1#')"
 runner="${RUNNER_NAME:-$(hostname)}"
+# GNU timeout's contract on every host, a Mac included (macOS has no `timeout`).
+ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
 
 for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$attempt_seconds" "$attempts"; do
   # Zero is refused too: `timeout 0` never fires, which would undo the bound.
@@ -48,7 +50,7 @@ echo "bun-install: registry ${shown_registry} answers $(probe) (runner ${runner}
 attempt=1
 while :; do
   started=$SECONDS
-  timeout --kill-after=15 "$attempt_seconds" bun install "$@"
+  bash "$ci_timeout" --kill-after=15 "$attempt_seconds" bun install "$@"
   code=$?
   took=$((SECONDS - started))
   if [ "$code" -eq 0 ]; then
