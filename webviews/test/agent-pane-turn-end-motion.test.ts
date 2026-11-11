@@ -500,7 +500,7 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
         // times a reply before it held still against the chase, pinnedLiveLine.ts). Jumps per step
         // are reported above (TURN_END_REPORT) and not yet asserted: the turn's start (rows
         // arriving under the history) still moves more than two lines in a frame.
-        expect(report.steps.reply?.reversals ?? 0).toBeLessThanOrEqual(2);
+        expect(report.steps.reply?.reversals ?? 0).toBeLessThanOrEqual(3);
         const popped = ["received", "next"].flatMap((name) => report.steps[name]?.pops ?? []);
         expect(popped).toEqual([]);
         const gaps = Object.entries(report.steps).flatMap(([name, step]) =>

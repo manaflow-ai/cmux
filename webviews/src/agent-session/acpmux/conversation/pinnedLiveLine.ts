@@ -88,25 +88,35 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
   rows.live.style.translate = `0 ${-x}px`;
   for (const { row, bottom } of rows.above) {
-    // A glide's clip on the row (tailGlide.ts) would win over this one: the pin's clip is the row's
-    // whole clip while it holds, so that one ends.
-    dropClipGlides(row);
     const over = bottom + x - rows.top;
-    if (over > 0.25) row.style.clipPath = `inset(-4096px -4096px ${Math.ceil(over)}px -4096px)`;
-    else row.style.removeProperty("clip-path");
+    if (over > 0.25) {
+      // A glide's clip on the row (tailGlide.ts) would win over this one: where the line's held place
+      // reaches the row, the pin's clip is its whole clip, so that one ends. Only there: a row the line
+      // does not reach keeps the clip a glide set against a row gliding under it (rows that came over
+      // the pinned line glide among themselves).
+      dropClipGlides(row);
+      row.style.clipPath = `inset(-4096px -4096px ${Math.ceil(over)}px -4096px)`;
+    } else row.style.removeProperty("clip-path");
   }
 }
 
 /// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass. Let go while
 /// it was held away from the thread's offset, it returns what it was held back by for the pass's glide
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
-export function pinLiveLine(thread: HTMLElement | null, pin: boolean): PinCarry | undefined {
+export function pinLiveLine(
+  thread: HTMLElement | null,
+  pin: boolean,
+  free?: (row: HTMLElement) => void,
+): PinCarry | undefined {
   if (!thread) return undefined;
   const was = pinned.get(thread);
   const live = pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null;
   if (live) {
     const x = threadY(thread);
     if (was) clear(was);
+    // Taken from its glide (a carry still playing): the pin draws it from now on, and the glide's
+    // translate would win over the pin's.
+    if (!was || was.live !== live) free?.(live);
     // A row over the line lies under its held place by at most the most the chase holds back.
     const reach = Math.max(Math.abs(x), thread.ownerDocument.defaultView?.innerHeight ?? 0);
     pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: was?.x ?? 0 });
@@ -134,5 +144,22 @@ export function finishCarry(
   const row = thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${carry.id}"]`);
   if (!row || typeof row.animate !== "function") return;
   const { ms, easing } = step(carry.y);
-  if (ms > 0) row.animate([{ translate: `0 ${-carry.y}px` }, { translate: "0 0" }], { duration: ms, easing });
+  if (!(ms > 0)) return;
+  const timed = { duration: ms, easing };
+  row.animate([{ translate: `0 ${-carry.y}px` }, { translate: "0 0" }], timed);
+  // Played home from up over the rows above it, each of them is clipped where the line's drawn top
+  // passes, on the same clock: the overlap is `bottom - top + offset`, linear in the line's offset, so
+  // the clip's two keyframes match it on every frame (a negative inset clips nothing).
+  if (carry.y <= 0) return;
+  const top = row.offsetTop;
+  for (const { row: above, bottom } of rowsAbove(row, carry.y)) {
+    const from = bottom - top + carry.y;
+    if (from <= 0.25) continue;
+    above.animate(
+      [{ clipPath: clipBottom(Math.ceil(from)) }, { clipPath: clipBottom(Math.floor(bottom - top)) }],
+      timed,
+    );
+  }
 }
+
+const clipBottom = (px: number) => `inset(-4096px -4096px ${px}px -4096px)`;

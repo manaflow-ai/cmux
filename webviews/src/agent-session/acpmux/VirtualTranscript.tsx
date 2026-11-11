@@ -3868,22 +3868,22 @@ function TranscriptView({
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
     // The live line, the thread's last row, holds still at the bottom against the chase while the
-    // reply above it grows (pinnedLiveLine.ts): only a pass that grew the rows it already had. A row
-    // that came lets it go onto the pass's glide; a send's rows rise with theirs, and the turn's end
-    // folds them itself.
+    // rows above it grow or come (pinnedLiveLine.ts), for as long as it stays the last row: a pin
+    // dropped and taken again a pass later left the line on its own glide, whose translate wins over
+    // the pin's, under a reply clipped for where the pin would draw it (overlap). A send's rows rise
+    // with theirs, and the turn's end folds them itself, so those let it go.
     const lastRow = rows.at(-1);
-    const sameRows =
-      oldRows.length === rows.length && oldRows.at(-2)?.id === rows.at(-2)?.id && oldRows.at(-1)?.id === lastRow?.id;
+    const lineStays = oldRows.at(-1)?.id === LIVE_THINKING;
     const pinLive =
       chasing &&
       followingRef.current &&
-      sameRows &&
+      lineStays &&
       lastRow?.id === LIVE_THINKING &&
       Boolean(lastRow.below) &&
       turnEndCapture.current === undefined &&
       !thread.current?.hasAttribute(TURN_END_ATTR) &&
       !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
-    const carry = pinLiveLine(thread.current, pinLive);
+    const carry = pinLiveLine(thread.current, pinLive, (row) => tailGlide.current?.release(row));
     tailGlide.current?.place(
       thread.current,
       tailGlides && chasing,

@@ -129,6 +129,9 @@ export type TailGlide = {
   ): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
+  /// Ends what plays on `row` and the clips its glide guards (a row the pinned live line takes over:
+  /// its glide's translate would win over the pin's, pinnedLiveLine.ts).
+  release(row: HTMLElement): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
   hold(): void;
   /// Followed again: what the reader's input held plays on.
@@ -266,6 +269,7 @@ export function createTailGlide(): TailGlide {
   };
   return {
     stop,
+    release: cancelOn,
     moving: () =>
       [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {
@@ -353,7 +357,18 @@ export function createTailGlide(): TailGlide {
       // (an empty row, the turn's footer before it lands, can sit between the reply and the live
       // line), and against every row under it, not only the next. With both on one curve, a clip of
       // (start above - start below - gap) at the first frame covers every frame after it.
-      const laid = parts.filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
+      // A row over the anchor glides with no part here, yet a row under it can start drawn over it: the
+      // live line let go of its pin starts back by the thread's offset, up over the reply (or a send's
+      // prompt) above the anchor. Those rows are clipped too, never moved. O(rows over the anchor that
+      // the highest start reaches).
+      const reach = Math.min(...parts.map((part) => part.top + Math.min(0, part.start)));
+      const above: Part[] = [];
+      for (const [id, { row }] of now) {
+        if (id === anchor) break;
+        const bottom = row.offsetTop + row.offsetHeight;
+        if (bottom > reach && row.offsetHeight > 0) above.push({ row, top: row.offsetTop, bottom, moved: 0, start: 0 });
+      }
+      const laid = [...above, ...parts].filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
         const over: { glide?: Animation; by: number }[] = [];

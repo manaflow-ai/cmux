@@ -80,6 +80,8 @@ type Roll = {
   out?: Roll;
   /// What followed the words when they rolled out: their time and counts ("1m · 1.7K tokens").
   tail?: string;
+  /// How wide the words were drawn when they rolled out (cut with an ellipsis or not), in px.
+  width?: number;
 };
 
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
@@ -94,12 +96,23 @@ type Roll = {
 /// animation system is so borked and unintegrated"): the old line's tail as it was last drawn
 /// (`drawn`, the last commit's) rolls out with its words, and the new tail rolls in with the new
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
-function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
+function useRoll(
+  key: string | undefined,
+  label: string,
+  lead: Roll["lead"],
+  tail: string,
+  line: RefObject<HTMLDivElement | null>,
+): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
   // The tail as last committed: read only when the key changes, so a tick costs no second render.
   const drawn = useRef(tail);
+  // The words' drawn width as last committed: the old copy cuts its words there, ellipsis and all,
+  // and its tail starts where it sat (review of cmux#41078). One read of the line's own box.
+  const width = useRef<number | undefined>(undefined);
   useLayoutEffect(() => {
     drawn.current = tail;
+    const drawnWidth = line.current?.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    width.current = drawnWidth && drawnWidth > 0 ? drawnWidth : undefined;
   });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
@@ -109,7 +122,7 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      out: rolls ? { ...roll, out: undefined, tail: drawn.current } : undefined,
+      out: rolls ? { ...roll, out: undefined, tail: drawn.current, width: width.current } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
   return roll;
@@ -460,8 +473,14 @@ export function Thinking({
   ]
     .filter(Boolean)
     .join(" · ");
-  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
+  const roll = useRoll(
+    away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label,
+    label,
+    lead,
+    tail,
+    lineRef,
+  );
   useCountGlide(lineRef, roll.turns);
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
@@ -536,7 +555,20 @@ export function Thinking({
               inert
               data-lead={roll.out.lead?.lead}
               data-text={roll.out.lead ? roll.out.lead.rest : roll.out.label}
+              // Marks a copy whose time and counts roll out beside it (`cv-roll-out__tail`).
               data-tail={roll.out.tail ? `\u2002${roll.out.tail}` : undefined}
+              style={roll.out.width === undefined ? undefined : { width: roll.out.width }}
+            />
+          )}
+          {roll.out?.tail && (
+            // The old line's time and counts, from where they sat after its words (their drawn width).
+            <span
+              key={`tail-${roll.turns}`}
+              className="cv-roll-out__tail"
+              aria-hidden="true"
+              inert
+              data-tail={`\u2002${roll.out.tail}`}
+              style={roll.out.width === undefined ? undefined : { left: roll.out.width }}
             />
           )}
           <output
