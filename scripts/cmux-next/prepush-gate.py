@@ -233,6 +233,8 @@ SCANNERS = (
      (PKG + "/", "scripts/cmux-next/swift-cli-spawn-baseline.tsv", "scripts/cmux-next/check-main-actor-work.py")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    ("No process-wide test hooks in acpmux (per-thread on_* guards or a serializer, cmux#41350)",
+     ["python3", "-I", "{s}/check-test-hooks.py", "{root}"], ("cmux-tui/crates/acpmux/src/",)),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
