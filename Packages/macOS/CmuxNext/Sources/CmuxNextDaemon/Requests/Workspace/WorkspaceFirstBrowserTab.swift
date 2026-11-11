@@ -14,12 +14,12 @@ public struct WorkspaceFirstBrowserTab: Sendable, Equatable, Encodable {
     public var idempotencyKey: String
 
     public init(url: String, engine: BrowserEngine, title: String? = nil, profileID: String? = nil,
-                idempotencyKey: String = UUID().uuidString) {
+                idempotencyKey: String? = nil) {
         self.url = url
         self.engine = engine
         self.title = title
         self.profileID = profileID
-        self.idempotencyKey = idempotencyKey
+        self.idempotencyKey = idempotencyKey ?? UUID().uuidString
     }
 
     enum CodingKeys: String, CodingKey {
