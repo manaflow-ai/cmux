@@ -159,7 +159,7 @@
           },
           "help": {
             "key": "settings.machines.sshLinkHosts.help",
-            "text": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."
+            "text": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."
           },
           "kind": "string_list",
           "default": [],

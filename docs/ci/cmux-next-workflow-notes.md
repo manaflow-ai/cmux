@@ -63,6 +63,13 @@ path dependencies) and the release must be built from them. Here on
 Linux it runs on every push and pull request: in swift test a newer
 push replaced the waiting job, so tip runs rarely reached it.
 
+On a push the check runs with `--stale-grace 7200`: an FFI commit's release
+can only be built from that pushed commit, so the pin is behind the sources
+after every FFI push until `app-ffi-release.yml` publishes and pins it. A pin
+behind for less than two hours passes with a note; one behind for longer
+fails, because then the release or the re-pin did not happen. Before, every
+FFI commit left the tip red for 30 to 240 minutes (2026-11-11).
+
 On a pull request the base's copy of the check and of its pin reader
 (the merge commit's first parent), extracted outside the checkout,
 judges a fresh worktree of the merge commit (--tree), with only
