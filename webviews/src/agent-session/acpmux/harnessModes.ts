@@ -139,7 +139,8 @@ export function cloudStartAgent(
   harness: string | undefined,
 ): { family: string | undefined; harness: string | undefined; named: boolean } {
   const id = (family ?? harness ?? "").toLowerCase();
-  if (id !== UNII && (harness ?? "").toLowerCase() !== UNII) return { family, harness, named: true };
+  // No harness yet (none installed, or still listing): the send names none, so the machine's default.
+  if (id && id !== UNII && (harness ?? "").toLowerCase() !== UNII) return { family, harness, named: true };
   return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
 }
 
