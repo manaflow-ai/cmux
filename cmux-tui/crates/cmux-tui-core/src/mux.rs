@@ -284,6 +284,8 @@ type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) 
 enum TerminalEventPublication {
     Title,
     Bell,
+    /// `SurfaceOutput`; for a local terminal only the frame producer sends it.
+    Output,
 }
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
@@ -7658,6 +7660,8 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Output, runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
             self.emit(MuxEvent::SurfaceOutput(placement));
         }
