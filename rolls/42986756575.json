@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42986756575",
+  "recorded_at": "2026-11-11T08:34:14Z",
+  "reason": "cmux-tui d77b28905b84 changes the image's cmux-tui (pinned 2a88908f860d)",
+  "dry_run": false,
+  "cmux_tui": "d77b28905b84262234e513474889f2b27cd4397c",
+  "fixes": [
+    {
+      "sha": "d77b28905b84262234e513474889f2b27cd4397c",
+      "mergedAt": "2026-11-11T08:10:17Z",
+      "subject": "cmux-tui tests: request_stack rows for project_new, cold_archive and register; the roster shape has hidden_ended (#41128)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:34:14Z",
+    "snapshot_id": "sh-f518aef8277447fbae7a0cee302aa360",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42986756575): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a3f54b5ee71fbf08e9454d78f90383c0ed1e12f2",
+    "image": "cloud-native-auto-d77b2890-42986756575-1",
+    "revision": "ci-42986756575-1",
+    "at": "2026-11-11T08:34:14Z"
+  },
+  "rolled_back": false
+}
