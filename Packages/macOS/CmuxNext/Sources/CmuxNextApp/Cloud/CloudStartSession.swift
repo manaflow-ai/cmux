@@ -224,10 +224,7 @@ struct CloudStartSession {
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
-        // No login step: its model calls reach this Mac's own gateway through its edge. Only the first turn needs it up,
-        // so it comes up beside the machine, the link, the approvals and the agent's start, and is awaited after them.
-        let gateway = CloudStartBeside { [gateway = services.cloud.gateway] in await gateway.ensureOnline(within: .seconds(10)) }
-        defer { gateway.cancel() }
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         let name = session.machine.title, id = session.machineID, agent = request.agent
@@ -240,9 +237,8 @@ struct CloudStartSession {
         try still(name)
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
-        // Remote approvals turn on (an idle daemon only), awaited on every exit: the gate is never released under them.
         try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
-        steps.done("approvals")
+        steps.done("approvals") // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }

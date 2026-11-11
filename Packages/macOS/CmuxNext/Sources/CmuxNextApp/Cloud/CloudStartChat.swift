@@ -119,11 +119,7 @@ struct CloudStartChat {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
-        // No login step: its model calls reach this Mac's own gateway (PersonalGateway) through its edge, and this Mac
-        // copies no provider login to it. Only the first prompt needs it up: it comes up beside the machine, the copy
-        // and the approvals, and is awaited before the chat opens.
-        let gateway = CloudStartBeside { [gateway = services.cloud.gateway] in await gateway.ensureOnline(within: .seconds(10)) }
-        defer { gateway.cancel() }
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace, cli: cli, invocation: invocation) {
@@ -132,8 +128,7 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // Remote approvals run beside the copy, awaited before the chat opens.
-        let size = AgentPaneCloudStart.sizeText(machine.machine.size)
+        let size = AgentPaneCloudStart.sizeText(machine.machine.size) // Remote approvals run beside the copy, awaited before the chat opens.
         let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
             report(.init(name: "folder", folder: folderName, machine: name, size: size))
             guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up

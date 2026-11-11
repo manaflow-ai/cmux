@@ -82,4 +82,24 @@ import Testing
         #expect(await gateway.awaited(marking: "gateway", on: steps) == 7)
         #expect(steps.recorded.map(\.ms) == [2000, 0])
     }
+
+    /// A start that fails or is cancelled before the step that needs the work lets go of it, and the work ends with it.
+    @MainActor @Test func workBesideAStartThatEndsFirstIsCancelled() async {
+        let (began, beginning) = AsyncStream<Void>.makeStream()
+        let (ended, ending) = AsyncStream<Bool>.makeStream()
+        let (never, held) = AsyncStream<Void>.makeStream() // `held` is never finished: only a cancellation ends the wait
+        var gateway: CloudStartBeside<Bool>? = CloudStartBeside { () async -> Bool in
+            beginning.yield()
+            for await _ in never {}
+            ending.yield(Task.isCancelled)
+            return false
+        }
+        for await _ in began { break }
+        #expect(gateway != nil)
+        gateway = nil
+        var cancelled = false
+        for await value in ended { cancelled = value; break }
+        #expect(cancelled)
+        held.finish()
+    }
 }
