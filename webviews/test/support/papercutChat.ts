@@ -115,6 +115,17 @@ export async function papercutPane(
     /// Attach sends only the newest `attachPage` records and pages older ones in through
     /// `_acpmux/events` (`beforeSeq`, `limit`), as acpmux does for a long chat. Unset, attach sends all.
     attachPage?: number;
+    /// Each `_acpmux/events` answer (an older page) is sent this many ms late, as a read from a
+    /// remote or busy acpmux lands. Unset, it is answered at once.
+    eventsLatencyMs?: number;
+    /// Answer as acpmux does for a long chat: the prompt index (`hub/paging.rs` `prompt_index`, every
+    /// prompt before `beforeSeq` in one reply) and the attach's `turnOpener`. Unset, the index is
+    /// answered as a page and the attach names no opener (the lanes written against that keep it).
+    daemonIndexes?: boolean;
+    /// Serve a production build of the pane (vite build of its dev entry) instead of the dev server,
+    /// for timing: the dev server runs React's development build. `minify: false` keeps function
+    /// names for a profile.
+    production?: { minify?: boolean };
     /// Additional chats reuse these fixture events with their own identity and folder.
     otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
@@ -136,16 +147,38 @@ export async function papercutPane(
       case "_acpmux/attach": {
         const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
         const from = options.attachPage ? Math.max(0, events.length - options.attachPage) : 0;
+        // acpmux names the opener of the turn its page starts inside with the page
+        // (`server/requests/turn_opener.rs`); without it the pane waits on a read of its own.
+        let turnOpener: (typeof events)[number] | null = null;
+        for (let at = from - 1; options.daemonIndexes && at >= 0 && from > 0; at--) {
+          const event = events[at]!;
+          if (event.kind === "user_message" && event.dir === "mux") {
+            turnOpener = { ...event, sessionId: selected.sessionId };
+            break;
+          }
+        }
         return {
           session: selected,
           lastSeq: events.length,
           events: events.slice(from).map((event) => ({ ...event, sessionId: selected.sessionId })),
           hasMore: from > 0,
+          ...(options.daemonIndexes && options.attachPage ? { turnOpener } : {}),
         };
       }
       case "_acpmux/events": {
         const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
         if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
+        // The prompt index (`hub/paging.rs` `prompt_index`): every prompt before `beforeSeq`, in one
+        // reply. Answered as a page instead, the rail and the room above the rows read a long chat
+        // as a few prompts long.
+        if (options.daemonIndexes && params?.promptIndex === true)
+          return {
+            events: events.filter(
+              (event) => event.seq < before && event.kind === "user_message" && event.dir === "mux",
+            ),
+            hasMore: false,
+            lastSeq: events.length,
+          };
         const end = Math.max(0, before - 1);
         const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
         return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
@@ -196,19 +229,59 @@ export async function papercutPane(
         }
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
-        if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+        if (message.id !== undefined) {
+          const reply = JSON.stringify({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: answer(message.method, message.params),
+          });
+          if (message.method === "_acpmux/events" && options.eventsLatencyMs)
+            // fixed-wait: the page read's latency is the condition under test.
+            setTimeout(() => ws.send(reply), options.eventsLatencyMs);
+          else ws.send(reply);
+        }
       },
     },
   });
-  const vite = await createServer({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    server: { port: 0, host: "127.0.0.1", strictPort: false },
-    logLevel: "error",
-    plugins: options.vitePlugins,
-  });
-  await vite.listen();
-  await warmViteServer(vite, "/");
+  let pagePort: number;
+  let stopPages: () => Promise<void>;
+  if (options.production) {
+    const { build } = await import("vite");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "papercut-pane-"));
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: { outDir: out, emptyOutDir: true, ...(options.production.minify === false ? { minify: false } : {}) },
+      logLevel: "error",
+      plugins: options.vitePlugins,
+    });
+    const statics = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+        return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+      },
+    });
+    pagePort = statics.port!;
+    stopPages = async () => {
+      await statics.stop(true);
+      fs.rmSync(out, { recursive: true, force: true });
+    };
+  } else {
+    const vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+      plugins: options.vitePlugins,
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/");
+    pagePort = (vite.httpServer!.address() as { port: number }).port;
+    stopPages = () => vite.close();
+  }
   /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say). `scale` and
   /// `colorScheme` are for stills: a 2x page, light or dark.
   const open = async (
@@ -222,7 +295,7 @@ export async function papercutPane(
     const page = await browser().newPage({ viewport: size, deviceScaleFactor: scale, colorScheme });
     await installPaintedFrames(page);
     await prepare?.(page);
-    const { port } = vite.httpServer!.address() as { port: number };
+    const port = pagePort;
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
@@ -256,7 +329,7 @@ export async function papercutPane(
     return page;
   };
   const close = async () => {
-    await vite.close();
+    await stopPages();
     await daemon.stop(true);
   };
   return { open, close, methods, prompts, record, drop, sent };
