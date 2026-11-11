@@ -18,6 +18,10 @@
 //! worktree. The worktree was clean when the removal began, so what the
 //! teardown leaves there goes with it; commits found nowhere else still
 //! keep it. Its ports go back once it is gone.
+//!
+//! The reply names the worktree as `git.worktree.create` printed it, under
+//! the `~/.cmux/worktrees` link rather than its `.noindex` folder, and the
+//! project folder in the worktree root goes with its last worktree.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -87,16 +91,18 @@ pub(super) fn dispatch(
         };
         // Resolved while the folder is still there: the ports are kept by it.
         let resolved_root = worktree_setup::resolved(&attempt.root);
+        let printed_root = printed(&attempt.root);
         let result = remove(&target.repository, &attempt);
         if result.is_ok() {
             worktree_setup::removed(target.git_dir(), &resolved_root);
+            remove_empty_project_folder(&attempt.root);
         }
         if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
             journal.finish();
         }
         let branch_deleted = result?;
         let mut value = json!({
-            "root": attempt.root.to_string_lossy(),
+            "root": printed_root.to_string_lossy(),
             "main_root": attempt.main_root.to_string_lossy(),
             "branch_deleted": branch_deleted,
         });
@@ -270,6 +276,37 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     let run =
         git.run(&["branch", "-D", branch]).map_err(|failure| run_failed(OPERATION, &failure))?;
     Ok(run.success)
+}
+
+/// `root` as `git.worktree.create` printed it: under the `~/.cmux/worktrees`
+/// link, not the `.noindex` folder git resolves it to. Any other path is
+/// returned as it is. Resolved while the folder is still there.
+fn printed(root: &Path) -> PathBuf {
+    let Some((link, real)) = worktree_roots() else { return root.to_path_buf() };
+    match resolved(root).strip_prefix(&real) {
+        Ok(rest) => link.join(rest),
+        Err(_) => root.to_path_buf(),
+    }
+}
+
+/// Removes the project folder that held the worktree at `root` once it is
+/// empty: only a folder directly in cmux's worktree root, never the root
+/// itself, and never a folder that still holds anything (`remove_dir`
+/// refuses those, so a worktree made there meanwhile keeps it).
+fn remove_empty_project_folder(root: &Path) {
+    let Some((_, real)) = worktree_roots() else { return };
+    let Some(project) = resolved(root).parent().map(Path::to_path_buf) else { return };
+    if project.parent() == Some(real.as_path()) && project != real {
+        let _ = std::fs::remove_dir(&project);
+    }
+}
+
+/// cmux's worktree root as it is printed (`~/.cmux/worktrees`) and as it
+/// resolves (`~/.cmux/worktrees.noindex` on macOS).
+fn worktree_roots() -> Option<(PathBuf, PathBuf)> {
+    let link = cmux_git::worktree_root::worktree_root_path(&crate::platform::home_dir()?);
+    let real = std::fs::canonicalize(&link).ok()?;
+    Some((link, real))
 }
 
 /// The path git lists for the worktree at `root`, while git still has it.
