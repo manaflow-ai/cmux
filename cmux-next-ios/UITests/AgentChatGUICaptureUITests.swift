@@ -33,6 +33,17 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                     XCTAssertGreaterThan(gap, 4, "jump circle overlaps the composer (\(look))")
                 }
             }
+            scene("jump-tapped", look, Self.history, atBottom: true) { app in
+                // Scrolled up, the jump control takes the transcript back to its newest row
+                // and hides (the frame check below asserts both).
+                self.dragDown(app, times: 3)
+                let jump = app.buttons["Jump to bottom"].firstMatch
+                self.waitFor(jump, "jump control after scrolling up")
+                if jump.exists { jump.tap() }
+                let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == false"), object: jump)
+                XCTAssertEqual(XCTWaiter().wait(for: [hidden], timeout: 5), .completed, "the jump control hides at the bottom (\(look))")
+                self.pause(1)
+            }
             scene("pending-question", look, ["-cmux-mobile-demo", "kbd-chat"]) { _ in }
             scene("empty-chat", look, Self.empty) { _ in }
             scene("offline-queued", look, ["-cmux-mobile-demo", "offline-send"], settle: 8) { _ in }
@@ -131,7 +142,8 @@ final class AgentChatGUICaptureUITests: XCTestCase {
 
     @MainActor
     private func scene(_ id: String, _ look: Look, _ args: [String], env: [String: String] = [:], settle: TimeInterval = 6,
-                       after: [(String, TimeInterval)] = [], dock: Bool = true, _ drive: (XCUIApplication) -> Void) {
+                       after: [(String, TimeInterval)] = [], dock: Bool = true, atBottom: Bool = false,
+                       _ drive: (XCUIApplication) -> Void) {
         XCUIDevice.shared.appearance = look == .dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -151,7 +163,7 @@ final class AgentChatGUICaptureUITests: XCTestCase {
         drive(app)
         pause(1.2)
         attach(app, "agentgui~\(id)~\(look.rawValue)")
-        if dock { checkDock("\(id) \(look)") }
+        if dock { checkDock("\(id) \(look)", atBottom: atBottom) }
         for (name, delay) in after {
             pause(delay)
             attach(app, "agentgui~\(name)~\(look.rawValue)")
@@ -165,7 +177,7 @@ final class AgentChatGUICaptureUITests: XCTestCase {
     /// on an earlier composer (the expanded 96 pt one) held the rows ~40 pt above the
     /// collapsed capsule.
     @MainActor
-    private func checkDock(_ what: String) {
+    private func checkDock(_ what: String, atBottom: Bool = false) {
         guard let frame = Self.lastTraceFrame() else {
             XCTFail("\(what): no trace frame (-cmux-mobile-kbd-trace) in the app's Documents")
             return
@@ -181,9 +193,16 @@ final class AgentChatGUICaptureUITests: XCTestCase {
             return
         }
         XCTAssertEqual(stack, laidOut, accuracy: 0.5, "\(what): the transcript keeps a \(stack) pt stack, the stack is \(laidOut) pt")
-        if let dockTop = num("dockTop"), let content = num("contentBottom"), let offset = num("offset"),
-           let maxOffset = num("maxOffset"), abs(offset - maxOffset) < 1, frame["tracking"] == "0" {
-            XCTAssertEqual(dockTop - content, 8, accuracy: 1.5, "\(what): the newest row ends \(dockTop - content) pt above the stack")
+        guard let offset = num("offset"), let maxOffset = num("maxOffset") else { return }
+        if atBottom {
+            XCTAssertEqual(offset, maxOffset, accuracy: 1, "\(what): the transcript is \(maxOffset - offset) pt from its newest row")
+            XCTAssertEqual(frame["jump"], "0", "\(what): the jump control still shows at the bottom")
+        }
+        // Wherever the transcript rests, its newest row ends 8 pt above the stack plus the
+        // distance it is scrolled up from there (the bottom inset follows the stack).
+        if let dockTop = num("dockTop"), let content = num("contentBottom"), frame["tracking"] == "0" {
+            let gap = dockTop - content + (maxOffset - offset)
+            XCTAssertEqual(gap, 8, accuracy: 1.5, "\(what): the newest row rests \(gap) pt above the stack")
         }
     }
 
