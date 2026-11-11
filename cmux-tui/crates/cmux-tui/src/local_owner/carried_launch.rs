@@ -38,10 +38,22 @@ const CARRIED_ENV: [&str; 5] = [
 /// `server restart` starts after it, from any directory, keep one file: the
 /// restart carries the owner's value as it is. `None` without the variable
 /// or with an empty one, which means unset (`cmux_config::config_path`).
-pub(super) fn own_settings_file() -> Option<PathBuf> {
+fn own_settings_file() -> Option<PathBuf> {
     std::env::var_os(cmux_config::CONFIG_OVERRIDE).filter(|value| !value.is_empty())?;
     let path = cmux_config::config_path();
     Some(std::path::absolute(&path).unwrap_or(path))
+}
+
+/// The launch environment of the owner `command` starts: the values a
+/// restart carried, then this client's own settings file, which wins over a
+/// carried one and goes to the owner absolute ([`own_settings_file`]).
+pub(super) fn apply_env(command: &mut std::process::Command, carried: &[(String, String)]) {
+    for (key, value) in carried {
+        command.env(key, value);
+    }
+    if let Some(file) = own_settings_file() {
+        command.env(cmux_config::CONFIG_OVERRIDE, file);
+    }
 }
 
 /// The launch of a running owner that the next owner repeats.
