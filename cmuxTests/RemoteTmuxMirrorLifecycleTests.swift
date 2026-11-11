@@ -230,7 +230,8 @@ struct RemoteTmuxMirrorLifecycleTests {
         reader.processDidExit()
 
         #expect(await capture.value == terminalError)
-        #expect(reader.pauseCount == 0)
+        var pauses = reader.pauses.makeAsyncIterator()
+        #expect(await pauses.next() == nil, "a 55-byte drain paused against 8 chunks and 4096 bytes")
     }
 
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {

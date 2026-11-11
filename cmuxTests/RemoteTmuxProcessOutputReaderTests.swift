@@ -40,15 +40,15 @@ import Testing
         try pipe.fileHandleForWriting.write(contentsOf: payload)
         try pipe.fileHandleForWriting.close()
 
-        // Stopping is a suspended read source, which announces nothing, so this waits on the
-        // reader's pause counter, and on the consumer task having taken the chunks the reader
-        // published before it paused. The consumer holds every chunk, so the reader cannot
-        // resume and the counter cannot pass 1 while this waits.
+        // The reader announces the pause. The consumer task may still be taking the chunks
+        // published before it, so their total is polled against a deadline; the consumer holds
+        // every chunk, so the reader cannot resume while this waits.
+        var pauses = reader.pauses.makeAsyncIterator()
+        #expect(await pauses.next() != nil)
         let deadline = ContinuousClock.now + .seconds(30)
-        while reader.pauseCount == 0 || held.byteCount < bound, ContinuousClock.now < deadline {
+        while held.byteCount < bound, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(1))
         }
-        #expect(reader.pauseCount == 1)
         #expect(held.byteCount == bound)
         for chunk in held.stopHolding() { reader.release(chunk) }
 
