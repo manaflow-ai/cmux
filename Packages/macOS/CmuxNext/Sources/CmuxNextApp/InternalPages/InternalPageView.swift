@@ -88,10 +88,11 @@ final class InternalPageView: TitleRowHostView {
 
     override var acceptsFirstResponder: Bool { false }
 
-    /// Times the page came on screen (unparked, into a window): its hover picture's staleness (``PageTabPictures``).
+    /// Times the page came on screen (unparked, into a window) or changed theme: its hover picture's staleness (``PageTabPictures``).
     private(set) var shownGeneration = 0
     override func viewDidUnhide() { super.viewDidUnhide(); shownGeneration += 1 }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window != nil { shownGeneration += 1 } }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); shownGeneration += 1 }
 
     /// Runs Go Back (true) or Go Forward (false): the mouse side buttons and a
     /// swipe over the page (history.md 4.2b). Set by the page's host.
