@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43054388488",
+  "recorded_at": "2026-11-11T16:11:57Z",
+  "reason": "cmux-tui d1a8e8440839 changes the image's cmux-tui (pinned 3f18ecfe7506)",
+  "dry_run": false,
+  "cmux_tui": "d1a8e84408391b457362041f6b5ea6e112c7e735",
+  "fixes": [
+    {
+      "sha": "d1a8e84408391b457362041f6b5ea6e112c7e735",
+      "mergedAt": "2026-11-11T07:44:36-08:00",
+      "subject": "BASE RED: SDK IR has create-workspace first_tab (after b9783320dc5) (#41287)"
+    },
+    {
+      "sha": "4e5af4f03db747d41b4b67b270a0ac284bcac6b9",
+      "mergedAt": "2026-11-11T07:43:52-08:00",
+      "subject": "acpmux: make the transfer sweep pause hook per test thread (#41354)"
+    },
+    {
+      "sha": "c93db7eb5c3078ba3b5ea3d514908963d009a0f7",
+      "mergedAt": "2026-11-11T07:43:26-08:00",
+      "subject": "ci: no build fetches a Zig package from a third-party host (codeberg outage base red) (#41286)"
+    },
+    {
+      "sha": "42fd7e3a61a505d6163f684f33fe7b1768250c87",
+      "mergedAt": "2026-11-11T07:40:26-08:00",
+      "subject": "acpmux: the lost-home forced test reaches its race, and a save checked before a home replace never writes into it (#41340)"
+    },
+    {
+      "sha": "064feb3a6d7fb68e762e18a474a6d8f2ce45c0cc",
+      "mergedAt": "2026-11-11T07:40:12-08:00",
+      "subject": "acpmux: journal a metadata change as the fields it changed (#41250)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T16:11:57Z",
+    "snapshot_id": "sh-afac277cb1bc4044a82097808764e4fe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43054388488): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e44ffacfd3c772a28bb6962ad0eb14282c7147a4",
+    "image": "cloud-native-auto-d1a8e844-43054388488-1",
+    "revision": "ci-43054388488-1",
+    "at": "2026-11-11T16:11:57Z"
+  },
+  "rolled_back": false
+}
