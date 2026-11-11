@@ -55,7 +55,14 @@ const prompts = log.events.filter((event) => event.kind === "user_message").leng
 /// top of the whole chat once that row is drawn at the view's top, not only at the loaded rows' top.
 const FIRST_PROMPT = `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
-type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number; rows: string };
+type Frame = {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  paint: number;
+  rows: string;
+  writes?: string;
+};
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -111,7 +118,7 @@ async function run(name: string, engine: BrowserType) {
     );
     console.log(`transcript-scroll-up ${name} idleFrameP95: ${idleP95.toFixed(1)}`);
     // The thumb and long tasks, read after every painted frame for the whole run.
-    await page.evaluate(() => {
+    await page.evaluate((logWrites) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const holder = window as unknown as {
         __upWatch: { frames: Frame[]; long: number[]; spans: [number, number][]; origin: number; stop(): void };
@@ -131,8 +138,52 @@ async function run(name: string, engine: BrowserType) {
       } catch {
         observer = undefined;
       }
+      // LANDINGS=1: what each frame wrote under the transcript, by attribute and by nodes added or removed.
+      let writes = new Map<string, number>();
+      const count = (list: MutationRecord[]) => {
+        for (const each of list) {
+          const target = (each.target.nodeType === 1 ? each.target : each.target.parentElement) as Element | null;
+          const where = target?.classList.contains("acpmux-row")
+            ? "row"
+            : target?.closest(".acpmux-row")
+              ? "in-row"
+              : (target?.className?.toString().split(" ")[0] ?? "?");
+          const key =
+            each.type === "attributes"
+              ? `${where}@${each.attributeName}`
+              : each.type === "childList"
+                ? `${where}+${each.addedNodes.length}-${each.removedNodes.length}`
+                : `${where}#text`;
+          writes.set(key, (writes.get(key) ?? 0) + 1);
+          // One sample of each style write a frame: what it was and what it became.
+          if (each.type === "attributes" && each.attributeName === "style" && !samples.has(where))
+            samples.set(where, `${each.oldValue ?? ""} => ${target?.getAttribute("style") ?? ""}`);
+        }
+      };
+      let samples = new Map<string, string>();
+      const mutations = logWrites ? new MutationObserver(count) : undefined;
+      mutations?.observe(scroller, {
+        subtree: true,
+        attributes: true,
+        attributeOldValue: true,
+        childList: true,
+        characterData: true,
+      });
       const stop = window.cmuxAfterPaint((paint) => {
+        let written: string | undefined;
+        if (mutations) {
+          count(mutations.takeRecords());
+          written =
+            [...writes.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 12)
+              .map(([key, n]) => `${key}:${n}`)
+              .join(" ") + ` | ${[...samples.entries()].map(([where, change]) => `${where}{${change}}`).join(" ")}`;
+          writes = new Map();
+          samples = new Map();
+        }
         frames.push({
+          ...(written !== undefined ? { writes: written } : {}),
           paint,
           scrollTop: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
@@ -152,7 +203,7 @@ async function run(name: string, engine: BrowserType) {
         },
       };
       (holder as unknown as { __longtasks: boolean }).__longtasks = observer !== undefined;
-    });
+    }, process.env.LANDINGS === "1");
     // TRACE=1 (Chromium): the timeline of the wheel; each frame over 50 ms prints what took its time.
     const tracing =
       process.env.TRACE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
@@ -170,7 +221,7 @@ async function run(name: string, engine: BrowserType) {
         (event: { value: typeof traceEvents }) => void traceEvents.push(...event.value),
       );
       await tracing.send("Tracing.start", {
-        categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing",
+        categories: `toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing${process.env.TRACE_WHY === "1" ? ",disabled-by-default-devtools.timeline.invalidationTracking" : ""}`,
         transferMode: "ReportEvents",
       });
     }
@@ -303,6 +354,33 @@ async function run(name: string, engine: BrowserType) {
                     : event.name;
             by.set(detail, (by.get(detail) ?? 0) + (event.dur ?? 0));
           }
+        // TRACE_WHY=1: what invalidated the style and layout this task redid, by reason and node.
+        if (process.env.TRACE_WHY === "1") {
+          const why = new Map<string, number>();
+          for (const event of traceEvents)
+            if (
+              event.tid === tid &&
+              event.ts >= task.ts - 20_000 &&
+              event.ts < end &&
+              /InvalidationTracking/.test(event.name)
+            ) {
+              const data = (event.args?.data ?? {}) as Record<string, unknown> & {
+                selectors?: { selector?: string }[];
+              };
+              const what = `${event.name.replace("InvalidationTracking", "")} ${String(data.reason ?? "")} ${String(data.changedAttribute ?? data.changedClass ?? data.changedPseudo ?? data.invalidatedSelectorId ?? "")} ${(
+                data.selectors ?? []
+              )
+                .map((each) => each.selector)
+                .join("|")
+                .slice(0, 80)} ${String(data.nodeName ?? "")
+                .replace(/ id='[^']*'/, "")
+                .replace(/ class='([^' ]*)[^']*'/, " .$1")
+                .slice(0, 60)}`;
+              why.set(what, (why.get(what) ?? 0) + 1);
+            }
+          for (const [what, count] of [...why.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14))
+            console.log(`transcript-scroll-up trace why ${count}x ${what}`);
+        }
         console.log(
           `transcript-scroll-up trace task ${Math.round(task.dur! / 1000)} ms: ${[...by.entries()]
             .sort((a, b) => b[1] - a[1])
@@ -501,7 +579,7 @@ async function run(name: string, engine: BrowserType) {
           const kind = now.scrollHeight !== was.scrollHeight ? "landing" : now.rows !== was.rows ? "mount" : "scroll";
           if (process.env.LANDINGS === "1" && kind === "landing")
             console.log(
-              `transcript-scroll-up ${name} landing gap ${round2(now.paint - was.paint)} rows ${was.rows} -> ${now.rows} height ${was.scrollHeight} -> ${now.scrollHeight} next ${round2((watched.frames[index + 1]?.paint ?? now.paint) - now.paint)}`,
+              `transcript-scroll-up ${name} landing gap ${round2(now.paint - was.paint)} rows ${was.rows} -> ${now.rows} height ${was.scrollHeight} -> ${now.scrollHeight} next ${round2((watched.frames[index + 1]?.paint ?? now.paint) - now.paint)} writes ${now.writes ?? ""}`,
             );
           kinds[kind].push(now.paint - was.paint);
         }
