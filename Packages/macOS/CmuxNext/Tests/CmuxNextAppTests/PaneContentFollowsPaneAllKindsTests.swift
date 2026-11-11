@@ -106,11 +106,11 @@ struct PaneContentFollowsPaneAllKindsTests {
             return reveal
         }()
         let content: NSView
-        var views: [PaneID: PaneContentView] = [:]
+        var views: [LayoutPaneID: PaneContentView] = [:]
 
         init(content: NSView) { self.content = content }
 
-        func makeContentView(for pane: PaneID) -> NSView {
+        func makeContentView(for pane: LayoutPaneID) -> NSView {
             let tabs = (0..<2).map { TabItem(id: TabID("\(pane.rawValue)-tab\($0)"), title: "Tab \($0)") }
             let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
             view.show(pane == "p2" ? content : NSView())
