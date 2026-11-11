@@ -132,7 +132,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "a126eed9fe948460408a4abe11fbc28338a6614a70e2e6620b8ddc3bb967713e"
+SHELL_TREE_SHA256 = "163a0e14f4edce42d22d2ddde63d2070b679d7dd8cd3ecc7398f5e68f77d3bb7"
 
 
 def without_templates(line: str) -> str:
@@ -179,8 +179,13 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
     return out
 
 
-def allowed(path: str, line: str) -> bool:
-    return any(path == ap and piece in line for ap, piece in ALLOWED) or (not NOCLOBBER.search(line) and app_named(line))
+def allowed(path: str, line: str, allowlist=ALLOWED) -> bool:
+    return any(path == ap and piece in line for ap, piece in allowlist) or (not NOCLOBBER.search(line) and app_named(line))
+
+
+def unapproved(found, allowlist=ALLOWED) -> list[str]:
+    """The hits in FOUND that no entry of ALLOWLIST (or an app name) approves."""
+    return [f"{p}:{n}: {line[:160]}" for p, n, line in found if not allowed(p, line, allowlist)]
 
 
 def scratch_hits(files) -> set[str]:
@@ -201,7 +206,7 @@ class NoclobberSweep(unittest.TestCase):
         cls.found = hits()
 
     def test_no_noclobber_and_no_guessable_shared_temp_name(self):
-        bad = [f"{p}:{n}: {line[:160]}" for p, n, line in self.found if not allowed(p, line)]
+        bad = unapproved(self.found)
         self.assertEqual(bad, [], "noclobber is not exclusive creation: use mktemp, a mkdtemp folder of your own, "
                                   "or ~/.cache (this file's docstring); or add the hit to ALLOWED with its reason")
 
@@ -281,6 +286,38 @@ class NoclobberSweep(unittest.TestCase):
         files = shell_tree.FILES
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
+
+    def test_bash_agrees_with_the_tree(self):
+        """The differential detector (teamleaderleo/leo-workspace#4368 review at 3aa1ae3e: the parser kept quoting or
+        line state bash does not). Each corpus line and each shell file in FILES is run by bash in a scratch folder
+        (shell_tree.bash_verdicts); every one with which bash makes a name no mktemp made must be flagged by the tree
+        and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
+        template even where bash never writes it (an echo, an array's words, a function never called)."""
+        corpus = shell_tree.corpus()
+        lines = [c for c, wrote in zip(corpus, shell_tree.bash_verdicts([line for line, _ in corpus])) if wrote]
+        self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
+                         "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
+        shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
+        files = [f for f, wrote in zip(shell, shell_tree.bash_verdicts([text for _, text, _ in shell])) if wrote]
+        found = scratch_hits(files)
+        self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
+                         "files bash writes a guessable name with, which hits() passes or FILES calls safe")
+        self.assertGreater(len(lines), 300)
+
+    def test_an_allowance_approves_only_its_own_hit(self):
+        """Review of manaflow-ai/cmuxterm-hq#9370, F2: an allowance approved its whole line, so an unsafe name on the
+        line of an approved one passed. Each hit is matched with its own entry, by its own text."""
+        line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
+        allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+            subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+            (Path(tmp) / "scripts").mkdir()
+            (Path(tmp) / "scripts/a.sh").write_text(line + "\n")
+            subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
+            found = hits(Path(tmp))
+        self.assertEqual(len(unapproved(found, allowlist)), 1, found)
+        self.assertEqual(len(unapproved(found, {})), 2, found)
 
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""

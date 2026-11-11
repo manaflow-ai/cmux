@@ -4,29 +4,36 @@ text sits near it.
 parse(text) returns a Script: its Commands, each with argv Words and Redirects (a here-document's body included).
 A Word is a list of parts: Lit (literal text, quoted or not), Param ($x, ${x...}), Arith ($(( ))) and Sub (a
 command substitution, $( ) or backticks, or a process substitution <( ) or >( )), whose script is parsed the same
-way, to any depth. Every node keeps its start and end offset in the text parse() was given, backticks inside
-backticks included. Text this parser cannot read through (an unclosed quote or substitution, an unbalanced
-parenthesis, nesting deeper than MAX_DEPTH) raises Unparsed, and so does a shape it does not model as commands:
-an array (NAME=( ), declare -a), case, an arithmetic command (( )). A mktemp counts only in command position.
+way, to any depth, inside ${ } too. Every node keeps its start and end offset in the text parse() was given,
+backticks inside backticks included. An array's words, a case subject and its patterns, [[ ]] and (( )) are data,
+never argv, though each substitution in them is a script. Text this parser cannot read through (an unclosed quote
+or substitution, an unbalanced parenthesis, nesting deeper than MAX_DEPTH) raises Unparsed. A mktemp counts only in
+command position.
 
 The noclobber lints use it through code(), which drops comments where the shell does, and scan_text(): the text
 with only the literal part of each mktemp template word blanked out. A template word is an argument of a command
 named mktemp whose own literal text has XXXXXX. Each command substitution inside that word stays in and is walked like
 any other script, so a template there exempts only itself; a redirection's target is never a template, wherever it
-is. Three exemptions before this one each let a guessable name through, and so did a comment cut at any #; MISSES
-holds their review fixtures, and corpus() the shapes they missed, generated across nesting depth, substitution form,
-quoting and where the unsafe write sits.
+is. scan_file() reads a shell file or a workflow's run block whole, so a here-document keeps its context. MISSES
+holds every review fixture, corpus() the shapes they missed, FILES whole files, and bash_writes() the differential
+check: what bash does with a fixture, beside what the tree reads in it.
 
 This file is the same, byte for byte, in manaflow-ai/cmux tests/, manaflow-ai/cmux-platform test/node/,
 manaflow-ai/cmuxterm-hq tests/ and teamleaderleo/leo-workspace tools/; each repo's noclobber sweep pins its SHA-256.
 Change it in all four at once. Run as a script it reads a JSON list of strings on stdin and prints the list of their
-scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); with --corpus it prints corpus() as JSON.
+scan_text(code(...)) (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files and --bash print
+corpus(), FILES, each file's scan_file() and each text's bash_writes() as JSON.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 REDIRECTS = ("&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&", ">>", ">|", "<", ">")
@@ -653,6 +660,10 @@ MISSES = (
     #    F2 there, a here-document read line by line, is in FILES.
     "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
     "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX",
+    # 6. The parser kept quoting state bash does not (teamleaderleo/leo-workspace#4368 review at 3aa1ae3e, F1): in a
+    #    double-quoted ${ }, single quotes are literal, so the $( ) in them runs. F2 there, a here-document's
+    #    continued line, is in FILES.
+    "mktemp \"/tmp/${x:-'$(printf secret > /tmp/out.$$)'}.XXXXXX\"",
 )
 
 
@@ -766,6 +777,43 @@ def _case_in_subs() -> list[tuple[str, bool]]:
     return out
 
 
+# Quoting and line state as bash keeps it: single quotes in a ${ } are literal inside double quotes or a here-document,
+# so a substitution in them runs, and quote outside them, where it is text (flagged as any name outside a template is).
+QUOTE_STATE = (
+    ("mktemp \"/tmp/${x:-'$(printf secret > /tmp/out.$$)'}.XXXXXX\"", True),
+    ("mktemp \"/tmp/${a:-${b:-'$(printf secret > /tmp/out.$$)'}}.XXXXXX\"", True),
+    ("x=\"${y:-'`printf secret > /tmp/out.$$`'}\"", True),
+    ("x=\"${y:-'<(printf secret > /tmp/out.$$)'}\"", True),
+    ("mktemp /tmp/${x:-'$(printf secret > /tmp/out.$$)'}.XXXXXX", False),
+    ("x=${y:-'$(printf secret > /tmp/out.$$)'}", True),
+    ("cat <<EOF\n${x:-'$(printf secret > /tmp/out.$$)'}\nEOF", True),
+    ("cat <<'EOF'\n${x:-'$(printf secret > /tmp/out.$$)'}\nEOF", True),
+    ("mktemp \"/tmp/${x:-'$USER'}.XXXXXX\"", False),
+)
+
+
+# A mktemp behind a command wrapper and its options is still mktemp (teamleaderleo/leo-workspace#4368 review at
+# 3aa1ae3e, wrapper F1): its template is safe, and a write beside it is not. Where a wrapper's option takes the word
+# "mktemp" as its argument, the command is the next word, and an option the unwrapping does not know exempts nothing.
+WRAPPERS_SAFE = ("time -p", "env", "env -i", "env -i PATH=/usr/bin:/bin", "env -u HOME", "env -uHOME",
+                 "env --unset=HOME", "env -C /", "env --chdir=/", "env --", "env X=1 Y=2", "/usr/bin/env -i",
+                 "nice", "nice -n 5", "nice -n5", "nice -5", "nice --adjustment=5", "nohup", "command", "command -p",
+                 "exec", "exec -a name", "exec -c", "exec -cl", "timeout 5", "timeout -s KILL 5",
+                 "timeout --kill-after=1 5", "timeout --preserve-status 5s", "stdbuf -oL", "stdbuf -o L",
+                 "stdbuf --output=L -eL", "setsid", "setsid -f", "time -p env -i nice -n 1 timeout 5")
+WRAPPERS_UNSAFE = ("env -u mktemp", "env -C mktemp", "timeout mktemp", "nice -n mktemp", "exec -a mktemp",
+                   "command -v mktemp", "env --bogus mktemp", "stdbuf -o mktemp", "timeout -s mktemp 5")
+
+
+def _wrappers() -> list[tuple[str, bool]]:
+    out = []
+    for w in WRAPPERS_SAFE:
+        out += [(w + " mktemp /tmp/$USER.XXXXXX", False), ("d=$(" + w + " mktemp -d /tmp/$USER.XXXXXX)", False),
+                (w + " mktemp /tmp/$USER.XXXXXX > /tmp/out.$$", True)]
+    out += [(w + " /tmp/out.$$.XXXXXX", True) for w in WRAPPERS_UNSAFE]
+    return out
+
+
 # Text the parser must refuse, so it exempts nothing and its name is flagged: not shell bash reads (NOT_SHELL), or
 # nested past MAX_DEPTH. (MAX_DEPTH levels of the same parse, and stay safe.)
 NOT_SHELL = ("mktemp /tmp/a.$$.XXXXXX)", "(mktemp /tmp/a.$$.XXXXXX", 'mktemp "/tmp/a.$$.XXXXXX',
@@ -791,8 +839,8 @@ def _wrap(inner: str, form: str) -> str:
 def corpus() -> list[tuple[str, bool]]:
     """(shell, whether it writes a guessable shared-temp name): nesting depth 0-3 x substitution form x the
     template's quoting x a plain or nested template x where the unsafe write sits (none: the line is safe), then
-    COMMENTS, UNPARSED, NOT_COMMANDS, EXPANSIONS, DATA_SUBS and CASE_IN_SUBS, MAX_DEPTH levels deep, and the
-    MISSES. Whole files are in FILES."""
+    COMMENTS, UNPARSED, NOT_COMMANDS, EXPANSIONS, DATA_SUBS, CASE_IN_SUBS, QUOTE_STATE and the WRAPPERS,
+    MAX_DEPTH levels deep, and the MISSES. Whole files are in FILES."""
     out: dict[str, bool] = {}
     templates = {"bare": "/tmp/$USER.XXXXXX", "double": '"${TMPDIR:-/tmp}/$USER.XXXXXX"',
                  "single": "'/tmp/$USER.XXXXXX'"}
@@ -829,7 +877,8 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     for line in UNPARSED:
         out[line] = True
-    for line, unsafe in NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()) + tuple(_case_in_subs()):
+    for line, unsafe in (NOT_COMMANDS + EXPANSIONS + tuple(_data_subs()) + tuple(_case_in_subs()) + QUOTE_STATE
+                         + tuple(_wrappers())):
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
@@ -861,9 +910,98 @@ FILES = (
     ("scripts/shebang", "#!/usr/bin/env bash\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n", True),
     ("scripts/workflow.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          cat <<EOF\n          # $(printf s > /tmp/out.$$)\n"
      "          EOF\n", True),
+    # teamleaderleo/leo-workspace#4368 review at 3aa1ae3e, F2: in an unquoted here-document, abc\ and EOF join into
+    # one line, so the body goes on and bash runs the substitution; quoted, or with the backslash escaped, it ends.
+    ("scripts/heredoc-continued.sh", "cat <<EOF\nabc\\\nEOF\n# $(printf secret > /tmp/out.$$)\nEOF\n", True),
+    ("scripts/heredoc-continued-tabs.sh",
+     "cat <<-EOF\n\tabc\\\n\tEOF\n\t# $(printf secret > /tmp/out.$$)\n\tEOF\n", True),
+    ("scripts/heredoc-continued-quoted.sh", "cat <<'EOF'\nabc\\\nEOF\n# $(printf secret > /tmp/out.$$)\n", False),
+    ("scripts/heredoc-continued-escaped.sh", "cat <<EOF\nabc\\\\\nEOF\n# $(printf secret > /tmp/out.$$)\n", False),
+    # Wrapper review, F2: a #! line through env -S (or any wrapper) is still a shell's, so the file is read whole; one
+    # the unwrapping cannot resolve is a hit of its own (shell_tree.shebang), never read line by line unnoticed.
+    ("scripts/env-split", "#!/usr/bin/env -S bash -e\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n", True),
+    ("scripts/env-split-assign", "#!/usr/bin/env -S LC_ALL=C bash\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n",
+     True),
+    ("scripts/env-split-safe", "#!/usr/bin/env -S bash -e\ncat <<EOF\nhello\nEOF\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n",
+     False),
+    ("scripts/shebang-unresolved", "#!/usr/bin/env --bogus bash\nd=$(mktemp -d /tmp/$USER.XXXXXX)\n", True),
+    ("scripts/shebang-python", "#!/usr/bin/env python3\nimport os\n", False),
     ("scripts/workflow-safe.yml", "jobs:\n  a:\n    steps:\n      - run: |\n          d=$(mktemp -d \\\n"
      "            /tmp/$USER.XXXXXX)\n", False),
 )
+
+
+# The differential detector: what bash does with a fixture, beside what the tree reads in it. bash_writes() runs it
+# in a scratch folder of its own; a sweep checks that every fixture bash writes a guessable name with is one the tree
+# flags and the corpus calls unsafe. Real /tmp names are never touched: each /tmp in the text is moved into the folder.
+TMP_PATH = re.compile(r"(?<![\w.])(?:/private)?/tmp(?![\w.-])")
+MKTEMP = """#!/bin/sh
+out=$(TMPDIR=%s %s "$@") || exit $?
+printf '%%s\\n' "$out" >> %s
+printf '%%s\\n' "$out"
+"""
+
+
+def bash_writes(text: str, timeout: float = 10) -> bool | None:
+    """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
+    mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
+    no mktemp made; None when bash -n refuses TEXT."""
+    bash = shutil.which("bash")
+    if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True).returncode:
+        return None
+    root = tempfile.mkdtemp(prefix="shell-tree-")
+    try:
+        tmp, bindir, work = (os.path.join(root, d) for d in ("t", "bin", "work"))
+        for d in (tmp, bindir, work):
+            os.mkdir(d)
+        log = os.path.join(root, "made")
+        with open(os.path.join(bindir, "mktemp"), "w") as f:
+            f.write(MKTEMP % (tmp, shutil.which("mktemp"), log))
+        os.chmod(os.path.join(bindir, "mktemp"), 0o700)
+        for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid"):
+            os.symlink(shutil.which(tool), os.path.join(bindir, tool))
+        open(os.path.join(work, "a"), "w").close()
+        script = TMP_PATH.sub(tmp, text)
+        if TMP_PATH.search(script.replace(root, "")) or "umask" in script:
+            raise ValueError("a /tmp path or a umask is left in the script: " + script)
+        with open(os.path.join(root, "script"), "w") as f:
+            f.write(script)
+        env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C"}
+        # Reading its output to the end waits for every process that holds it, process substitutions included; on
+        # the timeout the whole process group is stopped.
+        run = subprocess.Popen([bash, "--noprofile", "--norc", os.path.join(root, "script")], cwd=work, env=env,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               start_new_session=True, umask=0o022)
+        try:
+            run.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(run.pid, 9)
+            run.communicate()
+            raise
+        # A name is mktemp's when the fake logged it, or when its mode is the 0600 file or 0700 folder mktemp makes:
+        # under env -i, the real mktemp runs from the default PATH. Under umask 022 nothing else makes those modes.
+        made = []
+        if os.path.exists(log):
+            with open(log) as f:
+                made = f.read().split()
+        for dirpath, dirs, files in os.walk(tmp):
+            for entry in dirs + files:
+                p = os.path.join(dirpath, entry)
+                mode = os.lstat(p).st_mode & 0o777
+                if any(p == m or p.startswith(m + "/") for m in made):
+                    continue
+                if mode == (0o700 if entry in dirs else 0o600) and "XXXXXX" not in entry:
+                    continue
+                return True
+        return False
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def bash_verdicts(texts: list[str]) -> list[bool | None]:
+    """bash_writes() of each of TEXTS, several bash runs at a time."""
+    with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 1) * 2)) as pool:
+        return list(pool.map(bash_writes, texts))
 
 
 if __name__ == "__main__":
@@ -873,5 +1011,7 @@ if __name__ == "__main__":
         json.dump([scan_file(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
     elif sys.argv[1:] == ["--file-corpus"]:
         json.dump(FILES, sys.stdout)
+    elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [bash_writes(text), ...]
+        json.dump(bash_verdicts(json.load(sys.stdin)), sys.stdout)
     else:
         json.dump([scan_text(code(t)) for t in json.load(sys.stdin)], sys.stdout)
