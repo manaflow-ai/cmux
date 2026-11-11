@@ -47,6 +47,9 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import claude_login_cache  # noqa: E402
+
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
               "big-plain", "huge-plain", "secrets", "odd-names")
@@ -88,7 +91,11 @@ def parse_args(argv=None):
                              "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
     parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
                         help="a Claude chat's `start-chat --login` (default: none given, so --grant-claude-login's consent "
-                             "decides; `none` is the machine's own team mode, the SR2/CodeRouter gateway)")
+                             "decides; `pass` copies the account's cached login, see --cache-claude-login; `none` "
+                             "copies nothing, which leaves Claude signed out on a team the gateway does not serve)")
+    parser.add_argument("--cache-claude-login", action="store_true",
+                        help="with --app: store CLAUDE_CODE_OAUTH_TOKEN (environment only) as the signed-in account's "
+                             "cached Claude login for this run (claude_login_cache.py); removed when the run ends")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -108,6 +115,11 @@ def parse_args(argv=None):
     if args.grant_claude_login and not args.app:
         # Never on --cli: that is a person's own app, and their consent is theirs to give.
         parser.error("--grant-claude-login works only with --app, the app this run launches")
+    if args.cache_claude_login and not args.app:
+        # Never on --cli: a person's own app keeps their own login.
+        parser.error("--cache-claude-login works only with --app, the app this run launches")
+    if args.cache_claude_login and not claude_login_cache.valid(claude_login_cache.token_from(os.environ)):
+        parser.error(f"--cache-claude-login needs {claude_login_cache.TOKEN_ENV} set to a `claude setup-token` login")
     # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
     # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
     args.parallel = max(1, min(args.parallel, 2))
@@ -429,6 +441,10 @@ class Matrix:
         self.args = args
         self.cli = args.cli or str(Path(args.app) / "Contents/Resources/bin/cmux")
         self.env = dict(os.environ)
+        # The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
+        self.claude_token = claude_login_cache.token_from(self.env) if args.cache_claude_login else ""
+        self.env.pop(claude_login_cache.TOKEN_ENV, None)
+        self.cached_logins: list[str] = []
         self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -522,21 +538,35 @@ class Matrix:
                           and str(v.get("backend", "")).rstrip("/") == origin))
         steps.append(("cloud list-machines", ("cloud", "list-machines", "--json"), 300,
                       lambda v: bool((v.get("account") or {}).get("signed_in")) and v.get("loaded") is not False))
+        status = {}
         for name, words, limit, ready in steps:
             deadline, last = time.monotonic() + limit, ""
             while True:
                 code, out, err = self.cmux(*words, timeout=30)
                 value = self.parsed(out) if code == 0 else {}
                 if code == 0 and ready(value):
+                    status = value if name == "auth.status" else status
                     break
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
+        if args.cache_claude_login:
+            # The entries a start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
+            entries = claude_login_cache.names(status)
+            if not entries:
+                return "the app is not ready: auth.status names no user to cache a Claude login for"
+            for entry in entries:
+                self.cached_logins.append(entry)
+                code, err = claude_login_cache.store(self.cli, self.env, entry, self.claude_token)
+                if code != 0:
+                    return f"cache claude login: exit {code} ({clean(err, 300)})"
         return ""
 
     def quit(self) -> None:
+        while self.cached_logins:
+            claude_login_cache.remove(self.cli, self.env, self.cached_logins.pop())
         if self.launcher is not None:
             self.cmux("app", "quit", "--json", timeout=30)
             try:
