@@ -104,7 +104,8 @@ fi
 mkdir -p "$TMP/www/m" "$TMP/mirror-src" "$TMP/mirror-cache"
 cp "$TMP/www/one.tar.gz" "$TMP/www/m/N-m1.tar.gz"
 cp "$TMP/www/one.tar.gz" "$TMP/www/m/N-other.tar.gz"
-cp "$TMP/www/two.tgz" "$TMP/www/m/N-bad.tar.gz"
+mkdir -p "$TMP/tree2/pkg-2.0" && echo other > "$TMP/tree2/pkg-2.0/file"
+tar -C "$TMP/tree2" -czf "$TMP/www/m/N-bad.tar.gz" pkg-2.0
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 one_sha="$(sha "$TMP/www/one.tar.gz")"
 cat > "$TMP/mirror.lock" <<EOF

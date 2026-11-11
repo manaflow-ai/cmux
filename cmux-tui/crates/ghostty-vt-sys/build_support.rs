@@ -260,7 +260,9 @@ pub fn mirror_only(setting: Option<&str>, ci: Option<&str>) -> bool {
 pub fn zig_env_global_cache(output: &str) -> Option<PathBuf> {
     let start = output.find("global_cache_dir")? + "global_cache_dir".len();
     let rest = &output[start..];
-    let open = rest.find('"').filter(|&i| i > 0 && rest[..i].contains(['=', ':']))?;
+    // Past the key's own closing quote (JSON), the `=` or `:`, then the value's quote.
+    let sep = rest.find(['=', ':'])?;
+    let open = sep + rest[sep..].find('"')?;
     let mut value = String::new();
     let mut chars = rest[open + 1..].chars();
     while let Some(c) = chars.next() {

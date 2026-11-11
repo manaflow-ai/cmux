@@ -172,7 +172,8 @@ class Lock:
     entries: dict[str, Entry]
 
 
-def read_lock(path: Path = LOCK) -> Lock:
+def read_lock(path: Path | None = None) -> Lock:
+    path = path or LOCK
     mirror = ""
     entries: dict[str, Entry] = {}
     for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
