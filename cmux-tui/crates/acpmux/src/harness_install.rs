@@ -38,6 +38,90 @@ pub fn agent(id: &str) -> Result<(&'static str, &'static str)> {
         })
 }
 
+/// The refusal code of a `session/new` whose harness is a coding agent this machine does not have
+/// (`data.code`, as the pane reads a refusal's code): the pane answers it with one line and Install
+/// (or the agent this machine does have), never the resolver's list of profiles.
+pub const NOT_INSTALLED: &str = "harness.not_installed";
+
+/// Coding agents acpmux finds by name on PATH (`config/discover.rs`), with the name a person
+/// knows them by. A chat asked of one that is not here is "not installed", not "unknown".
+const KNOWN: &[(&str, &str)] = &[
+    ("claude", "Claude Code"),
+    ("codex", "Codex"),
+    ("gemini", "Gemini CLI"),
+    ("opencode", "OpenCode"),
+    ("cursor", "Cursor"),
+    ("grok", "Grok"),
+    ("hermes", "Hermes"),
+    ("pi", "Pi"),
+    ("omp", "Oh My Pi"),
+    ("prime", "Prime Agent"),
+    ("deepseek", "DeepSeek"),
+];
+
+/// The agent a new chat starts on when this machine has no coding agent at all: Claude Code, the
+/// first one `default_harness.rs` prefers.
+pub const FIRST_CHOICE: &str = "claude";
+
+/// The coding agents a chat could start on here instead: ACP and Claude Code profiles that run
+/// (not unavailable), never a terminal, the Chief, UniiChat or the model router's hidden profile.
+/// Claude Code and Codex first, then by name.
+pub fn installed_alternatives(cfg: &crate::config::Config) -> Vec<String> {
+    use crate::config::{CHIEF_FAMILY, CMUX_ROUTER_PROFILE, HarnessKind, UNIICHAT_PROFILE};
+    let mut out: Vec<String> = cfg
+        .harnesses
+        .iter()
+        .filter(|(name, profile)| {
+            let family = crate::config::derive_family(name, profile);
+            profile.kind != HarnessKind::Terminal
+                && family != CHIEF_FAMILY
+                && family != UNIICHAT_PROFILE
+                && name.as_str() != CMUX_ROUTER_PROFILE
+                && !cfg.unavailable.contains_key(name.as_str())
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    let rank = |name: &str| match name {
+        "claude" => 0,
+        "codex" => 1,
+        _ => 2,
+    };
+    out.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.cmp(b)));
+    out
+}
+
+/// `session/new`'s refusal for `head` when it names a coding agent this machine does not have
+/// (no profile and no family of that name), else None. `data.code` is [`NOT_INSTALLED`];
+/// `data.details` names the agent, whether `acpmux harness install` installs it, and the agents
+/// installed here a chat could start on instead.
+pub fn not_installed(cfg: &crate::config::Config, head: &str) -> Option<crate::rpc::RpcError> {
+    let (id, name) = KNOWN.iter().find(|(id, _)| *id == head)?;
+    if cfg.harnesses.contains_key(*id) || cfg.families().contains_key(*id) {
+        return None;
+    }
+    Some(not_installed_error(id, name, installed_alternatives(cfg)))
+}
+
+fn not_installed_error(id: &str, name: &str, installed: Vec<String>) -> crate::rpc::RpcError {
+    crate::rpc::RpcError::invalid_params(format!("{name} is not installed on this machine"))
+        .with_data(json!({
+            "code": NOT_INSTALLED,
+            "errorKind": NOT_INSTALLED,
+            "details": {
+                "harness": id,
+                "name": name,
+                "installable": agent(id).is_ok(),
+                "installed": installed,
+            },
+        }))
+}
+
+/// A new chat with no agent named on a machine whose config names no default and that has no
+/// coding agent: Claude Code is not installed (the agent it would have started on).
+pub fn none_installed(cfg: &crate::config::Config) -> crate::rpc::RpcError {
+    not_installed_error(FIRST_CHOICE, "Claude Code", installed_alternatives(cfg))
+}
+
 /// Runs `ID`'s installer, reporting each step through `step`, and answers the result line.
 pub async fn install(id: &str, mut step: impl FnMut(&str, &str, &str)) -> Result<Value> {
     let (name, page) = agent(id)?;
@@ -178,6 +262,63 @@ fn last_line(stderr: &[u8], stdout: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn profile(
+        kind: crate::config::HarnessKind,
+        family: Option<&str>,
+    ) -> crate::config::HarnessProfile {
+        crate::config::HarnessProfile {
+            kind,
+            argv: vec!["/bin/true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: family.map(str::to_owned),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    }
+
+    /// A fresh Mac (only the built-in Chief and UniiChat): a chat asked of Claude Code, or of
+    /// nothing, is refused as not installed, typed, with nothing to start on instead; with Codex
+    /// here it names Codex. An agent that is here, or an unknown name, is not this refusal.
+    #[test]
+    fn a_missing_coding_agent_is_refused_typed_with_the_installed_ones() {
+        use crate::config::HarnessKind;
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("chief".into(), profile(HarnessKind::Acp, Some("chief")));
+        cfg.harnesses.insert("unii".into(), profile(HarnessKind::Acp, Some("unii")));
+        let err = not_installed(&cfg, "claude").expect("claude is missing");
+        let data = err.data.clone().unwrap();
+        assert_eq!(data["code"], NOT_INSTALLED);
+        assert_eq!(data["details"]["harness"], "claude");
+        assert_eq!(data["details"]["name"], "Claude Code");
+        assert_eq!(data["details"]["installable"], true);
+        assert_eq!(data["details"]["installed"], json!([]));
+        assert_eq!(err.message, "Claude Code is not installed on this machine");
+        assert_eq!(none_installed(&cfg).data.unwrap()["details"]["harness"], "claude");
+
+        cfg.harnesses.insert("codex".into(), profile(HarnessKind::Acp, None));
+        cfg.harnesses.insert("muse-terminal".into(), profile(HarnessKind::Terminal, None));
+        let data = not_installed(&cfg, "claude").unwrap().data.unwrap();
+        assert_eq!(data["details"]["installed"], json!(["codex"]));
+        assert!(not_installed(&cfg, "codex").is_none(), "codex is here");
+        assert!(
+            not_installed(&cfg, "no-such-agent").is_none(),
+            "an unknown name keeps its own error"
+        );
+        // Gemini CLI is known but not one `acpmux harness install` installs.
+        let gemini = not_installed(&cfg, "gemini").unwrap().data.unwrap();
+        assert_eq!(gemini["details"]["installable"], false);
+        // An unavailable Codex is no alternative.
+        cfg.unavailable.insert("codex".into(), "launcher failed".into());
+        assert_eq!(
+            not_installed(&cfg, "claude").unwrap().data.unwrap()["details"]["installed"],
+            json!([])
+        );
+    }
 
     #[test]
     fn only_the_known_agents_install() {

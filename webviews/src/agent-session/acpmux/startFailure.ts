@@ -32,6 +32,26 @@ function writtenForPeople(text: string): boolean {
   return /[.!?]$/.test(text) && !text.includes("\n") && text.split(" ").length >= 4 && !MACHINERY.test(text);
 }
 
+/// acpmux's typed refusal of a chat whose agent is not on the machine (harness_install.rs
+/// `NOT_INSTALLED`, `data.code`): a chat asked of an agent acpmux has no profile for, or a program
+/// that is gone at its start.
+export const NOT_INSTALLED_CODE = "harness.not_installed";
+
+/// Whether a failed start failed because its agent is not on the machine: acpmux's typed code, else
+/// the start's own words (an older acpmux, a host's spawn error), as the card's sentence reads them.
+export function startNotInstalled(switching: {
+  harness: string;
+  name: string;
+  error?: string;
+  code?: string;
+}): boolean {
+  if (switching.code === NOT_INSTALLED_CODE) return true;
+  const raw = switching.error?.trim();
+  if (!raw || startRefusalAction(switching.code)) return false;
+  const kind = failureKind(raw, { name: switching.name, harness: switching.harness }, switching.code);
+  return (kind === "spawn-failed" || kind === "other") && NOT_INSTALLED.test(raw) && !MISSING_FOLDER.test(raw);
+}
+
 export function startFailureView(
   t: Translate,
   switching: { harness: string; name: string; error?: string; code?: string },

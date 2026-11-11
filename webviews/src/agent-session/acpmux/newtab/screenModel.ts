@@ -19,7 +19,18 @@ import { translateNewTab } from "./strings";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
 
-export type ScreenAgent = { id: string; name: string };
+export type ScreenAgent = { id: string; name: string; family?: string };
+
+/// acpmux's built-in agents that are not a coding agent: the person's Chief and UniiChat. A chat
+/// starts on one only when it is picked; neither is a default (acpmux default_harness.rs).
+const BUILT_IN_FAMILIES: ReadonlySet<string> = new Set(["chief", "unii"]);
+
+/// The agent a prompt asks when this Mac has no coding agent at all (only the built-in ones):
+/// Claude Code, which acpmux also prefers. Its start answers "not installed", and the composer's
+/// notice installs it in place and then sends the prompt (MissingHarnessNotice.tsx).
+export const FIRST_CODING_AGENT = "claude";
+
+const builtIn = (agent: ScreenAgent) => BUILT_IN_FAMILIES.has(agent.family ?? agent.id);
 
 /// A row in the field's popover. The omnibar (Leo 2026-10-12, over cx-e2aa's addresses-only rows):
 /// URL completions from visited pages and top sites, the open tabs and workspaces that match,
@@ -78,7 +89,14 @@ export function orderedAgents(agents: readonly ScreenAgent[], lastAgent?: string
 /// The agent a prompt goes to before the user picks one: the remembered one, else the first
 /// installed.
 export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: string): string | undefined {
-  return orderedAgents(agents, lastAgent)[0]?.id;
+  const ordered = orderedAgents(agents, lastAgent);
+  // The remembered agent stays, a built-in one picked last included.
+  if (lastAgent !== undefined && ordered[0]?.id === lastAgent) return lastAgent;
+  const coding = ordered.find((agent) => !builtIn(agent));
+  if (coding) return coding.id;
+  // acpmux listed only its built-in agents (a fresh Mac): the prompt asks for Claude Code, never the
+  // Chief or UniiChat's sign-in (Leo 2026-11-11). Before acpmux lists any, none yet.
+  return agents.length > 0 ? FIRST_CODING_AGENT : undefined;
 }
 
 /// The matches the `minimal` order shows.

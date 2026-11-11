@@ -20,6 +20,9 @@ export type SetupPick = {
   model: string;
   effort?: string;
   fast?: boolean;
+  /// A failed start's notice started it (missingHarness.ts), which starts that chat itself once
+  /// the harness is ready; the model menu's own ready step starts a chat only for its own picks.
+  from?: "notice";
 };
 
 /// Where the setup is: its CLI installing (`line`: the installer's last output line); acpmux

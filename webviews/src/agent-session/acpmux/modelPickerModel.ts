@@ -44,8 +44,20 @@ export type HarnessChoice = {
 /// harness (a bundled catalog harness acpmux does not have is not one), as `current` below picks it.
 /// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
 export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
-  return uniqueHarnesses(catalog).find((entry) => !entry.notInstalled)?.id;
+  const choices = uniqueHarnesses(catalog);
+  // acpmux's built-in Chief and UniiChat are never the face of a chat nothing named (acpmux
+  // default_harness.rs): on a Mac with no coding agent the face is Claude Code, not installed, whose
+  // start the composer's notice answers with Install (Leo 2026-11-11).
+  const builtIn = (entry: HarnessChoice) => BUILT_IN_FAMILIES.has(entry.family ?? entry.id);
+  return (
+    choices.find((entry) => !entry.notInstalled && !builtIn(entry))?.id ??
+    choices.find((entry) => entry.notInstalled && entry.id === "claude")?.id ??
+    choices.find((entry) => !entry.notInstalled)?.id
+  );
 }
+
+/// acpmux's built-in agents that are not coding agents (the Chief, UniiChat).
+const BUILT_IN_FAMILIES: ReadonlySet<string> = new Set(["chief", "unii"]);
 
 // Catalog models can be backed by a lazy native catalog getter. The closed chip needs only
 // harness metadata; materialize a group's models when a menu actually asks for them.

@@ -1,0 +1,24 @@
+/* Gallery-only looks for MissingHarnessNotice.gallery.tsx: the shipped card, and two candidates it
+   was chosen over. Tokens only. */
+.missing-harness-gallery[data-look="row"] .acpmux-missing-harness .acpmux-host-error-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--grid-gap);
+}
+.missing-harness-gallery[data-look="row"] .acpmux-missing-harness .acpmux-host-error-message {
+  flex: 1 1 auto;
+}
+.missing-harness-gallery[data-look="row"] .acpmux-missing-harness .acpmux-host-error-actions button {
+  margin-top: 0;
+}
+.missing-harness-gallery[data-look="quiet"] .acpmux-missing-harness .acpmux-host-error-card {
+  border-color: transparent;
+  background: transparent;
+  padding-block: 0;
+}
+.missing-harness-gallery[data-look="quiet"] .acpmux-missing-harness .acpmux-host-error-actions button {
+  background: transparent;
+  color: var(--agent-accent);
+  padding-inline: 0;
+}

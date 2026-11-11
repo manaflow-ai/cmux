@@ -710,7 +710,9 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
-import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
+import { failedRuns, failedSendText, sendCause, type FailedRun } from "./sendFailure";
+import { MissingHarnessNotice } from "./MissingHarnessNotice";
+import { useMissingHarness } from "./missingHarness";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
@@ -1522,6 +1524,9 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
+
+/// No failed prompts: one array, so the notice's rows keep their identity.
+const NO_ROW_IDS: readonly string[] = [];
 
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
@@ -3122,13 +3127,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
   const trustBlock = trustAsk.blocked?.reason;
+  // Prompts of a chat with no session yet that acpmux refused because no coding agent is installed
+  // (sendFailure.ts `not-installed`): the composer's notice offers Install and sends them again.
+  const notInstalledRows = useMemo(
+    () =>
+      snapshot.sessionId
+        ? NO_ROW_IDS
+        : transcriptRows
+            .filter((row) => row.kind === "user" && row.failed === true && sendCause(row.delivery) === "not-installed")
+            .map((row) => row.id),
+    [transcriptRows, snapshot.sessionId],
+  );
+  const missingHarnessOwnsRows = agentLocal && notInstalledRows.length > 0;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
       ...(trustBlock ? { trustBlock } : {}),
       ...(canTrustFolder ? { trustFolder: () => trustNow.current() } : {}),
+      ...(missingHarnessOwnsRows ? { missingHarness: true } : {}),
     }),
-    [runs, trustBlock, canTrustFolder],
+    [runs, trustBlock, canTrustFolder, missingHarnessOwnsRows],
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
@@ -4622,6 +4640,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
+  // A chat whose agent CLI is not on this Mac (missingHarness.ts): one line, Install in place
+  // (then the typed message goes), or the agent this Mac has instead.
+  const missingHarness = useMissingHarness({
+    switching: snapshot.switching,
+    failedRows: notInstalledRows,
+    ...(healthHarness
+      ? {
+          composerHarness: {
+            harness: healthHarness,
+            name: catalog.find((entry) => entry.id === healthHarness)?.name ?? agentName(healthHarness),
+          },
+        }
+      : {}),
+    local: agentLocal,
+    catalog: pickerCatalog,
+    native: harnessesNative,
+    ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+    refreshCatalog: () => pickerState.refresh(),
+    logIn: (harness, login) => signIn.openLogIn?.(harness, login) ?? Promise.resolve(false),
+    retry: () => callNative("chat.harness.retry"),
+    send: () => composerHandle.current?.send(),
+    retryRows: (rowIds) => void window.cmuxAcpmuxActions?.["chat.retryPrompt"]?.({ rowIds: [...rowIds] }),
+    editRows: (rowIds) => void window.cmuxAcpmuxActions?.["chat.editFailedPrompt"]?.({ rowIds: [...rowIds] }),
+    setUp: () => openHarnessesPage(),
+  });
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -11319,39 +11362,43 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ) : (
           <Notice
             id="switch"
-            tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
-            when={snapshot.switching && snapshot.switching.phase !== "starting"}
+            tier={snapshot.switching?.phase === "deferred" && !missingHarness ? "status" : "error"}
+            when={Boolean(missingHarness) || Boolean(snapshot.switching && snapshot.switching.phase !== "starting")}
           >
-            <SwitchNotice
-              switching={snapshot.switching}
-              // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
-              installs={!startsElsewhere}
-              onRetry={() => void callNative("chat.harness.retry")}
-              // The refused prompt is back in the composer; a chat on another machine starts only
-              // with a send, so the share's retry sends it again (as Trust's answer does).
-              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
-              onAction={(action) => {
-                // Install runs the agent's installer where its output shows, then Retry starts it.
-                if (action === "install") {
-                  const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
-                  if (command)
-                    void callNative("tab.open", {
-                      kind: "terminal",
-                      text: command,
-                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
-                      run: true,
-                    }).catch(() => undefined);
-                  return;
-                }
-                const route = startRefusalRoute(action, startsElsewhere);
-                if (route === "newCloudMachine") connectMachine("cloud");
-                // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
-                else if (route === "machineFolderMenu") {
-                  if (!openPicker("Location")) void chooseWorkspaceFolder();
-                } else void chooseWorkspaceFolder();
-              }}
-              share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
-            />
+            {missingHarness ? (
+              <MissingHarnessNotice {...missingHarness} />
+            ) : (
+              <SwitchNotice
+                switching={snapshot.switching}
+                // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
+                installs={!startsElsewhere}
+                onRetry={() => void callNative("chat.harness.retry")}
+                // The refused prompt is back in the composer; a chat on another machine starts only
+                // with a send, so the share's retry sends it again (as Trust's answer does).
+                onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
+                onAction={(action) => {
+                  // Install runs the agent's installer where its output shows, then Retry starts it.
+                  if (action === "install") {
+                    const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
+                    if (command)
+                      void callNative("tab.open", {
+                        kind: "terminal",
+                        text: command,
+                        ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                        run: true,
+                      }).catch(() => undefined);
+                    return;
+                  }
+                  const route = startRefusalRoute(action, startsElsewhere);
+                  if (route === "newCloudMachine") connectMachine("cloud");
+                  // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
+                  else if (route === "machineFolderMenu") {
+                    if (!openPicker("Location")) void chooseWorkspaceFolder();
+                  } else void chooseWorkspaceFolder();
+                }}
+                share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
+              />
+            )}
           </Notice>
         )}
         {!harnessCard && (

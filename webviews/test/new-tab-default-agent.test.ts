@@ -25,3 +25,19 @@ test("a first launch asks acpmux's default agent, whatever order the reply's key
 test("the agent the user picked last still comes first", () => {
   expect(defaultHarness(agents(), "codex")).toBe("codex");
 });
+
+// Leo 2026-11-11: a friend with neither Claude Code nor Codex "tried to start a chat" and "ran into"
+// setup text. acpmux then lists only its built-in Chief and UniiChat, and the page asked the first of
+// them. Neither is a default: the prompt asks Claude Code, whose start the composer's notice answers
+// with Install, and a built-in agent asks only once it is picked.
+test("a Mac with only the built-in agents asks Claude Code, never the Chief or UniiChat", () => {
+  const builtIn = [
+    { id: "chief", name: "Chief", family: "chief" },
+    { id: "unii", name: "UniiChat", family: "unii" },
+  ];
+  expect(defaultHarness(builtIn)).toBe("claude");
+  expect(defaultHarness(builtIn, "unii")).toBe("unii");
+  expect(defaultHarness([...builtIn, { id: "codex", name: "Codex" }])).toBe("codex");
+  // Before acpmux lists any agent there is none yet.
+  expect(defaultHarness([])).toBeUndefined();
+});
