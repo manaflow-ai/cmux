@@ -25,7 +25,9 @@ use crate::app::frame_geometry::{
 };
 use crate::app::frontend_journal::FrontendJournalWorker;
 use crate::app::graphics::GraphicsSceneCache;
-use crate::app::host_input::{HostInputRuntime, read_crossterm_event};
+use crate::app::host_input::{
+    CROSSTERM_POLL_INTERVAL, HostInputRuntime, WAKEABLE_POLL_CAP, read_crossterm_event,
+};
 use crate::app::layout::{FocusTarget, SidebarLayout};
 use crate::app::machine_worker::{
     MachineActionWorker, ensure_initial_for_machine_ui, ensure_managed_workspace_guard,
@@ -266,6 +268,20 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
+    // With the event reader's waker, shutdown wakes the reader's poll, so an
+    // idle reader waits for input with no timer of its own.
+    let poll_cap = match crossterm::event::poll_waker() {
+        Ok(waker) => {
+            host_input.set_reader_wake(move || {
+                let _ = waker.wake();
+            });
+            WAKEABLE_POLL_CAP
+        }
+        Err(error) => {
+            crate::client_log::warn("input", &format!("no input poll waker: {error}"));
+            CROSSTERM_POLL_INTERVAL
+        }
+    };
     if let Err(error) = host_input.spawn_reader("input", move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
@@ -279,6 +295,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             }
             let events = match read_crossterm_event(
                 graphics_responses.time_until_expiry(),
+                poll_cap,
                 crossterm::event::poll,
                 crossterm::event::read,
             ) {

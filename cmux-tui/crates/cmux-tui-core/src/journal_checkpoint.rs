@@ -59,8 +59,9 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
     mux.flush_terminal_journal()?;
-    // The snapshot and the journal head form one consistency cut, read under
-    // a single registry + state lock hold. A journal record committed before
+    // The snapshot's durable rows and the journal head form one consistency
+    // cut: one committed revision, read in one read transaction with no
+    // registry lock and no state lock. A journal record committed before
     // the cut is covered by the snapshot; the fence below only has to reject
     // writes that land after it, while terminal content is being captured.
     let (snapshot, head_before) =
