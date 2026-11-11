@@ -385,6 +385,47 @@ fn a_connection_that_does_not_ask_keeps_the_two_field_cursor_and_gets_every_live
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The cursor's `live` field has a meaning only for a connection that sent
+/// `session-live-cursor-v1` (spec/resource-api-v2.md, "Capability rules"). A
+/// connection that did not ask and sends the field (a cursor another
+/// connection saved) gets every terminal with a live fact, as for a cursor
+/// of two fields: the daemon does not read the field.
+#[cfg(unix)]
+#[test]
+fn a_connection_that_does_not_ask_and_sends_a_live_position_gets_every_live_record() {
+    let (root, mux, terminals) = session("resume-unasked", 4, 4);
+    let mut clock = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    print(&terminals, &mut clock);
+
+    // A connection that asks: its cursor at rest has the live position.
+    let first = open(&mux, true, 1, None);
+    let held = last_cursor(&first.drain());
+    first.close();
+    assert!(held["live"].is_string(), "the cursor of a connection that asks: {held}");
+
+    // The same cursor on a connection that does not ask.
+    let resumed = open(&mux, false, 2, Some(&held));
+    assert!(
+        resumed.opened["cursor"].get("live").is_none(),
+        "the cursor of the resume response: {}",
+        resumed.opened["cursor"]
+    );
+    assert_eq!(
+        resumed.drain().sorted_terminal_records(),
+        terminal_ids(&terminals),
+        "a connection that does not ask got the short resume of a live position"
+    );
+    resumed.close();
+
+    // The control: the connection that asks has these facts and gets none.
+    let asked = open(&mux, true, 3, Some(&held));
+    assert_eq!(asked.drain().terminal_records(), Vec::<String>::new());
+    asked.close();
+
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Measurement: ONE resume at rest on a session of 826 workspaces
 /// (Lawrence's size) where 798 terminals have a live fact, for a connection
 /// that does not ask (`plain`) and one that does (`live_cursor`).
