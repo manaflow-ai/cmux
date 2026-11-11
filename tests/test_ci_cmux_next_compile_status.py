@@ -224,7 +224,7 @@ class StatusMapping(unittest.TestCase):
         posters = {name: step["run"] for name, j in workflow.items() for step in j.get("steps", [])
                    if '"cmux-next/compile"' in step.get("run", "")}
         self.assertEqual(sorted(posters), ["compile-status", "compile-status-handoff"])
-        body = lambda run: run[run.index("post() {"):run.index("\n          }\n", run.index("post() {"))]
+        body = lambda run: run[run.index("post() {"):run.index("\n}\n", run.index("post() {"))]
         canon = body(posters["compile-status"])
         for name, run in posters.items():
             with self.subTest(job=name):

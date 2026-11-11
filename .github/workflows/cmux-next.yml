@@ -7004,20 +7004,20 @@ jobs:
                 -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
                 "$API/statuses/$SHA" -d "$body")" || true
               [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
-              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ')"
+              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
               # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
               # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
               # (a bad token, a missing permission) is final at once.
               pause=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
                 said="$said (rate limited)"
-                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9')"
+                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                 if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
-                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9')"
+                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                   [[ -z "$min" ]] || pause=$(( min - $(date +%s) + 1 ))
                 fi
                 min=$(( ${LIMIT_GAP:-60} << (tries - 1) ))
-                (( ${pause:-0} >= min )) || pause=$min
+                [[ -n "$pause" ]] && (( pause >= min )) || pause=$min
               elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
                 pause="${POST_GAP:-10}"
               fi
@@ -7152,20 +7152,20 @@ jobs:
                 -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
                 "$API/statuses/$SHA" -d "$body")" || true
               [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
-              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ')"
+              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
               # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
               # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
               # (a bad token, a missing permission) is final at once.
               pause=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
                 said="$said (rate limited)"
-                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9')"
+                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                 if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
-                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9')"
+                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                   [[ -z "$min" ]] || pause=$(( min - $(date +%s) + 1 ))
                 fi
                 min=$(( ${LIMIT_GAP:-60} << (tries - 1) ))
-                (( ${pause:-0} >= min )) || pause=$min
+                [[ -n "$pause" ]] && (( pause >= min )) || pause=$min
               elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
                 pause="${POST_GAP:-10}"
               fi
