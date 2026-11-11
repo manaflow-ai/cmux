@@ -511,6 +511,84 @@ fn a_live_record_the_stream_could_not_read_is_not_in_a_later_cursor() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A commit can land after a resume with a value that is older than a live
+/// item the client has: an effect commit builds its terminal records under
+/// the registry lock, and when the journal writer's receipt comes late the
+/// request gives the lock back before the writer commits
+/// (`workspace_registry/registry_intent.rs`, an indeterminate receipt). A
+/// stream that resumed with a live position has no value of its own for the
+/// terminal, so it checks the terminal again after such a batch and sends
+/// its current record.
+#[cfg(unix)]
+#[test]
+fn a_batch_committed_after_a_resume_with_a_live_position_is_checked_again() {
+    let (root, mux, terminals) = session("resume-late", 1, 1);
+    let mut clock = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    print(&terminals, &mut clock);
+    let terminal = terminal_id(&terminals[0]);
+    let progress =
+        |message: &Value| message["item"]["changes"][0]["value"]["extra"]["progress"].clone();
+
+    let first = open(&mux, true, 1, None);
+    assert_eq!(first.drain().messages.len(), 1, "the open sends one snapshot");
+    // The record a commit reads now: the live facts of this moment.
+    print(&terminals, &mut clock);
+    let older = first.drain();
+    assert_eq!(older.terminal_records(), [terminal.as_str()], "one live record");
+    let read_by_the_commit = older.messages[0]["item"]["changes"][0]["value"].clone();
+    // Then a newer live fact, which the client gets.
+    print(&terminals, &mut clock);
+    let live = first.drain();
+    assert_eq!(live.terminal_records(), [terminal.as_str()], "one live record");
+    let held = last_cursor(&live);
+    let newest = progress(live.messages.last().unwrap());
+    assert_ne!(read_by_the_commit["extra"]["progress"], newest);
+    first.close();
+
+    // The client resumes at rest: it has every live fact.
+    let resumed = open(&mux, true, 2, Some(&held));
+    assert_eq!(resumed.drain().terminal_records(), Vec::<String>::new());
+
+    // The commit lands now, with the record it read.
+    let deltas = json!([{
+        "kind":"upsert", "sequence":0, "resource":"terminal", "id":terminal,
+        "value":read_by_the_commit,
+    }]);
+    let commit = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .commit_resource_patch(
+            &crate::workspace_registry::WorkspaceMutation::daemon_local("terminal.progress"),
+            "terminal.progress",
+            &read_by_the_commit,
+            None,
+            None,
+            &crate::workspace_registry::ResourcePatch { changes: Vec::new() },
+            &read_by_the_commit,
+            &deltas,
+        )
+        .unwrap();
+    mux.state.lock().unwrap().resource_revision = commit.revision;
+    mux.publish_resource_event();
+
+    let sent = resumed.drain();
+    assert_eq!(
+        sent.terminal_records(),
+        [terminal.clone(), terminal],
+        "the late batch, then the terminal's current record"
+    );
+    assert_eq!(
+        progress(sent.messages.last().unwrap()),
+        newest,
+        "the client ends at the older fact"
+    );
+    resumed.close();
+
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Measurement: ONE resume at rest on a session of 826 workspaces
 /// (Lawrence's size) where 798 terminals have a live fact, for a connection
 /// that does not ask (`plain`) and one that does (`live_cursor`).
