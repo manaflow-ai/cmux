@@ -364,6 +364,21 @@ extension PageWebView {
         return await send("mouseReleased", to, buttons: 0)
     }
 
+    /// A trusted Cmd-V on a Chromium page through DevTools, with Chromium's own Paste command: the
+    /// page reads the system pasteboard as a person's Cmd-V does (Blink's paste, the browser's
+    /// clipboard read), in a window that is never key. The host's paste record runs first, as for a
+    /// real Cmd-V (``chromiumPasted()``). False on a WebKit page or when DevTools refuses it.
+    public func debugPaste() async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        chromiumPasted()
+        let key: [String: any Sendable] = ["key": "v", "code": "KeyV", "windowsVirtualKeyCode": 86,
+                                           "nativeVirtualKeyCode": 9, "modifiers": 4]
+        guard (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "rawKeyDown", "commands": ["paste"]]) { $1 })) != nil
+        else { return false }
+        return (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "keyUp"]) { $1 })) != nil
+    }
+
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
     /// first 120 characters of text (a list's order and row state as the page draws it).
     public func debugQuery(_ selector: String) async -> JSONValue {

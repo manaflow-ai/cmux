@@ -191,7 +191,11 @@ async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
         (event) => {
           window.removeEventListener("keydown", keyDown, true);
           found.dispatched = since(start);
+          // The engine's read of the pasteboard's picture: Blink reads it when the page asks for the
+          // file (DataObjectItem::GetAsFile, the browser's ClipboardHost.ReadPng), not before.
+          const reading = performance.now();
           const pasted = event.clipboardData?.files[0];
+          found.read_ms = Math.round(performance.now() - reading);
           if (pasted) Object.assign(result, { bytes: pasted.size, type: pasted.type });
           requestAnimationFrame(check);
         },
