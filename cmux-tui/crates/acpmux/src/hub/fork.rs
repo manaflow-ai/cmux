@@ -44,10 +44,17 @@ pub struct Retarget {
     /// A family or profile name, as `session/new` takes it.
     pub harness: String,
     pub model: Option<String>,
+    /// A remote device (the Web, or a peer forwarding for it) asked: the new harness starts as a
+    /// chat that device starts would (`session/new`), remote-origin and in a reviewed asking
+    /// mode the server settles (`remote_guard.rs` `settle_web_session_mode`), never in this
+    /// Mac's start mode.
+    pub remote: bool,
 }
 
 /// The new harness a [`Retarget`] resolves to.
 struct Target {
+    /// The fork runs as a remote-origin chat ([`Retarget::remote`], or its parent was one).
+    remote: bool,
     agent: String,
     profile: crate::config::HarnessProfile,
     family: String,
@@ -163,12 +170,13 @@ impl Hub {
         cwd: &Path,
     ) -> Result<Option<Target>, RpcError> {
         let cfg = self.config.read().await;
+        let remote = parent.remote_origin || retarget.remote;
         let r = self.resolve_new(
             &cfg,
             Some(retarget.harness.clone()),
             &None,
             retarget.model.as_deref(),
-            parent.remote_origin,
+            remote,
             Some(cwd),
         )?;
         if r.agent == parent.harness {
@@ -180,6 +188,7 @@ impl Hub {
         let family = crate::config::derive_family(&r.agent, &r.profile);
         let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile);
         Ok(Some(Target {
+            remote,
             agent: r.agent.clone(),
             profile: r.profile.clone(),
             family,
@@ -661,8 +670,9 @@ impl Hub {
             auth_change: None,
             harness_failures: Default::default(),
             harness_sandbox: Default::default(),
-            // A fork of a remote-origin session stays remote-origin.
-            remote_origin: parent_meta.remote_origin,
+            // A fork of a remote-origin session stays remote-origin, and a remote device's switch
+            // onto another harness is that device's new chat ([`Retarget::remote`]).
+            remote_origin: parent_meta.remote_origin || target.as_ref().is_some_and(|t| t.remote),
             vm_boundary: parent_meta.vm_boundary,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,

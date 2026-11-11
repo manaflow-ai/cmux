@@ -2168,7 +2168,11 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
-            let retarget = super::fork_through::retarget(&params)?;
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
+            let remote_switch = conn.origin.web_class();
+            let retarget = super::fork_through::retarget(&params)?
+                .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
+            let switched = retarget.is_some();
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
@@ -2218,6 +2222,17 @@ async fn dispatch_request_with_identity(
                 };
                 hub.fork_cancellable(token, fork).await?
             };
+            // Onto another harness from a remote device: the mode a chat that device starts runs
+            // in (`session/new` above), its family's reviewed asking default, or the fork is
+            // ended and refused. A plain fork keeps the chat's mode, which the guard checked.
+            if switched && remote_switch {
+                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
+                let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                heap(|| {
+                    super::remote_guard::settle_web_session_mode(hub, &new, peer, cloud_mobile)
+                })
+                .await?;
+            }
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
