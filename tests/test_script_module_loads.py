@@ -34,6 +34,83 @@ ROOT = Path(__file__).resolve().parents[1]
 LOADERS = {"spec_from_file_location", "SourceFileLoader", "load_source", "run_path", "run_module"}
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 
+# Loaded by path in every test file on purpose and never registered: `python3 -I` puts no folder on sys.path.
+PRIVATE_COPIES = {"git_fixture_env"}
+
+# Path loads this check found when it was widened to scripts' imports and to files more than one test loads, left
+# to convert (the five that made a second object at runtime are converted). Shrink-only: an entry that is no longer
+# a finding fails the check, so remove it with the conversion; never add one.
+LEFT = "no test in the shared set patches it through the other object yet; convert it to `import` when touched"
+ALLOWED: dict[tuple[str, str], str] = {
+    ("scripts/cmux-next/tests/test_bench_startup_daemon_build.py", "bench_ab"): LEFT,
+    ("scripts/cmux-next/tests/test_perf_completeness.py", "xbench"): LEFT,
+    ("scripts/cmux-next/tests/test_tag_teardown.py", "tag_teardown"): LEFT,
+    ("scripts/cmux-next/tests/test_teardown_clone_cleanup.py", "bench_memory"): LEFT,
+    ("scripts/cmux-next/tests/test_teardown_clone_cleanup.py", "procs"): LEFT,
+    ("scripts/measure/tests/bench-ab.test.py", "bench_ab"): LEFT,
+    ("scripts/measure/tests/cu-arena.test.py", "arena"): LEFT,
+    ("tests/test_app_crate_licenses.py", "check_app_crate_licenses"): LEFT,
+    ("tests/test_app_ffi_release_workflow.py", "next_macos_cascade"): LEFT,
+    ("tests/test_app_ffi_release_workflow.py", "queue_janitor"): LEFT,
+    ("tests/test_app_host_test_products.py", "app_host_test_products"): LEFT,
+    ("tests/test_base_red_excuse.py", "cargo_test_verdict"): LEFT,
+    ("tests/test_build_metrics.py", "build_metrics"): LEFT,
+    ("tests/test_cargo_test_verdict.py", "cargo_test_verdict"): LEFT,
+    ("tests/test_ci_owned_pool_rescue.py", "owned_pool_rescue"): LEFT,
+    ("tests/test_ci_owned_warm_state.py", "owned_warm_state"): LEFT,
+    ("tests/test_ci_package_lane_suite_skips.py", "test_reds"): LEFT,
+    ("tests/test_ci_package_result_reuse.py", "select_package_tests"): LEFT,
+    ("tests/test_ci_parallel_artifact_transport.py", "parallel_artifact_download"): LEFT,
+    ("tests/test_ci_queue_janitor.py", "queue_janitor"): LEFT,
+    ("tests/test_ci_r2_cache_census.py", "r2_cache_census"): LEFT,
+    ("tests/test_ci_rescue_actors.py", "classify_failures"): LEFT,
+    ("tests/test_ci_rescue_actors.py", "next_macos_cascade"): LEFT,
+    ("tests/test_ci_rescue_actors.py", "pr_runner_pool"): LEFT,
+    ("tests/test_ci_route_refusal_detail.py", "next_macos_cascade"): LEFT,
+    ("tests/test_ci_route_refusal_detail.py", "pr_runner_pool"): LEFT,
+    ("tests/test_ci_route_refusal_detail.py", "side_lane_placement"): LEFT,
+    ("tests/test_ci_runs_on_fallback.py", "nightly_next_launch_smoke"): LEFT,
+    ("tests/test_ci_starved_labels.py", "starved_labels"): LEFT,
+    ("tests/test_ci_test_touches_diff.py", "test_touches_diff"): LEFT,
+    ("tests/test_ci_web_test_failure_census.py", "web_test_failure_census"): LEFT,
+    ("tests/test_cloud_pair_proof.py", "cmux_next_cloud_pair_proof"): LEFT,
+    ("tests/test_cmux_next_checks_workflow.py", "next_macos_cascade"): LEFT,
+    ("tests/test_cmux_next_guardrails_observation.py", "test_cmux_next_guardrails"): LEFT,
+    ("tests/test_cmux_next_guardrails_qos.py", "test_cmux_next_guardrails"): LEFT,
+    ("tests/test_cmux_next_visual_gate.py", "nightly_next_canary_mode"): LEFT,
+    ("tests/test_cmux_tui_tree_handoff.py", "cmux_tui_tree_handoff"): LEFT,
+    ("tests/test_fresh_home_launch_smoke.py", "fresh_home_launch_smoke"): LEFT,
+    ("tests/test_gh_app_token.py", "prune_nightly_release_assets"): LEFT,
+    ("tests/test_gh_call_log.py", "job_reuse"): LEFT,
+    ("tests/test_gh_call_log.py", "pr_status"): LEFT,
+    ("tests/test_gh_pages.py", "gh_pages"): LEFT,
+    ("tests/test_hosted_queue_wait.py", "hosted_queue_wait"): LEFT,
+    ("tests/test_lan_product_source.py", "node_product_cache"): LEFT,
+    ("tests/test_lan_product_source.py", "peer_product_source"): LEFT,
+    ("tests/test_nightly_next_artifact_check.py", "verify_appcast_item"): LEFT,
+    ("tests/test_nightly_next_canary_mode.py", "nightly_next_canary_mode"): LEFT,
+    ("tests/test_nightly_next_feed_rollback.py", "nightly_next_feed_rollback"): LEFT,
+    ("tests/test_nightly_next_fix_forward.py", "nightly_next_fix_forward"): LEFT,
+    ("tests/test_nightly_next_launch_smoke.py", "nightly_next_feed_rollback"): LEFT,
+    ("tests/test_nightly_next_launch_smoke.py", "nightly_next_launch_smoke"): LEFT,
+    ("tests/test_nightly_next_launch_smoke.py", "nightly_next_live_feed_check"): LEFT,
+    ("tests/test_nightly_next_live_feed_check.py", "nightly_next_live_feed_check"): LEFT,
+    ("tests/test_nightly_next_train.py", "nightly_build_runner"): LEFT,
+    ("tests/test_nightly_next_train.py", "nightly_next_fix_forward"): LEFT,
+    ("tests/test_nightly_next_train.py", "nightly_next_train"): LEFT,
+    ("tests/test_nightly_release_notes.py", "nightly_release_notes"): LEFT,
+    ("tests/test_nightly_signer_jobs.py", "verify_appcast_item"): LEFT,
+    ("tests/test_node_product_cache.py", "node_product_cache"): LEFT,
+    ("tests/test_node_product_cache.py", "peer_product_source"): LEFT,
+    ("tests/test_prune_nightly_release_assets.py", "prune_nightly_release_assets"): LEFT,
+    ("tests/test_publish_nightly_next_r2.py", "nightly_next_feed_rollback"): LEFT,
+    ("tests/test_publish_nightly_next_r2.py", "nightly_next_ring"): LEFT,
+    ("tests/test_risk_tier.py", "risk_tier"): LEFT,
+    ("tests/test_test_reds.py", "test_reds"): LEFT,
+    ("tests/test_triage_rules.py", "triage_rules"): LEFT,
+    ("tests/test_verification_receipt.py", "verification_receipt"): LEFT,
+}
+
 
 def test_files(root: Path = ROOT) -> list[Path]:
     found = set(root.glob("tests/*.py")) | set(root.glob("scripts/**/tests/*.py")) | set(root.glob("scripts/tests/*.py"))
@@ -76,6 +153,19 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
                     return found
         return None
 
+    def loads_its_first_argument(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        if not function.args.args:
+            return False
+        first = function.args.args[0].arg
+        return any(isinstance(n, ast.Call)
+                   and (n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", None)) in LOADERS
+                   and first in {name for arg in n.args for name in names(arg)}
+                   for n in ast.walk(function))
+
+    # A file's own loader helper (`def load(name): spec_from_file_location(name, ...)`), called as load("stem").
+    helpers = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and loads_its_first_argument(node)}
+
     imported: set[str] = set()
     loads: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
@@ -88,6 +178,10 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
             if called == "import_module" and node.args and isinstance(node.args[0], ast.Constant):
                 imported.add(str(node.args[0].value).split(".")[0])
+            if called in helpers and node.args and isinstance(node.args[0], ast.Constant) \
+                    and isinstance(node.args[0].value, str) and IDENTIFIER.fullmatch(node.args[0].value):
+                loads.append((node.lineno, f"{called}()", node.args[0].value))
+                continue
             if called not in LOADERS:
                 continue
             if called == "run_module":
@@ -104,22 +198,48 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
 
 
 def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]], dict[str, set[str]]]:
-    """Path loads of a file another test imports by name, plus who imports and who loads each module."""
+    """Path loads of a repository module that something else also reaches: a test or a script imports it by name,
+    or another test file loads it by path too. Each makes a second module object for one file. Returns the findings
+    (less PRIVATE_COPIES), plus who among the tests imports and who loads each module."""
+    # Only a stem that names one repository file: run.py, publish.py and driver.py each name several, and which one
+    # a by-name import reaches depends on the importer's folder.
+    stems = collections.Counter(p.stem for p in [*root.glob("scripts/**/*.py"), *root.glob("tests/*.py")])
+    modules = {stem for stem, count in stems.items() if count == 1}
     importers: dict[str, set[str]] = collections.defaultdict(set)
     loaders: dict[str, list[tuple[str, int, str]]] = collections.defaultdict(list)
-    for path in test_files(root):
+    tests = test_files(root)
+    for path in tests:
         rel = path.relative_to(root).as_posix()
         imported, loads = scan(path)
         for name in imported:
             importers[name].add(rel)
         for line, called, stem in loads:
             loaders[stem].append((rel, line, called))
-    findings = [
-        f"{rel}:{line}: {called} loads {stem}.py by path, but {', '.join(sorted(importers[stem])[:3])} import it by "
-        f"name: two module objects for one file. Put its folder on sys.path and `import {stem}` instead."
-        for stem, sites in sorted(loaders.items()) if importers.get(stem)
-        for rel, line, called in sites
-    ]
+    # Scripts import their siblings by name, and a test that imports such a script imports them with it.
+    script_importers: dict[str, set[str]] = collections.defaultdict(set)
+    for path in sorted(set(root.glob("scripts/**/*.py")) - set(tests)):
+        try:
+            imported, _ = scan(path)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for name in imported:
+            script_importers[name].add(path.relative_to(root).as_posix())
+    findings = []
+    for stem, sites in sorted(loaders.items()):
+        if stem not in modules or stem in PRIVATE_COPIES:
+            continue
+        loading_files = {rel for rel, _, _ in sites}
+        for rel, line, called in sites:
+            others = sorted((importers.get(stem, set()) | script_importers.get(stem, set())) - {rel})
+            also_loaded = sorted(loading_files - {rel})
+            if others:
+                why = f"{', '.join(others[:3])} import it by name"
+            elif also_loaded:
+                why = f"{', '.join(also_loaded[:3])} load it by path too"
+            else:
+                continue
+            findings.append(f"{rel}:{line}: {called} loads {stem}.py by path, but {why}: two module objects for one "
+                            f"file. Put its folder on sys.path and `import {stem}` instead.")
     return findings, importers, {stem: {rel for rel, _, _ in sites} for stem, sites in loaders.items()}
 
 
@@ -178,7 +298,12 @@ VICTIM = "tests/test_cmux_next_route.py::LinuxLaneTests::test_a_linux_guard_test
 class ScriptModuleLoadTests(unittest.TestCase):
     def test_no_test_loads_by_path_a_file_another_test_imports_by_name(self):
         findings, _, _ = two_object_loads()
-        self.assertEqual(findings, [], "\n" + "\n".join(findings))
+        found = {(finding.split(":")[0], finding.split(" loads ", 1)[1].split(".py by path")[0]): finding
+                 for finding in findings}
+        new = sorted(finding for key, finding in found.items() if key not in ALLOWED)
+        self.assertEqual(new, [], "\n" + "\n".join(new))
+        converted = sorted(f"{rel} ({stem})" for rel, stem in ALLOWED if (rel, stem) not in found)
+        self.assertEqual(converted, [], "no longer path-loaded: remove from ALLOWED (shrink-only)\n" + "\n".join(converted))
 
     def test_the_scan_finds_the_route_copy_that_broke_linux_lane_tests(self):
         """The detector itself: the polluting load, in a scratch tree, is a finding."""
@@ -202,10 +327,35 @@ class ScriptModuleLoadTests(unittest.TestCase):
                     spec = importlib.util.spec_from_file_location("cmux_next_route", tmp / "cmux_next_route.py")
             '''))
             (root / "tests/test_b.py").write_text("import cmux_next_route\n")
+            (root / "scripts/ci").mkdir(parents=True)
+            for name in ("cmux_next_route", "ring", "placement"):
+                (root / f"scripts/ci/{name}.py").write_text("")
+            # A script imports placement by name; a test loads it through its own helper.
+            (root / "scripts/ci/runner.py").write_text("import placement\n")
+            (root / "tests/test_c.py").write_text(textwrap.dedent('''
+                import importlib.util
+                from pathlib import Path
+                SCRIPTS = Path(__file__).resolve().parents[1] / "scripts/ci"
+                def load(name):
+                    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    return module
+                placement = load("placement")
+                ring = importlib.util.spec_from_file_location("ring", SCRIPTS / "ring.py")
+            '''))
+            # Two test files load ring.py by path, and nothing imports it by name.
+            (root / "tests/test_d.py").write_text(
+                "import importlib.util\nfrom pathlib import Path\nROOT = Path(__file__).resolve().parents[1]\n"
+                "ring = importlib.util.spec_from_file_location(\"ring\", ROOT / \"scripts/ci/ring.py\")\n")
             findings, _, _ = two_object_loads(root)
-        self.assertEqual(len(findings), 2, findings)
-        self.assertTrue(all(f.startswith("tests/test_a.py:") and "cmux_next_route.py by path" in f for f in findings),
-                        findings)
+        route = [f for f in findings if "cmux_next_route.py by path" in f]
+        self.assertEqual(len(route), 2, findings)
+        self.assertTrue(all(f.startswith("tests/test_a.py:") for f in route), findings)
+        self.assertEqual(len([f for f in findings if "load() loads placement.py" in f and "runner.py" in f]), 1, findings)
+        self.assertEqual(sorted(f.split(":")[0] for f in findings if "ring.py by path" in f),
+                         ["tests/test_c.py", "tests/test_d.py"], findings)
+        self.assertEqual(len(findings), 5, findings)
 
     def test_importing_the_sharing_test_files_in_either_order_leaves_one_module_per_file(self):
         shared = sharing_test_files()
