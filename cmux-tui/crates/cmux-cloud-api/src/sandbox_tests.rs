@@ -25,6 +25,8 @@ struct Fake {
     /// What [`Steps::elsewhere`] answers, and each remove's `elsewhere`.
     others: Mutex<Vec<String>>,
     elsewheres: Mutex<Vec<Vec<String>>>,
+    /// Each remove's `listed_since_ms`.
+    listed_since: Mutex<Vec<i64>>,
 }
 
 impl Fake {
@@ -40,6 +42,7 @@ impl Fake {
             removes: AtomicUsize::new(0),
             others: Mutex::new(Vec::new()),
             elsewheres: Mutex::new(Vec::new()),
+            listed_since: Mutex::new(Vec::new()),
         })
     }
 }
@@ -73,7 +76,9 @@ impl Steps for Fake {
         machine: Option<&str>,
         scope: Option<&str>,
         elsewhere: &[String],
+        listed_since_ms: i64,
     ) -> Removal {
+        self.listed_since.lock().unwrap().push(listed_since_ms);
         self.elsewheres.lock().unwrap().push(elsewhere.to_vec());
         self.removes.fetch_add(1, Ordering::AcqRel);
         self.scopes.lock().unwrap().push(scope.map(str::to_owned));
@@ -676,6 +681,39 @@ fn a_tasks_length_is_counted_in_characters_the_composer_counts() {
         matches!(&refused, Failure::Http { status: 400, code: Some(code), .. } if code == "run_task_required"),
         "{refused:?}"
     );
+}
+
+/// #39022 review at b1bfb468, F1: every cleanup pass names the time only a list read since may say
+/// the machine is gone: the Run's settle time, never earlier than its end.
+#[test]
+fn each_cleanup_pass_names_the_time_its_list_must_be_read_after() {
+    let replied = || Outcome::Replied { reply: "hi".into(), machine: None };
+    let fake = Fake::new(Some(replied()), vec![]);
+    let engine = Engine::open(None, fake.clone(), quick());
+    let before = now_ms();
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    settled(&engine, &id, "destroyed");
+    let since = fake.listed_since.lock().unwrap().clone();
+    assert!(!since.is_empty() && since.iter().all(|at| *at >= before), "{since:?}");
+}
+
+/// #39022 review at f5a1386f, F1 (and b1bfb468 F2): with the app on another account (or signed
+/// out) past the whole give-up time, the cleanup was abandoned and switching back never deleted
+/// the machine. Those passes never count now: back on the Run's account, it is deleted.
+#[test]
+fn switching_back_after_the_give_up_time_still_deletes_the_machine() {
+    let replied = || Outcome::Replied { reply: "hi".into(), machine: Some("m-1".into()) };
+    let quiet = Timing { give_up: Duration::from_millis(150), ..quick() };
+    let mut passes: Vec<Removal> = (0..40)
+        .map(|_| Removal::Unheard("the app lists user:u2|personal's machines".into()))
+        .collect();
+    passes.push(Removal::Later("asked to delete machine m-1".into()));
+    let fake = Fake::new(Some(replied()), passes);
+    let engine = Engine::open(None, fake.clone(), quiet);
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed", "{snapshot}");
+    assert_eq!(fake.removes.load(Ordering::Acquire), 42);
 }
 
 /// The same audit (P2): a store this build cannot read was written over with an empty list, and

@@ -533,6 +533,13 @@ final class CloudService {
 
     /// Whether the store holds a list the server answered, within `age`, for the user and team
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
+    /// When the store's list for the account signed in now was read, as ms since the epoch (nil: it holds none).
+    var currentListReadMs: Int? {
+        guard hasLoadedCurrentMachines, let at = listLoadedAt else { return nil }
+        let age = at.duration(to: .now)
+        return Int((Date().timeIntervalSince1970 - Double(age.components.seconds) - Double(age.components.attoseconds) / 1e18) * 1000)
+    }
+
     func hasCurrentList(within age: Duration) -> Bool {
         CloudListFreshness.isCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }

@@ -111,9 +111,11 @@ pub enum Removal {
     /// Not yet: the machine is still listed (a delete was asked for, or is under way), or the list
     /// cannot say (signed out, not loaded, another team). Read again later.
     Later(String),
-    /// No list could be read at all: the app not running, or its Cloud verbs refused (Cloud turned
-    /// off by an organization). Read again later; this time never counts toward giving up, so a
-    /// Mac that was closed or a policy that was on never strands the machine with no delete tried.
+    /// No list could be read at all (the app not running, or its Cloud verbs refused: Cloud turned
+    /// off by an organization), or the list the app answered cannot say (signed out, not loaded
+    /// yet, or another account's). Read again later; this time never counts toward giving up, so a
+    /// Mac that was closed, a policy that was on or a sign-out never strands the machine with no
+    /// delete tried: signing back in resumes the cleanup (#39022 F2 at b1bfb468).
     Unheard(String),
     /// The Run's own account's list shows a create of its name on its way: the app may still make
     /// the machine (a start that waits on the person's Start can make it days later). Read again
@@ -136,12 +138,17 @@ pub trait Steps: Send + Sync {
     /// Asks for the machine's delete when it is still listed; [`Removal::Gone`] only once an
     /// authoritative list for `scope` no longer shows it, [`Removal::Cleared`] when a list of one
     /// of the `elsewhere` accounts shows none of it.
+    ///
+    /// `listed_since_ms`: a list read before this time (ms since the epoch) is no proof the machine
+    /// is absent: a create whose answer was lost may land in the list after it (#39022 F1 at
+    /// b1bfb468), so only a list the app read since then says [`Removal::Gone`].
     fn remove(
         &self,
         machine_name: &str,
         machine: Option<&str>,
         scope: Option<&str>,
         elsewhere: &[String],
+        listed_since_ms: i64,
     ) -> Removal;
     /// The other accounts the app was on while the Run `run`'s task started (a switch during the
     /// start), each one where its machine may have been made; asked once, after the task.
@@ -738,7 +745,7 @@ impl Engine {
                 (run.machine_name, run.machine, run.scope, run.settle_ms, run.elsewhere)
             };
             let removal =
-                self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere);
+                self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere, settle);
             // Before the settle time a create there may still be on its way into that list.
             if let Removal::Cleared(other) = &removal
                 && now_ms() >= settle

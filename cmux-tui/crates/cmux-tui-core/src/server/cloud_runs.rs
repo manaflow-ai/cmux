@@ -211,6 +211,10 @@ pub(super) enum Judgement {
     Kill(String),
     /// Read again later, for this reason.
     Wait(String),
+    /// The list cannot say anything about the Run's machine (not loaded, signed out, another
+    /// account's, or read before the Run's create could land): read again later, with no time
+    /// toward giving up ([`Removal::Unheard`]), so a sign-in or a switch back resumes the cleanup.
+    Unknown(String),
     /// The Run's own account's list shows a create of its name on its way: read again later, and
     /// never give up while it can still make the machine ([`Removal::Creating`]).
     Creating(String),
@@ -242,10 +246,10 @@ pub(super) fn judge_everywhere(
     elsewhere: &[String],
 ) -> Judgement {
     if list.get("loaded").and_then(Value::as_bool) != Some(true) {
-        return Judgement::Wait("the app's machine list has not loaded".into());
+        return Judgement::Unknown("the app's machine list has not loaded".into());
     }
     let Some(listed_scope) = account_scope(list) else {
-        return Judgement::Wait("the app is not signed in to Cloud".into());
+        return Judgement::Unknown("the app is not signed in to Cloud".into());
     };
     // Only a list of the Run's own person and team says anything; a Run with no scope has none.
     let Some(scope) = scope else {
@@ -282,7 +286,9 @@ pub(super) fn judge_everywhere(
         if elsewhere.contains(&listed_scope) {
             return Judgement::Cleared(listed_scope);
         }
-        return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
+        return Judgement::Unknown(format!(
+            "the app lists {listed_scope}'s machines, not {scope}'s"
+        ));
     }
     let found = rows("machines").find(|row| {
         let id = field(row, "machine_id");
@@ -308,6 +314,20 @@ pub(super) fn judge_everywhere(
         return Judgement::Creating(format!("{machine_name} is still being created"));
     }
     Judgement::Gone
+}
+
+/// `judged`, but a list the app read before `since_ms` (`listed_at_ms`, ms since the epoch; none
+/// from an app that does not say) never says [`Judgement::Gone`]: a create whose answer was lost
+/// may land in the list after it (#39022 review at b1bfb468, F1). Every `cloud list-machines` of a
+/// script reads the list again when it is older than the app's bound, so a later pass has one.
+pub(super) fn fresh(judged: Judgement, list: &Value, since_ms: i64) -> Judgement {
+    let listed_at = list.get("listed_at_ms").and_then(Value::as_i64);
+    match judged {
+        Judgement::Gone if listed_at.is_none_or(|at| at < since_ms) => {
+            Judgement::Unknown("the app's list was read before the Run's create could land".into())
+        }
+        other => other,
+    }
 }
 
 /// The child's JSON answer (`result` when it has one), or its error object.
@@ -538,14 +558,17 @@ impl Steps for AppVerbs {
         machine: Option<&str>,
         scope: Option<&str>,
         elsewhere: &[String],
+        listed_since_ms: i64,
     ) -> Removal {
         let list = match self.list() {
             Ok(list) => list,
             // No list at all (the app not running, or Cloud turned off): no time toward giving up.
             Err(message) => return Removal::Unheard(message),
         };
-        let id = match judge_everywhere(&list, machine_name, machine, scope, elsewhere) {
+        let judged = judge_everywhere(&list, machine_name, machine, scope, elsewhere);
+        let id = match fresh(judged, &list, listed_since_ms) {
             Judgement::Gone => return Removal::Gone,
+            Judgement::Unknown(reason) => return Removal::Unheard(reason),
             Judgement::Cleared(other) => return Removal::Cleared(other),
             Judgement::Wait(reason) => return Removal::Later(reason),
             Judgement::Creating(reason) => return Removal::Creating(reason),
@@ -711,36 +734,62 @@ mod tests {
         assert_eq!(judge(&gone, NAME, Some("m-9"), U1_T1), Judgement::Gone);
         // Not loaded yet (a relaunch, a slow first list): its empty list says nothing.
         let not_loaded = list(false, Some("u1"), Some("t1"), empty.clone(), empty.clone());
-        assert!(matches!(judge(&not_loaded, NAME, Some("m-9"), U1_T1), Judgement::Wait(_)));
+        assert!(matches!(judge(&not_loaded, NAME, Some("m-9"), U1_T1), Judgement::Unknown(_)));
         // Signed out: loaded is false and the list is empty.
         let signed_out = list(false, None, None, empty.clone(), empty.clone());
-        assert!(matches!(judge(&signed_out, NAME, Some("m-9"), U1_T1), Judgement::Wait(_)));
+        assert!(matches!(judge(&signed_out, NAME, Some("m-9"), U1_T1), Judgement::Unknown(_)));
         // Signed in to another team (or personal): that list is not the Run's.
         let other = list(true, Some("u1"), Some("t2"), empty.clone(), empty.clone());
-        assert!(matches!(judge(&other, NAME, Some("m-9"), U1_T1), Judgement::Wait(_)));
+        assert!(matches!(judge(&other, NAME, Some("m-9"), U1_T1), Judgement::Unknown(_)));
         let personal = list(true, Some("u1"), None, empty.clone(), empty);
-        assert!(matches!(judge(&personal, NAME, None, U1_T1), Judgement::Wait(_)));
+        assert!(matches!(judge(&personal, NAME, None, U1_T1), Judgement::Unknown(_)));
         assert_eq!(judge(&personal, NAME, None, U1), Judgement::Gone);
         // A Run with no scope matches no list.
         assert!(matches!(judge(&personal, NAME, None, None), Judgement::Wait(_)));
+    }
+
+    /// #39022 review at b1bfb468, F1: a list the app read before the Run's create could land
+    /// (a cached one) never says gone; one read since does, and an app that does not say when
+    /// it read its list never does.
+    #[test]
+    fn only_a_list_read_after_the_create_could_land_says_gone() {
+        let mut stale = list(true, Some("u1"), None, json!([]), json!([]));
+        stale["listed_at_ms"] = json!(1_000);
+        let judged = judge(&stale, NAME, None, U1);
+        assert_eq!(judged, Judgement::Gone);
+        assert!(matches!(fresh(judged, &stale, 2_000), Judgement::Unknown(_)));
+        let mut read = stale.clone();
+        read["listed_at_ms"] = json!(2_500);
+        assert_eq!(fresh(judge(&read, NAME, None, U1), &read, 2_000), Judgement::Gone);
+        let mut unsaid = stale;
+        unsaid.as_object_mut().unwrap().remove("listed_at_ms");
+        assert!(matches!(fresh(judge(&unsaid, NAME, None, U1), &unsaid, 0), Judgement::Unknown(_)));
+        // A machine still listed is deleted whatever the list's age.
+        let mut listed =
+            list(true, Some("u1"), None, json!([listed("m-9", NAME, "running")]), json!([]));
+        listed["listed_at_ms"] = json!(1_000);
+        assert_eq!(
+            fresh(judge(&listed, NAME, None, U1), &listed, 2_000),
+            Judgement::Kill("m-9".into())
+        );
     }
 
     #[test]
     fn another_person_on_the_same_team_or_personal_never_says_gone() {
         // Two personal accounts are two scopes.
         let theirs = list(true, Some("u2"), None, json!([]), json!([]));
-        assert!(matches!(judge(&theirs, NAME, Some("m-9"), U1), Judgement::Wait(_)));
+        assert!(matches!(judge(&theirs, NAME, Some("m-9"), U1), Judgement::Unknown(_)));
         // The same team under another person is another scope too.
         let teammate = list(true, Some("u2"), Some("t1"), json!([]), json!([]));
-        assert!(matches!(judge(&teammate, NAME, None, U1_T1), Judgement::Wait(_)));
+        assert!(matches!(judge(&teammate, NAME, None, U1_T1), Judgement::Unknown(_)));
         // A list naming no user (an older app) is no one's.
         let mut nameless = list(true, Some("u1"), None, json!([]), json!([]));
         nameless["account"].as_object_mut().unwrap().remove("user_id");
         assert_eq!(account_scope(&nameless), None);
-        assert!(matches!(judge(&nameless, NAME, None, U1), Judgement::Wait(_)));
+        assert!(matches!(judge(&nameless, NAME, None, U1), Judgement::Unknown(_)));
         // A scope stored before scopes named the person matches no list.
         let t1 = list(true, Some("u1"), Some("t1"), json!([]), json!([]));
-        assert!(matches!(judge(&t1, NAME, None, Some("team:t1")), Judgement::Wait(_)));
+        assert!(matches!(judge(&t1, NAME, None, Some("team:t1")), Judgement::Unknown(_)));
     }
 
     /// Codex's review of #39022 at 8c2c83b0 (after 551a7dca's F3): a machine of the Run's own name
@@ -768,7 +817,7 @@ mod tests {
             Judgement::Cleared("user:u2|personal".into())
         );
         // An account the start never found the app on clears nothing.
-        assert!(matches!(judge_everywhere(&empty, NAME, None, U1_T1, &[]), Judgement::Wait(_)));
+        assert!(matches!(judge_everywhere(&empty, NAME, None, U1_T1, &[]), Judgement::Unknown(_)));
         // A create of the name still on its way there clears nothing.
         let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
         let on_its_way = list(true, Some("u2"), None, json!([]), creating);
@@ -806,7 +855,7 @@ mod tests {
         let unknown = [UNKNOWN_ACCOUNT.to_owned()];
         assert!(matches!(
             judge_everywhere(&empty, NAME, None, U1_T1, &unknown),
-            Judgement::Wait(_)
+            Judgement::Unknown(_)
         ));
         assert_eq!(app_account(&Err(json!({ "code": "cloud.start_pending" }))), None);
     }
