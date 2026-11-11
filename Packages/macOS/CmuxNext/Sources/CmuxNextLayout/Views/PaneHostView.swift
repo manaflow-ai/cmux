@@ -413,8 +413,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // A key hold and a closing pane have their own rules.
         guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
         // From where the content is, with its tabs (a strip at its top or bottom edge, a list at its leading edge): no
-        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card.
-        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: headerHeight, footer: footerHeight, leading: content.paneGroundLeadingInset)
+        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card. The tabs' rows
+        // are the rows above the content's area, not `headerHeight`: a chat with no strip reports a header for
+        // its ring and paints those rows itself, so a Split Right or Left left a band of the window's color that high.
+        let tabs = content.paneGroundInsets
+        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: tabs?.top ?? headerHeight, footer: footerHeight, leading: tabs?.leading ?? 0)
     }
 
     /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than

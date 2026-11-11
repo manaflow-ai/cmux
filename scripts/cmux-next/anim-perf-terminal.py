@@ -13,7 +13,6 @@ layout so a single table compares builds:
   column / column-close         newColumn, then its closePane
   ws-switch / ws-back           goToWorkspace to a 4-pane workspace and back
   sidebar-hide / sidebar-show   toggleSidebar twice
-  right-open / right-close      toggleRightSidebar twice
   group-collapse / -expand      toggleFocusedWorkspaceGroupCollapsed twice (a sidebar group of 3 workspaces)
   home-show / home-leave        home.show, then goToWorkspace back
   chat-open / -next / -prev     home.openConversation of the first of 4 seeded chats (the bench's own Chief home),
@@ -291,8 +290,6 @@ def anims():
         ("ws-back", None, lambda: go(state["a"])),
         ("sidebar-hide", lambda: at_a(1), run("toggleSidebar")),
         ("sidebar-show", None, run("toggleSidebar")),
-        ("right-open", lambda: at_a(1), run("toggleRightSidebar")),
-        ("right-close", None, run("toggleRightSidebar")),
         ("group-collapse", lambda: go(state["group_ws"]), run("toggleFocusedWorkspaceGroupCollapsed")),
         ("group-expand", None, run("toggleFocusedWorkspaceGroupCollapsed")),
         ("home-show", lambda: at_a(1), run("home.show")),
@@ -522,7 +519,7 @@ def main():
             time.sleep(0.3)  # test harness: idle between runs
     by_name = {n: (p, f) for n, p, f in anims()}
     undo_of = {"tab-new": "tab-close", "tab-move": "tab-move-back", "split-right": "split-close", "column": "column-close",
-            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "right-open": "right-close", "group-collapse": "group-expand",
+            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "group-collapse": "group-expand",
             "palette-open": "palette-close", "tab-to-pane": "tab-back", "split-down": "split-down-close"}
     for name in filter(None, opts.sample.split(",")):
         if name in by_name:

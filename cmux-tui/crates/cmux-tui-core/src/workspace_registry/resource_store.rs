@@ -14,7 +14,7 @@ pub(crate) use patch_apply::{
 pub(crate) use terminal_live::{LiveTerminalRows, query_live_terminal};
 pub(crate) use topology_load::{
     load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
-    load_terminal_tabs, load_topology_frame,
+    load_tab_with_focus, load_terminal_tabs, load_topology_frame,
 };
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
