@@ -217,7 +217,8 @@ impl HistoryHost {
             // the fold goes on from its cursor, where every record is still
             // in the journal. It is saved at this build's version by the
             // next save.
-            let own = restored.is_some() && !another_version;
+            // MUTATION (never merge): a fold of another version counts as own.
+            let own = restored.is_some();
             let base = if own {
                 None
             } else {
