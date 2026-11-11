@@ -26,13 +26,14 @@ struct MobileDemonstrationAccountPolicy: Equatable {
 
     /// Whether Add Computer, the pairing scanner, and Tailscale setup appear.
     var allowsPairing: Bool {
-        true
+        !isDemonstrationAccount
     }
 
     /// Whether a pairing presentation may open. Attach-ticket version approval
     /// is not a pairing entry point and is never refused.
     func allows(_ presentation: PairingPresentation) -> Bool {
-        true
+        if case .versionApproval = presentation { return true }
+        return allowsPairing
     }
 }
 #endif

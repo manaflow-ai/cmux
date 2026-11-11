@@ -835,7 +835,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
-            startTailscalePairing: showPairingScanner,
+            startTailscalePairing: pairingScannerAction,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -1093,11 +1093,11 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .firstRun,
             isAuthenticated: isAuthenticated,
-            connectionPhase: onboardingDemonstrationPolicy.connectionPhase(onboardingConnectionPhase),
-            connectionMethod: onboardingDemonstrationPolicy.connectionMethod(
+            connectionPhase: demonstrationPolicy.connectionPhase(onboardingConnectionPhase),
+            connectionMethod: demonstrationPolicy.connectionMethod(
                 connectionMethodStore?.method ?? .automatic
             ),
-            offersConnectionMethodChoice: onboardingDemonstrationPolicy.offersConnectionMethodChoice,
+            offersConnectionMethodChoice: demonstrationPolicy.offersConnectionMethodChoice,
             keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
@@ -1157,8 +1157,9 @@ struct CMUXMobileRootView: View {
     }
 
     /// The App Review demonstration account's Demo Mac stands in for a live
-    /// Mac during onboarding, and its connect page offers no Tailscale choice.
-    private var onboardingDemonstrationPolicy: MobileDemonstrationAccountPolicy {
+    /// Mac during onboarding, and the account never reaches pairing or a
+    /// Tailscale choice anywhere in the app.
+    private var demonstrationPolicy: MobileDemonstrationAccountPolicy {
         MobileDemonstrationAccountPolicy(
             isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
         )
@@ -1445,12 +1446,18 @@ struct CMUXMobileRootView: View {
     /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
     /// Only the Tailscale pairing-code scanner keeps a method gate.
     private var addComputerAction: (() -> Void)? {
-        showAddDevice
+        #if os(iOS)
+        guard demonstrationPolicy.allowsPairing else { return nil }
+        #endif
+        return showAddDevice
     }
 
     /// Scanner entrypoints use the same gate as the manual pairing form.
     private var pairingScannerAction: (() -> Void)? {
         guard allowsManualPairing else { return nil }
+        #if os(iOS)
+        guard demonstrationPolicy.allowsPairing else { return nil }
+        #endif
         return showPairingScanner
     }
 
@@ -1487,6 +1494,9 @@ struct CMUXMobileRootView: View {
     /// Routes pairing and attach approval through the platform's root presenter.
     private func presentPairing(_ presentation: PairingPresentation) {
         #if os(iOS)
+        // The App Review demonstration account has no Mac and no Tailscale;
+        // every pairing entry point ends here.
+        guard demonstrationPolicy.allows(presentation) else { return }
         addDeviceSheetDetent = .large
         handleRootPresentation(.presentPairing(presentation))
         #else
