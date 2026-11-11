@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -134,6 +135,13 @@ class FakeGitHub:
                                     for job in self.jobs.values() if job["head_sha"] == HEAD]}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if "/actions/runs?head_sha=" in route:
+            # The head's run list (head_runs): each run's workflow, no workflow file or time, so none supersedes
+            # another by run (superseding_run) unless a test lists them (SupersededRunGitHub).
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            runs = [{"id": run, "workflow_id": self.workflows.get(run, 7), "head_sha": sha}
+                    for run in sorted({job["run_id"] for job in self.jobs.values() if job["head_sha"] == sha})]
+            return [{"total_count": len(runs), "workflow_runs": runs}]
         if "/actions/runs/" in route:
             run = int(route.rsplit("/", 1)[1])
             return {"id": run, "workflow_id": self.workflows.get(run, 7)}
@@ -1945,6 +1953,160 @@ class SlimRunRecord(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "without its workflow_id"):
             self.judge()
         self.assertFalse([r for r in self.gh.routes if "/workflows/None/" in r], self.gh.routes)
+
+
+class SupersededRunGitHub(FakeGitHub):
+    """The head's run list (`actions/runs?head_sha=SHA`, LISTED): cmux#40850 at 4dd65e96, where backend-migrations runs
+    42921917680 and 42921920329 were cancelled with no job while run 42921946667 of the same workflow file passed."""
+
+    def __init__(self):
+        super().__init__()
+        self.listed: list[dict] = []
+
+    def json(self, route, *, paginate=False):
+        if "/actions/runs?head_sha=" in route:
+            self.routes.append(route)
+            return [{"total_count": len(self.listed), "workflow_runs": copy.deepcopy(self.listed)}]
+        return super().json(route, paginate=paginate)
+
+
+def head_run(run_id, conclusion, created, *, path=".github/workflows/backend-migrations.yml", event="pull_request",
+             sha=HEAD, name="backend-migrations", **extra):
+    return {"id": run_id, "name": name, "path": path, "workflow_id": 70, "event": event, "head_sha": sha,
+            "status": "completed", "conclusion": conclusion, "created_at": f"2026-11-11T00:{created:02d}:00Z", **extra}
+
+
+class CancelledRunSupersededByLaterGreen(unittest.TestCase):
+    """dep-fleet-6: "A cancelled run counts as superseded, not red, only when all of these hold": a later run of the
+    same workflow file, at the same head SHA, from the same event (for workflow_dispatch, the same inputs), created
+    after the cancelled one, concluded success. Anything less stays red."""
+
+    def setUp(self):
+        self.gh = SupersededRunGitHub()
+        self.gh.jobs = {}  # run 30 ran no job, as 42921917680 did
+        self.gh.listed = [head_run(30, "cancelled", 1)]
+
+    def judge(self, runs=(30,)):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh)
+
+    def test_a_jobless_cancelled_run_a_later_green_of_its_workflow_file_superseded_is_ignored(self):
+        self.gh.listed.append(head_run(31, "success", 5))
+        lines = self.judge()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
+                        lines)
+
+    def test_every_cancelled_run_of_a_head_shares_one_run_list_read(self):
+        self.gh.listed += [head_run(32, "cancelled", 2), head_run(31, "success", 5)]
+        lines = self.judge(runs=(30, 32))
+        self.assertEqual(len(lines), 2, lines)
+        self.assertEqual(len([r for r in self.gh.routes if "runs?head_sha=" in r]), 1, self.gh.routes)
+
+    def superseded_then(self, **later):
+        """The cancelled run 30 with a later green run 31 is ignored; with LATER changed in run 31, it refuses: each
+        refusal below is that one part of the rule failing, never an unread or unlisted run."""
+        self.gh.listed[1:] = [head_run(31, "success", 5)]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        self.gh.listed[1:] = [head_run(31, later.pop("conclusion", "success"), later.pop("created", 5), **later)]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_cancelled_run_with_no_later_run_refuses(self):
+        self.gh.listed[1:] = [head_run(31, "success", 5)]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        del self.gh.listed[1:]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_later_green_at_another_sha_refuses(self):
+        self.superseded_then(sha="c" * 40)
+
+    def test_a_later_green_of_another_workflow_file_with_the_same_name_refuses(self):
+        self.superseded_then(path=".github/workflows/backend-migrations-2.yml")
+
+    def test_a_later_run_that_skipped_refuses(self):
+        for conclusion in ("skipped", "neutral", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                self.superseded_then(conclusion=conclusion)
+
+    def test_a_green_created_before_the_cancelled_run_refuses(self):
+        self.superseded_then(created=0)
+
+    def test_a_later_green_from_another_event_refuses(self):
+        self.superseded_then(event="push")
+
+    def test_a_workflow_dispatch_with_other_inputs_refuses(self):
+        self.gh.listed = [head_run(30, "cancelled", 1, event="workflow_dispatch", inputs={"lane": "a"}),
+                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "a"})]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        self.gh.listed[1]["inputs"] = {"lane": "b"}
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+        # Inputs GitHub's run record does not carry are unknown, never the same.
+        for run in self.gh.listed:
+            del run["inputs"]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_superseded_run_names_each_cancelled_job_and_still_judges_a_failure(self):
+        self.gh.listed.append(head_run(31, "success", 5))
+        self.gh.jobs = {3: dict(failed_job(3, 30, HEAD, name="migrate"), conclusion="cancelled")}
+        lines = self.judge()
+        self.assertTrue(any(line.startswith("ignored 'migrate': its cancelled job 3 in run 30 is superseded by run 31")
+                            for line in lines), lines)
+        # A failure is a verdict: a later green never launders it (merge_hold's _superseded_cancels).
+        self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA)}
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
+
+class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
+    """#40963 review F1 at 1f697b4c: a cancelled run whose jobs all passed, skipped or were neutral never asked
+    superseding_run, so it still read "no failed job found" though a later green run of its workflow file passed. Every
+    cancelled run with no failed or timed-out job is asked; a failure or a time-out is still a verdict."""
+
+    def setUp(self):
+        self.gh = SupersededRunGitHub()
+        self.gh.listed = [head_run(30, "cancelled", 1), head_run(31, "success", 5)]
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [30], self.gh)
+
+    def jobs(self, *conclusions):
+        self.gh.jobs = {job_id: dict(failed_job(job_id, 30, HEAD, name=f"job {job_id}"), conclusion=conclusion)
+                        for job_id, conclusion in enumerate(conclusions, start=3)}
+
+    def test_an_all_success_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("success", "success")
+        lines = self.judge()
+        self.assertEqual(lines[0].split(":", 1)[0], "ignored 'backend-migrations'", lines)
+        self.assertIn("its cancelled run 30 is superseded by run 31", lines[0])
+
+    def test_an_all_skipped_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("skipped", "neutral")
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
+                        lines)
+
+    def test_a_passed_job_run_with_no_later_green_still_refuses(self):
+        self.jobs("success", "skipped")
+        del self.gh.listed[1:]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_failed_or_timed_out_job_in_a_superseded_run_is_still_judged(self):
+        self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))  # judged against the base, as before
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+        self.gh.jobs = {1: dict(failed_job(1, 30, HEAD), conclusion="timed_out"),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        with self.assertRaisesRegex(excuse.Refused, "timed_out"):
+            self.judge()
 
 
 class StatusOnlyChecks(unittest.TestCase):
@@ -5227,7 +5389,9 @@ class WsCheckPerTest(unittest.TestCase):
         self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
         self.assertIn(f"not excused 'ws-check' step '{self.RELAY}' (no test names): passes on main",
                       str(caught.exception))
-        self.assertIn("fixed on main; merge main", str(caught.exception))
+        # The merge-base has no verdict, so whether the red was there is unknown (WsCheckFixedOnBase).
+        self.assertIn(f"the merge-base {self.gh.MERGE_BASE[:12]} has no ws-check verdict", str(caught.exception))
+        self.assertNotIsInstance(caught.exception, excuse.FixedOnBase)
 
     def test_main_green_before_the_merge_base_waits_for_a_newer_verdict(self):
         self.gh.statuses.pop(self.gh.TIP)
@@ -5374,10 +5538,10 @@ class WsCheckPerTest(unittest.TestCase):
             self.judge()
 
     def test_main_green_still_refuses_though_the_merge_base_shares_the_failure(self):
-        # Main proved the fix: merging main is the way, as before.
+        # Main proved the fix: updating the branch is the way, and the refusal names the first green commit.
         self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")}, tip={})
         self.gh.verdict(self.gh.TIP, 2, {}, state="success")
-        with self.assertRaisesRegex(excuse.Refused, "fixed on main; merge main"):
+        with self.assertRaisesRegex(excuse.FixedOnBase, f"^fixed on base by {self.gh.OLDER[:12]}: update the branch"):
             self.judge()
 
     def test_a_cmux_red_is_still_judged_by_its_actions_job(self):
@@ -5388,6 +5552,100 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckFixedOnBase(unittest.TestCase):
+    """2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
+    green on main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red,
+    tools/test_knowledge_tiers.py's leo-asks room test, failed the same way at the PR's merge-base e8873054 and was
+    fixed on main by LW#4196, and the PR touched only tools/lane-gh. The classifier compared the head with main's
+    newest verdict alone, so a base red main had since fixed read as the PR's own. It still refuses (the PR needs CI at
+    a head that has the fix), but says "fixed on base by <commit>: update the branch". ws_check_red is the one verdict:
+    merge_hold's message comes from it, and the lane-gh broker's update_branch guard reads it (--ws-check-verdict) to
+    let a SHIP'd PR's base merge through only for "fixed_on_base"."""
+    TIERS = ".github/workflows/tools-tests.yml test: every other tools/test_*.py"
+    LEO_ASKS = "test_every_page_inlines_whole_within_the_hooks_room (__main__.EveryRuleIsReachable.test_every_page_" \
+               "inlines_whole_within_the_hooks_room)"
+
+    def tiers(self, *tests):
+        printed = []
+        for test in tests:
+            printed += ["=" * 70, f"FAIL: {test}", "-" * 70, "AssertionError: 2872 not less than or equal to 2750 : "
+                        "leo-asks"]
+        return printed + ["-" * 70, "Ran 77 tests in 4.1s", "", f"FAILED (failures={len(tests)})"]
+
+    def setUp(self):
+        # main: TIP and OLDER pass, the merge-base (the oldest of the three) failed the leo-asks test.
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.TIERS: self.tiers(self.LEO_ASKS)})
+        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
+        self.gh.verdict(self.gh.OLDER, 3, {}, state="success")
+
+    def verdict(self):
+        return excuse.ws_check_red(self.gh.REPO, "main", HEAD, self.gh)
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh, checks=["ws-check"])
+
+    def test_red_at_the_merge_base_and_green_on_main_says_update_the_branch(self):
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {self.TIERS: self.tiers(self.LEO_ASKS)})
+        verdict = self.verdict()
+        self.assertEqual((verdict["kind"], verdict["fix"]), ("fixed_on_base", self.gh.OLDER))
+        with self.assertRaises(excuse.FixedOnBase) as caught:
+            self.judge()
+        said = str(caught.exception)
+        self.assertTrue(said.startswith(f"fixed on base by {self.gh.OLDER[:12]}: update the branch"), said)
+        self.assertIn(f"red at this PR's merge-base {self.gh.MERGE_BASE[:12]} too", said)
+        self.assertNotIn("not excused", said)
+        self.assertIsInstance(caught.exception, excuse.Refused)  # it still refuses: CI must run at a head with the fix
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", lambda: self.gh), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", self.gh.REPO, "--base", "main", "--sha", HEAD, "--check", "ws-check"])
+        self.assertEqual(code, 1)
+        self.assertTrue(err.getvalue().startswith(f"fixed on base by {self.gh.OLDER[:12]}: update the branch"),
+                        err.getvalue())
+
+    def test_red_only_at_the_head_stays_not_excused(self):
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {self.TIERS: self.tiers("test_other (__main__.Other.test_other)")})
+        self.assertEqual(self.verdict()["kind"], "head_only")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertNotIsInstance(caught.exception, excuse.FixedOnBase)
+        self.assertIn(f"not excused 'ws-check' test '{self.TIERS} :: {self.LEO_ASKS}'", str(caught.exception))
+        self.assertIn(f"not red at this PR's merge-base {self.gh.MERGE_BASE[:12]}", str(caught.exception))
+        self.assertNotIn("fixed on base by", str(caught.exception))
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {}, state="success")
+        self.assertEqual(self.verdict()["kind"], "head_only")
+
+    def test_a_merge_base_with_no_verdict_stays_not_excused_and_says_so(self):
+        self.assertEqual(self.verdict()["kind"], "head_only")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertNotIsInstance(caught.exception, excuse.FixedOnBase)
+        self.assertIn(f"not excused 'ws-check' test '{self.TIERS} :: {self.LEO_ASKS}'", str(caught.exception))
+        self.assertIn(f"the merge-base {self.gh.MERGE_BASE[:12]} has no ws-check verdict", str(caught.exception))
+
+    def test_red_at_the_merge_base_and_red_on_main_stays_a_base_red(self):
+        self.gh.verdict(self.gh.TIP, 2, {self.TIERS: self.tiers(self.LEO_ASKS)})
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {self.TIERS: self.tiers(self.LEO_ASKS)})
+        verdict = self.verdict()
+        self.assertEqual((verdict["kind"], verdict["fix"]), ("base_red", ""))
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertNotIn("fixed on base by", "\n".join(audit))
+
+    def test_the_verdict_is_printed_as_json_for_the_broker(self):
+        # The lane-gh broker's update_branch guard runs this, never a copy of the rule.
+        self.gh.verdict(self.gh.MERGE_BASE, 4, {self.TIERS: self.tiers(self.LEO_ASKS)})
+        out = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", lambda: self.gh), contextlib.redirect_stdout(out):
+            code = excuse.main(["--repo", self.gh.REPO, "--base", "main", "--sha", HEAD, "--ws-check-verdict"])
+        self.assertEqual(code, 0)
+        said = json.loads(out.getvalue())
+        self.assertEqual((said["kind"], said["fix"]), ("fixed_on_base", self.gh.OLDER))
+        self.assertTrue(said["message"].startswith(f"fixed on base by {self.gh.OLDER[:12]}: update the branch"))
 
 
 class SweepGitHub(FakeGitHub):
@@ -5912,24 +6170,28 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         urls = []
 
         def answer(code):
-            def urlopen(request, timeout):
+            # The release download's one HTTP call (github_release_download.py, deadline_http.stream): its stall is
+            # the per-wait timeout the caller passes, and an error status raises (raise_errors).
+            @contextlib.contextmanager
+            def stream(request, seconds=None, *, stall=None, raise_errors=False, **options):
                 url = request.full_url
-                urls.append((url, timeout, request.get_header("Authorization")))
-                if code == 200:
-                    return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
-                raise urllib.error.HTTPError(url, code, "x", {}, None)
-            return urlopen
+                urls.append((url, stall, request.get_header("Authorization")))
+                self.assertTrue(raise_errors)
+                if code != 200:
+                    raise urllib.error.HTTPError(url, code, "x", {}, None)
+                yield io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+            return unittest.mock.patch.object(module.release_download.deadline_http, "stream", stream)
 
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
-        with unittest.mock.patch("urllib.request.urlopen", answer(200)):
+        with answer(200):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
         self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30, None)])
         # A 404 is GitHub's answer, not an outage: no release-assets API read follows it.
         urls.clear()
-        with unittest.mock.patch("urllib.request.urlopen", answer(404)):
+        with answer(404):
             self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
         self.assertEqual(len(urls), 1)
-        with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
+        with answer(502), \
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
 
@@ -5946,23 +6208,26 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         asset = f"https://api.github.com/repos/{REPO}/releases/assets/7"
         asked = []
 
-        def urlopen(request, timeout):
+        @contextlib.contextmanager
+        def stream(request, seconds=None, *, stall=None, **options):
             url = getattr(request, "full_url", request)
             auth = request.get_header("Authorization") if hasattr(request, "get_header") else None
-            asked.append((url, timeout, auth))
+            asked.append((url, stall, auth))
             if auth:  # the redirect handler copies request.headers, so the token must not be among them
                 self.assertNotIn("Authorization", request.headers)
             if url == download:
                 raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
             if url == listing:
-                return io.BytesIO(json.dumps({"assets": [{"name": "SHA256SUMS", "url": asset + "0"},
-                                                         {"name": "SOURCE_SHA", "url": asset}]}).encode())
+                yield io.BytesIO(json.dumps({"assets": [{"name": "SHA256SUMS", "url": asset + "0"},
+                                                        {"name": "SOURCE_SHA", "url": asset}]}).encode())
+                return
             if url == asset:
                 self.assertEqual(request.get_header("Accept"), "application/octet-stream")
-                return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                yield io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                return
             raise AssertionError(f"unexpected fetch {url}")
 
-        with unittest.mock.patch("urllib.request.urlopen", urlopen), \
+        with unittest.mock.patch.object(module.release_download.deadline_http, "stream", stream), \
                 unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}):
             self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
         # The token goes to api.github.com only, and never on to the asset's storage redirect (unredirected).
@@ -6496,6 +6761,54 @@ class FailingStepLogOnly(unittest.TestCase):
                 github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+
+class IsolatedUnpackedRun(unittest.TestCase):
+    """merge_hold and the lane-gh broker's update_branch guard run this script as `python3 -I` from a `git archive` of
+    scripts/ci unpacked into a cache directory (leo-workspace tools/merge_hold.py classifier_script and
+    classifier_argv). -I leaves the script's own directory off sys.path, so every sibling module it reads must load by
+    file path or after its own SCRIPT_DIR insert (receipt_grammar). Pins that both halves load from such a copy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="base-red-isolated-")
+        cls.ci = Path(cls.tmp.name) / "scripts" / "ci"
+        shutil.copytree(ROOT / "scripts" / "ci", cls.ci, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        cls.env = {k: v for k, v in os.environ.items()
+                   if k not in ("BASE_RED_EXCUSE_FIXTURE_SHA", "PYTHONPATH", "PYTHONHOME")}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def run_isolated(self, *args):
+        return subprocess.run([sys.executable, "-I", *args], capture_output=True, text=True, timeout=120,
+                              cwd=self.tmp.name, env=self.env, stdin=subprocess.DEVNULL)
+
+    def test_the_ws_check_verdict_cli_runs_from_an_unpacked_copy_under_dash_i(self):
+        proc = self.run_isolated(str(self.ci / "base_red_excuse.py"), "--repo", "x/y", "--base", "main",
+                                 "--sha", "0" * 40, "--ws-check-verdict")
+        said = proc.stdout + proc.stderr
+        self.assertNotIn("ImportError", said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertNotIn("Traceback", said)
+        self.assertEqual(proc.returncode, 1, said)
+        self.assertIn(f"not excused: --sha {'0' * 40} is a placeholder, not a commit; nothing was read", proc.stderr)
+
+    def test_receipt_grammar_imports_risk_tier_from_the_copy_under_dash_i(self):
+        probe = ("import importlib.util, sys\n"
+                 "spec = importlib.util.spec_from_file_location('base_red_excuse', sys.argv[1])\n"
+                 "excuse = importlib.util.module_from_spec(spec)\n"
+                 "spec.loader.exec_module(excuse)\n"
+                 "risk_tier = excuse.receipt_grammar()\n"
+                 "print(risk_tier.__file__)\n"
+                 "print(callable(risk_tier.signed_off))\n")
+        proc = self.run_isolated("-c", probe, str(self.ci / "base_red_excuse.py"))
+        said = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, said)
+        self.assertNotIn("ModuleNotFoundError", said)
+        self.assertEqual(proc.stdout.splitlines(), [str((self.ci / "risk_tier.py").resolve()), "True"])
 
 
 if __name__ == "__main__":

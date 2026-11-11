@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 624,
   "sections": [
     {
       "id": "general",
@@ -5554,7 +5554,7 @@
           "title": "Open Pull Requests in cmux GitHub Page",
           "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Opening Links"
         },
         {
@@ -6746,6 +6746,14 @@
       "id": "development",
       "title": "Development",
       "rows": [
+        {
+          "key": "app.internalDeveloperMode",
+          "title": "Internal Developer Mode",
+          "help": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Internal Developer Mode"
+        },
         {
           "key": "deviceHub.url",
           "title": "Device Hub Address",
