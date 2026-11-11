@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 /// relative one with no `cwd`, or one a dangling link breaks. None on
 /// Windows, where the resolved form `\\?\C:\...` never matches git's `C:/...`.
 pub fn canonical_path(path: &str, cwd: Option<&Path>) -> Option<String> {
+    #[cfg(test)]
+    RESOLUTIONS.with(|n| n.set(n.get() + 1));
     if cfg!(windows) {
         return None;
     }
@@ -50,6 +52,13 @@ pub fn canonical_path(path: &str, cwd: Option<&Path>) -> Option<String> {
     #[cfg(target_os = "macos")]
     let text: String = unicode_normalization::UnicodeNormalization::nfc(text.as_str()).collect();
     Some(text)
+}
+
+/// Tests only: the [`canonical_path`] calls this thread made, each a walk of
+/// the filesystem.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RESOLUTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// `path` (resolved: no links, `.` or `..`) with each component that exists
