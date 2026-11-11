@@ -95,7 +95,12 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
-import { cloudModePickFor as cloudModeFor, holdCloudModePick, takeCloudModePick, useCloudModePick } from "./cloudModePick";
+import {
+  cloudModePickFor as cloudModeFor,
+  holdCloudModePick,
+  takeCloudModePick,
+  useCloudModePick,
+} from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
