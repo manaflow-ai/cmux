@@ -340,8 +340,14 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Each part in its own log group, so its time shows in the log and in the controller's
+          # /v1/github/job-groups: the step takes ~45 s a shard while bun install (~1.5 s) and touched.ts
+          # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
           cd webviews
+          echo "::group::bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
+          echo "::group::changed files"
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
@@ -354,8 +360,12 @@ jobs:
             # A new branch tip with no previous commit to compare: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
           fi
+          echo "$(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
+          echo "::endgroup::"
           if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            echo "::group::touched entries"
             bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+            echo "::endgroup::"
             # The checker itself changed: render everything with it. So does a routed file no entry
             # imports (a theme, a font, a string catalog, a lockfile): it is global to every page, and
             # rendering nothing would pass with no verdict.
@@ -483,7 +493,10 @@ jobs:
           # Everything but the checker goes back to the base, so only the webviews tree differs.
           git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
+          # Each part in its own log group, so the replay's time is attributed (job-groups) before it is cut.
+          echo "::group::base bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
           # Every case (theme, width) of each red state, and nothing else. A state the base does not have
           # renders nothing there, so the classifier calls it the head's own.
@@ -491,7 +504,9 @@ jobs:
             | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
             "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
           echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
+          echo "::group::base gallery build"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          echo "::endgroup::"
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json
           # below. A replay that wrote no health.json gave no verdict, and says so here.
@@ -503,8 +518,10 @@ jobs:
           bases=()
           for pass in 1 2; do
             rc=0
+            echo "::group::base render $pass"
             bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
               --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            echo "::endgroup::"
             if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
               echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
               exit 1
