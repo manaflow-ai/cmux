@@ -130,10 +130,12 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     await evictDurableObject(stub);
     // Any wake (here a request) arms the check right away.
     expect((await host.call("GET", "/v1/devices")).status).toBe(200);
-    expect(await runInDurableObject(stub, (_i, s) => s.storage.getAlarm())).not.toBeNull();
-    // The sweep starts the restored sockets' clocks, and the next check is within the bound.
-    expect(await runDurableObjectAlarm(stub)).toBe(true);
-    const { attachment, alarm } = await socketClock(account.userId, viewer.id);
+    // The armed check is due at once: its sweep starts the restored sockets' clocks,
+    // and the next check is within the bound.
+    const { attachment, alarm } = await waitFor(
+      () => socketClock(account.userId, viewer.id),
+      (c) => typeof c.attachment?.openedAt === "number" && c.alarm !== null,
+    );
     expect(typeof attachment?.openedAt).toBe("number");
     expect(alarm! - attachment!.openedAt!).toBeLessThanOrEqual(SILENT_MS);
   });

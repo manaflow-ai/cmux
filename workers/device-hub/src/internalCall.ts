@@ -35,7 +35,7 @@ export async function internalCall(stub: InternalFetcher, url: string, body: unk
     if (ctl.signal.aborted) throw late();
     throw new Error(`${what}: ${why(err)}`);
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
