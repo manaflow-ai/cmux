@@ -159,6 +159,14 @@ export function createTailGlide(): TailGlide {
   /// gliding under it for the whole new glide (agent-pane-stream-row-overlap: the reply over the
   /// live line, 149 px, a thought over "Running ls -la", 24 px; every frame the clip was gone).
   const guards = new Map<Animation, Set<Animation>>();
+  /// Each clip's row, timing, and how far it hides for each row under it: by that row's glide, or
+  /// with none for a row that does not glide (the row above glides down onto it, and its own glide's
+  /// end takes the clip with everything on its row).
+  const clips = new Map<
+    Animation,
+    { row: HTMLElement; timed: KeyframeAnimationOptions; over: { glide?: Animation; by: number }[] }
+  >();
+  const live = (animation: Animation) => animation.playState !== "idle" && animation.playState !== "finished";
   const keep = (row: HTMLElement, animation: Animation) => {
     playing.add(animation);
     const list = onRow.get(row);
@@ -175,10 +183,34 @@ export function createTailGlide(): TailGlide {
   };
   /// Ends a glide's clips with it, now (its `cancel` event comes a frame later, and a clip left on
   /// for that frame hides the row above over nothing).
+  /// A clip that guards other glides still playing stays for them: one row's glide ending early (the
+  /// farther row dropped out of view, the nearer still held in it) leaves the row above clipped over
+  /// the rows still gliding under it, never drawn over them (review of cmux#41034). When the
+  /// glide that ended set the clip's depth, the clip goes on from the same point of the same clock at
+  /// the depth the rest need: with all on one curve, that depth at the first frame covers every frame
+  /// after it.
   const release = (glide: Animation) => {
-    const clips = guards.get(glide);
+    const guarded = guards.get(glide);
     guards.delete(glide);
-    for (const clip of clips ?? []) clip.cancel();
+    for (const clip of guarded ?? []) {
+      const of = clips.get(clip);
+      // Already ended (its row's own stack cancelled first; the event comes a frame later).
+      if (!live(clip)) continue;
+      const rest = of?.over.filter((each) => each.glide !== glide && (!each.glide || live(each.glide))) ?? [];
+      if (!of || rest.length === 0) {
+        clip.cancel();
+        continue;
+      }
+      const depth = (over: { by: number }[]) => Math.ceil(Math.max(...over.map((each) => each.by)));
+      if (depth(rest) === depth(of.over)) {
+        of.over = rest;
+        continue;
+      }
+      const next = clipOn(of.row, rest, of.timed);
+      next.currentTime = clip.currentTime;
+      if (clip.playState === "paused") next.pause();
+      clip.cancel();
+    }
   };
   /// Cancels what plays on `row`, the clips its glide guards with it.
   const cancelOn = (row: HTMLElement) => {
@@ -194,24 +226,32 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("cancel", () => release(animation), { once: true });
     animation.addEventListener("finish", () => guards.delete(animation), { once: true });
   };
-  const clipOn = (row: HTMLElement, animation: Animation, under: Animation[]) => {
+  /// Clips `row`'s bottom by the most any row under it needs, opening on `timed`.
+  const clipOn = (row: HTMLElement, over: { glide?: Animation; by: number }[], timed: KeyframeAnimationOptions) => {
+    const by = Math.ceil(Math.max(...over.map((each) => each.by)));
+    const animation = row.animate([{ clipPath: clipBottom(by) }, { clipPath: clipBottom(0) }], timed);
     keep(row, animation);
-    for (const glide of under) {
+    clips.set(animation, { row, timed, over });
+    for (const { glide } of over) {
+      if (!glide) continue;
       const set = guards.get(glide);
       if (set) set.add(animation);
       else guards.set(glide, new Set([animation]));
     }
     const done = () => {
-      for (const glide of under) guards.get(glide)?.delete(animation);
+      for (const { glide } of clips.get(animation)?.over ?? over) if (glide) guards.get(glide)?.delete(animation);
+      clips.delete(animation);
     };
     animation.addEventListener("finish", done, { once: true });
     animation.addEventListener("cancel", done, { once: true });
+    return animation;
   };
   const stop = () => {
     for (const animation of playing) animation.cancel();
     playing.clear();
     onRow.clear();
     guards.clear();
+    clips.clear();
     last = undefined;
   };
   return {
@@ -295,20 +335,12 @@ export function createTailGlide(): TailGlide {
       const laid = parts.filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
-        let over = 0;
-        const under: Animation[] = [];
+        const over: { glide?: Animation; by: number }[] = [];
         for (const lower of laid.slice(index + 1)) {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
-          const slide = slides.get(lower.row);
-          if (by >= MIN_MOVE_PX && slide) under.push(slide);
-          over = Math.max(over, by);
+          if (by >= MIN_MOVE_PX) over.push({ glide: slides.get(lower.row), by });
         }
-        if (over < MIN_MOVE_PX) continue;
-        clipOn(
-          upper.row,
-          upper.row.animate([{ clipPath: clipBottom(Math.ceil(over)) }, { clipPath: clipBottom(0) }], timed),
-          under,
-        );
+        if (over.length) clipOn(upper.row, over, timed);
       }
     },
   };

@@ -12,9 +12,13 @@ import type { PlayContext } from "../../../gallery/play";
 
 const next = (ctx: PlayContext) => ctx.click({ selector: '[data-stage="next"]' });
 
-/// The swap's own animations (the shimmer's and the spinner's endless loops keep running).
+/// The swap's own animations still playing (the shimmer's and the spinner's endless loops keep
+/// running; a finished roll that holds its end, Thinking's `.cv-roll-out` with `fill: both`, stays in
+/// `getAnimations()` while its words stay mounted, so it counts as done, not as playing).
 const swapAnimations = (doc: Document) =>
-  doc.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+  doc
+    .getAnimations()
+    .filter((animation) => animation.effect?.getTiming().iterations !== Infinity && animation.playState !== "finished");
 
 /// Hold the change `ms` in, so the still shows the old words leaving and the new arriving.
 const holdAt = (ms: number) => async (ctx: PlayContext) => {
