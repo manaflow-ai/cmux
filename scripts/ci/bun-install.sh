@@ -28,6 +28,8 @@ registry="${BUN_CONFIG_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmjs.o
 # The registry as the log shows it: any user:password@ in the URL removed.
 shown_registry="$(printf '%s' "$registry" | sed -E 's#^([a-z]+://)[^/@]*@#\1#')"
 runner="${RUNNER_NAME:-$(hostname)}"
+# GNU timeout's contract on every host, a Mac included (macOS has no `timeout`).
+ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
 
 for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$attempt_seconds" "$attempts"; do
   # Zero is refused too: `timeout 0` never fires, which would undo the bound.
@@ -42,52 +44,6 @@ elif [ "$1" = "--" ]; then
   shift
 fi
 
-# One attempt under its deadline. A host with no coreutils `timeout` (a stock macOS runner) gets the same bound
-# from a watchdog on this attempt's own PID; either way 124 means the deadline ended it.
-bounded() {
-  if command -v timeout >/dev/null 2>&1; then
-    timeout --kill-after=15 "$attempt_seconds" "$@"
-    return
-  fi
-  if command -v gtimeout >/dev/null 2>&1; then
-    gtimeout --kill-after=15 "$attempt_seconds" "$@"
-    return
-  fi
-  local marker pid watchdog code
-  marker="$(mktemp)"
-  rm -f "$marker"
-  # Job control puts the attempt in its own process group, so the deadline ends bun and every lifecycle script it
-  # started (a postinstall can outlive bun and hold the step's log open), not bun alone.
-  set -m
-  "$@" &
-  pid=$!
-  set +m
-  # The watchdog's own sleep goes with it (the trap), so nothing it started outlives the attempt or holds the log open.
-  (
-    trap 'kill "$nap" 2>/dev/null; exit 0' TERM
-    sleep "$attempt_seconds" & nap=$!
-    wait "$nap"
-    : > "$marker"
-    kill -TERM -- "-$pid" 2>/dev/null
-    sleep 15 & nap=$!
-    wait "$nap"
-    kill -KILL -- "-$pid" 2>/dev/null
-  ) >/dev/null 2>&1 &
-  watchdog=$!
-  wait "$pid"
-  code=$?
-  kill "$watchdog" 2>/dev/null
-  wait "$watchdog" 2>/dev/null
-  # The attempt is over either way: whatever of its group is still there (a lifecycle script bun left behind, or
-  # one that ignored TERM) goes now, so nothing holds the log open or races the next attempt.
-  kill -KILL -- "-$pid" 2>/dev/null
-  if [ -e "$marker" ]; then
-    rm -f "$marker"
-    return 124
-  fi
-  return "$code"
-}
-
 # One timed request to the registry, so the log says how it answered from this runner before the install.
 probe() {
   curl --silent --output /dev/null --connect-timeout 5 --max-time 10 \
@@ -98,7 +54,7 @@ echo "bun-install: registry ${shown_registry} answers $(probe) (runner ${runner}
 attempt=1
 while :; do
   started=$SECONDS
-  bounded bun install "$@"
+  bash "$ci_timeout" --kill-after=15 "$attempt_seconds" bun install "$@"
   code=$?
   took=$((SECONDS - started))
   if [ "$code" -eq 0 ]; then
