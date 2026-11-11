@@ -1026,6 +1026,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
           python3 tests/test_ci_portable_job_placement.py
+          python3 tests/test_portable_jobs_bring_their_python.py
           python3 tests/test_nightly_linux_admission.py
           python3 tests/test_nightly_admission_receipt.py
           python3 tests/test_nightly_dedicated_mini.py
