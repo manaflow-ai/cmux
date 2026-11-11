@@ -2650,9 +2650,11 @@ class BaseRedWindow(unittest.TestCase):
         self.base(30, 12)
         self.base(29, 11, (ISSUE,))
         text = self.judge()
-        self.assertIn("run 30", text)
-        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
-        self.assertIn("runs 29", text)
+        # Excused by run 29 alone, which holds every failure (#41422's review F1: one verdict, never a mix), and named
+        # as the older verdict it is.
+        self.assertIn("feat-cmux-next run 29", text)
+        self.assertIn("before the newest, run 30", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
 
     def test_the_newest_red_verdict_that_covers_every_test_reads_no_older_log(self):
         self.base(30, 12, (ISSUE,))
@@ -9075,7 +9077,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed", "view_signature"})
+    "owned_unnamed", "view_signature", "one_verdict"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -10125,8 +10127,9 @@ class OneVerdictCoversTheHeadsIdentity(unittest.TestCase):
     def test_a_failure_and_a_cancel_split_over_two_verdicts_is_not_excused(self):
         self.base(30, 12, ["failure"])
         self.base(29, 11, ["cancelled"])
-        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next any of runs 30, 29 with the "
-                                                    r"same conclusion, as often, each verdict alone"):
+        with self.assertRaisesRegex(excuse.Refused, r"no one feat-cmux-next verdict of runs 30, 29 holds every failure "
+                                                    r"alone .*failed steps not on feat-cmux-next run 30 with the same "
+                                                    r"conclusion, as often"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_one_verdict_with_both_is_still_excused(self):
@@ -10286,6 +10289,43 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
                     path(unnamed_retry, self.BASE_ONE)
 
+
+
+class BunCountsInAContinueOnErrorSection(unittest.TestCase):
+    """#41220's review follow-up (its SHIP at d8bf2ede): "check that its tests still cover these exact repros: `a > one`
+    twice vs once in a continue-on-error section". A failed swift step and a continue-on-error bun step (a success to
+    the jobs API with its runner's exit line: ERRORED), on the head and the base: the bun section is counted with the
+    base's continue-on-error section, as often."""
+
+    SWIFT_STEP, WEB_STEP = "Run swift tests", "Run web tests"
+
+    def job_and_log(self, job_id, run_id, sha, bun):
+        job = dict(failed_job(job_id, run_id, sha),
+                   steps=framed_steps([(self.SWIFT_STEP, "failure", 3, 5), (self.WEB_STEP, "success", 6, 9)]))
+        text = framed_log([(self.SWIFT_STEP, 3, f"##[group]{self.SWIFT_STEP}"), (self.SWIFT_STEP, 3, "##[endgroup]"),
+                           (self.SWIFT_STEP, 4, ISSUE), (self.SWIFT_STEP, 4, EXIT),
+                           (self.WEB_STEP, 6, f"##[group]{self.WEB_STEP}"), (self.WEB_STEP, 6, "##[endgroup]"),
+                           *((self.WEB_STEP, 7, line) for line in bun), (self.WEB_STEP, 8, EXIT)], SWIFT)
+        return job, text
+
+    def judge(self, head, base):
+        github = FakeGitHub()
+        (github.jobs[1], github.logs[1]), (github.jobs[2], github.logs[2]) = (
+            self.job_and_log(1, 10, HEAD, head), self.job_and_log(2, 20, BASE_SHA, base))
+        view = excuse.failed_view(copy.deepcopy(github.jobs[1]), github.logs[1], base=False, **UNKNOWN)
+        self.assertEqual([status for _, status, _ in view.sections], ["failed", "errored"])
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_one_twice_against_once_in_a_continue_on_error_section_is_refused(self):
+        twice, once = bun_lines(results=["a > one", "a > one"]), bun_lines(results=["a > one"])
+        with self.assertRaisesRegex(excuse.Refused, "a > one"):
+            self.judge(twice, once)
+
+    def test_a_one_once_against_once_in_a_continue_on_error_section_is_excused(self):
+        once = bun_lines(results=["a > one"])
+        self.assertIn("excused 'cmux-next swift test'", self.judge(once, once))
+        twice = bun_lines(results=["a > one", "a > one"])
+        self.assertIn("excused 'cmux-next swift test'", self.judge(twice, twice))
 
 
 class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
@@ -11668,6 +11708,8 @@ NOT_SWEPT = {
                                        "workflow's headers, which HostileLog has none of",
     "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
                                       "test_reds.classify_web_window, each swept",
+    "base_red_excuse.one_verdict": "compare_window's comparison with one verdict: signature, step_errors and "
+                                   "test_reds.classify, each swept",
     "test_reds._kept": "the parse cache: it calls the reader it is given",
 }
 
