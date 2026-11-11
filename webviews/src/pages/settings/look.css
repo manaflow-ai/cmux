@@ -179,58 +179,28 @@
   background: var(--look-control-fill);
 }
 
-/* A segmented control has no track (Lucas 2026-11-12: a track around a filled segment read as
-   "containers inside containers"): its choices sit side by side as muted text, and the chosen one is
-   the one control shape, the buttons' fill and edge, at the buttons' height. The others take the
-   hover fill under the pointer. */
+/* A segmented control is the system's (Lucas 2026-11-12, after a trackless try): one soft track with
+   no edge, the chosen segment a lighter pill raised on it with the switch thumb's shadow. No outline
+   on either, so the card holds one shape and not a box drawn inside a box ("containers inside
+   containers"). The others take a faint fill under the pointer. */
 :root[data-settings-look="refined"] .settings .segmented {
-  gap: var(--ds-space-1);
-  padding: 0;
   border-color: transparent;
-  background: transparent;
+  background: var(--look-control-fill);
 }
 
 :root[data-settings-look="refined"] .settings .segment {
-  min-height: var(--ds-control-row);
-  border-radius: var(--ds-radius-md);
   color: var(--polish-muted);
 }
 
 :root[data-settings-look="refined"] .settings .segment:hover:not([data-checked]) {
-  background: var(--look-control-fill);
+  background: transparent;
   color: var(--polish-ink);
 }
 
 :root[data-settings-look="refined"] .settings .segment[data-checked] {
-  background: var(--look-control-fill);
-  box-shadow: var(--look-control-edge);
+  background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base)));
+  box-shadow: var(--elevation-1);
   color: var(--polish-ink);
-}
-
-:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
-  background: var(--look-control-fill);
-  box-shadow: var(--look-control-edge);
-}
-
-/* A focused field's edge steps up to the focus ink; a refused value keeps its danger edge. */
-:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"]:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--polish-focus);
-}
-
-:root[data-settings-look="refined"] .settings .ui-input[data-variant][aria-invalid="true"] {
-  box-shadow: inset 0 0 0 1px var(--ds-color-danger);
-}
-
-/* A menu button ends in the macOS pop-up's up-and-down chevron (Aside's "Google ⌃⌄"), not the
-   down-turned corner, so it reads as "pick one of these" and not as a disclosure. */
-:root[data-settings-look="refined"] .settings .ui-select-button .ui-select-chevron {
-  width: var(--ds-space-2);
-  height: var(--ds-icon-12);
-  border: 0;
-  background-color: currentColor;
-  transform: none;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 11' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 4 3.5 1.5 6 4M1 7l2.5 2.5L6 7'/%3E%3C/svg%3E")
-    center / contain no-repeat;
 }
 
 /* Switches at Aside's size (Lucas 2026-11-12: "a bit bigger/fatter"): 20 px tall, 36 wide, so the
