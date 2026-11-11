@@ -515,3 +515,66 @@ fn a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes() {
         |_, _| {},
     );
 }
+
+/// The permission bits of `path` itself (never through a link).
+#[cfg(unix)]
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o7777
+}
+
+/// #41462 review F1: under umask 022, a `home_fs` copy of a 0600 file and a `home_fs` write are
+/// never readable by others, at any point: the hook stats each one once part of its bytes are
+/// written, then fails it there (as a full disk would). No partial file is left. Whole, the copy
+/// has its source's mode and the write 0600; a folder made is 0700. Each holds under the held
+/// home and outside it (`native::restore_in` copies outside it). The umask is process-wide, so
+/// this runs in a process of its own ([`isolated`]).
+#[cfg(unix)]
+#[test]
+fn a_copy_or_write_never_shows_its_bytes_to_others() {
+    isolated(
+        module_path!(),
+        "a_copy_or_write_never_shows_its_bytes_to_others",
+        |home| {
+            use std::cell::RefCell;
+            use std::os::unix::fs::PermissionsExt as _;
+            use std::rc::Rc;
+            // SAFETY: umask has no preconditions; this process runs this one test.
+            unsafe { libc::umask(0o022) };
+            crate::config::hold_home();
+            let outside = home.with_extension("outside");
+            std::fs::create_dir(&outside).unwrap();
+            for dir in [home.to_path_buf(), outside] {
+                let source = dir.join("transcript");
+                std::fs::write(&source, vec![7u8; 256 << 10]).unwrap();
+                std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).unwrap();
+                let before = tree(&dir);
+                let seen: Rc<RefCell<Vec<(PathBuf, u32)>>> = Rc::default();
+                {
+                    let seen = seen.clone();
+                    let _fail = crate::config::seams::on_mid_write(move |path| {
+                        seen.borrow_mut().push((path.to_path_buf(), mode_of(path)));
+                        Err(std::io::Error::other("forced: the disk is full"))
+                    });
+                    let copied = crate::home_fs::copy(&source, dir.join("copy"));
+                    assert!(copied.is_err(), "the copy never failed midway: {copied:?}");
+                    let written = crate::home_fs::write(dir.join("written"), vec![1u8; 256 << 10]);
+                    assert!(written.is_err(), "the write never failed midway: {written:?}");
+                }
+                let seen = seen.take();
+                assert_eq!(seen.len(), 2, "each write stopped once, midway: {seen:?}");
+                for (path, mode) in &seen {
+                    assert_eq!(mode & 0o077, 0, "{} was {mode:o} while written", path.display());
+                }
+                assert_eq!(tree(&dir), before, "a failed write left a file in {}", dir.display());
+                crate::home_fs::copy(&source, dir.join("copy")).unwrap();
+                assert_eq!(mode_of(&dir.join("copy")), 0o600, "the copy's mode");
+                crate::home_fs::write(dir.join("written"), b"whole").unwrap();
+                assert_eq!(mode_of(&dir.join("written")), 0o600, "the write's mode");
+                crate::home_fs::create_dir(dir.join("made"), 0o755).unwrap();
+                assert_eq!(mode_of(&dir.join("made")), 0o700, "the folder's mode");
+            }
+        },
+        |_, _| {},
+    );
+}

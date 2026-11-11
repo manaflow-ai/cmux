@@ -32,8 +32,11 @@
 //!   Calls resolve by name: a path call by its module or type, a method by its name (any type's,
 //!   or the own type's on `self`), so two functions of one name share their taint.
 //! - A struct field any struct literal or assignment in the crate gives a tainted value: read
-//!   as `self.field` in that type's methods, and as `x.field` elsewhere when no other struct has
-//!   a field of that name.
+//!   as `self.field` in that type's methods, and as `x.field` where `x`'s type is resolved (a
+//!   parameter or a `let` typed with one of the crate's structs, or a local bound to a struct
+//!   literal). Where it is not resolved, `x.field` is tainted when any struct's field of that
+//!   name is: a name two types share is a hit, never a miss (#41462 review F2: the compaction's
+//!   `StagedSegment.path` and `.tmp`).
 //!
 //! What it does not see: a write by path through a crate function whose path parameter is
 //! not path-typed (a `&str`), through `libc` directly, inside a macro other than its
@@ -209,6 +212,8 @@ struct Func<'a> {
     has_self: bool,
     /// Each parameter but `self`: the names it binds, and whether it is path-typed.
     params: Vec<(Vec<String>, bool)>,
+    /// Parameters that bind one name to a named type (`x: &T`): (name, `T`).
+    typed: Vec<(String, String)>,
     returns_path: bool,
     body: &'a syn::Block,
 }
@@ -392,6 +397,96 @@ fn bound(pat: &syn::Pat) -> Vec<String> {
 
 const PATHY: &[&str] = &["Path", "PathBuf", "OsStr", "OsString"];
 
+/// The type `ty` names, through references: `T` for `T`, `&T`, `&mut T` (`Self` is `self_ty`).
+fn named_type(ty: &syn::Type, self_ty: Option<&str>) -> Option<String> {
+    match ty {
+        syn::Type::Reference(r) => named_type(&r.elem, self_ty),
+        syn::Type::Paren(p) => named_type(&p.elem, self_ty),
+        syn::Type::Path(p) if p.qself.is_none() => {
+            let name = p.path.segments.last()?.ident.to_string();
+            if name == "Self" { self_ty.map(str::to_owned) } else { Some(name) }
+        }
+        _ => None,
+    }
+}
+
+/// A function's locals whose type is known: a `let x: T`, or a `let x = T { .. }`. A name bound
+/// twice with different types (or once without one) is left out: its type is not resolved.
+fn local_types(func: &Func<'_>) -> HashMap<String, String> {
+    struct Locals<'f> {
+        self_ty: Option<&'f str>,
+        known: HashMap<String, Option<String>>,
+    }
+    impl Locals<'_> {
+        fn bind(&mut self, name: String, ty: Option<String>) {
+            let entry = self.known.entry(name).or_insert_with(|| ty.clone());
+            if *entry != ty {
+                *entry = None;
+            }
+        }
+    }
+    impl<'ast> Visit<'ast> for Locals<'_> {
+        fn visit_local(&mut self, l: &'ast syn::Local) {
+            let (pat, ty) = match &l.pat {
+                syn::Pat::Type(t) => (&*t.pat, named_type(&t.ty, self.self_ty)),
+                pat => {
+                    let literal = l.init.as_ref().and_then(|init| match &*init.expr {
+                        syn::Expr::Struct(s) => {
+                            let name = s.path.segments.last()?.ident.to_string();
+                            if name == "Self" {
+                                self.self_ty.map(str::to_owned)
+                            } else {
+                                Some(name)
+                            }
+                        }
+                        _ => None,
+                    });
+                    (pat, literal)
+                }
+            };
+            if let syn::Pat::Ident(i) = pat {
+                self.bind(i.ident.to_string(), ty);
+            } else {
+                for name in bound(pat) {
+                    self.bind(name, None);
+                }
+            }
+            syn::visit::visit_local(self, l);
+        }
+        fn visit_expr_let(&mut self, l: &'ast syn::ExprLet) {
+            for name in bound(&l.pat) {
+                self.bind(name, None);
+            }
+            syn::visit::visit_expr_let(self, l);
+        }
+        fn visit_expr_for_loop(&mut self, l: &'ast syn::ExprForLoop) {
+            for name in bound(&l.pat) {
+                self.bind(name, None);
+            }
+            syn::visit::visit_expr_for_loop(self, l);
+        }
+        fn visit_expr_closure(&mut self, c: &'ast syn::ExprClosure) {
+            for name in c.inputs.iter().flat_map(bound) {
+                self.bind(name, None);
+            }
+            syn::visit::visit_expr_closure(self, c);
+        }
+        fn visit_arm(&mut self, a: &'ast syn::Arm) {
+            for name in bound(&a.pat) {
+                self.bind(name, None);
+            }
+            syn::visit::visit_arm(self, a);
+        }
+        fn visit_item(&mut self, _: &'ast syn::Item) {}
+    }
+    let mut locals = Locals { self_ty: func.self_ty.as_deref(), known: HashMap::new() };
+    for (name, ty) in &func.typed {
+        locals.bind(name.clone(), Some(ty.clone()));
+    }
+    locals.visit_block(func.body);
+    locals.known.into_iter().filter_map(|(name, ty)| Some((name, ty?))).collect()
+}
+
 fn is_pathy(names: &[String], generic_paths: &HashSet<String>) -> bool {
     names.iter().any(|n| PATHY.contains(&n.as_str()) || generic_paths.contains(n))
 }
@@ -401,8 +496,8 @@ struct Index<'a> {
     funcs: Vec<Func<'a>>,
     by_name: HashMap<String, Vec<usize>>,
     uses: HashMap<Vec<String>, Uses>,
-    /// How many structs declare each field name.
-    field_owners: HashMap<String, usize>,
+    /// The crate's structs, by name.
+    structs: HashSet<String>,
 }
 
 impl<'a> Index<'a> {
@@ -411,7 +506,7 @@ impl<'a> Index<'a> {
             funcs: Vec::new(),
             by_name: HashMap::new(),
             uses: HashMap::new(),
-            field_owners: HashMap::new(),
+            structs: HashSet::new(),
         };
         for source in sources {
             index.items(&source.rel, &source.module, &source.file.items);
@@ -437,11 +532,7 @@ impl<'a> Index<'a> {
                     use_tree(module, Vec::new(), &u.tree, uses);
                 }
                 syn::Item::Struct(s) => {
-                    for field in &s.fields {
-                        if let Some(ident) = &field.ident {
-                            *self.field_owners.entry(ident.to_string()).or_default() += 1;
-                        }
-                    }
+                    self.structs.insert(s.ident.to_string());
                 }
                 syn::Item::Fn(f) if !is_test_attr(&f.attrs) => {
                     self.func(rel, module, None, &f.sig, &f.block);
@@ -511,11 +602,17 @@ impl<'a> Index<'a> {
         }
         let mut has_self = false;
         let mut params = Vec::new();
+        let mut typed = Vec::new();
         for input in &sig.inputs {
             match input {
                 syn::FnArg::Receiver(_) => has_self = true,
                 syn::FnArg::Typed(t) => {
                     let names = type_names(&t.ty);
+                    if let syn::Pat::Ident(i) = &*t.pat
+                        && let Some(ty) = named_type(&t.ty, self_ty.as_deref())
+                    {
+                        typed.push((i.ident.to_string(), ty));
+                    }
                     params.push((bound(&t.pat), is_pathy(&names, &generic_paths)));
                 }
             }
@@ -531,6 +628,7 @@ impl<'a> Index<'a> {
             name: sig.ident.to_string(),
             has_self,
             params,
+            typed,
             returns_path,
             body,
         });
@@ -791,6 +889,8 @@ struct Scope<'i, 'a> {
     state: &'i State,
     func: &'i Func<'a>,
     env: HashSet<String>,
+    /// Locals and parameters whose type is one of the crate's structs.
+    types: HashMap<String, String>,
     /// Locals bound to an `OpenOptions` (true) or a `DirBuilder` (false), and the methods called
     /// on them anywhere in the function.
     builders: HashMap<String, (bool, HashSet<String>)>,
@@ -878,9 +978,18 @@ impl Scope<'_, '_> {
                         .as_ref()
                         .is_some_and(|ty| self.state.fields.contains(&(ty.clone(), name)));
                 }
-                self.taint(&f.base)
-                    || (self.index.field_owners.get(&name) == Some(&1)
-                        && self.state.fields.iter().any(|(_, field)| *field == name))
+                if self.taint(&f.base) {
+                    return true;
+                }
+                // The receiver's type, when it is resolved: that type's field, and no other.
+                if let syn::Expr::Path(p) = &*f.base
+                    && let Some(ident) = p.path.get_ident()
+                    && let Some(ty) = self.types.get(&ident.to_string())
+                {
+                    return self.state.fields.contains(&(ty.clone(), name));
+                }
+                // Not resolved: any type's field of that name.
+                self.state.fields.iter().any(|(_, field)| *field == name)
             }
             E::Call(c) => {
                 if let E::Path(p) = &*c.func
@@ -1144,7 +1253,9 @@ fn read_func<'a>(index: &Index<'a>, state: &State, at: usize, with_params: bool)
     }
     let mut bindings = Bindings(Vec::new());
     bindings.visit_block(func.body);
-    let mut scope = Scope { index, state, func, env, builders: HashMap::new() };
+    let types =
+        local_types(func).into_iter().filter(|(_, ty)| index.structs.contains(ty)).collect();
+    let mut scope = Scope { index, state, func, env, types, builders: HashMap::new() };
     // Builder locals, and every method called on them.
     for (names, value) in &bindings.0 {
         if let [name] = names.as_slice()
@@ -1340,6 +1451,46 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
             }
             "#,
         ),
+        // #41462 review F2: fields whose names another struct shares (`path`, `tmp`), read
+        // through a closure's argument and a loop's binding, whose types are not resolved.
+        source(
+            "src/store/compact.rs",
+            &["store", "compact"],
+            r#"
+            use super::*;
+            struct Staged { segments: Vec<StagedSegment> }
+            struct StagedSegment { path: PathBuf, len: u64, tmp: Option<PathBuf> }
+            struct Elsewhere { path: PathBuf, tmp: Option<PathBuf> }
+            impl Drop for Staged {
+                fn drop(&mut self) {
+                    for tmp in self.segments.iter().filter_map(|s| s.tmp.as_ref()) {
+                        let _ = std::fs::remove_file(tmp);
+                    }
+                }
+            }
+            impl LocalStore {
+                fn stage(&self, id: &str) -> Staged {
+                    let mut staged = Staged { segments: Vec::new() };
+                    let path = self.dir(id).join("events").join("000001.ndjson");
+                    let tmp = Some(path.with_extension("compact"));
+                    staged.segments.push(StagedSegment { path: path.clone(), len: 0, tmp });
+                    staged
+                }
+                fn commit(&self, staged: &mut Staged) -> std::io::Result<()> {
+                    for segment in &mut staged.segments {
+                        if let Some(tmp) = segment.tmp.take() {
+                            std::fs::rename(&tmp, &segment.path)?;
+                        }
+                    }
+                    Ok(())
+                }
+            }
+            // Its type resolved, `Elsewhere`'s fields never came from the home: no row.
+            fn elsewhere(other: &Elsewhere) {
+                let _ = std::fs::remove_file(&other.path);
+            }
+            "#,
+        ),
         source(
             "src/hub/file_uploads.rs",
             &["hub", "file_uploads"],
@@ -1364,9 +1515,64 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
         "src/sender_token.rs ensure: fs::remove_file",
         "src/store/cold.rs LocalStore::rehydrate: fs::remove_file",
         "src/store/cold.rs LocalStore::rehydrate: fs::rename",
+        "src/store/compact.rs Staged::drop: fs::remove_file",
+        "src/store/compact.rs LocalStore::commit: fs::rename",
     ];
     // `write_atomic` is no row: nothing here calls it with a path from the home.
     let mut rows = rows;
     rows.dedup();
     assert_eq!(rows, want, "rows");
+}
+
+/// #41462 review F1: every `OpenOptions` chain in `home_fs.rs` names its mode (`.mode(..)`), so
+/// no helper there makes a file with the default 0666 (less the umask) and narrows it after its
+/// bytes are in. `std::fs::OpenOptions` there is its Windows arm, which has no mode: the
+/// owner-only creates (`owner_only`) give those files their access list.
+#[test]
+fn every_open_in_home_fs_names_its_mode() {
+    struct Opens(Vec<(usize, String)>);
+    impl<'ast> Visit<'ast> for Opens {
+        fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
+            if m.method == "open" {
+                let mut methods = HashSet::new();
+                let mut expr = &*m.receiver;
+                while let syn::Expr::MethodCall(inner) = expr {
+                    methods.insert(inner.method.to_string());
+                    expr = &inner.receiver;
+                }
+                if let syn::Expr::Call(c) = expr
+                    && let syn::Expr::Path(p) = &*c.func
+                    && path_segments(&p.path) == ["OpenOptions", "new"]
+                    && !methods.contains("mode")
+                {
+                    let chain = methods.into_iter().collect::<BTreeSet<_>>();
+                    self.0.push((m.span().start().line, format!("{chain:?}")));
+                }
+            }
+            syn::visit::visit_expr_method_call(self, m);
+        }
+        fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
+            if !is_test_attr(&m.attrs) {
+                syn::visit::visit_item_mod(self, m);
+            }
+        }
+        fn visit_item_fn(&mut self, f: &'ast syn::ItemFn) {
+            if !is_test_attr(&f.attrs) {
+                syn::visit::visit_item_fn(self, f);
+            }
+        }
+    }
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/home_fs.rs");
+    let file = syn::parse_file(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut opens = Opens(Vec::new());
+    opens.visit_file(&file);
+    let rows: Vec<String> =
+        opens.0.iter().map(|(line, chain)| format!("  src/home_fs.rs:{line} {chain}")).collect();
+    assert!(
+        rows.is_empty(),
+        "{} OpenOptions chain(s) in home_fs.rs name no mode: give each `.mode(..)` (0600, or the \
+         source's mode narrowed to it), set before any byte is written:\n{}",
+        rows.len(),
+        rows.join("\n")
+    );
 }

@@ -198,10 +198,12 @@ pub(crate) mod seams {
 
     type Checked = Rc<dyn Fn(&Path, bool)>;
     type BeforeRename = Rc<dyn Fn(&Path)>;
+    type MidWrite = Rc<dyn Fn(&Path) -> std::io::Result<()>>;
 
     thread_local! {
         static CHECKED: RefCell<Option<Checked>> = const { RefCell::new(None) };
         static BEFORE_RENAME: RefCell<Option<BeforeRename>> = const { RefCell::new(None) };
+        static MID_WRITE: RefCell<Option<MidWrite>> = const { RefCell::new(None) };
     }
 
     /// While the guard lives, `hook` is called on this thread at the end of each home check
@@ -217,6 +219,21 @@ pub(crate) mod seams {
     pub(crate) fn on_before_rename(hook: impl Fn(&Path) + 'static) -> Guard {
         BEFORE_RENAME.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
         Guard(Which::BeforeRename)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with the path a `home_fs` write
+    /// is filling once part of its bytes are written, before the rest: its error fails the
+    /// write there, as a full disk would.
+    pub(crate) fn on_mid_write(hook: impl Fn(&Path) -> std::io::Result<()> + 'static) -> Guard {
+        MID_WRITE.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::MidWrite)
+    }
+
+    pub(crate) fn mid_write(path: &Path) -> std::io::Result<()> {
+        match MID_WRITE.with(|slot| slot.borrow().clone()) {
+            Some(hook) => hook(path),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn checked(path: &Path, passed: bool) {
@@ -235,6 +252,7 @@ pub(crate) mod seams {
     enum Which {
         Checked,
         BeforeRename,
+        MidWrite,
     }
 
     /// Takes its hook off this thread when dropped.
@@ -246,6 +264,7 @@ pub(crate) mod seams {
             match self.0 {
                 Which::Checked => drop(CHECKED.with(|slot| slot.borrow_mut().take())),
                 Which::BeforeRename => drop(BEFORE_RENAME.with(|slot| slot.borrow_mut().take())),
+                Which::MidWrite => drop(MID_WRITE.with(|slot| slot.borrow_mut().take())),
             }
         }
     }
