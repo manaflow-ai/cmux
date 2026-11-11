@@ -207,6 +207,50 @@ class StatusMapping(unittest.TestCase):
         self.assertIn("GitHub refused the success status for cmux-next/compile after 1 tries: HTTP 403", self.stdout)
         self.assertRegex(self.stdout, NO_VERDICT_LINE)  # "(pass)": no verdict, never a compile red
 
+    def run_handoff(self, fast: str, mac: str, **env: str) -> tuple[int, list[dict], str]:
+        """compile-status-handoff's publish step, as written, against the fake curl."""
+        script = next(step["run"] for step in handoff_job()["steps"] if "run" in step)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp, "bin")
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text(FAKE_CURL)
+            curl.chmod(0o755)
+            done = subprocess.run(
+                ["bash", "-e", "-c", script], capture_output=True, text=True, timeout=60,
+                env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "GH_TOKEN": "t", "SHA": SHA,
+                     "API": f"https://api.github.com/repos/{REPO}", "RUN_URL": "https://github.com/run/1",
+                     "DOWN": "HTTP 530", "FAST": fast, "MAC": mac, "POSTS": str(Path(tmp, "posts")),
+                     "READS": str(Path(tmp, "reads")), **GAPS, **env})
+            self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
+                if Path(tmp, "posts.tries").exists() else []
+            posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
+                if Path(tmp, "posts").exists() else []
+            return done.returncode, posts, done.stdout
+
+    def test_the_handoff_waits_out_a_rate_limit_and_posts_the_fallbacks_verdict(self):
+        code, posts, _ = self.run_handoff("skipped/", "success", POST_REFUSALS="403 429")
+        self.assertEqual((code, [p["state"] for p in posts], self.tries), (0, ["success"], ["success"] * 3))
+        code, posts, _ = self.run_handoff("failure/fail", "skipped", POST_REFUSALS="403")
+        self.assertEqual((code, [p["state"] for p in posts]), (1, ["failure"]))
+        # Past its budget it is a red that names the refused post, never a pass.
+        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403 403", POST_BUDGET="5",
+                                            REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual((code, posts), (1, []))
+        self.assertIn("could not post the fallback's verdict", out)
+
+    def test_a_refused_terminal_post_still_prints_the_no_verdict_line(self):
+        """A rate limit past POST_BUDGET on a failure post: the job's own ::error line still says why, so
+        base_red_excuse.py reads it (NO_VERDICT for every state but fail)."""
+        code, posts, _ = self.run_step(self.reply("unavailable"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+                                       PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual((code, posts), (1, []))
+        self.assertRegex(self.stdout, NO_VERDICT_LINE)
+        code, _, _ = self.run_step(self.reply("fail"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+                                   PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual(code, 1)
+        self.assertIn("cmux-next/compile is not a pass for " + SHA + " (fail)", self.stdout)
+
     def test_a_refusal_that_is_no_rate_limit_is_final(self):
         for code_, body in (("403", '{"message":"Resource not accessible by integration"}'),
                             ("401", '{"message":"Bad credentials"}'), ("422", '{"message":"No commit found"}')):

@@ -7029,6 +7029,7 @@ jobs:
               sleep "$pause"
             done
           }
+          # A terminal post that GitHub still refuses leaves the job's own ::error line below (no verdict, NO_VERDICT).
           # The pending status only shows the wait: a refused one is a warning, and the verdict below still posts or reds.
           post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" "${PENDING_BUDGET:-30}" \
             || echo "::warning title=Compile check::no pending cmux-next/compile on $SHA; the verdict still posts"
@@ -7082,7 +7083,7 @@ jobs:
               exit 0
             fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])
-            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL"
+            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL" || true
             echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
             exit 1
           fi
@@ -7090,10 +7091,10 @@ jobs:
           [[ "$log_url" =~ ^https://github\.com/ ]] || log_url="$RUN_URL"
           case "$state" in
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
-            fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" ;;
-            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
-            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" || true ;;
+            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" || true ;;
+            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" || true ;;
+            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" || true ;;
           esac
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1

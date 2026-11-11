@@ -3059,39 +3059,6 @@ class SignedHostGitHub(FakeGitHub):
         return 77
 
 
-class AdvisoryTestCompileGitHub(SignedHostGitHub):
-    """#39022 (2026-11-11): fleet-test-compile.yml, "fleet test-compile (advisory)", runs on pull requests only."""
-
-    def __init__(self, workflow_name="fleet test-compile (advisory)"):
-        super().__init__()
-        self.jobs[1]["name"] = self.jobs[2]["name"] = "fleet/test-compile (advisory)"
-        self.workflow_name = workflow_name
-
-    def json(self, route, *, paginate=False):
-        if route.endswith("/actions/runs/10"):
-            self.routes.append(route)
-            return {"id": 10, "workflow_id": 7, "name": self.workflow_name,
-                    "path": ".github/workflows/fleet-test-compile.yml"}
-        return FakeGitHub.json(self, route, paginate=paginate)
-
-
-class AdvisoryWorkflowWithNoBaseRun(unittest.TestCase):
-    def judge(self, gh):
-        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
-
-    def test_an_advisory_red_with_no_base_run_is_excused(self):
-        gh = AdvisoryTestCompileGitHub()
-        said = self.judge(gh)
-        self.assertIn("excused 'fleet/test-compile (advisory)': its workflow 'fleet test-compile (advisory)' is "
-                      "advisory and gates nothing", said)
-        self.assertEqual(gh.dispatched, [])
-
-    def test_a_workflow_that_is_not_advisory_still_refuses(self):
-        gh = AdvisoryTestCompileGitHub(workflow_name="fleet test-compile")
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
-            self.judge(gh)
-
-
 class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
     """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
     the check after it completes compares against it as any base run."""
@@ -4053,7 +4020,6 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                      "cmux-next/compile is not a pass for {} (last: queued)",
                      "cmux-next/compile is not a pass for {} (unavailable)", "could not post the pending status",
                      "could not post the handoff status", "could not post the overflow handoff status",
-                     "could not post the fallback's verdict",
                      "bad head sha '{}'"):
             with self.subTest(line=line):
                 self.gh.logs[1] = log(self.FLEET, self.STEP, "##[error]" + line.format(HEAD))

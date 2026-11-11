@@ -259,7 +259,8 @@ primary reset, at least 60 s and twice as long each try (a retry inside a second
 a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
 post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
 limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
-was read. A terminal post that still fails is no verdict for base_red_excuse.py (`NO_VERDICT`), never a compile red.
+was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
+line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
 `test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
