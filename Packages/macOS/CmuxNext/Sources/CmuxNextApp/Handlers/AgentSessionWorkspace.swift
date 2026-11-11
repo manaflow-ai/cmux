@@ -85,9 +85,9 @@ enum AgentSessionWorkspace {
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
-        // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot, in the window the person works in when its space lists them (never a new window).
         let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? defaultName ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), membership = WindowProfiles.membership(services.machines)
-        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.currentOpen(preferring: windows.active?.state.id) : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
+        let home = windows.registry.value.currentOpen(preferring: windows.active?.state.id); if let home { windows.claimNew(workspaceID: key.rawValue, window: home) } // Claimed first for the window the person works in (`claimNew`, quiet without view permission; never another or a new window). No group: workspace and chat show now (P4), Cmd-N's pending row at their slot, when its space lists them.
+        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? home : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
         let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(creating: key.rawValue, window: window, machine: machine, name: shownName, opensPage: true, slot: placed.slot, byDefault: placed.rule, unpinned: true); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), firstTabKeyed: true, on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
@@ -123,10 +123,10 @@ enum AgentSessionWorkspace {
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
+                return ActionWorkFailure("agent.openSessionWorkspace: \((windows.createFailed(key.rawValue, refusal) as? AgentTabRefusal ?? refusal).message)") // its claim goes with it
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return ActionWorkFailure("agent.openSessionWorkspace: \(windows.createFailed(key.rawValue, error))") // its claim goes with it
             }
         }
     }

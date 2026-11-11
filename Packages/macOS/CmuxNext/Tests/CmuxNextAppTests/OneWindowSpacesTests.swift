@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextTestSupport
 import Testing
 
@@ -48,6 +49,44 @@ struct OneWindowSpacesTests {
         #expect(shown === here, "another window showed it")
         #expect(registry.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k1"])
         #expect(registry.window(there.state.id) == nil, "the emptied window stayed open")
+    }
+
+    /// #41499 F2: a workspace's session-only browser tabs (`localBrowserTabs`, a daemon without frontend browser tabs)
+    /// live in its window's state. When the current window takes the workspace, they go with it: left behind they would
+    /// be stranded, and dropped when the emptied window closes.
+    @Test func aTakenWorkspaceBringsItsLocalBrowserTabs() throws {
+        let services = try Gather.services()
+        defer { Gather.closeAll(services) }
+        let here = try Gather.open(["k0"], services), there = try Gather.open(["k1"], services)
+        services.windows.didActivate(here)
+        let pane = try #require(services.workspace(id: "k1")?.screens.first?.panes.first?.id)
+        let local = LocalBrowserTab.make(url: URL(string: "https://example.com"))
+        there.state.localBrowserTabs[pane] = [local]
+
+        _ = services.windows.reveal(workspaceID: "k1", here: true)
+
+        #expect(services.windows.registry.value.owner(of: "k1") == here.state.id)
+        #expect(here.state.localBrowserTabs[pane] == [local], "the workspace's local tab did not come with it")
+        #expect(there.state.localBrowserTabs[pane].isEmpty, "the local tab stayed in the window it left")
+    }
+
+    /// Pane ids repeat across machines: when this window already keeps local tabs under the same pane id, the tabs
+    /// cannot move, so the workspace stays where it is with its tabs (shown there, as before).
+    @Test func aWorkspaceWhoseLocalTabsCannotMoveStaysPut() throws {
+        let services = try Gather.services()
+        defer { Gather.closeAll(services) }
+        let here = try Gather.open(["k0"], services), there = try Gather.open(["k1"], services)
+        services.windows.didActivate(here)
+        let pane = try #require(services.workspace(id: "k1")?.screens.first?.panes.first?.id)
+        let theirs = LocalBrowserTab.make(url: nil), ours = LocalBrowserTab.make(url: nil)
+        there.state.localBrowserTabs[pane] = [theirs]
+        here.state.localBrowserTabs[pane] = [ours]
+
+        let shown = services.windows.reveal(workspaceID: "k1", here: true)
+
+        #expect(shown === there)
+        #expect(services.windows.registry.value.owner(of: "k1") == there.state.id)
+        #expect(there.state.localBrowserTabs[pane] == [theirs] && here.state.localBrowserTabs[pane] == [ours])
     }
 
     /// Incognito and normal content never mix: an incognito window's workspace stays in its window.
