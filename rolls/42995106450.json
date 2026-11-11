@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42995106450",
+  "recorded_at": "2026-11-11T09:35:48Z",
+  "reason": "cmux-tui a31311693583 changes the image's cmux-tui (pinned 68853f7c9716)",
+  "dry_run": false,
+  "cmux_tui": "a3131169358347f49d9e5b2e3c71ecb519cbc271",
+  "fixes": [
+    {
+      "sha": "a3131169358347f49d9e5b2e3c71ecb519cbc271",
+      "mergedAt": "2026-11-11T09:12:10Z",
+      "subject": "cmux-tui tests: the synth kind-backfill test bounds the first read by a count of segments, not by a ratio of two times (#41177)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T09:35:48Z",
+    "snapshot_id": "sh-336904b038414b0ba4cfe73a1ddaac0b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42995106450): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1cd9b77d71c9fe7c8e99232e53723a7d4a00706d",
+    "image": "cloud-native-auto-a3131169-42995106450-1",
+    "revision": "ci-42995106450-1",
+    "at": "2026-11-11T09:35:48Z"
+  },
+  "rolled_back": false
+}
