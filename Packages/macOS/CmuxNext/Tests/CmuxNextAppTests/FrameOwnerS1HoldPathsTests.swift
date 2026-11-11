@@ -11,9 +11,9 @@ import Testing
 /// FRAME OWNER REFACTOR S1B: the key-resize hold paths that Codex's review of #33874 at b75090d0b38 (PR comment
 /// 6612204462) named as untested. The hold (`PaneHostView`, RESIZE KEYS K3, FRAME OWNER S1) holds only each pane's content
 /// area (`PaneContentAreaView`); these tests pin how it ends on the paths other than a landing: a host taken out of the
-/// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the spring over (with the default live resize and
-/// with content the provider holds), and content shown during the hold. In the hold the content has its area's size in
-/// every frame (Lawrence 2026-11-11: "all must have smooth transition").
+/// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the spring over, and content shown during the
+/// hold. In the hold, and in the spring that takes it over, the content has its area's size in every frame (Lawrence
+/// 2026-11-11: "all must have smooth transition").
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct FrameOwnerS1HoldPathsTests {
@@ -36,9 +36,6 @@ struct FrameOwnerS1HoldPathsTests {
         }()
         var views: [PaneID: PaneContentView] = [:]
         var contents: [PaneID: Content] = [:]
-        /// whether the provider holds every pane's content through a split, close or zoom spring (an agent chat does, S3).
-        var holdsContent = false
-
         func makeContentView(for pane: PaneID) -> NSView {
             let tabs = (0..<2).map { TabItem(id: TabID("\(pane.rawValue)-tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
             let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
@@ -48,8 +45,6 @@ struct FrameOwnerS1HoldPathsTests {
             contents[pane] = content
             return view
         }
-
-        func holdsContentInMotion(for pane: PaneID) -> Bool { holdsContent }
     }
 
     /// One screen of one column with `node` in a 1200 x 800 window; the test is the clock and runs the landing's
@@ -61,9 +56,8 @@ struct FrameOwnerS1HoldPathsTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(_ node: SplitNode, holdsContent: Bool = false) {
+        init(_ node: SplitNode) {
             _ = NSApplication.shared
-            provider.holdsContent = holdsContent
             model = LayoutModel(screens: [Self.screen(node)], activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -203,29 +197,32 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With content the provider holds (an agent chat), the key spring resizes it in each frame as any content, and the
-    /// split taking that spring over lays p2's content out at the split's rest on its first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you
-    /// waiting?"); no later frame of that spring and not its landing resizes it.
-    @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOncePerSpringAtItsStart() throws {
-        let rig = Rig(Self.pair, holdsContent: true)
+    /// A split takes a key spring over: p2's content has its area's size in every frame of the key spring and in every
+    /// frame of the split's spring, to the landing. No frame of the split holds it at another size (until 2026-11-11 a
+    /// provider could ask for that, and did for an agent chat: one layout at the split's rest on its first frame).
+    @Test func aSplitTakingOverAKeySpringKeepsTheContentAtItsPanesSizeInEveryFrame() throws {
+        let rig = Rig(Self.pair)
         defer { rig.window.closeAfterTest() }
         let content = try #require(rig.provider.contents["p2"]), view = try #require(rig.provider.views["p2"])
         content.sizes.removeAll()
+        var off: [String] = []
+        func check(_ label: String) {
+            if content.frame != view.contentHost.bounds { off.append("\(label): \(content.frame) in \(view.contentHost.bounds)") }
+        }
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
-        try #require(rig.frames(3) == 3 && view.contentHost.isHolding, "p2's area does not hold")
+        try #require(rig.frames(3, check: { check("key frame \($0)") }) == 3 && view.contentHost.isHolding, "p2's area does not hold")
         let duringKey = content.sizes
         rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                                      b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
         rig.root.syncWithModel()
-        try #require(rig.frames(1) == 1, "the split did not spring")
-        let atSplitStart = content.sizes
-        let frames = rig.frames()
-        try #require(frames > 2, "the split did not spring (\(frames) more frames)")
+        let frames = rig.frames(check: { check("split frame \($0)") })
+        try #require(frames > 3, "the split did not spring (\(frames) frames)")
+        let duringSplit = content.sizes.count - duringKey.count
         rig.release()
+        check("after the landing")
         #expect(!duringKey.isEmpty, "p2's content did not follow its pane during the key spring")
-        #expect(atSplitStart.count > duringKey.count, "p2's content did not take the split's rest on its first frame: \(atSplitStart)")
-        #expect(content.frame == view.contentHost.bounds && content.sizes == atSplitStart,
-                "p2's content did not hold the split's rest to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
+        #expect(duringSplit > 3, "p2's content took \(duringSplit) sizes in \(frames) frames of the split: it did not follow its pane")
+        #expect(off.isEmpty, "p2's content was not at its area's size in \(off.count) frames: \(off.prefix(4))")
     }
 
     // MARK: Content shown during the hold
