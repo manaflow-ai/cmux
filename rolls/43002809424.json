@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43002809424",
+  "recorded_at": "2026-11-11T10:28:26Z",
+  "reason": "cmux-tui 83cfd4d7e998 changes the image's cmux-tui (pinned 1ff45d2fcec1)",
+  "dry_run": false,
+  "cmux_tui": "83cfd4d7e998b01b6fd31b45fee39658ed1f079f",
+  "fixes": [
+    {
+      "sha": "1fde451620b6a5ab0c805e142be2ceb21d85209c",
+      "mergedAt": "2026-11-11T02:06:32-08:00",
+      "subject": "acpmux send: run codesign once per app bundle, again only when its files change"
+    },
+    {
+      "sha": "7adfa5631b63a50efb4422f7d1c590a096b88902",
+      "mergedAt": "2026-11-11T02:06:31-08:00",
+      "subject": "acpmux send: red test, every claimed send runs codesign on an unchanged app bundle"
+    },
+    {
+      "sha": "978ebadc2a2f3b85c92519007ec44afcb86e0153",
+      "mergedAt": "2026-11-11T02:06:31-08:00",
+      "subject": "cmux-tui: per-row decorations run on cached statements"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T10:28:26Z",
+    "snapshot_id": "sh-a8c52bc3d12e4414a3a7038a7c8ee06d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43002809424): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "027024479e86380c57a99b3c545bb29095503415",
+    "image": "cloud-native-auto-83cfd4d7-43002809424-1",
+    "revision": "ci-43002809424-1",
+    "at": "2026-11-11T10:28:26Z"
+  },
+  "rolled_back": false
+}
