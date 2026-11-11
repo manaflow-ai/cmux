@@ -7,8 +7,8 @@
 //!
 //! The remote is the given one, else where `git push` would go (the
 //! branch's `pushRemote`, `remote.pushDefault`, the branch's upstream remote),
-//! else `origin`; it must be a configured remote, never a URL, and one
-//! without its own push refspecs or mirroring. The exact commit read (and
+//! else the only remote or `origin`; it must be a configured remote, never a URL,
+//! and must not mirror or configure refspecs that push a different branch. The exact commit read (and
 //! checked against `expected_head`) is what is pushed; the attempt journal
 //! keeps it, so a retry after a lost reply pushes that commit again (a
 //! no-op the remote reports as up to date) even when the branch moved. With
@@ -136,37 +136,41 @@ fn push(
         .or_else(|| config(format!("branch.{branch}.pushRemote")))
         .or_else(|| config("remote.pushDefault".to_string()))
         .or_else(|| upstream_remote.clone())
+        .or_else(|| (remotes.len() == 1).then(|| remotes.first().cloned()).flatten())
         .unwrap_or_else(|| "origin".to_string());
     if !remotes.contains(&remote) {
         let message = if remotes.is_empty() {
-            "the repository has no remote to push to".to_string()
+            "the repository has no remote; add one before opening a pull request".to_string()
         } else {
-            format!("there is no remote named {remote}")
+            format!("there is no remote named {remote}; configure it before opening a pull request")
         };
         return Err(refused(OPERATION, "no_remote", message, json!({"remote": remote})));
     }
-    refuse_special_remote(git, &remote)?;
-    let destination = format!("refs/heads/{branch}");
+    refuse_special_remote(git, &remote, branch)?;
     let upstream_merge = config(format!("branch.{branch}.merge"));
     let tracked = upstream_remote.is_some() && upstream_merge.is_some();
     let set_upstream = fields.get("set_upstream").and_then(Value::as_bool).unwrap_or(!tracked);
-    // As `push.default=simple` does: a branch that tracks another branch name
-    // (or another remote) is not pushed to a same-named branch behind its
-    // back, unless the caller asks to track what it pushes.
+    let destination_branch = branch;
+    let destination = format!("refs/heads/{destination_branch}");
+    // Match push.default=simple's name safeguard. A branch tracking origin/main
+    // may be fresh feature work, not a renamed published branch. Never infer
+    // permission to update that differently named branch. A triangular push to
+    // another remote still uses the local name; explicit set_upstream does too.
     if tracked
         && !set_upstream
-        && (upstream_remote.as_deref() != Some(remote.as_str())
-            || upstream_merge.as_deref() != Some(destination.as_str()))
+        && upstream_remote.as_deref() == Some(remote.as_str())
+        && upstream_merge.as_deref() != Some(destination.as_str())
     {
         let upstream = format!(
-            "{}/{}",
-            upstream_remote.as_deref().unwrap_or_default(),
+            "{remote}/{}",
             upstream_merge.as_deref().unwrap_or_default().trim_start_matches("refs/heads/")
         );
         return Err(refused(
             OPERATION,
             "upstream_mismatch",
-            format!("{branch} tracks {upstream}, not {remote}/{branch}; push it in a terminal"),
+            format!(
+                "{branch} tracks {upstream}; choose the destination with git push --set-upstream {remote} {branch} in a terminal, then try again"
+            ),
             json!({"branch": branch, "upstream": upstream, "remote": remote}),
         ));
     }
@@ -189,7 +193,7 @@ fn push(
         "root": repository.root.to_string_lossy(),
         "remote": remote,
         "branch": branch,
-        "upstream": format!("{remote}/{branch}"),
+        "upstream": format!("{remote}/{destination_branch}"),
         "pushed_commit": tip,
         "created_upstream": created_upstream,
         "up_to_date": flag == "=",
@@ -204,9 +208,14 @@ fn push(
 
 /// Refuses a remote whose config changes what a push sends: its own push
 /// refspecs, or mirroring.
-fn refuse_special_remote(git: &UserGit<'_>, remote: &str) -> Result<(), ResourceError> {
+fn refuse_special_remote(
+    git: &UserGit<'_>,
+    remote: &str,
+    branch: &str,
+) -> Result<(), ResourceError> {
     let refspecs = config_lines(git, &["config", "--get-all", &format!("remote.{remote}.push")]);
-    if !refspecs.is_empty() {
+    let same_branch = format!("refs/heads/{branch}:refs/heads/{branch}");
+    if !refspecs.is_empty() && refspecs.iter().any(|refspec| refspec != &same_branch) {
         let message = format!("remote {remote} has its own push refspecs; push it in a terminal");
         let extra = json!({"remote": remote, "refspecs": refspecs});
         return Err(refused(OPERATION, "push_refspec_configured", message, extra));
@@ -307,14 +316,25 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         .collect::<Vec<_>>()
         .join("\n");
     let mentions = |patterns: &[&str]| patterns.iter().any(|pattern| diagnostics.contains(pattern));
-    let (reason, message) = if rejected
+    let lower_summary = summary.to_lowercase();
+    let protected =
+        diagnostics.contains("protected branch") || lower_summary.contains("protected branch");
+    let (reason, message) = if rejected && protected {
+        (
+            "rejected_by_remote",
+            "the remote branch is protected; push a feature branch or change its protection",
+        )
+    } else if rejected
         && (summary.contains("non-fast-forward")
             || summary.contains("fetch first")
             || summary.contains("stale info"))
     {
         ("rejected_non_fast_forward", "the remote has commits this branch does not; pull first")
     } else if rejected {
-        ("rejected_by_remote", "the remote refused the push")
+        (
+            "rejected_by_remote",
+            "the remote refused the push; check repository permissions and branch rules",
+        )
     } else if line.is_none()
         && run.code != Some(FATAL_EXIT)
         && !active_hooks(git, &["pre-push"]).is_empty()
@@ -331,7 +351,10 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         "returned error: 401",
         "returned error: 403",
     ]) {
-        ("auth_failed", "the remote did not accept the credentials git has")
+        (
+            "auth_failed",
+            "the remote did not accept the credentials git has; sign in or configure a credential helper",
+        )
     } else if mentions(&[
         "could not resolve host",
         "could not resolve hostname",
@@ -353,4 +376,51 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         extra.set("ref_status", json!(summary));
     }
     refused(OPERATION, reason, message, extra)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_failures_explain_the_remote_refusal_and_next_action() {
+        let git = UserGit { root: std::path::Path::new("."), deadline: deadline() };
+        let cases = [
+            (
+                Some("!\tHEAD:refs/heads/main\t[remote rejected] (protected branch hook declined)"),
+                "remote: error: GH006: Protected branch update failed for refs/heads/main.",
+                "rejected_by_remote",
+                "feature branch",
+            ),
+            (
+                Some("!\tHEAD:refs/heads/feature\t[rejected] (fetch first)"),
+                "",
+                "rejected_non_fast_forward",
+                "pull first",
+            ),
+            (
+                Some("!\tHEAD:refs/heads/feature\t[remote rejected] (pre-receive hook declined)"),
+                "remote: repository rules rejected this update",
+                "rejected_by_remote",
+                "branch rules",
+            ),
+            (
+                None,
+                "fatal: Authentication failed for 'https://example.invalid/repo'",
+                "auth_failed",
+                "sign in",
+            ),
+        ];
+        for (line, stderr, reason, action) in cases {
+            let run = UserRun {
+                success: false,
+                code: Some(FATAL_EXIT),
+                stdout: vec![],
+                stderr: stderr.into(),
+            };
+            let error = classified(&git, line, &run);
+            assert_eq!(error.details["reason"], reason);
+            assert!(error.details["extra"]["message"].as_str().unwrap().contains(action));
+        }
+    }
 }

@@ -134,6 +134,34 @@ const recommendationPlay =
 // These direct ModelPicker inputs omit top rather than borrowing the bundled harness lists.
 const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _top, ...entry }) => entry);
 
+/// Claude Code's own list on Nov 9 (`list_models`, through the gateway): Fable 5.2 shipped before
+/// cmux's catalog knew it, so it has no catalog family. It leads the Fable line; Fable 5.1 folds.
+const liveFable52Rows: [id: string, name: string, family?: string][] = [
+  ["claude-opus-5-5", "Opus 5.5", "Opus"],
+  ["claude-fable-5-2", "Fable 5.2"],
+  ["claude-fable-5-1", "Fable 5.1", "Fable"],
+  ["claude-fable-5", "Fable 5", "Fable"],
+  ["claude-sonnet-5-5", "Sonnet 5.5", "Sonnet"],
+  ["claude-haiku-5-5", "Haiku 5.5", "Haiku"],
+  ["claude-opus-5", "Opus 5", "Opus"],
+  ["claude-sonnet-5", "Sonnet 5", "Sonnet"],
+  ["claude-opus-4-8", "Opus 4.8", "Opus"],
+];
+const liveFable52: ModelPickerProps = {
+  ...base,
+  catalog: [
+    {
+      id: "claude",
+      name: "Claude Code",
+      top: liveFable52Rows.map(([id]) => id),
+      models: liveFable52Rows.map(([id, name, family]) => ({ id, name, ...(family ? { family } : {}) })),
+    },
+  ],
+  harness: "claude",
+  model: "claude-opus-5-5",
+  label: "Opus 5.5",
+};
+
 const familyRecommendationsClaude: ModelPickerProps = {
   ...base,
   catalog: familyRecommendationCatalog,
@@ -600,6 +628,13 @@ export default componentEntry<GalleryProps>({
     "family-recommendations-codex": {
       props: familyRecommendationsCodex,
       play: recommendationPlay(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"], ["gpt-6-sol"]),
+    },
+    "live-list-new-release": {
+      props: liveFable52,
+      play: recommendationPlay(
+        ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5"],
+        ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
+      ),
     },
     // Without top, keep each family's newest release in source order, then older versions newest-first.
     "family-recommendations-claude-fallback": {

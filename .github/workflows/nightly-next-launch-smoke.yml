@@ -230,6 +230,7 @@ jobs:
             scripts/ci/release-signer/verify_appcast_item.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
+            scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
 
       # The bytes, not only the length: the feed item's edSignature must verify over the

@@ -47,7 +47,7 @@ BENCHES = [
     bench("agent-engine", "agent-engine-bench.py", "--modes", "own", "--chats", "1", "--flings", "1"),
     bench("instant-new-surfaces", "instant-new-surfaces-bench.py", "--runs", "1"),
     bench("typing-frame", "typing-frame-bench.py", "--sessions", "light", "--rounds", "1", "--samples", "10",
-          "--surfaces", "terminal,dock", "--phases", "idle"),
+          "--surfaces", "terminal,home", "--phases", "idle"),
     bench("sidebar-churn", "sidebar-churn-typing.py", "--workspaces", "10", "--groups", "2", "--samples", "10"),
     bench("bench-idle", "bench_idle.py", "--scenarios", "terminals", "--settle", "2", "--measure", "5", "--no-fail", json_flag=False),
 ]

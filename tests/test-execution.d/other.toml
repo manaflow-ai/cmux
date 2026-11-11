@@ -18,6 +18,10 @@ path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_asc_review_package.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
@@ -543,6 +547,11 @@ path = "tests/test_recovery_app_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_reload_build_only_app_path_readers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every workflow or script that reads reload.sh's App path after --build-only passes --keep-app (without it the bundle is deleted and no App path is printed); run python3 tests/test_reload_build_only_app_path_readers.py yourself after adding such a caller (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_reload_tag_lock.py"
 lane = "legacy"
 
@@ -683,6 +692,11 @@ lane = "legacy"
 path = "tests/test_stable_next.py"
 lane = "manual"
 reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_stable_next_slack.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml's Slack jobs change; repository policy adds no new CI tests."
 
 [[test]]
 path = "tests/test_stale_agent_prs.py"
