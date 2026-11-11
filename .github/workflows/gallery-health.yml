@@ -493,7 +493,10 @@ jobs:
           # Everything but the checker goes back to the base, so only the webviews tree differs.
           git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
+          # Each part in its own log group, so the replay's time is attributed (job-groups) before it is cut.
+          echo "::group::base bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
           # Every case (theme, width) of each red state, and nothing else. A state the base does not have
           # renders nothing there, so the classifier calls it the head's own.
@@ -501,7 +504,9 @@ jobs:
             | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
             "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
           echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
+          echo "::group::base gallery build"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          echo "::endgroup::"
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json
           # below. A replay that wrote no health.json gave no verdict, and says so here.
@@ -513,8 +518,10 @@ jobs:
           bases=()
           for pass in 1 2; do
             rc=0
+            echo "::group::base render $pass"
             bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
               --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            echo "::endgroup::"
             if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
               echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
               exit 1
