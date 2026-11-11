@@ -38,7 +38,7 @@ from typing import Any, Callable, Mapping, NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from shell_invocations import may_run  # noqa: E402
+from shell_invocations import _PREFIX_COMMANDS, _RUNS_ARGUMENTS, _SHELLS, may_run  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
 
@@ -61,9 +61,6 @@ STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IG
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
-PUBLISH_TEXT = re.compile(
-    r"\bgh\s+release\s+(create|upload|edit|delete)|\b(npm|pnpm|yarn|bun|cargo)\s+publish|\btwine\s+upload|"
-    r"\bcodesign\b|\bproductsign\b|\bnotarytool\b")
 CODESIGN_READ_ONLY = re.compile(r"-(v+|d+v*|dv+)|--verify|--display")
 
 
@@ -133,7 +130,7 @@ def gh_api_writes_release(args: list[str]) -> bool:
         elif not word.startswith("-"):
             paths.append(word)
     effective = (method or ("POST" if fields else "GET")).upper()
-    return effective != "GET" and effective != "HEAD" and any(RELEASE_PATH.search(path) for path in paths)
+    return effective != "GET" and effective != "HEAD" and (not paths or any(RELEASE_PATH.search(path) for path in paths))  # no path: xargs feeds it
 
 
 def publishing_command(words: list[str]) -> bool:
@@ -155,6 +152,37 @@ def publishing_command(words: list[str]) -> bool:
     return program == "xcrun" and "notarytool" in rest
 
 
+WRAPPERS = frozenset(_PREFIX_COMMANDS | _RUNS_ARGUMENTS | _SHELLS)
+
+
+def invocation_publishes(invocation: Any, depth: int = 0) -> bool:
+    """One classifier for a direct command and a wrapped one. A command that runs other commands (eval, `bash -c`,
+    sh -c, xargs, sudo, env, timeout ...) is classified by the commands inside it: each word that holds text is
+    lexed again, and each tail of its words is read as a command of its own. What cannot be read (an unlexable
+    string, nesting past four levels) may be a publish, so its step must be gated."""
+    words = list(invocation.words)
+    if publishing_command(words):
+        return True
+    if not invocation.any_program:
+        return False
+    if not words or depth >= 4:
+        return True
+    for word in words:
+        if re.search(r"\s", word) and any(invocation_publishes(inner, depth + 1) for inner in may_run(word)):
+            return True
+    for index in range(1, len(words)):
+        tail = _Tail(words[index:], any_program=words[index] in WRAPPERS)
+        if invocation_publishes(tail, depth + 1):
+            return True
+    return False
+
+
+class _Tail(NamedTuple):
+    words: list
+    certain: bool = False
+    any_program: bool = False
+
+
 def publishes(step: Mapping[str, Any]) -> list[str]:
     """Why a step counts as publishing, as short reasons (empty: it does not)."""
     why = []
@@ -163,12 +191,9 @@ def publishes(step: Mapping[str, Any]) -> list[str]:
         why.append(f"uses {uses.split('@', 1)[0]}")
     run = str(step.get("run", ""))
     if run:
-        invocations = may_run(run)
-        for invocation in invocations:
-            if publishing_command(invocation.words):
-                why.append("runs " + " ".join(invocation.words[:3]))
-        if any(invocation.any_program for invocation in invocations) and PUBLISH_TEXT.search(run):
-            why.append("may run a publish command through eval, bash -c or an unreadable construct")
+        for invocation in may_run(run):
+            if invocation_publishes(invocation):
+                why.append("runs " + (" ".join(invocation.words[:3]) or "a command it cannot read"))
     secrets = workflow_jobs.secret_names(step) - {"GITHUB_TOKEN"}
     if secrets:
         why.append("reads secret " + ", ".join(sorted(secrets)))
