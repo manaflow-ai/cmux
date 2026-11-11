@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import os
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -201,6 +202,8 @@ final class CEFLayerHosting {
         guard let fork else { return }
         self.browser = browser
         if attachOwed { attachIfOwed() }
+        // A tab of a page window left detached at rest shows: the person is about to use it.
+        if isDetached, !inResizeMotion, firstFrameHold == .none { _ = reattachLeftover(.show) }
         let wanted = isEnabled()
         if wanted == (page != nil) {
             syncDeadline()
@@ -346,12 +349,66 @@ final class CEFLayerHosting {
     /// The page takes the keys during a motion (a focus shortcut mid-drag): its window comes back now, so the grant
     /// that follows makes a page window key as before, and the page stays attached for the rest of the motion.
     /// - Returns: Whether the page window was detached and came back now (its grant then waits for the next commit).
+    /// At rest (no motion, no first-frame hold) a page that is still detached is a leftover whose attach never came:
+    /// it comes back now (``reattachLeftover(_:)``), so the grant that follows reaches a page window again.
     @discardableResult
     func pageTakesFocus() -> Bool {
-        guard inResizeMotion else { return false }
+        guard inResizeMotion else {
+            return firstFrameHold == .none && isDetached && reattachLeftover(.focus)
+        }
         motionKeepsAttached = true
         return isDetached && setDetached(false)
     }
+
+    // MARK: A page the person reaches is never left detached
+
+    /// What found a detached page at rest (the `cef-hosting` log line names it).
+    enum LeftoverReach: String {
+        /// A press or a scroll wheel event on the page area (``CEFHostView``).
+        case pointer
+        /// A focus grant (``pageTakesFocus()``).
+        case focus
+        /// A show of one of the page window's tabs (``pageShown(browser:)``).
+        case show
+    }
+
+    /// The person pressed or scrolled on the page area (``CEFHostView``). Such an event reaches the cmux window only
+    /// where the page window takes no mouse: a blank page's cut-out, or the whole page when its window is detached,
+    /// which shows its pixels from the hosted context but takes no click, scroll or key. No resize motion or
+    /// first-frame hold of this view is under way while the pointer is on the page (a divider drag or a window live
+    /// resize holds the pointer on the divider or the window edge), so a page still detached now is a leftover whose
+    /// end never came (an end lost on its way, a refused attach nothing retried, a frame tick that never came). Its
+    /// window comes back at once; before, only a window change brought it back (Aziz 2026-11-10: several browser tabs
+    /// took no click or scroll until he closed and reopened the window).
+    /// - Returns: Whether a detached page was attached now.
+    @discardableResult
+    func personReachedPage() -> Bool {
+        guard isDetached || attachOwed || firstFrameHold != .none else { return false }
+        return reattachLeftover(.pointer)
+    }
+
+    /// Ends every motion share, live resize and first-frame hold this view still counts, and attaches the page
+    /// window: the state a page at rest has. A kept focus ask is granted once the window is in (``attach()``). One
+    /// notice line with the state found, never a URL, so the path that left it can be found in the field.
+    private func reattachLeftover(_ reach: LeftoverReach) -> Bool {
+        let state = "detached=\(isDetached) owed=\(attachOwed) motions=\(motionHolders) drags=\(paneDragHolders) "
+            + "liveResize=\(inLiveResize) hold=\(firstFrameHold)"
+        Self.logger.notice("leftover detached page (\(reach.rawValue, privacy: .public)) browser=\(self.browser ?? -1, privacy: .public) \(state, privacy: .public)")
+        CEFHostView.trackerStats.leftoverAttaches += 1
+        motionHolders = 0
+        motionKeepsAttached = false
+        inLiveResize = view?.window?.inLiveResize ?? false
+        shownFrame?.deactivate()
+        shownFrame = nil
+        if let grant = afterFirstFrame, owedGrant == nil { owedGrant = grant }
+        afterFirstFrame = nil
+        firstFrameHold = .none
+        let wasDetached = isDetached
+        attach()
+        return wasDetached && !isDetached
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-hosting")
 
     private func motionChanged() {
         if inResizeMotion {
