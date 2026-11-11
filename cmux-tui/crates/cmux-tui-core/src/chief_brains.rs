@@ -1458,6 +1458,12 @@ mod supervisor_idle_tests {
 #[cfg(unix)]
 fn open_host_log(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt as _;
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > HOST_LOG_ROTATE_BYTES) {
+        let mut kept = path.as_os_str().to_owned();
+        kept.push(".1");
+        // A failed move keeps appending to the old log: the launch matters more.
+        let _ = std::fs::rename(path, PathBuf::from(kept));
+    }
     std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)
 }
 
