@@ -7592,6 +7592,96 @@ class NamedRunStepHeader(unittest.TestCase):
                         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
+class LocalCompositeCannotPose(unittest.TestCase):
+    """A local composite action is allowed in a workflow workflow_step_names reads (dep-fleet-6 on #40542): it is one
+    step of the jobs API, so it never shifts the order its marks rely on, and its inner steps' `##[group]Run ...` lines
+    never become another step's header. Here a failing composite's inner step is named exactly like the header of the
+    unnamed step after it (`Run swift test`), which the workflow proves unnamed, so its header text alone would fit.
+    - With several inner `Run` lines and the sibling's own header, there are more headers than steps: nothing is
+      placed (every line AMBIGUOUS), and the red is refused.
+    - With one inner `Run` line and a silent sibling (the counts balance), the inner line's stamp lies in the
+      composite's window: inside it alone, it is not in the sibling's; in the second they share, it is in two windows.
+      Either way nothing is placed, and no line is ever the sibling's."""
+
+    NAME = "cmux-next swift checks"
+    PATH = ".github/workflows/cmux-next.yml"
+    CHECKOUT = "Run actions/checkout@v6"
+    COMPOSITE = "Set up the toolchain"
+    SIBLING = "Run swift test"
+    WORKFLOW = ("name: cmux-next\non: push\njobs:\n  swift-checks:\n"
+                "    name: cmux-next swift checks\n    runs-on: macos-26\n    steps:\n"
+                "      - uses: actions/checkout@v6\n"
+                "      - name: Set up the toolchain\n        uses: ./.github/actions/setup-toolchain\n"
+                "      - if: always()\n        run: swift test\n")
+
+    def steps(self, composite_end):
+        return framed_steps([(self.CHECKOUT, "success", 3, 4), (self.COMPOSITE, "failure", 10, composite_end),
+                             (self.SIBLING, "success", composite_end, composite_end + 2),
+                             (f"Post {self.CHECKOUT}", "success", composite_end + 3, composite_end + 4)])
+
+    def lines(self, composite_end, inner_at, several):
+        composite = [(self.COMPOSITE, 10, "##[group]Run ./.github/actions/setup-toolchain"),
+                     (self.COMPOSITE, 10, "##[endgroup]")]
+        if several:
+            composite += [(self.COMPOSITE, 11, "##[group]Run brew install swiftly"),
+                          (self.COMPOSITE, 11, "##[endgroup]")]
+        composite += [(self.COMPOSITE, inner_at, f"##[group]{self.SIBLING}"),
+                      (self.COMPOSITE, inner_at, "##[endgroup]"),
+                      (self.COMPOSITE, inner_at, NEW_RED), (self.COMPOSITE, inner_at, EXIT)]
+        sibling = [(self.SIBLING, composite_end, f"##[group]{self.SIBLING}"),
+                   (self.SIBLING, composite_end, "##[endgroup]")] if several else []
+        return ([(self.CHECKOUT, 3, f"##[group]{self.CHECKOUT}"), (self.CHECKOUT, 3, "##[endgroup]")] + composite
+                + sibling + [(f"Post {self.CHECKOUT}", composite_end + 3, "Post job cleanup.")])
+
+    LAYOUTS = {
+        # (composite's last second, the inner `Run swift test` line's second, several inner `Run` lines)
+        "several inner Run lines, the sibling's own header": (20, 15, True),
+        "one inner Run line inside the composite, a silent sibling": (20, 15, False),
+        "one inner Run line in the second both share, a silent sibling": (20, 20, False),
+    }
+
+    def github(self, log_text, steps):
+        test = self
+
+        class Fake(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                found = super().json(route, paginate=paginate)
+                if (isinstance(found, dict) and "/actions/runs/" in route and "/jobs" not in route
+                        and "workflow_id" in found):
+                    found["path"] = test.PATH
+                return found
+
+            def blob(self, repo, ref, path):
+                return test.WORKFLOW
+
+        github = Fake()
+        github.base_runs = [{**run, "path": self.PATH} for run in github.base_runs]
+        github.jobs = {1: {"id": 1, "run_id": 10, "head_sha": HEAD, "name": self.NAME, "status": "completed",
+                           "conclusion": "failure", "steps": copy.deepcopy(steps)},
+                       2: {"id": 2, "run_id": 20, "head_sha": BASE_SHA, "name": self.NAME, "status": "completed",
+                           "conclusion": "failure", "steps": copy.deepcopy(steps)}}
+        github.logs = {1: log_text, 2: log_text}
+        return github
+
+    def test_a_composites_inner_run_line_is_never_its_siblings_header(self):
+        for layout, (end, inner_at, several) in self.LAYOUTS.items():
+            for columns in (False, True):
+                with self.subTest(layout=layout, columns=columns):
+                    steps = self.steps(end)
+                    log_text = framed_log(self.lines(end, inner_at, several), self.NAME, columns=columns)
+                    job = {"id": 1, "run_id": 10, "head_sha": HEAD, "name": self.NAME, "steps": steps}
+                    excuse.workflow_step_names(REPO, job, self.PATH, self.github(log_text, steps), {})
+                    # The composite does not stop the marks: the workflow proves the sibling unnamed.
+                    self.assertEqual([step.get("named_in_workflow") for step in steps],
+                                     [None, False, True, False, None, None])
+                    owned = excuse.step_owners(job, log_text)
+                    self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
+                    self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
+                    self.assertIs(excuse.signature(job, log_text, base=True), excuse.UNPLACED)
+                    with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
+                        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps))
+
+
 # The step-name detector. A line of step_lines' callers and owner, or of anything else in base_red_excuse.py and
 # test_reds.py, never places or looks up a log line by a step's name: a read of a jobs-API step's "name" (`step["name"]`,
 # `step.get("name")`, on a step or a name bound from a job's steps[]) and a read of `gh run view --log`'s step column
