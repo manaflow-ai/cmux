@@ -739,7 +739,10 @@ another event. A hook report replaces socket state; a socket report that is
 retained by an unchanged hook therefore also takes this no-op path. Restart
 restores agents from the current projection table rather than scanning report
 history. Tombstoning a terminal deletes its projection in the same transaction,
-so historical reports cannot resurrect it.
+so historical reports cannot resurrect it. The batch of that transaction
+carries the terminal's `delete` change and no agent change: a terminal `delete`
+ends the agent whose `terminal_id` is that terminal, and a client that folds
+`session.events` removes it with the terminal. The next snapshot has neither.
 
 An agent value's `extra.agent` names the hook adapter (`claude`, `codex`, ...)
 when one has claimed the terminal. `extra.agent_session_id` is the agent's own

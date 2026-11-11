@@ -45,6 +45,19 @@ jobs:
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
 
+      # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
+      # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
+      # dependency; eb4f3eb1d94 (a direct push) did that to cmux-app-ffi, and every pull request went red on
+      # its --locked build. On a feat-cmux-next push the base autofix rewrites the stale locks
+      # (cmux-next-base-autofix.yml, base-autofix.sh --locks); the pre-push gate runs the same check.
+      # --strict: CI is the backstop, so a workspace cargo could not judge (a registry error, a timeout) is red
+      # here, never a silent pass; the pre-push gate stays lenient.
+      - name: Set up pinned Rust (lock check)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Every Cargo.lock matches its manifests
+        run: python3 scripts/cmux-next/cargo-locks.py check --strict || { echo "::error::a Cargo.lock no longer matches its manifests; run scripts/cmux-next/cargo-locks.py fix and commit the locks"; exit 1; }
+
       # Pull requests compare with the base their merge commit was made on (its first
       # parent), pushes with the commit before them; with none (a new branch or a
       # dispatch) every workspace is planned.

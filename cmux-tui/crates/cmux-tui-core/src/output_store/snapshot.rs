@@ -965,6 +965,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
                 if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
             removed += usize::from(result.is_ok());
         }
+        store.full.forget_all();
         if removed > 0 {
             eprintln!(
                 "cmux-tui: terminal output store removed {removed} file(s): \
@@ -989,9 +990,11 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
         }
         let path = entry.path();
         let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        store.full.forget(directory, &terminal_id);
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
+        store.full.forget_all();
     }
     // Parked: a kept tab and no running shell (after a daemon restart too).
     let parked = mux.parked_terminal_ids(live);

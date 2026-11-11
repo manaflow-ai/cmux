@@ -768,7 +768,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { views[tabKey(key, machine: machine)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
         let scoped = tabKey(key, machine: machine)
