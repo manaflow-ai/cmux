@@ -181,6 +181,11 @@ public final class MobileMacListAuthState {
     /// Produces the version evidence for the same app/endpoint the row can dial.
     /// Missing or ambiguous directory records keep their own lane's minimum.
     public func compatibilityEntry(pairingID: String, routes: [CmxAttachRoute] = []) -> Entry {
+        // The local demonstration computer has no directory record and no
+        // Mac app; it is always current.
+        if MobileDemoContentCatalog.ownsIdentifier(pairingID) {
+            return Entry(status: "active", revoked: false, isFresh: true)
+        }
         let endpointIDs = Set(routes.compactMap { route -> String? in
             guard case let .peer(identity, _) = route.endpoint else { return nil }
             return identity.endpointID

@@ -309,6 +309,9 @@ struct CMUXMobileRootView: View {
             \.mobileChildPresentationProvider,
             MobileChildPresentationProvider(resolve: childSheetPresentation)
         )
+        .transformEnvironment(\.mobileWhatsNewPresentationPolicy) { policy in
+            policy = demonstrationPolicy.whatsNewPresentation(policy)
+        }
         .sheet(
             isPresented: rootPresentationBinding,
             onDismiss: rootPresentationDidDismiss

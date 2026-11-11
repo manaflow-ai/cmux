@@ -34,7 +34,10 @@ struct MobileDemonstrationAccountPolicy: Equatable {
     /// What's New announces connection methods and Mac requirements the
     /// demonstration account cannot use.
     func whatsNewPresentation(_ policy: MobileWhatsNewPresentationPolicy) -> MobileWhatsNewPresentationPolicy {
-        policy
+        guard isDemonstrationAccount else { return policy }
+        var suppressed = policy
+        suppressed.suppressLaunchPresentation = true
+        return suppressed
     }
 
     func allows(_ presentation: PairingPresentation) -> Bool {
