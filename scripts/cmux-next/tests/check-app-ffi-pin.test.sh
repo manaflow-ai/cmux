@@ -63,7 +63,7 @@ printf '/// A doc comment may spell out include_str!(PATH) with no literal.\n' >
 printf 'fn main() { println!("cargo:rerun-if-changed=build-data.txt"); std::fs::read_to_string("build-data.txt").unwrap(); }\n' > "$core/build.rs"
 printf 'const V: &str = include_str!("../../cmux-rd-core/tests/vectors/lines.json");\n' > "$repo/cmux-tui/crates/cmux-rd-ffi/src/vectors.rs"
 printf 'const D: &str = include_str!("../.descriptor.json");\n' > "$core/tests/api.rs"
-for f in data.json ml.json br.json build-data.txt .descriptor.json README.md LICENSE tests/vectors/lines.json \
+for f in data.json ml.json br.json build-data.txt .descriptor.json README.md COPYING.txt tests/vectors/lines.json \
   scripts/sync.py benches/b.rs examples/e.rs; do
   echo "$f" > "$core/$f"
 done
