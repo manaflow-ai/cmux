@@ -436,7 +436,15 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
         words[3:3] = ["--from-folder", str(folder)]
     if journey.args.harness:
         words[3:3] = ["--harness", journey.args.harness]
-    code, out, err = journey.cmux(*words, timeout=timeout + 120)
+    # The composer cell clicks Trust on its folder; a Cloud copy is trusted on the machine only when this Mac
+    # trusts the source, so the CLI cell trusts it the same way first and puts it back to unknown after.
+    trusted = folder is not None and folder_kind != "over-limit" and \
+        journey.cmux("setup", "trust", str(folder), "--level", "trusted", timeout=60)[0] == 0
+    try:
+        code, out, err = journey.cmux(*words, timeout=timeout + 120)
+    finally:
+        if trusted:
+            journey.cmux("setup", "trust", str(folder), "--level", "unknown", timeout=60)
     answer = journey.parsed(out) if code == 0 else {}
     made = sorted((set(journey.machine_rows()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
     cell["machines_made"] = made
