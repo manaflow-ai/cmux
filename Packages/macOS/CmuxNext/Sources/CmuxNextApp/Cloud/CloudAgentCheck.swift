@@ -98,10 +98,10 @@ import os
         return answer.refusal?.message
     }
 
-    /// The full Claude id a start of `model` runs, probed and read: no `[1m]` suffix, an alias as its family's id, none as the default.
+    /// The Claude id a start of `model` runs: no `[1m]`, an alias as its family's id, none as the default, another name as is.
     nonisolated static func modelID(_ model: String?) -> String {
         let id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: "[", maxSplits: 1).first.map(String.init) ?? ""
-        return id.hasPrefix("claude-") ? id : ["opus", "sonnet", "haiku"].first { id.hasPrefix($0) }.map { "claude-\($0)-5-5" } ?? defaultModel
+        return id.hasPrefix("claude-") ? id : ["opus", "sonnet", "haiku"].first { id.hasPrefix($0) }.map { "claude-\($0)-5-5" } ?? (["", "default"].contains(id) ? defaultModel : id)
     }
 
     /// The rule's answer for `probe` (cmux-cloud-start-core `agent_check::check`); nil when the FFI does not answer.
@@ -124,7 +124,7 @@ import os
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": modelID(model), "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+        let body: [String: Any] = ["model": Optional(modelID(model)).filter { $0.hasPrefix("claude-") } ?? "claude-haiku-5-5", "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
                                    "messages": [["role": "user", "content": "ok"]]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request

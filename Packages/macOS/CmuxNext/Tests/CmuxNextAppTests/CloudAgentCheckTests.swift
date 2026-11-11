@@ -97,6 +97,11 @@ import Testing
         #expect(await refusal(check(status: 429, headers: opusSpent), model: "sonnet[1m]", user: person()) == nil)
         #expect(CloudAgentCheck.modelID("Claude-Sonnet-5-5[1M]") == "claude-sonnet-5-5")
         #expect(CloudAgentCheck.modelID("haiku") == "claude-haiku-5-5")
+        // A name that is no Claude family (Fable) is never read as Opus: its start goes on, asked on the cheapest model.
+        let sent = Sent()
+        #expect(await refusal(check(status: 429, headers: opusSpent, sent: sent), model: "fable", user: person()) == nil)
+        let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
+        #expect(body?["model"] as? String == "claude-haiku-5-5")
     }
 
     @Test func onlyAKnownUsedUpLimitOnALoginTheMachineGetsRefuses() async {
