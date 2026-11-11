@@ -599,6 +599,21 @@ STILL_READS = {
 }
 
 
+# #41133 review F1 and F2: absolute shell and wrapper paths, an unknown absolute program given -c, and a substitution
+# inside a parameter expansion.
+SHELL_FORM_ESCAPES = {
+    "/bin/bash -c": f"/bin/bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "/usr/bin/env bash -c": f"/usr/bin/env bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "/usr/bin/env /bin/sh -c": f"/usr/bin/env /bin/sh -c 'gh api {RELEASES} -XPOST'",
+    "/usr/bin/sudo gh api": f"/usr/bin/sudo gh api {RELEASES} -XPOST",
+    "/usr/bin/xargs gh release upload": "/usr/bin/xargs gh release upload v1 < files",
+    "an unknown absolute program with -c": f"/opt/tools/bin/fish -c 'gh api {RELEASES} -f tag_name=v1'",
+    "$( ) in ${x:-}": f'echo "${{x:-$(gh api {RELEASES} -f tag_name=v1)}}"',
+    "backticks in ${x:+}": "echo ${x:+`gh release create v1 dist/x`}",
+    "$( ) in a nested ${ }": f'echo "${{x:-${{y:-$(gh api {RELEASES} -XPOST)}}}}"',
+}
+
+
 class RealStepMutation:
     """Strip the release gate from a real signing step of coderouter-release.yml and give it an escape form: the
     detector must name it, and the same step with its real gate restored must pass."""
@@ -629,6 +644,9 @@ class RealStepMutation:
 
 
 class RealGateMutations(RealStepMutation, unittest.TestCase):
+    def test_absolute_paths_and_parameter_substitutions_without_the_real_gate_are_named(self) -> None:
+        self.assert_escape_caught(SHELL_FORM_ESCAPES)
+
     def test_every_gh_api_write_form_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(GH_API_WRITE_ESCAPES)
 

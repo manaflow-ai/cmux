@@ -77,6 +77,10 @@ FIXTURES = [
     ("an alias is not expanded in a non-interactive shell", "alias sign=a\nb", {"b"}, set()),
     ("a variable as the program", "p=a\n$p", {"a"}, set()),
     ("a substitution as the program", "$(echo a)", {"a"}, set()),
+    # #41133 review F2: a substitution inside a parameter expansion runs.
+    ("a substitution in a parameter default runs", 'echo "${x:-$(a)}" >/dev/null', {"a"}, set()),
+    ("a backtick in a parameter alternative runs", "x=1\necho ${x:+`a`} >/dev/null", {"a"}, set()),
+    ("a substitution in a nested parameter default runs", 'echo "${x:-${y:-$(a)}}" >/dev/null', {"a"}, set()),
 ]
 
 
@@ -86,6 +90,12 @@ FIXTURES = [
 # as a script is never certain; a fixture bash runs but the model calls uncertain must still be allowed by may_run.
 SCRIPT_FIXTURES = [
     ("bash ./sign.sh", True, True),
+    # #41133 review F1: a shell or wrapper named by its absolute path is the same program.
+    ("/bin/bash ./sign.sh", True, True),
+    ("/bin/bash -n ./sign.sh", False, False),
+    ("/usr/bin/env ./sign.sh", True, True),
+    ("/usr/bin/env bash -e ./sign.sh", True, True),
+    ("/bin/bash -c ./sign.sh", True, False),
     ("bash -e ./sign.sh", True, True),
     ("bash -eux ./sign.sh 2>/dev/null", True, True),
     ("bash --noprofile --norc ./sign.sh", True, True),
@@ -295,6 +305,22 @@ class AgainstBash(unittest.TestCase):
             with self.subTest(readable=script):
                 self.assertNotIn([], may_run_nested(script))
                 self.assertFalse(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+
+    def test_absolute_paths_and_parameter_substitutions_are_read_like_the_plain_forms(self) -> None:
+        from shell_invocations import may_run_nested
+        inner = ["gh", "api", "repos/o/r/releases", "-f", "tag_name=v1"]
+        for script in ("/bin/bash -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/env bash -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/sudo -E /bin/sh -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/xargs gh api repos/o/r/releases -f tag_name=v1 < f",
+                       'echo "${x:-$(gh api repos/o/r/releases -f tag_name=v1)}"',
+                       "echo ${x:+`gh api repos/o/r/releases -f tag_name=v1`}",
+                       'echo "${x:-${y:-$(gh api repos/o/r/releases -f tag_name=v1)}}"'):
+            with self.subTest(script):
+                self.assertTrue(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+        # An absolute program this does not know, given -c, may run anything.
+        self.assertIn([], may_run_nested("/opt/tools/bin/fish -c 'gh api repos/o/r/releases -f tag_name=v1'"))
+        self.assertNotIn([], may_run_nested("/usr/bin/python3 ./build.py"))
 
     def test_there_is_no_default_reading(self) -> None:
         import shell_invocations
