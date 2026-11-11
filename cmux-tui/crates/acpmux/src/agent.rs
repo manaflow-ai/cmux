@@ -166,6 +166,11 @@ struct Hosted {
     exit: tokio::sync::Notify,
     /// Last entry whose record reached the store.
     logged: tokio::sync::watch::Sender<u64>,
+    /// Held while a reader logs an entry and moves `logged`: the reader of a closed link may
+    /// still log entries from its queue after a reattach, while the host replays the same
+    /// entries to the new link (it resumes after `logged`). Under this lock each entry is
+    /// logged once: a reader skips an entry at or below `logged` and only acknowledges it.
+    log_turn: tokio::sync::Mutex<()>,
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
@@ -2084,6 +2089,7 @@ impl ChildAgent {
                 inbound,
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
+                log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
@@ -2142,7 +2148,12 @@ impl ChildAgent {
                 let ack_fails = ack_fails_once(&entry);
                 #[cfg(not(debug_assertions))]
                 let ack_fails = false;
-                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                // An entry the reader of an earlier link logged already (its queue outlived its
+                // link, and the host replayed the entry here) is only acknowledged.
+                let turn = hosted.log_turn.lock().await;
+                let fresh = h > *hosted.logged.borrow();
+                if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                    drop(turn);
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
@@ -2164,7 +2175,10 @@ impl ChildAgent {
                         hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
-                hosted.logged.send_replace(h);
+                if fresh {
+                    hosted.logged.send_replace(h);
+                }
+                drop(turn);
                 if is_exit {
                     // Written before anyone hears of the exit: a daemon that
                     // ends the agent and exits at once still acks the Exit.
