@@ -110,6 +110,11 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(runner.endswith(
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
+        # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
+        # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
+        place = step_named(job(doc, "portable-placement")["steps"], "Place")["env"]
+        self.assertEqual(set(place["LINUX_ONLY"].split()), light)
+        self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
             if key in light or key == "portable-placement":
                 continue
@@ -1209,9 +1214,11 @@ class WebviewsChecksGate(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q", "-b", "feat-cmux-next")
-        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        # Imported by name: the one module object every test reads (tests/test_script_module_loads.py).
+        if str(WEBVIEWS_CHECKS.parent) not in sys.path:
+            sys.path.insert(0, str(WEBVIEWS_CHECKS.parent))
+        import fast_gate_webviews_checks
+        self.module = fast_gate_webviews_checks
 
     def findings(self, by_check: dict[str, str], message: str) -> str:
         files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}
