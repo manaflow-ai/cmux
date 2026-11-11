@@ -2,7 +2,7 @@ name: cmux-api production logs
 
 # Why did production refuse that? cmux-api (production) persists its Workers Logs; this reads one UTC window of
 # them (Workers observability telemetry query) and prints each event through an allowlist: time, outcome, method,
-# path without its query, status, and the msg/team/outcome/code fields of the Worker's JSON log lines
+# path without its query, status, and the msg/team/outcome/code fields of the Worker's JSON log lines (never free-text error)
 # (scripts/cmux-next/cmux-api-prod-logs.py). Never a header, body, query string, token, email or IP.
 # Prod 2026-11-11: `cmux auth token` refused the app's own team as "not a member", and no agent could read the
 # Worker's log lines without a person's dashboard login.

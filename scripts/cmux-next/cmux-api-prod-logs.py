@@ -4,8 +4,8 @@
 An agent asking why production refused something (prod 2026-11-11: `cmux auth token` refused the app's own
 team as "not a member") reads the Worker's own log lines here instead of asking a person for a dashboard.
 Prints, per event, only: time, outcome, request method, path (never the query), response status, and the
-allowlisted fields of a JSON console line (msg, team, outcome, code, type, fails, step, attempts, and error cut
-to 160 chars). Never a header, body, query string, token, email or IP.
+allowlisted fields of a JSON console line (msg, team, outcome, code, type, fails, step, attempts; for error,
+only that one was there). Every printed value also loses any ?query, email, IP and long token run. Never a header, body, query string, token, email or IP.
 
   python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 [--needles "team_d4390fb0a0f47a8e135a,/auth/"] < token
 
@@ -26,8 +26,10 @@ SERVICE = "cmux-api"
 LOG_FIELDS = ("msg", "team", "outcome", "code", "type", "fails", "step", "attempts", "status", "op")
 NEEDLE_OK = re.compile(r"^[A-Za-z0-9_./ :-]{3,80}$")
 PAGES = 20
+MAX_ROWS = 2000
 # Printed values are scrubbed as well as allowlisted: a free-text msg, error or path may hold one (run logs are public).
-SCRUB = [(re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
+SCRUB = [(re.compile(r"\?\S*"), "?<query>"),
+         (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
          (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){4,7}\b"), "<ip>"),
          (re.compile(r"[A-Za-z0-9+=-]{32,}"), "<long>")]
 
@@ -82,8 +84,9 @@ def console_fields(e):
                 continue
         if isinstance(j, dict) and isinstance(j.get("msg"), str):
             f = {k: j[k] for k in LOG_FIELDS if k in j and isinstance(j[k], (str, int, float, bool))}
-            if isinstance(j.get("error"), str):
-                f["error"] = j["error"][:160]
+            # Free-text `error` is never printed (it can carry an upstream URL or credential); only that one was there.
+            if "error" in j:
+                f["error"] = "<present>"
             out.append(f)
             break
     return out
@@ -151,8 +154,8 @@ def main():
     rows = [line(e) for e in kept]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "needles": needles, "events_in_window": len(events),
-                      "pages": pages, "truncated": not complete, "kept": len(rows), "event_key_paths": keys}, indent=1))
-    for r in rows[:2000]:
+                      "pages": pages, "truncated": not complete, "kept": len(rows), "printed": min(len(rows), MAX_ROWS), "rows_cut": len(rows) > MAX_ROWS, "event_key_paths": keys}, indent=1))
+    for r in rows[:MAX_ROWS]:
         print(json.dumps(r, separators=(",", ":")))
     return 0
 
