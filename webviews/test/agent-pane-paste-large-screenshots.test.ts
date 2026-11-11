@@ -173,7 +173,12 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.keyboard.type(" these screenshots attach while I type", { delay: 20 });
     await page.waitForFunction(() => {
       const images = [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")];
-      return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
+      // A chip still reading (aria-busy) already shows its picture in its final shape; it is staged once it is not.
+      return (
+        !document.querySelector('.acpmux-composer [aria-busy="true"]') &&
+        images.length === 3 &&
+        images.every((img) => img.complete && img.naturalWidth > 0)
+      );
     });
     const attached = Date.now() - started;
     const stall = await longestStall(page);

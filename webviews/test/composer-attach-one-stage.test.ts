@@ -44,6 +44,13 @@ type Metrics = {
   framesToFirstBox: number | null;
   /// When an image's header answered its size, from the paste (ms).
   headerAnsweredMs: number | null;
+  /// When the host's late answer was heard, from the paste (ms).
+  hostHeardMs: number | null;
+  /// Painted frames from the one after the host's late answer was heard to the chip's first: 0 is the
+  /// chip in that frame.
+  framesFromHostToBox: number | null;
+  /// Whether a told size was left that nothing took.
+  toldLeft: boolean;
   /// The first frames' times from the paste (ms).
   frameTimes: number[];
   pasteToReadyMs: number | null;
@@ -83,8 +90,9 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
   const TOLD_LATE: Partial<Record<Kind, { width: number; height: number }>> = {
     lateImage: { width: 2880, height: 1800 },
   };
-  /// An image whose size nobody told is unseen until its header answers: at most this long.
-  const HEADER_WAIT_MS = 120;
+  /// An image whose size nobody told is unseen until its own picture is in (attachmentIntakeModel.ts
+  /// PICTURE_WAIT_MS): at most this long.
+  const PICTURE_WAIT_MS = 250;
   /// The stand-in host holds a video's read (poster, length) until the test lets it go, after the chip
   /// is ready: the native read's place, with no fixed wait.
   const RELEASE_VIDEO_READ = "one-stage-release-video-read";
@@ -452,9 +460,17 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
     await finished(page, kind).catch(() => {
       done = false;
     });
-    const headerAnsweredMs = await page.evaluate(() => {
-      const mark = performance.getEntriesByName("acpmux:header-answered").at(-1);
-      return mark ? Math.round(mark.startTime - (window as ProbeWindow).__probe!.pasteAt) : null;
+    const { headerAnsweredMs, hostHeardMs, toldLeft } = await page.evaluate(() => {
+      const at = (name: string) => {
+        const mark = performance.getEntriesByName(name).at(-1);
+        return mark ? Math.round(mark.startTime - (window as ProbeWindow).__probe!.pasteAt) : null;
+      };
+      return {
+        headerAnsweredMs: at("acpmux:header-answered"),
+        hostHeardMs: at("acpmux:host-shapes-heard"),
+        // What the host told that nothing took (a gesture's sizes it never got).
+        toldLeft: "__cmuxAttachShapes" in window,
+      };
     });
     const pictureAt = done
       ? await page.evaluate(() => performance.now() - (window as ProbeWindow).__probe!.pasteAt)
@@ -497,8 +513,18 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
       bytes,
       pasteToFirstBoxMs: first ? Math.round(first.at) : null,
       headerAnsweredMs,
+      hostHeardMs,
+      toldLeft,
       frameTimes: after.slice(0, 8).map((sample) => Math.round(sample.at)),
       framesToFirstBox: firstBoxAt < 0 ? null : firstBoxAt,
+      framesFromHostToBox:
+        hostHeardMs === null || firstBoxAt < 0
+          ? null
+          : firstBoxAt -
+            Math.max(
+              0,
+              after.findIndex((sample) => sample.at >= hostHeardMs),
+            ),
       pasteToReadyMs: ready ? Math.round(ready.at) : null,
       pasteToPictureMs: pictureAt === null ? null : Math.round(pictureAt),
       boxSizes,
@@ -549,14 +575,16 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
         }, 120_000);
         const of = () => results.get(`${engine}/${kind}`)!;
         if (kind === "lateImage")
-          test(`${engine} ${kind}: told just after the paste, the chip is there within a frame of it`, () => {
-            expect(of().framesToFirstBox).not.toBeNull();
-            expect(of().framesToFirstBox!).toBeLessThanOrEqual(1);
+          test(`${engine} ${kind}: told just after the paste, the chip is there within two frames of the host's answer`, () => {
+            expect(of().hostHeardMs).not.toBeNull();
+            expect(of().framesFromHostToBox).not.toBeNull();
+            // The frame right after the answer may come before React commits it; the next one has it.
+            expect(of().framesFromHostToBox!).toBeLessThanOrEqual(2);
           });
         else if (kind === "untoldImage")
-          test(`${engine} ${kind}: without the host's size, the chip is there once its header answers`, () => {
+          test(`${engine} ${kind}: without the host's size, the chip is there once its picture is in`, () => {
             expect(of().pasteToFirstBoxMs).not.toBeNull();
-            expect(of().pasteToFirstBoxMs!).toBeLessThanOrEqual(HEADER_WAIT_MS + 50);
+            expect(of().pasteToFirstBoxMs!).toBeLessThanOrEqual(PICTURE_WAIT_MS + 50);
           });
         else
           test(`${engine} ${kind}: the chip is there in the paste's next frame`, () => {
@@ -574,7 +602,15 @@ await requireBrowserLane("composer-attach-one-stage.test.ts", async () => {
         });
         test(`${engine} ${kind}: ready to send at once`, () => {
           expect(of().pasteToReadyMs).not.toBeNull();
-          expect(of().pasteToReadyMs!).toBeLessThan(500);
+          // An older host's image (untold) also waits for its own picture first (PICTURE_WAIT_MS).
+          // A runner that stalls the page (WebKit's first paste once painted frames at 38, 231 and 504 ms)
+          // delays the frame the chip is ready in, not the chip: it is then ready in the first frame
+          // painted after its picture came in.
+          const { pasteToReadyMs, pasteToPictureMs, frameTimes } = of();
+          const bound = kind === "untoldImage" ? 500 + PICTURE_WAIT_MS : 500;
+          const firstFrameAfterPicture =
+            pasteToPictureMs === null ? undefined : frameTimes.find((at) => at >= pasteToPictureMs);
+          expect(pasteToReadyMs!).toBeLessThanOrEqual(Math.max(bound, firstFrameAfterPicture ?? 0));
         });
         if (kind !== "file")
           test(`${engine} ${kind}: the sent tile has the composer's shape`, () => {

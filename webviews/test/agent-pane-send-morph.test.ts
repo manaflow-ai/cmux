@@ -111,7 +111,13 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     }, field);
     await page.waitForFunction(() => {
       const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment-image img");
-      return !!image && image.complete && image.naturalWidth > 0;
+      // A chip still reading (aria-busy) already shows its picture in its final shape; it is staged once it is not.
+      return (
+        !document.querySelector('.acpmux-composer [aria-busy="true"]') &&
+        !!image &&
+        image.complete &&
+        image.naturalWidth > 0
+      );
     });
     await page.keyboard.type(` ${LINE}`);
     return page.evaluate((selector) => {

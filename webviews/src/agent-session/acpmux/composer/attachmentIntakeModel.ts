@@ -251,6 +251,8 @@ export function onHostShapes(
   };
   const heard = () => {
     stop();
+    // When the host's late answer came (composer-attach-one-stage reads it).
+    performance.mark("acpmux:host-shapes-heard");
     told(hostShapes(files, kind));
   };
   window.addEventListener(HOST_SHAPES_EVENT, heard);
