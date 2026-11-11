@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43114310987",
+  "recorded_at": "2026-11-11T22:54:33Z",
+  "reason": "cmux-tui b69875277992 changes the image's cmux-tui (pinned e694bf97a3a6)",
+  "dry_run": false,
+  "cmux_tui": "b69875277992a36b30ab20e8d6f0ae2ac6c4048d",
+  "fixes": [
+    {
+      "sha": "1358abd938b342098c0187212007e4f3a6510554",
+      "mergedAt": "2026-11-11T22:30:11Z",
+      "subject": "Cloud: GitHub's MCP server in every Cloud chat; not-connected errors say how to connect (#40417)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T22:54:33Z",
+    "snapshot_id": "sh-d8f3468e405d4457a0d6812a116887b8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43114310987): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7697d945994f9cfd1cfff540b694fbebadfa6ad2",
+    "image": "cloud-native-auto-b6987527-43114310987-1",
+    "revision": "ci-43114310987-1",
+    "at": "2026-11-11T22:54:33Z"
+  },
+  "rolled_back": false
+}
