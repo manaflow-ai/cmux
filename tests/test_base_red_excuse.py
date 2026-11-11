@@ -9959,8 +9959,9 @@ class RollupJobReadsItsNamedReds(unittest.TestCase):
     FIXTURES = ROOT / "tests/fixtures/test_reds"
     LOG = (FIXTURES / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8").replace("﻿", "")
     EXCUSED = (f"excused '{JOB}': only '{PIN}' is red (\"error: the app FFI sources changed since the pinned "
-               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: "
-               "a step-A Rust change, pinned by the release its merge publishes")
+               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, "
+               "Packages/macOS/CmuxNext/Package.swift or other Swift: a step-A Rust change, pinned by the release its "
+               "merge publishes")
     RUST = ("cmux-tui/crates/cmux-cloud-machine/src/refusals.rs", "cmux-tui/crates/cmux-cloud-start-core/src/moves/cli.rs")
 
     def setUp(self):
