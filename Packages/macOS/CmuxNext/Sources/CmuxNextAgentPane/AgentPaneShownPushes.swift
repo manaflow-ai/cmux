@@ -79,7 +79,9 @@ extension AgentPaneView {
     /// holds the work of a page that is not shown, a chat behind another tab asks nothing of the
     /// session host for it.
     public func whenSeen(_ name: String, _ work: @escaping @MainActor () -> Void) {
-        shownPushes.push(name, to: self) { _ in work() }
+        // NOT FOR MERGE: the behaviour of the base (the turn's end ran the diff warm in its own
+        // turn, seen or not), so that AgentPaneWhenSeenTests fails at its asserts.
+        work()
     }
 }
 
