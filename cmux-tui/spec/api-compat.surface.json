@@ -9313,6 +9313,59 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/first_tab": {
+        "ty": "tagged_union|object",
+        "nullable": true,
+        "values": [
+          "browser"
+        ]
+      },
+      "/first_tab/activate": {
+        "ty": "boolean"
+      },
+      "/first_tab/cols": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/engine": {
+        "ty": "string",
+        "required": true
+      },
+      "/first_tab/favicon_url": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"browser\""
+        ]
+      },
+      "/first_tab/owner": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/profile_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/rows": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/url": {
+        "ty": "string",
+        "required": true
+      },
       "/key": {
         "ty": "string",
         "nullable": true
@@ -10564,6 +10617,10 @@
       "/url": {
         "ty": "string",
         "required": true
+      },
+      "/workspace": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:new-pane": {
@@ -13321,6 +13378,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -16725,6 +16785,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -18872,6 +18935,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -19732,6 +19798,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",

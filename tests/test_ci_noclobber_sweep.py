@@ -24,8 +24,13 @@ reason, keyed by path and a piece of its line; an entry nothing matches fails, s
 """
 from __future__ import annotations
 
+import hashlib
+import os
 import re
+import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -54,6 +59,8 @@ APP_NAMES = {
 
 # (path, a piece of the line): why the grep's hit is safe
 ALLOWED = {
+    ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
+        "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-"):
         "a docstring naming the bad shape predictable-tmp-path catches",
     ("scripts/check-test-determinism.py", "'_global=\"${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig\""):
@@ -110,19 +117,32 @@ ALLOWED = {
 
 
 def code(line: str) -> str:
-    return re.sub(r"(^|\s)#.*$", "", line)
+    """LINE without its comments, taken from the shell parser: a quoted # is not one (shell_tree.code)."""
+    return shell_tree.code(line)
 
 
-# The template word of a mktemp call (the word with XXXXXX in it, quoted or bare): mktemp makes that name exclusively,
-# so only that word is left out of the scan. A mktemp on a line exempts nothing else on it (review of
-# manaflow-ai/cmux-platform#1262, F2: `d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$` passed whole).
-MKTEMP_TEMPLATE = re.compile(r"""(\bmktemp\b[^;|&\n]*?)(?:"[^"\n]*XXXXXX[^"\n]*"|'[^'\n]*XXXXXX[^'\n]*'"""
-                             r"""|[^\s;|&()"']*XXXXXX[^\s;|&()"']*)""")
+# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, the same bytes in
+# manaflow-ai/cmux, manaflow-ai/cmux-platform, manaflow-ai/cmuxterm-hq and teamleaderleo/leo-workspace). Shell read by
+# regex, then by token masking, let a guessable name through three times, and a comment cut at any # once more
+# (shell_tree.MISSES): a line with XXXXXX was exempt whole; a redirection's target was taken for mktemp's argument;
+# overlapping template spans shifted each other, and a template word exempted the substitutions inside it. Now only the
+# literal text of a mktemp argument with XXXXXX in that literal text is left out. Each command substitution inside the
+# word is still scanned, and so is every redirection. A line the parser cannot read exempts nothing and keeps its #s.
+# shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shell_tree  # noqa: E402
+
+SHELL_TREE_SHA256 = "a126eed9fe948460408a4abe11fbc28338a6614a70e2e6620b8ddc3bb967713e"
+
+
+def without_templates(line: str) -> str:
+    """LINE with the literal text of each mktemp template word blanked (shell_tree.scan_text)."""
+    return shell_tree.scan_text(line)
 
 
 def shared_tmp(line: str) -> list[str]:
     """The guessable shared-temp names in LINE, a mktemp template word left out."""
-    return [m.group(0) for m in SHARED_TMP.finditer(MKTEMP_TEMPLATE.sub(r"\1TEMPLATE", line))]
+    return [m.group(0) for m in SHARED_TMP.finditer(without_templates(line))]
 
 
 def flagged(line: str) -> bool:
@@ -151,15 +171,28 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
             text = (root / path).read_text()
         except (OSError, UnicodeDecodeError):
             continue
-        for n, line in enumerate(text.splitlines(), 1):
-            c = code(line)
-            if flagged(c):
-                out.append((path, n, c.strip()))
+        # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
+        # a quote across lines keeps its context; the hit keeps the line's own text.
+        for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
+            if NOCLOBBER.search(scan) or SHARED_TMP.search(scan):
+                out.append((path, n, code(line).strip() or line.strip()))
     return out
 
 
 def allowed(path: str, line: str) -> bool:
     return any(path == ap and piece in line for ap, piece in ALLOWED) or (not NOCLOBBER.search(line) and app_named(line))
+
+
+def scratch_hits(files) -> set[str]:
+    """The paths hits() flags in a scratch repository holding FILES ((path, text, is unsafe))."""
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+        for path, text, _ in files:
+            (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+            (Path(tmp) / path).write_text(text)
+        subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
+        return {p for p, _, _ in hits(Path(tmp))}
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -192,15 +225,68 @@ class NoclobberSweep(unittest.TestCase):
             self.assertTrue(SHARED_TMP.search(code(line)), line)
         for line in ('# set -C is not exclusive', 'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX")',
                      'cache="$HOME/.cache/x"', 'set -eu', 'p=/tmp/fixed-name', 'x="$tmp/a/$b"',
-                     "t=$(mktemp -p /tmp ${TMPDIR:-/tmp}/run.XXXXXX)"):
+                     "t=$(mktemp -p /tmp ${TMPDIR:-/tmp}/run.XXXXXX)",
+                     'tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"', "t=`mktemp /tmp/$USER.XXXXXX`",
+                     'f=$(TMPDIR=/x mktemp "/tmp/a.$$.XXXXXX") || exit 1',
+                     '( cd x && d="$(mktemp -d /tmp/${name}.XXXXXX)" )'):
             self.assertFalse(flagged(code(line)), line)
 
     def test_a_mktemp_template_exempts_only_itself(self):
-        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole."""
+        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole; of #1265, F1: a
+        template-shaped redirection target beside a bare mktemp was exempt too (shell parsed by regex)."""
         for line in ('d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$',
+                     "d=$(mktemp -d) > /tmp/out.$$.XXXXXX", "mktemp /tmp/a.XXXXXX > /tmp/b.$$.XXXXXX",
+                     "t=`mktemp -d`; cp x /tmp/y.$$.XXXXXX", "x=$(echo mktemp /tmp/a.$$.XXXXXX)",
+                     'd=$(mktemp -d "/tmp/x.$$.XXXXXX',  # unclosed: a line it cannot parse exempts nothing
                      'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX") && cp a /tmp/run.$$',
-                     "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)"):
+                     "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)",
+                     # Review of manaflow-ai/cmux#41306, F1: an inner template's span shifted the outer one's; F2: a
+                     # whole template word exempted the substitution inside it (shell read by token masking).
+                     'mktemp "$(mktemp /tmp/$USER.XXXXXX).XXXXXX"; echo > /tmp/out.$$',
+                     'mktemp "/tmp/$(printf secret > /tmp/out.$$)x.XXXXXX"',
+                     # Review of teamleaderleo/leo-workspace#4346, F1: the same overlap with the write on the outer
+                     # mktemp; of manaflow-ai/cmuxterm-hq#9338: XXXXXX only inside substitutions made the word a
+                     # template, masked whole; of leo-workspace#4346, F2: code() cut the line at a quoted #.
+                     'mktemp "$(mktemp /tmp/a.XXXXXX).XXXXXX" > /tmp/out.$$',
+                     'mktemp "$(printf /tmp/a.XXXXXX)$(printf secret > /tmp/out.$$)"',
+                     "printf '%s' 'foo # bar' > /tmp/out.$$",
+                     # Review of manaflow-ai/cmux#41306 (block at 1f84d085): the outer word's template is only inside
+                     # its substitution, and the write is on the outer mktemp; an unbalanced ) is not shell, so it
+                     # exempts nothing.
+                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)",
+                     # Review of manaflow-ai/cmux#41306 at 7e60a832, F1: an array's words read as a command; of
+                     # manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F1: a process substitution in ${ } read as text.
+                     "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
+                     "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX"):
             self.assertTrue(flagged(code(line)), line)
+
+    def test_the_tree_walk_misses_nothing_in_the_corpus(self):
+        """Every unsafe write in shell_tree.corpus() (nesting depth x substitution form x quoting x where the write
+        sits) is flagged, and no safe mktemp template is."""
+        misses = [(line, unsafe) for line, unsafe in shell_tree.corpus() if flagged(code(line)) != unsafe]
+        self.assertEqual(misses, [], "(line, is unsafe) the sweep got wrong")
+
+    def test_the_corpus_is_shell(self):
+        self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
+        bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
+               and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
+                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
+        self.assertEqual(bad, [])
+
+    def test_a_whole_file_is_read_in_context(self):
+        """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
+        `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
+        documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
+        files = shell_tree.FILES
+        found = scratch_hits(files)
+        self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
+
+    def test_shell_tree_is_the_shared_copy(self):
+        """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
+        digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
+        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py is not the shared copy: change it in manaflow-ai/"
+                         "cmux, cmux-platform, cmuxterm-hq and teamleaderleo/leo-workspace together, and each pin")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))

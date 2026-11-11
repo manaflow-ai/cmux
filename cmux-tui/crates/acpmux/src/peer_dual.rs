@@ -15,6 +15,8 @@
 //!   A `session/load`, an attach or anything else that replays or subscribes goes only on the
 //!   link's path; when that path dies under it, it is sent again on the next link
 //!   (`Peer::resend_switched`), never raced.
+//! - A client's `$/cancel_request` of a request the shadow carried a copy of goes on both
+//!   paths, unstamped: the peer stops whichever copy runs on hearing it on either.
 //! - Each reply is taken once: the first to come settles its caller, the other finds no caller.
 //! - Each chat event is taken once and in order, by one merger (`Peer::merge_event`) that both
 //!   readers go through and that holds its lock from the claim through the hand-off to the hub.
@@ -116,6 +118,19 @@ pub(super) fn copied(line: &str) -> bool {
     let Ok(msg) = serde_json::from_str::<Value>(line) else { return false };
     let Some(m) = msg.get("method").and_then(Value::as_str) else { return false };
     crate::server::dual_requests::dual_safe(m, msg.get("params").unwrap_or(&Value::Null))
+}
+
+/// The pending key of the request a `$/cancel_request` frame `line` names.
+fn cancelled_request(line: &str) -> Option<String> {
+    // Most frames are not one: read only those that name the method.
+    if !line.contains(method::CANCEL_REQUEST) {
+        return None;
+    }
+    let msg: Value = serde_json::from_str(line).ok()?;
+    if msg.get("method").and_then(Value::as_str) != Some(method::CANCEL_REQUEST) {
+        return None;
+    }
+    Some(crate::request_cancel::named_id(msg.get("params")?)?.to_string())
 }
 
 /// A `dualId` only this link writes: one a client put in what is forwarded is dropped.
@@ -324,6 +339,17 @@ impl Peer {
         let Some(shadow) = shadow.as_ref().filter(|shadow| shadow.link == link) else {
             return text;
         };
+        // A client's cancel of a request the shadow carried a copy of goes on both paths as is
+        // (review F1 of #41285): the link's path is in doubt, and the peer stops whichever copy
+        // runs on hearing it on either (`server/dual_requests.rs`).
+        if let Some(request) = cancelled_request(&text) {
+            if self.dual_keys.lock_or_recover().remove(&request)
+                && shadow.tx.try_send(text.clone()).is_ok()
+            {
+                self.dual_stats.sent(text.len());
+            }
+            return text;
+        }
         // One bound to its connection (a load, an attach) goes on the link's path alone.
         if !copied(&text) {
             return text;

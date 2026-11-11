@@ -4021,9 +4021,126 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "first_tab": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab."
     }
    },
    "additional_properties": false
+  },
+  "WorkspaceFirstTab": {
+   "kind": "tagged_union",
+   "tag": "kind",
+   "variants": {
+    "browser": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "browser"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "url": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "engine": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "title": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "favicon_url": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "profile_id": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "cols": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint16"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "rows": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint16"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "owner": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "idempotency_key": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": true,
+       "default": null
+      },
+      "activate": {
+       "type": {
+        "kind": "scalar",
+        "name": "boolean"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "default": true
+      }
+     },
+     "additional_properties": false
+    }
+   }
   },
   "ProviderWorkspaceMutationResult": {
    "kind": "object",
@@ -13640,6 +13757,17 @@
        }
       ]
      },
+     "first_tab": {
+      "type": {
+       "kind": "ref",
+       "name": "WorkspaceFirstTab"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-first-tab-v1",
+      "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -19636,6 +19764,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "frontend-browser-tab-workspace-v1",
+      "description": "Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split."
      },
      "title": {
       "type": {
