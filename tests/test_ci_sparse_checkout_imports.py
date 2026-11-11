@@ -371,7 +371,8 @@ def find_modules(
 #   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
 #     in front of everything before it (so the last one wins), each append at the end, but only when
 #     their order is provable: every such call is a statement of the entry script's module body with
-#     nothing before it that could import a non-stdlib module (so every import sees the final path), or no top-level name is offered twice among the
+#     nothing before it that could import a non-stdlib module (so every import sees the final path;
+#     a stdlib-named import before one counts only when no folder on the path offers a stdlib name), or no top-level name is offered twice among the
 #     folders the checker models on the path (the entry folder, PYTHONPATH's, the inserted ones),
 #     the stdlib and this interpreter's installed distributions, counting .py files, extension
 #     modules and every folder (package or namespace) from the tree's full file list, so order cannot
@@ -482,27 +483,49 @@ def _scope_bindings(tree: ast.Module) -> dict[int, Bindings]:
     """For every node, the names a path there can use, each as (expression, the bindings of the scope
     that assigned it) so the expression is evaluated where it was written, not where it is used: the
     innermost function's provable names, None for any other name that function binds at all, then
-    the enclosing functions' and the module's. Keyed by node id."""
+    the enclosing functions' and the module's. A function's decorators, defaults and annotations
+    belong to the scope around it (_evaluated_outside). Keyed by node id."""
     star = any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree))
     module: Bindings = {}
     module.update({name: (expr, module) for name, expr in _bound_once(tree, star).items()})
     out: dict[int, Bindings] = {}
 
-    def visit(node: ast.AST, names: Bindings) -> None:
+    def visit(node: ast.AST, names: Bindings, outside: frozenset[int]) -> None:
         for child in ast.iter_child_nodes(node):
+            if id(child) in outside:
+                continue  # evaluated in the enclosing scope, already visited there
             if isinstance(child, _FUNCTIONS):
                 inner: Bindings = dict(names)
                 inner.update({name: None for name, count in _binding_counts(child).items() if count})
                 if not isinstance(child, ast.Lambda):
                     inner.update({name: (expr, inner) for name, expr in _bound_once(child).items()})
                 out[id(child)] = inner
-                visit(child, inner)
+                parts = _evaluated_outside(child)
+                for part in parts:
+                    out[id(part)] = names
+                    visit(part, names, outside)
+                visit(child, inner, outside | {id(part) for part in parts})
             else:
                 out[id(child)] = names
-                visit(child, names)
+                visit(child, names, outside)
 
-    visit(tree, module)
+    visit(tree, module, frozenset())
     return out
+
+
+def _evaluated_outside(node: ast.AST) -> list[ast.AST]:
+    """The parts of a def or lambda Python evaluates where it is defined, not in its own scope: the
+    decorators, the parameter defaults and annotations, and the return annotation. (A class's bases,
+    keywords and decorators need nothing: a class body is not a scope _scope_bindings models, so they
+    already see the enclosing scope's names.)"""
+    args = node.args
+    parts: list[ast.AST] = [*getattr(node, "decorator_list", [])]
+    parts += [d for d in [*args.defaults, *args.kw_defaults] if d is not None]
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]
+    parts += [p.annotation for p in params if p is not None and p.annotation is not None]
+    if getattr(node, "returns", None) is not None:
+        parts.append(node.returns)
+    return parts
 
 
 class _FixedPath:
@@ -603,26 +626,36 @@ _PATH_BUILDERS = {
 }
 
 
-def _clean_prefix_path_changes(tree: ast.Module, aliases: dict[str, str]) -> set[int]:
+ORDERED = 1  # a path change no import can see half-done
+AFTER_STDLIB_IMPORT = 2  # the same, but a stdlib-named import runs before it: ordered only if no repo
+# folder on the search path offers a stdlib name (NameProof.shadows_stdlib), since that import, or one
+# it makes, would load the repo's file from the path as it stood then.
+
+
+def _clean_prefix_path_changes(tree: ast.Module, aliases: dict[str, str]) -> dict[int, int]:
     """ids of the sys.path calls that are statements of the module body with nothing before them that
-    could import a module outside the stdlib: before (and between) them only docstrings, imports of
-    stdlib modules, other such path calls, and plain assignments whose only calls build paths
-    (_PATH_BUILDERS, .resolve(), .absolute(), .with_name(), .joinpath()). Every import then runs
-    after the last of them, so the final search path is the one each import sees. A path call after
-    anything else is not in the set."""
-    clean: set[int] = set()
+    could import a module outside the stdlib -> ORDERED, or AFTER_STDLIB_IMPORT when an import of a
+    stdlib name (not a builtin, which no folder can shadow) comes before it: before (and between) them
+    only docstrings, imports of stdlib names, other such path calls, and plain assignments whose only
+    calls build paths (_PATH_BUILDERS, .resolve(), .absolute(), .with_name(), .joinpath()). Every
+    other import then runs after the last of them, so the final search path is the one it sees. A
+    path call after anything else is not in the dict."""
+    clean: dict[int, int] = {}
+    stdlib_import = False
     for stmt in tree.body:
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
             continue
         if isinstance(stmt, ast.Import) and all(a.name.split(".")[0] in sys.stdlib_module_names for a in stmt.names):
+            stdlib_import |= any(a.name.split(".")[0] not in sys.builtin_module_names for a in stmt.names)
             continue
         if isinstance(stmt, ast.ImportFrom) and stmt.level == 0 and (stmt.module or "").split(".")[0] in sys.stdlib_module_names:
+            stdlib_import |= (stmt.module or "").split(".")[0] not in sys.builtin_module_names
             continue
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
             if _dotted(stmt.value.func, aliases) in ("sys.path.insert", "sys.path.append"):
                 calls = [n for n in ast.walk(stmt.value) if isinstance(n, ast.Call) and n is not stmt.value]
                 if all(_builds_path(c, aliases) for c in calls):
-                    clean.add(id(stmt.value))
+                    clean[id(stmt.value)] = AFTER_STDLIB_IMPORT if stdlib_import else ORDERED
                     continue
             return clean
         if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
@@ -645,9 +678,9 @@ def dynamic_calls(
 ) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
     """What a file's dynamic imports do, in source order: (("insert" or "append", folder, ordered,
     call, line, argument text) for each fixed sys.path change, files learned spec_from_file_location
-    calls load, unresolved (call, line, argument text)). A path change is `ordered` only when it is a
-    statement of its own directly in the module body: straight-line code that runs once, in source
-    order, at import. The argument text is _call_text's, so the audit can name the exact call. A
+    calls load, unresolved (call, line, argument text)). A path change is `ordered` (ORDERED or
+    AFTER_STDLIB_IMPORT, else 0) only when it is a statement of its own directly in the module body:
+    straight-line code that runs once, in source order, at import (_clean_prefix_path_changes). The argument text is _call_text's, so the audit can name the exact call. A
     relative string literal names a path from `cwd`, the run's working directory (repo-relative; None
     when this check cannot resolve it, and then no literal is a fixed path)."""
     try:
@@ -694,13 +727,13 @@ def dynamic_calls(
                     folder = in_repo(args[1], want_dir=True)
                     if folder is not None:
                         path_ops.append(
-                            ("insert", folder, id(node) in top_level, name, node.lineno, _call_text(node))
+                            ("insert", folder, top_level.get(id(node), 0), name, node.lineno, _call_text(node))
                         )
                         continue
             elif name == "sys.path.append" and len(args) == 1:
                 folder = in_repo(args[0], want_dir=True)
                 if folder is not None:
-                    path_ops.append(("append", folder, id(node) in top_level, name, node.lineno, _call_text(node)))
+                    path_ops.append(("append", folder, top_level.get(id(node), 0), name, node.lineno, _call_text(node)))
                     continue
             elif name == "importlib.util.spec_from_file_location" and len(args) == 2:
                 file = in_repo(args[1], want_dir=False)
@@ -740,6 +773,15 @@ class NameProof:
                 return False
             seen |= offered
         return True
+
+    def shadows_stdlib(self, folders: list[str]) -> bool:
+        """Whether any of these folders offers a stdlib name (a .py file, an extension module, or a
+        folder) other than a builtin's: an import of that name, or one the stdlib makes, would load
+        the repo's file from wherever the search path stood at that import."""
+        if self._index is None:
+            self._index = module_name_index(self.root)
+        stdlib = set(sys.stdlib_module_names) - set(sys.builtin_module_names)
+        return any(self._index.get(folder, set()) & stdlib for folder in dict.fromkeys(folders))
 
 
 def _tree_files(root: Path) -> list[str]:
@@ -813,15 +855,19 @@ def _search_path(
     Changes that only name the entry folder (already sys.path[0]) leave the search unchanged in any
     order. Otherwise the order must be provable: every change sits in the entry script, as a module
     statement with nothing that could import before it (_clean_prefix_path_changes), so every import
-    sees the final path; or NameProof.disjoint holds for every folder the
+    sees the final path (a stdlib-named import before one counts only when no folder on the path
+    offers a stdlib name: it is never trusted to be the stdlib's); or NameProof.disjoint holds for every folder the
     search path can hold, so any order loads the same files. When neither holds, each change that is not audited by (file, call,
     argument text) is unverifiable and none is learned; audited ones are dropped."""
     ops = [(rel, op) for rel, file_ops in rel_ops for op in file_ops]
     if all(op[1] == base for _, op in ops):
         return [], [], []
     files = {rel for rel, _ in ops}
+    folders = [base, *extra, *(op[1] for _, op in ops)]
     ordered = files == {entry} and all(op[2] for _, op in ops)
-    if ordered or names.disjoint([base, *extra, *(op[1] for _, op in ops)]):
+    if ordered and any(op[2] == AFTER_STDLIB_IMPORT for _, op in ops) and names.shadows_stdlib(folders):
+        ordered = False  # a stdlib-named import between the changes may load a repo file mid-way
+    if ordered or names.disjoint(folders):
         front: list[str] = []
         back: list[str] = []
         for _, (kind, folder, *_rest) in ops:
@@ -951,7 +997,8 @@ def sparse_runs(
 
 # --- workflows --------------------------------------------------------------------------------
 
-_SHELL_OPERATORS = {";", "&&", "||", "|", "&", "|&", "(", ")", ";;", "!"}
+_OPERATOR_TOKENS = ("&&", "||", "|&", ";;", ";", "&", "|", "(", ")")
+_SHELL_OPERATORS = {*_OPERATOR_TOKENS, "!"}
 _SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _RUN_MODULE = re.compile(r"\bpython[\d.]*\b[^\n;&|]*?\s-m\s*([A-Za-z_][\w.]*)")
 _WORKSPACE = re.compile(r"^(?:\$\{\{\s*github\.workspace\s*\}\}|\$\{GITHUB_WORKSPACE\}|\$GITHUB_WORKSPACE\b)")
@@ -1031,39 +1078,247 @@ def _step_cwd(doc: dict, job: dict, step: dict, root: Path) -> str | None:
 
 
 def _words(line: str) -> list[str] | None:
+    """A logical line's shell words and operators, or None when shlex cannot split it. shlex groups a
+    run of punctuation into one token (`);`, `()`, `))`): each is split into the operators it holds,
+    so `(cd x); y` closes its subshell before the `;`. A run with a redirection (`>&`) stays a word."""
     lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
-        return list(lexer)
+        tokens = list(lexer)
     except ValueError:
         return None
-
-
-def _follow_cd(line: str, cwd: str | None, root: Path, upto=None) -> str | None:
-    """`cwd` after the `cd`/`pushd`/`popd` commands of one logical line (only those before the first
-    command `upto(command text)` accepts, when given). A subshell's `cd` ends at its `)`. A line shlex cannot
-    split that changes folder, or a change this check cannot resolve, gives None."""
-    words = _words(line)
-    if words is None:
-        return None if re.search(r"(?:^|[;&|(\s])(?:cd|pushd|popd)\b", line) else cwd
-    stack: list[str | None] = []
-    command: list[str] = []
-    for word in [*words, ";"]:
-        if word not in _SHELL_OPERATORS:
-            command.append(word)
+    words: list[str] = []
+    for token in tokens:
+        if not token or set(token) - set("();|&"):
+            words.append(token)
             continue
-        if upto is not None and upto(" ".join(command)):
-            return cwd
-        if command[:1] in (["cd"], ["pushd"]):
-            cwd = _resolve_dir(command[1], cwd, root) if len(command) == 2 else None
-        elif command[:1] == ["popd"]:
-            cwd = None
-        command = []
-        if word == "(":
-            stack.append(cwd)
-        elif word == ")" and stack:
-            cwd = stack.pop()
-    return cwd
+        at = 0
+        while at < len(token):
+            op = next(op for op in _OPERATOR_TOKENS if token.startswith(op, at))
+            words.append(op)
+            at += len(op)
+    return words
+
+
+def _command_words(command: list[str]) -> list[str]:
+    """A simple command's words without the reserved words that can come before it."""
+    at = 0
+    while at < len(command) and command[at] in _LEADING_RESERVED:
+        at += 1
+    return command[at:]
+
+
+_LEADING_RESERVED = {"then", "do", "else", "elif", "!", "time", "if", "while", "until", "{"}
+_COMPOUND_OPEN = {"if": "if", "while": "loop", "until": "loop", "for": "loop", "select": "loop", "case": "case"}
+_COMPOUND_CLOSE = {"fi": "if", "done": "loop", "esac": "case"}
+_CHANGES_DIR = re.compile(r"(?:^|[;&|(\s])(?:cd|pushd|popd)\b")
+_NOT_FOUND = object()
+
+
+class _Shell:
+    """Where a run step's shell is, as far as this check can tell, read one logical line at a time: the
+    working directory is a repo folder, or None when it is unknown. Shell text is not straight-line
+    code, so it tracks the possible (directory, last status) pairs through an and-or list: a `cd` may
+    fail (it changes the directory only for what runs after it succeeds); `a && cd x` or `a || cd x`
+    may skip it. A list whose last pipeline fails ends the step under `bash -e` (GitHub's default
+    shell), so its failing branch does not go on; with errexit off it does. When a list ends, two
+    possible directories make it unknown. A ( ... ) subshell or $( ... ) restores the directory at its
+    matching ), across lines and next to other operators; a { ... } group keeps it. A cd in a
+    pipeline of two or more commands or in the background changes nothing (a subshell). A cd inside
+    an if, case, loop or function, a popd, a cd to a folder this check cannot resolve, or one on a
+    line shlex cannot split makes the directory unknown. An unknown directory never resolves again,
+    except by leaving the subshell that lost it."""
+
+    def __init__(self, cwd: str | None, root: Path, errexit: bool = True) -> None:
+        self.root = root
+        self.errexit = errexit
+        self.states: tuple[tuple[str | None, bool], ...] = ((cwd, True),)
+        self.op: str | None = None  # "&&" or "||" before the next pipeline, None at a list's start
+        self.tail: tuple[tuple, tuple] | None = None  # (outcomes, skipped) of the list's last pipeline
+        self.frames: tuple[tuple, ...] = ()
+        self.command: list[str] = []
+        self.group: tuple[str | None] | None = None  # the directory a { ... } group just closed with
+        self.pipe: list[tuple[list[str], tuple[str | None] | None]] = []
+        self.lost = False
+
+    def copy(self) -> "_Shell":
+        other = _Shell.__new__(_Shell)
+        other.__dict__.update(self.__dict__)
+        other.command = list(self.command)
+        other.pipe = list(self.pipe)
+        return other
+
+    @property
+    def cwd(self) -> str | None:
+        return self._collapse(self.states)
+
+    def _collapse(self, states) -> str | None:
+        found = {cwd for cwd, _ in states}
+        return None if self.lost or len(found) != 1 else found.pop()
+
+    def _split(self) -> tuple[tuple, tuple]:
+        """(states the next pipeline runs in, states that skip it)."""
+        if self.op is None:
+            return self.states, ()
+        want = self.op == "&&"
+        return (
+            tuple(s for s in self.states if s[1] == want),
+            tuple(s for s in self.states if s[1] != want),
+        )
+
+    def _conditional(self) -> bool:
+        return any(frame[0] in ("if", "loop", "case", "func") for frame in self.frames)
+
+    def _end_command(self, upto):
+        command, self.command = self.command, []
+        group, self.group = self.group, None
+        if not command and group is None:
+            return _NOT_FOUND
+        self.pipe.append((command, group))
+        if upto is not None and command and upto(" ".join(command)):
+            return self._collapse(self._split()[0])
+        return _NOT_FOUND
+
+    def _end_pipeline(self, background: bool = False) -> None:
+        pipe, self.pipe = self.pipe, []
+        if not pipe:
+            return
+        runs, skipped = self._split()
+        words, group = pipe[0]
+        words = _command_words(words)
+        alone = len(pipe) == 1 and not background
+        outcomes: list[tuple[str | None, bool]] = []
+        for cwd, _ in runs:
+            if alone and group is not None:
+                outcomes += [(group[0], True), (group[0], False)]
+            elif alone and words[:1] in (["exit"], ["return"]):
+                pass  # the step (or subshell) ends on this path: nothing after it runs here
+            elif alone and words[:1] in (["cd"], ["pushd"], ["popd"]):
+                if words[0] == "popd" or self._conditional() or len(words) != 2:
+                    landed = None
+                else:
+                    landed = _resolve_dir(words[1], cwd, self.root)
+                outcomes += [(landed, True), (cwd, False)]
+            else:
+                outcomes += [(cwd, True), (cwd, False)]
+        if alone and words[:1] == ["set"]:  # set -e / +e / -o errexit / +o errexit
+            for flag, following in zip(words[1:], [*words[2:], ""]):
+                if re.fullmatch(r"[-+][A-Za-z]*e[A-Za-z]*", flag) or (flag in ("-o", "+o") and following == "errexit"):
+                    self.errexit = flag.startswith("-")
+        self.tail = (tuple(outcomes), skipped)
+        self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
+
+    def _end_list(self) -> None:
+        if self.tail is not None:
+            outcomes, skipped = self.tail
+            if self.errexit:  # the last pipeline failing ends the step
+                outcomes = tuple(s for s in outcomes if s[1])
+            self.states = tuple(dict.fromkeys([*outcomes, *skipped])) or ((None, True),)
+        self.tail = None
+        self.states = ((self.cwd, True),)
+        self.op = None
+
+    def _open(self, kind: str) -> None:
+        runs = self._split()[0]
+        saved = (self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit)
+        self.frames += ((kind, saved),)
+        self.states, self.op, self.tail = ((self._collapse(runs), True),), None, None
+        self.command, self.pipe = [], []
+
+    def _close(self) -> None:
+        kind, (states, op, tail, command, pipe, errexit) = self.frames[-1]
+        self.frames = self.frames[:-1]
+        inner = self.cwd
+        self.states, self.op, self.tail = states, op, tail
+        self.command, self.pipe = list(command), list(pipe)
+        if kind == "sub":
+            self.errexit = errexit
+            if not command:
+                self.command = ["( ... )"]  # a subshell command: it leaves the directory as it was
+        else:  # a { ... } group: one command that leaves the directory where its list ended
+            self.group = (inner,)
+
+    def feed(self, line: str, upto=None) -> str | None:
+        """Read one logical line. With `upto`, stop at the first command whose text `upto` accepts and
+        return the directory it runs in; otherwise (or when none matches) the directory after the line."""
+        words = _words(line)
+        if words is None:
+            if _CHANGES_DIR.search(line):
+                self.lost = True
+            return self.cwd
+        joined = bool(words) and words[-1] in ("&&", "||", "|", "|&")
+        tokens = words if joined else [*words, "\n"]
+        skip_next = False
+        for at, word in enumerate(tokens):
+            if skip_next:
+                skip_next = False
+                continue
+            if word not in _OPERATOR_TOKENS and word != "\n":
+                top = self.frames[-1] if self.frames else None
+                if word == "{" and top is not None and top[0] == "func" and not top[1]:
+                    self.frames = (*self.frames[:-1], ("func", True))
+                    self.command = []
+                elif self.command or self.group is not None:
+                    self.command.append(word)
+                elif word in _COMPOUND_OPEN:
+                    self.frames += ((_COMPOUND_OPEN[word], None),)
+                elif word in _COMPOUND_CLOSE or word == "function":
+                    if word == "function":
+                        self.frames += (("func", False),)
+                    elif top is not None and top[0] == _COMPOUND_CLOSE[word]:
+                        self.frames = self.frames[:-1]
+                elif word in ("then", "do", "else", "elif", "!", "time"):
+                    pass
+                elif word == "{":
+                    self._open("group")
+                elif word == "}" and top is not None and top[0] in ("group", "func"):
+                    if top[0] == "group":
+                        self._close()
+                    else:
+                        self.frames = self.frames[:-1]
+                else:
+                    self.command.append(word)
+                continue
+            if word == "(":
+                if len(self.command) == 1 and at + 1 < len(tokens) and tokens[at + 1] == ")":
+                    self.frames += (("func", False),)  # name() { ... }: a function definition
+                    self.command = []
+                    skip_next = True
+                elif self.frames and self.frames[-1] == ("func", False):
+                    skip_next = at + 1 < len(tokens) and tokens[at + 1] == ")"  # function name() {
+                else:
+                    self._open("sub")
+                continue
+            found = self._end_command(upto)
+            if found is not _NOT_FOUND:
+                return found
+            if word in ("|", "|&"):
+                continue
+            if word == ")" and not (self.frames and self.frames[-1][0] == "sub"):
+                self.pipe = []  # a case pattern's ), or one this check cannot place: no command ran
+                continue
+            self._end_pipeline(background=word == "&")
+            if word in ("&&", "||"):
+                self.op = word
+                continue
+            self._end_list()
+            if word == ")":
+                self._close()
+        return self.cwd
+
+
+def _step_errexit(doc: dict, job: dict, step: dict) -> bool:
+    """Whether the step's shell stops at a failing command: GitHub runs bash and sh with -e unless the
+    step (or the job's or workflow's defaults.run) names a shell command line without it."""
+    for scope, key in ((step, None), (job, "defaults"), (doc, "defaults")):
+        if not isinstance(scope, dict):
+            continue
+        holder = scope if key is None else ((scope.get(key) or {}).get("run") or {})
+        shell = holder.get("shell") if isinstance(holder, dict) else None
+        if shell is not None:
+            shell = str(shell).strip()
+            return shell in ("bash", "sh") or bool(re.search(r"\s-[A-Za-z]*e", shell))
+    return True
 
 
 def _run_kind(text: str) -> str:
@@ -1083,25 +1338,27 @@ def _script_command(line: str, script: str, how: tuple[str, str] | None) -> str:
     for word in [*words, ";"]:
         if word not in _SHELL_OPERATORS:
             command.append(word)
-        elif _mentions(" ".join(command), script, how):
-            return " ".join(command)
+        elif _mentions(" ".join(_command_words(command)), script, how):
+            return " ".join(_command_words(command))
         else:
             command = []
     return line
 
 
 @lru_cache(maxsize=None)
-def _run_lines(run: str, root: Path, start: str | None) -> tuple[tuple[str, str, str, str | None], ...]:
-    """(logical line, the line holding its command, how Python runs there, cwd before that line) per
-    logical line of a run script. How: "module" (-m), "code" (-c), "stdin" (`python -`, `python <`, or
+def _run_lines(
+    run: str, root: Path, start: str | None, errexit: bool = True
+) -> tuple[tuple[str, str, str, _Shell], ...]:
+    """(logical line, the line holding its command, how Python runs there, the shell before that line,
+    a _Shell to copy and never change) per logical line of a run script. How: "module" (-m), "code" (-c), "stdin" (`python -`, `python <`, or
     the body of a heredoc fed to python, whose command line is the heredoc's), "text" (the body of
     another command's heredoc), else "script". Parsed once per step, not once per listed script."""
     return tuple(_run_lines_uncached(run, root, start))
 
 
-def _run_lines_uncached(run: str, root: Path, start: str | None):
-    cwd = start
-    heredoc: tuple[str, str, str | None] | None = None  # (delimiter, its python line, cwd there)
+def _run_lines_uncached(run: str, root: Path, start: str | None, errexit: bool = True):
+    shell = _Shell(start, root, errexit)
+    heredoc: tuple[str, str, _Shell] | None = None  # (delimiter, its python line, the shell there)
     for line in _logical_lines(run):
         if heredoc is not None:
             if line.strip() == heredoc[0]:
@@ -1112,12 +1369,13 @@ def _run_lines_uncached(run: str, root: Path, start: str | None):
                 yield line, line, "text", heredoc[2]  # another command's heredoc: read as before
             continue
         kind = _run_kind(line)
-        yield line, line, kind, cwd
+        before = shell.copy()
+        yield line, line, kind, before
         marker = _HEREDOC.search(line)
         if marker:
             # A heredoc fed to python is its program; any other command's heredoc is not shell either.
-            heredoc = (marker.group(1), line if kind == "stdin" else "", cwd)
-        cwd = _follow_cd(line, cwd, root)
+            heredoc = (marker.group(1), line if kind == "stdin" else "", before)
+        shell.feed(line)
 
 
 def pythonpath_dirs(value: object, root: Path, cwd: str | None = "") -> tuple[tuple[str, ...], list[str]]:
@@ -1170,11 +1428,8 @@ def _command_env(
     """The VAR=value words before the command on this logical line that runs `script` (or, given
     `needle`, the first command containing it: the python a heredoc feeds) ({} if none, or no command
     on it names the script); None when shlex cannot split the line."""
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    try:
-        words = list(lexer)
-    except ValueError:
+    words = _words(line)
+    if words is None:
         return None
     commands: list[list[str]] = [[]]
     for word in words:
@@ -1182,7 +1437,7 @@ def _command_env(
             commands.append([])
         else:
             commands[-1].append(word)
-    for command in commands:
+    for command in map(_command_words, commands):
         if not (needle in " ".join(command) if needle else _mentions(" ".join(command), script, how)):
             continue
         assigned: dict[str, str] = {}
@@ -1216,7 +1471,8 @@ def run_configs(
             continue
         consumed = 0
         named = False
-        for line, command_line, kind, cwd in _run_lines(step["run"], root, _step_cwd(doc, job, step, root)):
+        lines = _run_lines(step["run"], root, _step_cwd(doc, job, step, root), _step_errexit(doc, job, step))
+        for line, command_line, kind, shell in lines:
             if not _mentions(line, script, how):
                 continue
             named = True
@@ -1228,7 +1484,7 @@ def run_configs(
             if kind == "module" and not (how and how[0].removesuffix(".__main__") in _RUN_MODULE.findall(line)):
                 kind = "script"  # another module (pytest, unittest) runs the script: sys.path[0] as before
             names_it = (lambda c: "python" in c) if kind == "stdin" else (lambda c: _mentions(c, script, how))
-            here = cwd if text else _follow_cd(command_line, cwd, root, names_it)
+            here = shell.cwd if text else shell.copy().feed(command_line, names_it)
             if kind == "script":
                 base: str | None = default
             else:
@@ -1968,6 +2224,161 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
+    def test_fixture_review_40923_f1_a_stdlib_named_import_between_path_changes_is_not_trusted(self) -> None:
+        # insert one; import json; insert two, with json in both folders: Python loads one's json (a
+        # repo file shadows the stdlib), so a list with only two's json must not pass. A json.py file
+        # and a json/ package with __init__.py shadow it alike.
+        script = "import sys\nsys.path.insert(0, 'scripts/one')\nimport json\nsys.path.insert(0, 'scripts/two')\n"
+        expected = [
+            "w.yml run Check out: scripts/ci/sj.py calls sys.path.insert(0, 'scripts/one') (line 2), which "
+            "this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+            "w.yml run Check out: scripts/ci/sj.py calls sys.path.insert(0, 'scripts/two') (line 4), "
+            "which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+        ]
+        for form, (one, two) in {
+            "file": ("scripts/one/json.py", "scripts/two/json.py"),
+            "package": ("scripts/one/json/__init__.py", "scripts/two/json/__init__.py"),
+        }.items():
+            with self.subTest(form=form):
+                more = {"scripts/ci/sj.py": script, one: "", two: ""}
+                self.assertEqual(self._misses(self.block("scripts/ci/sj.py", two), more=more), expected)
+
+    # A def's decorators, defaults and annotations run in the scope around it, so a name there is the
+    # enclosing scope's, not the body's: P is a.py where they run, though the body binds P = b.py.
+    ENCLOSING = {
+        "scripts/lib/a.py": "",
+        "scripts/lib/b.py": "",
+    }
+
+    def _enclosing(self, source: str) -> list[str]:
+        more = {**self.ENCLOSING, "scripts/ci/enc.py": "import importlib.util\nP = 'scripts/lib/a.py'\n" + source}
+        return self._misses(self.block("scripts/ci/enc.py", "scripts/lib/b.py"), more=more)
+
+    def _unfollowable(self, line: int) -> list[str]:
+        return [
+            f"w.yml run Check out: scripts/ci/enc.py calls importlib.util.spec_from_file_location('m', P) "
+            f"(line {line}), which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+        ]
+
+    def test_fixture_review_40923_f2_defaults_and_annotations_use_the_enclosing_scope(self) -> None:
+        # P is bound in the module and in f, so it is provable in neither for the default: unverifiable,
+        # never b.py from f's body.
+        body = "    P = 'scripts/lib/b.py'\n    return P\n"
+        call = "importlib.util.spec_from_file_location('m', P)"
+        for label, head in {
+            "default": f"def f(spec={call}):\n",
+            "keyword-only default": f"def f(*, spec={call}):\n",
+            "parameter annotation": f"def f(spec: {call} = None):\n",
+            "return annotation": f"def f() -> {call}:\n",
+        }.items():
+            with self.subTest(form=label):
+                self.assertEqual(self._enclosing(head + body), self._unfollowable(3))
+
+    def test_fixture_review_40923_f2_decorators_use_the_enclosing_scope(self) -> None:
+        source = (
+            "def deco(spec):\n    return lambda fn: fn\n"
+            "@deco(importlib.util.spec_from_file_location('m', P))\n"
+            "def f():\n    P = 'scripts/lib/b.py'\n    return P\n"
+        )
+        self.assertEqual(self._enclosing(source), self._unfollowable(5))
+
+    def test_fixture_review_40923_f2_lambda_defaults_use_the_enclosing_scope(self) -> None:
+        # The lambda binds only `spec`; its default's P is the module's a.py, which must be listed.
+        source = "g = lambda spec=importlib.util.spec_from_file_location('m', P): spec\n"
+        self.assertEqual(
+            self._enclosing(source),
+            ["w.yml run Check out: scripts/ci/enc.py imports scripts/lib/a.py, not in its sparse checkout"],
+        )
+
+    def test_fixture_review_40923_f2_class_bases_and_keywords_use_the_enclosing_scope(self) -> None:
+        # A base, class keyword or class decorator runs where the class is defined: P is the module's
+        # a.py, which must be listed. (A class body is not a scope the check models, so its names
+        # never were the body's; this guards that.)
+        source = (
+            "def keep(cls):\n    return cls\n"
+            "@keep\n"
+            "class C(dict, spec=importlib.util.spec_from_file_location('m', P)):\n"
+            "    def m(self):\n        return 1\n"
+            "class D(importlib.util.spec_from_file_location('m', P).__class__):\n"
+            "    pass\n"
+        )
+        self.assertEqual(
+            self._enclosing(source),
+            ["w.yml run Check out: scripts/ci/enc.py imports scripts/lib/a.py, not in its sparse checkout"],
+        )
+
+    # Shell text is not straight-line code (review of #41017): a ( ... ) restores the directory at its
+    # matching ), across lines and next to other operators; a cd that may not run makes it unknown.
+    # PYTHONPATH=lib is relative to the directory python starts in, the repo root here, where Python
+    # loads lib/witness.py (scripts/ci/witness.py is a decoy the old reading picked).
+    WITNESS = {"scripts/ci/wentry.py": "import witness\n", "scripts/ci/witness.py": "", "lib/witness.py": ""}
+    WITNESS_RUN = "PYTHONPATH=lib python3 -c \"import runpy; runpy.run_path('scripts/ci/wentry.py')\""
+
+    def test_fixture_review_41017_a_subshell_cd_ends_at_its_matching_paren(self) -> None:
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        for label, lines in {
+            "multi-line": ("(", "cd scripts/ci", ")", self.WITNESS_RUN),
+            "next to ;": ("(cd scripts/ci && true); " + self.WITNESS_RUN,),
+        }.items():
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    self._misses(listed, run=self.block(*lines), more=self.WITNESS),
+                    ["w.yml run Check out: scripts/ci/wentry.py imports lib/witness.py, not in its sparse checkout"],
+                )
+
+    def test_fixture_review_41017_a_conditional_cd_makes_the_directory_unknown(self) -> None:
+        listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
+        self.assertEqual(
+            self._misses(listed, run=self.block("true || cd scripts/ci", self.WITNESS_RUN), more=self.WITNESS),
+            [
+                "w.yml run Check out: scripts/ci/wentry.py runs in a step that sets or reads PYTHONPATH where "
+                "this check cannot follow it",
+                "w.yml run Check out: scripts/ci/wentry.py runs with `python -c` from a working directory this "
+                "check cannot resolve",
+            ],
+        )
+
+    def test_fixture_review_41017_the_shell_directory_in_every_shape(self) -> None:
+        # The directory `python3 x` starts in, after each shape; None is unknown (the run is unverifiable).
+        ci = "scripts/ci"
+        shapes = {
+            "(\ncd scripts/ci\n)\npython3 x": "",
+            "(cd scripts/ci && true); python3 x": "",
+            "x=$(cd scripts/ci && pwd)\npython3 x": "",
+            "cd scripts/ci | cat\npython3 x": "",
+            "cd scripts/ci &\npython3 x": "",
+            "cd scripts/ci\npython3 x": ci,
+            "cd scripts/ci; python3 x": ci,
+            "cd scripts/ci && python3 x": ci,
+            "cd scripts/ci &&\n  python3 x": ci,
+            "cd scripts/ci || exit 1\npython3 x": ci,
+            "{ cd scripts/ci; }\npython3 x": ci,
+            "cd scripts && (cd ci; python3 x)": ci,
+            "true || cd scripts/ci\npython3 x": None,
+            "true && cd scripts/ci\npython3 x": None,
+            "true && { cd scripts/ci; }\npython3 x": None,
+            "if true; then cd scripts/ci; fi\npython3 x": None,
+            "if true; then\n  cd scripts/ci\nfi\npython3 x": None,
+            "case a in a) cd scripts/ci;; esac\npython3 x": None,
+            "for d in a; do cd scripts/ci; done\npython3 x": None,
+            "while false; do\n  cd scripts/ci\ndone\npython3 x": None,
+            "go() { cd scripts/ci; }\npython3 x": None,
+            "function go {\n  cd scripts/ci\n}\npython3 x": None,
+            "set +e\ncd scripts/ci\npython3 x": None,
+            "popd\npython3 x": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ci).mkdir(parents=True)
+            for run, want in shapes.items():
+                with self.subTest(run=run):
+                    got = [
+                        shell.copy().feed(line, lambda c: "python3" in c)
+                        for line, _, _, shell in _run_lines_uncached(run, root, "")
+                        if "python3" in line
+                    ]
+                    self.assertEqual(got, [want])
+
     # Python puts the working directory, not the script's folder, first for `python -m`, `python -c`
     # and stdin; relative path literals name paths from it too. Both tests/ and scripts/ci/tests/ hold
     # a `tests` package.
@@ -2279,9 +2690,17 @@ def _unverifiable_reason(root: Path, cwd: str | None, entry: str, unresolved: tu
 def _oracle_case(seed: int, outside: set[str]) -> tuple[str, str] | None:
     """("verified" | "superset" | "unverifiable" | "invalid" | "divergence", detail) for one case: for
     "superset", the seed and the extra files; for "unverifiable", one short reason."""
+    files, entry, step, shape = _oracle_program(seed)
+    return _oracle_judge(files, entry, step, outside, seed, shape)
+
+
+def _oracle_judge(
+    files: dict[str, str], entry: str, step: dict, outside: set[str], seed: int | None = None, shape: str = ""
+) -> tuple[str, str]:
+    """_oracle_case's verdict on one program: its files, entry script and run step, run under real
+    Python in a fresh repo and then checked."""
     import json
 
-    files, entry, step, shape = _oracle_program(seed)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve() / "repo"
         for rel, body in files.items():
@@ -2403,6 +2822,25 @@ class SparseCheckoutOracleTests(unittest.TestCase):
                 "the checker names files Python did not load more often than before:\n" + "\n".join(result.supersets),
             )
         self.assertGreaterEqual(result.counts["verified"], ORACLE_CASES // 4, dict(result.counts))
+
+    def test_fixture_oracle_shell_cwd_shapes_are_verified_or_unverifiable(self) -> None:
+        # Review of #41017: real Python runs from the repo root and loads lib/witness.py; a checker that
+        # reads shell text as straight-line code thinks it runs in scripts/ci and names the decoy there.
+        outside = set(sys.stdlib_module_names) | _installed_names()
+        files = {
+            "scripts/ci/wentry.py": "import os\nimport witness\n" + _ORACLE_TRACE,
+            "scripts/ci/witness.py": "",
+            "lib/witness.py": "",
+        }
+        python = "PYTHONPATH=lib python3 -c \"import runpy; runpy.run_path('scripts/ci/wentry.py', run_name='__main__')\""
+        for shape, run, want in (
+            ("multi-line subshell", f"(\ncd scripts/ci\n)\n{python}", "verified"),
+            ("subshell next to ;", f"(cd scripts/ci && true); {python}", "verified"),
+            ("conditional cd", f"true || cd scripts/ci\n{python}", "unverifiable"),
+        ):
+            with self.subTest(shape=shape):
+                outcome, detail = _oracle_judge(files, "scripts/ci/wentry.py", {"run": run}, outside, shape=shape)
+                self.assertEqual(outcome, want, detail)
 
     def test_fixture_the_superset_ratchet_catches_a_checker_that_names_an_extra_file(self) -> None:
         # The same oracle, with a checker that also names one file the run did not load: 100 cases
