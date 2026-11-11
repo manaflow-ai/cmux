@@ -1754,4 +1754,14 @@ test("a start refused because the agent is not installed says so in plain words,
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => button(translate("worktree.dismiss"))!.click());
   expect(card()).toBeNull();
+
+  // Retry is Send again: a draft edited after the failure goes, not the one that failed.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("fix the build on main");
+  const before = asks.length;
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 1);
+  expect(asks.at(-1)?.[1]).toBe("fix the build on main");
 });

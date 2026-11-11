@@ -771,7 +771,8 @@ export function NewTabScreen(props: Props) {
         ...(typeof code === "string" ? { code } : {}),
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
-        retry: () => requestChat(...args),
+        // Retry is Send again: the draft as it is now, through every check a send passes.
+        retry: () => submitNow.current(),
       });
     };
     const done = () => {
@@ -1147,14 +1148,14 @@ export function NewTabScreen(props: Props) {
           setStartError({
             error: errorMessage(error) || t("switch.unknownError"),
             local: true,
-            retry: () => openCard(id),
+            retry: () => (setStartError(undefined), openCard(id)),
           });
         });
       } catch (error) {
         setStartError({
           error: errorMessage(error) || t("switch.unknownError"),
           local: true,
-          retry: () => openCard(id),
+          retry: () => (setStartError(undefined), openCard(id)),
         });
       }
       return;
@@ -1172,7 +1173,10 @@ export function NewTabScreen(props: Props) {
       setStartError({
         error: errorMessage(error) || t("switch.unknownError"),
         local: true,
-        retry: () => coldArchiveCard(id, archived),
+        retry: () => {
+          setStartError(undefined);
+          coldArchiveCard(id, archived);
+        },
       });
     });
   };
