@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CmuxNextCompat
 import CmuxNextWakeups
 import CoreAudio
 
@@ -38,28 +39,32 @@ public final class MicrophoneActivity {
         let onLevel: ((Float) -> Void)?
     }
 
+    /// What the source tells the main actor.
+    enum SourceEvent: Sendable {
+        /// The state as CoreAudio has it now. `namesProcesses`: it came from the process objects
+        /// (14.2 and later), so cmux's own input is already left out.
+        case read(State, namesProcesses: Bool)
+        /// The default input changed: a running meter moves to the new device.
+        case defaultInputChanged
+        /// The process list changed: a process joins it before its input starts, so read again
+        /// shortly after.
+        case processesChanged
+    }
+
     private var watchers: [ObjectIdentifier: Watcher] = [:]
     public private(set) var state = State.idle
-    /// The input devices listened to, each with its `IsRunningSomewhere` listener: every input,
-    /// not only the default one, since an app may record from any of them.
-    private var devices: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
-    private var systemBlock: AudioObjectPropertyListenerBlock?
-    private var processBlock: AudioObjectPropertyListenerBlock?
-    /// The default input's listener: a running meter moves to the new device.
-    private var defaultInputBlock: AudioObjectPropertyListenerBlock?
-    /// Each other process's `IsRunningInput` listener (14.2 and later): while the meter's own tap
-    /// runs, the device stays running because of it, so the other app's release shows only here.
-    private var processes: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
+    /// Where the state comes from: CoreAudio on its own queue in the app (``CoreAudioMicrophoneSource``),
+    /// a fake in tests. Every CoreAudio property call is a synchronous message to the audio server,
+    /// so none of them runs on the main thread.
+    private let source: any MicrophoneActivitySource
+    /// The last reading, applied again when only cmux's side changed (a claim, a closed meter).
+    private var reading: (state: State, namesProcesses: Bool)?
     /// A second read shortly after a process-list change: a process joins the list before its
     /// input starts, so the first read can miss it.
     private let settle = DemandTimer(owner: "microphone-activity.settle")
 
-    /// Reads the state now (tests pass their own).
-    var read: @MainActor (_ devices: [AudioObjectID]) -> State = { MicrophoneActivity.readState(devices: $0) }
     /// Whether listeners are installed (tests).
-    var isListening: Bool {
-        !devices.isEmpty || systemBlock != nil || processBlock != nil || defaultInputBlock != nil || !processes.isEmpty
-    }
+    var isListening: Bool { source.isListening }
 
     /// cmux's own dictation: while it holds the microphone no meter runs.
     private let claims: DictationMicrophoneClaims
@@ -83,8 +88,13 @@ public final class MicrophoneActivity {
     /// Closes it.
     var closeMeter: @MainActor () -> Void
 
-    public init(claims: DictationMicrophoneClaims = .shared) {
+    public convenience init(claims: DictationMicrophoneClaims = .shared) {
+        self.init(claims: claims, source: CoreAudioMicrophoneSource())
+    }
+
+    init(claims: DictationMicrophoneClaims, source: any MicrophoneActivitySource) {
         self.claims = claims
+        self.source = source
         let tap = MicrophoneLevelTapControl()
         openMeter = { tap.open($0) }
         closeMeter = { tap.close() }
@@ -106,108 +116,56 @@ public final class MicrophoneActivity {
     }
 
     private func start() {
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        let systemBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.followDevices() }
-        }
-        var address = Self.address(kAudioHardwarePropertyDevices)
-        if AudioObjectAddPropertyListenerBlock(system, &address, .main, systemBlock) == noErr { self.systemBlock = systemBlock }
-        let defaultInputBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.defaultInputChanged() }
-        }
-        var input = Self.address(kAudioHardwarePropertyDefaultInputDevice)
-        if AudioObjectAddPropertyListenerBlock(system, &input, .main, defaultInputBlock) == noErr { self.defaultInputBlock = defaultInputBlock }
-        if #available(macOS 14.2, *) {
-            let processBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                Task { @MainActor in self?.processesChanged() }
-            }
-            var list = Self.address(kAudioHardwarePropertyProcessObjectList)
-            if AudioObjectAddPropertyListenerBlock(system, &list, .main, processBlock) == noErr { self.processBlock = processBlock }
-            followProcesses()
-        }
-        claims.observe(self) { [weak self] in self?.refresh() }
-        followDevices()
+        claims.observe(self) { [weak self] in self?.claimsChanged() }
+        source.start { [weak self] event in self?.receive(event) }
     }
 
     private func stop() {
         settle.cancel()
         claims.unobserve(self)
+        source.stop()
         stopMeter()
         meterEnded = false
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        if let systemBlock {
-            var address = Self.address(kAudioHardwarePropertyDevices)
-            AudioObjectRemovePropertyListenerBlock(system, &address, .main, systemBlock)
-        }
-        if let processBlock {
-            var address = Self.address(kAudioHardwarePropertyProcessObjectList)
-            AudioObjectRemovePropertyListenerBlock(system, &address, .main, processBlock)
-        }
-        if let defaultInputBlock {
-            var address = Self.address(kAudioHardwarePropertyDefaultInputDevice)
-            AudioObjectRemovePropertyListenerBlock(system, &address, .main, defaultInputBlock)
-        }
-        for device in Array(devices.keys) { unlisten(device) }
-        for process in Array(processes.keys) { unlistenProcess(process) }
-        (systemBlock, processBlock, defaultInputBlock) = (nil, nil, nil)
+        reading = nil
         state = .idle
     }
 
-    /// A device came or went (or watching began): listen to each input device there is now.
-    private func followDevices() {
-        // A device change queued just before the last unwatch adds no listener back.
-        guard !watchers.isEmpty else { return }
-        let inputs = Set(Self.inputDevices())
-        for gone in Array(devices.keys) where !inputs.contains(gone) { unlisten(gone) }
-        for device in inputs where devices[device] == nil {
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                Task { @MainActor in self?.refresh() }
-            }
-            var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
-            if AudioObjectAddPropertyListenerBlock(device, &address, .main, block) == noErr { devices[device] = block }
-        }
+    /// cmux's own dictation took or gave back the microphone. A claim hides the mark and closes the
+    /// meter at once (from the last reading). A release before 14.2 waits for the fresh read: the
+    /// last reading saw cmux's own input as a running device, so it would show a false outside mark.
+    private func claimsChanged() {
+        if claims.isHeld || reading?.namesProcesses == true { reapply() }
         refresh()
     }
 
-    private func unlisten(_ device: AudioObjectID) {
-        guard let block = devices.removeValue(forKey: device) else { return }
-        var address = Self.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
-        AudioObjectRemovePropertyListenerBlock(device, &address, .main, block)
-    }
-
-    /// Listens to each other process's input (the list changed, or watching began).
-    @available(macOS 14.2, *)
-    private func followProcesses() {
+    private func receive(_ event: SourceEvent) {
+        // An event the source sent before the last unwatch changes nothing.
         guard !watchers.isEmpty else { return }
-        let own = ProcessInfo.processInfo.processIdentifier
-        let others = Set(Self.processObjects().filter { Self.value($0, kAudioProcessPropertyPID, pid_t(0)).map { $0 != own } ?? false })
-        for gone in Array(processes.keys) where !others.contains(gone) { unlistenProcess(gone) }
-        for process in others where processes[process] == nil {
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                Task { @MainActor in self?.refresh() }
-            }
-            var address = Self.address(kAudioProcessPropertyIsRunningInput)
-            if AudioObjectAddPropertyListenerBlock(process, &address, .main, block) == noErr { processes[process] = block }
+        switch event {
+        case let .read(next, namesProcesses):
+            reading = (next, namesProcesses)
+            reapply()
+        case .defaultInputChanged:
+            defaultInputChanged()
+        case .processesChanged:
+            settle.schedule(after: .milliseconds(300)) { @MainActor [weak self] in self?.refresh() }
         }
     }
 
-    private func unlistenProcess(_ process: AudioObjectID) {
-        guard let block = processes.removeValue(forKey: process) else { return }
-        // A process that left has no object: the removal fails harmlessly.
-        var address = Self.address(kAudioProcessPropertyIsRunningInput)
-        AudioObjectRemovePropertyListenerBlock(process, &address, .main, block)
-    }
-
-    private func processesChanged() {
-        if #available(macOS 14.2, *) { followProcesses() }
-        refresh()
-        settle.schedule(after: .milliseconds(300)) { @MainActor [weak self] in self?.refresh() }
-    }
-
-    /// Reads the state, opens or closes the meter for it, and tells the watchers when it changed.
+    /// Asks the source to read the state again; the watchers hear it when it arrives.
     func refresh() {
         guard !watchers.isEmpty else { return }
-        var next = read(Array(devices.keys))
+        source.requestRead()
+    }
+
+    /// Applies the last reading: opens or closes the meter for it, and tells the watchers when the
+    /// state changed.
+    private func reapply() {
+        guard !watchers.isEmpty, let reading else { return }
+        var next = reading.state
+        // Before 14.2 a running device names no process: while cmux's own dictation holds the
+        // microphone, the input may be cmux's, so nothing is shown rather than a false outside mark.
+        if !reading.namesProcesses, claims.isHeld { next = .idle }
         // The outside session is over: the next one may meter again.
         if !next.active { meterEnded = false }
         next.metered = meters(next)
@@ -252,7 +210,7 @@ public final class MicrophoneActivity {
     func defaultInputChanged() {
         guard levelMeter != nil else { return }
         stopMeter()
-        refresh()
+        reapply()
     }
 
     /// Only the running meter's levels reach the watchers: a level still queued from a closed
@@ -268,16 +226,275 @@ public final class MicrophoneActivity {
         guard levelMeter === meter else { return }
         meterEnded = true
         stopMeter()
-        refresh()
+        reapply()
+    }
+}
+
+/// Where ``MicrophoneActivity`` gets its state: start listening, stop, read again. The app's is
+/// ``CoreAudioMicrophoneSource``; tests pass a fake that answers at once.
+@MainActor
+protocol MicrophoneActivitySource: AnyObject {
+    /// Whether it listens (between ``start(_:)`` and ``stop()``).
+    var isListening: Bool { get }
+    /// Starts listening and reads once; `deliver` hears each event on the main actor until
+    /// ``stop()``.
+    func start(_ deliver: @escaping @MainActor (MicrophoneActivity.SourceEvent) -> Void)
+    /// Stops listening; nothing is delivered after it.
+    func stop()
+    /// Reads the state again and delivers it.
+    func requestRead()
+}
+
+/// The CoreAudio side of ``MicrophoneActivity``: every property listener and read, on one serial
+/// queue of its own. Each CoreAudio property call is a synchronous message to the audio server;
+/// while that server is slow one call can take seconds, and on the main thread that froze the app
+/// (NIGHTLY 85b0999, 2026-11-10: main-thread hangs of 30.3 s, 6.9 s and 6.8 s in
+/// `processState()`'s `AudioObjectGetPropertyData`, from a refresh a listener queued on main).
+/// Here they hold only this queue; the main actor gets the result.
+@MainActor
+final class CoreAudioMicrophoneSource: MicrophoneActivitySource {
+    private let engine: Engine
+    /// Counts starts and stops: an event from an earlier start is dropped on arrival.
+    private var session: UInt64 = 0
+    private(set) var isListening = false
+
+    /// `read` reads the state on the source's queue; `listens` installs the CoreAudio listeners
+    /// (tests turn both off).
+    init(read: @escaping @Sendable () -> (MicrophoneActivity.State, namesProcesses: Bool) = { CoreAudioMicrophoneSource.readState() },
+         listens: Bool = true) {
+        engine = Engine(read: read, listens: listens)
     }
 
-    // MARK: CoreAudio reads
+    func start(_ deliver: @escaping @MainActor (MicrophoneActivity.SourceEvent) -> Void) {
+        session &+= 1
+        isListening = true
+        let started = session
+        engine.start { [weak self] event in
+            MainDelivery().run {
+                guard let self, self.isListening, self.session == started else { return }
+                deliver(event)
+            }
+        }
+    }
 
-    static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+    func stop() {
+        session &+= 1
+        isListening = false
+        engine.stop()
+    }
+
+    func requestRead() {
+        guard isListening else { return }
+        engine.requestRead()
+    }
+
+    /// The listeners and reads. All of its work runs on the serial `queue`, the queue CoreAudio
+    /// calls the listeners on; the state sits in a `Mutex` so the compiler checks it, and the lock
+    /// is never contended since only that queue takes it.
+    final class Engine: Sendable {
+        /// A CoreAudio listener block that captures only a weak reference to this (Sendable)
+        /// engine, so the state can hold it.
+        typealias ListenerBlock = @convention(block) @Sendable (UInt32, UnsafePointer<AudioObjectPropertyAddress>) -> Void
+
+        private let queue = DispatchQueue(label: "com.cmuxterm.dictation.microphone-activity", qos: .utility)
+        private let read: @Sendable () -> (MicrophoneActivity.State, namesProcesses: Bool)
+        private let listens: Bool
+        private let state = Mutex(Listening())
+
+        private struct Listening {
+            var deliver: (@Sendable (MicrophoneActivity.SourceEvent) -> Void)?
+            /// A read is queued and not started yet: requests meanwhile join it, so a slow audio
+            /// server meets at most one read running and one waiting, never a backlog of listener
+            /// events.
+            var readQueued = false
+            /// The input devices listened to, each with its `IsRunningSomewhere` listener: every
+            /// input, not only the default one, since an app may record from any of them.
+            var devices: [AudioObjectID: ListenerBlock] = [:]
+            var systemBlock: ListenerBlock?
+            var processBlock: ListenerBlock?
+            /// The default input's listener: a running meter moves to the new device.
+            var defaultInputBlock: ListenerBlock?
+            /// Each other process's `IsRunningInput` listener (14.2 and later): while the meter's
+            /// own tap runs, the device stays running because of it, so the other app's release
+            /// shows only here.
+            var processes: [AudioObjectID: ListenerBlock] = [:]
+        }
+
+        init(read: @escaping @Sendable () -> (MicrophoneActivity.State, namesProcesses: Bool), listens: Bool) {
+            self.read = read
+            self.listens = listens
+        }
+
+        // Each entry point queues its work on `queue` in call order, so a stop stays ahead of the
+        // next start.
+        func start(_ deliver: @escaping @Sendable (MicrophoneActivity.SourceEvent) -> Void) {
+            queue.async { [self] in
+                state.withLock { $0.deliver = deliver }
+                // Listening reads once (its device scan queues the read); without it, read now.
+                if listens { listen() } else { readNow() }
+            }
+        }
+
+        func stop() {
+            queue.async { [self] in
+                state.withLock { listening in
+                    listening.deliver = nil
+                    listening.readQueued = false
+                }
+                if listens { unlistenAll() }
+            }
+        }
+
+        func requestRead() {
+            queue.async { [self] in scheduleRead() }
+        }
+
+        /// The current deliver, while started. On `queue`.
+        private var deliver: (@Sendable (MicrophoneActivity.SourceEvent) -> Void)? {
+            state.withLock { $0.deliver }
+        }
+
+        /// Queues one read unless one is queued already. On `queue`.
+        private func scheduleRead() {
+            let queues = state.withLock { listening -> Bool in
+                guard listening.deliver != nil, !listening.readQueued else { return false }
+                listening.readQueued = true
+                return true
+            }
+            guard queues else { return }
+            queue.async { [self] in
+                state.withLock { $0.readQueued = false }
+                readNow()
+            }
+        }
+
+        private func readNow() {
+            guard deliver != nil else { return }
+            let (next, namesProcesses) = read()
+            // A stop while the read ran: nothing goes out.
+            deliver?(.read(next, namesProcesses: namesProcesses))
+        }
+
+        // MARK: Listeners (on `queue`; CoreAudio calls them there)
+
+        private func listen() {
+            let system = AudioObjectID(kAudioObjectSystemObject)
+            let systemBlock: ListenerBlock = { [weak self] _, _ in self?.followDevices() }
+            var address = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyDevices)
+            let systemAdded = AudioObjectAddPropertyListenerBlock(system, &address, queue, systemBlock) == noErr
+            let defaultInputBlock: ListenerBlock = { [weak self] _, _ in self?.deliver?(.defaultInputChanged) }
+            var input = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyDefaultInputDevice)
+            let inputAdded = AudioObjectAddPropertyListenerBlock(system, &input, queue, defaultInputBlock) == noErr
+            state.withLock { listening in
+                if systemAdded { listening.systemBlock = systemBlock }
+                if inputAdded { listening.defaultInputBlock = defaultInputBlock }
+            }
+            if #available(macOS 14.2, *) {
+                let processBlock: ListenerBlock = { [weak self] _, _ in self?.processesChanged() }
+                var list = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyProcessObjectList)
+                if AudioObjectAddPropertyListenerBlock(system, &list, queue, processBlock) == noErr {
+                    state.withLock { $0.processBlock = processBlock }
+                }
+                followProcesses()
+            }
+            followDevices()
+        }
+
+        private func unlistenAll() {
+            let system = AudioObjectID(kAudioObjectSystemObject)
+            let listening = state.withLock { listening -> Listening in
+                let all = listening
+                listening.devices = [:]
+                listening.processes = [:]
+                (listening.systemBlock, listening.processBlock, listening.defaultInputBlock) = (nil, nil, nil)
+                return all
+            }
+            if let systemBlock = listening.systemBlock {
+                var address = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyDevices)
+                AudioObjectRemovePropertyListenerBlock(system, &address, queue, systemBlock)
+            }
+            if let processBlock = listening.processBlock {
+                var address = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyProcessObjectList)
+                AudioObjectRemovePropertyListenerBlock(system, &address, queue, processBlock)
+            }
+            if let defaultInputBlock = listening.defaultInputBlock {
+                var address = CoreAudioMicrophoneSource.address(kAudioHardwarePropertyDefaultInputDevice)
+                AudioObjectRemovePropertyListenerBlock(system, &address, queue, defaultInputBlock)
+            }
+            for (device, block) in listening.devices { unlisten(device, block) }
+            for (process, block) in listening.processes { unlistenProcess(process, block) }
+        }
+
+        /// A device came or went (or listening began): listen to each input device there is now.
+        private func followDevices() {
+            // A device change queued just before the stop adds no listener back.
+            guard deliver != nil else { return }
+            let inputs = Set(CoreAudioMicrophoneSource.inputDevices())
+            let (gone, known) = state.withLock { listening in
+                let gone = listening.devices.filter { !inputs.contains($0.key) }
+                for device in gone.keys { listening.devices[device] = nil }
+                return (gone, Set(listening.devices.keys))
+            }
+            for (device, block) in gone { unlisten(device, block) }
+            for device in inputs where !known.contains(device) {
+                let block: ListenerBlock = { [weak self] _, _ in self?.scheduleRead() }
+                var address = CoreAudioMicrophoneSource.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
+                if AudioObjectAddPropertyListenerBlock(device, &address, queue, block) == noErr {
+                    state.withLock { $0.devices[device] = block }
+                }
+            }
+            scheduleRead()
+        }
+
+        private func unlisten(_ device: AudioObjectID, _ block: @escaping ListenerBlock) {
+            var address = CoreAudioMicrophoneSource.address(kAudioDevicePropertyDeviceIsRunningSomewhere)
+            AudioObjectRemovePropertyListenerBlock(device, &address, queue, block)
+        }
+
+        /// Listens to each other process's input (the list changed, or listening began).
+        @available(macOS 14.2, *)
+        private func followProcesses() {
+            guard deliver != nil else { return }
+            let own = ProcessInfo.processInfo.processIdentifier
+            let others = Set(CoreAudioMicrophoneSource.processObjects().filter {
+                CoreAudioMicrophoneSource.value($0, kAudioProcessPropertyPID, pid_t(0)).map { $0 != own } ?? false
+            })
+            let (gone, known) = state.withLock { listening in
+                let gone = listening.processes.filter { !others.contains($0.key) }
+                for process in gone.keys { listening.processes[process] = nil }
+                return (gone, Set(listening.processes.keys))
+            }
+            for (process, block) in gone { unlistenProcess(process, block) }
+            for process in others where !known.contains(process) {
+                let block: ListenerBlock = { [weak self] _, _ in self?.scheduleRead() }
+                var address = CoreAudioMicrophoneSource.address(kAudioProcessPropertyIsRunningInput)
+                if AudioObjectAddPropertyListenerBlock(process, &address, queue, block) == noErr {
+                    state.withLock { $0.processes[process] = block }
+                }
+            }
+        }
+
+        private func unlistenProcess(_ process: AudioObjectID, _ block: @escaping ListenerBlock) {
+            // A process that left has no object: the removal fails harmlessly.
+            var address = CoreAudioMicrophoneSource.address(kAudioProcessPropertyIsRunningInput)
+            AudioObjectRemovePropertyListenerBlock(process, &address, queue, block)
+        }
+
+        private func processesChanged() {
+            guard deliver != nil else { return }
+            if #available(macOS 14.2, *) { followProcesses() }
+            scheduleRead()
+            deliver?(.processesChanged)
+        }
+    }
+
+    // MARK: CoreAudio reads (off the main thread only)
+
+    nonisolated static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 
-    private static func value<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, _ initial: T) -> T? {
+    nonisolated static func value<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, _ initial: T) -> T? {
         var address = address(selector)
         var value = initial
         var size = UInt32(MemoryLayout<T>.size)
@@ -285,7 +502,7 @@ public final class MicrophoneActivity {
     }
 
     /// The devices with at least one input stream.
-    static func inputDevices() -> [AudioObjectID] {
+    nonisolated static func inputDevices() -> [AudioObjectID] {
         let system = AudioObjectID(kAudioObjectSystemObject)
         var address = address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
@@ -301,18 +518,17 @@ public final class MicrophoneActivity {
     }
 
     /// The state as CoreAudio has it now: on 14.2 and later, from the processes whose input runs
-    /// (cmux's own left out), on any device; before, from whether any input device runs.
-    static func readState(devices: [AudioObjectID]) -> State {
-        if #available(macOS 14.2, *) { return processState() }
-        let running = devices.contains { value($0, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)).map { $0 != 0 } ?? false }
-        // Before 14.2 a running device names no process: while cmux's own dictation holds the
-        // microphone, the input may be cmux's, so nothing is shown rather than a false outside mark.
-        return running && !DictationMicrophoneClaims.shared.isHeld ? State(active: true, bundleId: nil, name: nil) : .idle
+    /// (cmux's own left out), on any device; before, from whether any input device runs (the main
+    /// actor then leaves it out while cmux's own dictation holds the microphone).
+    nonisolated static func readState() -> (MicrophoneActivity.State, namesProcesses: Bool) {
+        if #available(macOS 14.2, *) { return (processState(), true) }
+        let running = inputDevices().contains { value($0, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)).map { $0 != 0 } ?? false }
+        return (running ? MicrophoneActivity.State(active: true, bundleId: nil, name: nil) : .idle, false)
     }
 
     /// The audio process objects there are now.
     @available(macOS 14.2, *)
-    private static func processObjects() -> [AudioObjectID] {
+    nonisolated static func processObjects() -> [AudioObjectID] {
         let system = AudioObjectID(kAudioObjectSystemObject)
         var address = address(kAudioHardwarePropertyProcessObjectList)
         var size: UInt32 = 0
@@ -323,14 +539,15 @@ public final class MicrophoneActivity {
     }
 
     @available(macOS 14.2, *)
-    private static func processState() -> State {
+    nonisolated private static func processState() -> MicrophoneActivity.State {
         let own = ProcessInfo.processInfo.processIdentifier
         for process in processObjects() {
             guard value(process, kAudioProcessPropertyIsRunningInput, UInt32(0)) == 1,
                   let pid = value(process, kAudioProcessPropertyPID, pid_t(0)), pid != own else { continue }
             // The app by its pid: no CFString property read whose ownership could be got wrong.
+            // NSRunningApplication's properties are thread safe.
             let app = NSRunningApplication(processIdentifier: pid)
-            return State(active: true, bundleId: app?.bundleIdentifier, name: app?.localizedName)
+            return MicrophoneActivity.State(active: true, bundleId: app?.bundleIdentifier, name: app?.localizedName)
         }
         return .idle
     }

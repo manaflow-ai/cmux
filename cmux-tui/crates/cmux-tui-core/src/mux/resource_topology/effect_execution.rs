@@ -523,7 +523,7 @@ impl Mux {
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
                     // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
-                    let decorations = self.tree_decorations();
+                    let decorations = self.tab_tree_decorations(&[surface.id]);
                     let renamed = self.with_state(|state| {
                         presentation::tab_changed_delta(state, &decorations, surface.id)
                     });
@@ -838,6 +838,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     })
                 }
                 None => None,
@@ -956,7 +957,10 @@ impl Mux {
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
-        let around = intent.get("fields").and_then(|fields| fields.get(AROUND_SPLIT_FIELD)).and_then(Value::as_u64);
+        let around = intent
+            .get("fields")
+            .and_then(|fields| fields.get(AROUND_SPLIT_FIELD))
+            .and_then(Value::as_u64);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is
@@ -1120,6 +1124,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction,
+                    mutation: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },

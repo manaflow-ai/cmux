@@ -52,7 +52,8 @@ fn run(mux: &Weak<Mux>, layout: &Layout) {
     };
     if let Some(watcher) = watcher.as_mut() {
         for dir in layout.watch_dirs().iter().filter(|dir| dir.is_dir()) {
-            // A folder that cannot be watched is picked up on project.sync.
+            // A folder that cannot be watched is read at the next daemon start, or on a
+            // `project.sync` request (the app sends none since A14).
             let _ = watcher.watch(dir, notify::RecursiveMode::NonRecursive);
         }
     }

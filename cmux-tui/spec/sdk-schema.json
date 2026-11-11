@@ -6607,6 +6607,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "journal_followers": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsJournalFollowers"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6618,7 +6626,8 @@
     "write_path is present only when the request names it in include.",
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
-    "disk is present only when the request names it in include and the session keeps its registry on disk."
+    "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "journal_followers is present only when the request names it in include."
    ]
   },
   "ServerStatsHookQueue": {
@@ -7496,6 +7505,157 @@
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
     "journal and segments are null when the registry could not be read, and error says why.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
+   ]
+  },
+  "ServerStatsJournalFollower": {
+   "kind": "object",
+   "fields": {
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stream_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "remote": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kinds": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_sensitivity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "connected_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "left_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "keeps_hook_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "keeps_report_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kinds is the stream's kind filter as sent (a trailing .* is a prefix); empty means every kind.",
+    "max_sensitivity is public, metadata or sensitive; null means no limit. A remote client's limit is metadata.",
+    "left_ms is null while the stream is live; otherwise the stream ended that long ago and still keeps rows until grace_ms is over.",
+    "keeps_hook_rows: the stream is sent agent.state.changed rows at sensitive, so every agent hook report is a journal row.",
+    "keeps_report_rows: the stream is sent agent.report rows at sensitive, so every agent plugin report is a journal row."
+   ]
+  },
+  "ServerStatsJournalFollowers": {
+   "kind": "object",
+   "fields": {
+    "grace_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "keep_all_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_hook_keeps_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "hook_rows_kept": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "report_rows_kept": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "followers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsJournalFollower"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "followers lists the live session.journal.subscribe streams with follow not false, and those that ended less than grace_ms ago.",
+    "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
+    "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
+    "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
    ]
   },
   "GuestUrlOpenResult": {
@@ -18410,7 +18570,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
    ]
   },
   "paste-image": {

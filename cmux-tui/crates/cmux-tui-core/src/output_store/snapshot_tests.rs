@@ -501,3 +501,83 @@ fn the_parked_trim_runs_once_a_day_with_any_pass() {
     assert!(take_trim(&mut state), "a day later any pass runs it");
     assert!(!take_trim(&mut state));
 }
+
+/// A terminal's history grew by a step while a write pass is due: the turn that takes the write pass also
+/// measures. The write pass runs the budget at most once per snapshot interval (`OutputStore::enforce_due`), and
+/// the terminal does not ask again while its request is open (`LogState::measure_due`), so a request that the
+/// write pass takes and does not run leaves the total budget to the interval (30 s; one hour in
+/// `the_total_memory_budget_holds_while_terminals_print_not_one_interval_later`, which a loaded host made red:
+/// "four full terminals kept 9074 and 9074 rows over the 16 MiB budget"). No clock: the writer's choice is a
+/// function of its state and one instant.
+#[test]
+fn the_total_memory_budget_request_is_not_lost_to_a_write_pass_that_is_due_first() {
+    use super::{Turn, WriterState, take_turn};
+    let now = std::time::Instant::now();
+    let mut state = WriterState { last_trim: Some(now), ..WriterState::default() };
+
+    // Only a request: the turn measures and writes nothing.
+    state.memory_due = true;
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
+    assert_eq!(take_turn(&mut state, now), None, "one request is one measurement");
+
+    // Only a write pass that is due: the turn writes and measures nothing more.
+    state.due = Some(now);
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: false, write: true, trim: false }));
+    assert_eq!(take_turn(&mut state, now), None);
+
+    // A write pass that is not due yet does not hold the request back.
+    state.due = Some(now + std::time::Duration::from_secs(3600));
+    state.memory_due = true;
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
+
+    // Both at the same instant: the write pass runs, and the request is not lost.
+    state.due = Some(now);
+    state.memory_due = true;
+    let turn = take_turn(&mut state, now).expect("a write pass is due");
+    assert!(turn.write, "a due write pass runs in the turn that takes it: {turn:?}");
+    assert!(
+        turn.memory || state.memory_due,
+        "the request for a measurement is gone and no turn measures: the terminal's `measure_due` stays set, \
+         so it never asks again, and the total memory budget waits for the snapshot interval: {turn:?}"
+    );
+}
+
+/// A respawn reads the lost terminal's snapshot and then its tail. The
+/// writer replaces the snapshot and then removes the tail it covers, under
+/// the pass lock. A pass that ran between the two reads paired the old
+/// snapshot with no tail: the respawned screen lost every byte the tail
+/// held. The test runs such a pass on another thread between the reads and
+/// waits for it (bounded): the screen must still show the tail's bytes.
+#[test]
+fn a_snapshot_replaced_while_a_respawn_reads_it_keeps_the_tail_bytes() {
+    let root = directory("respawn-read");
+    let store = Arc::new(OutputStore::new(Some(&root)));
+    let directory = store.directory().unwrap().to_path_buf();
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3e").unwrap();
+    super::write(&directory, &id, "g", 6, 80, 24, b"first ").unwrap();
+    super::super::tail::append(&directory, &id, "g", 6, 6, b"second", false).unwrap();
+
+    let writer_store = Arc::clone(&store);
+    let writer_directory = directory;
+    let writer_id = id.clone();
+    super::super::BETWEEN_SCREEN_READS_FOR_TEST.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            let (done, finished) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // A writer pass: the new snapshot, then the tail it covers.
+                let _pass = writer_store.lock_pass();
+                super::write(&writer_directory, &writer_id, "g", 12, 80, 24, b"first second")
+                    .unwrap();
+                super::super::tail::remove(&writer_directory, &writer_id);
+                let _ = done.send(());
+            });
+            // A reader that holds the pass lock makes the pass wait: then
+            // this times out and the read goes on first.
+            let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
+        }));
+    });
+    let screen = store.previous_screen(&id).expect("a stored screen");
+    let _ = std::fs::remove_dir_all(&root);
+    let text = String::from_utf8_lossy(&screen.bytes);
+    assert!(text.contains("second"), "the tail's bytes were lost: {text:?}");
+}

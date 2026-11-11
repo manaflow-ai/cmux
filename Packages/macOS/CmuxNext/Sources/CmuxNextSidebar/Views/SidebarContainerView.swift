@@ -267,10 +267,10 @@ public final class SidebarContainerView: NSView {
         handle.isHidden = isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor
     }
 
-    /// Clear over the window's backdrop, or the user's sidebar background
-    /// (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`).
+    /// The user's sidebar background (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`), the rail's
+    /// overlay surface, or the sidebar's dim over the window's backdrop (`SidebarStyle.surfaceDim`).
     func applySurfaceFill() {
-        let fill = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill)?.cgColor }
+        let fill = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill ?? SidebarStyle.surfaceDim)?.cgColor }
         // Floating, the card is the panel (inset from the window edges); the clip stays clear.
         clip.layer?.backgroundColor = isFloatOverlay ? nil : fill
     }
@@ -334,7 +334,10 @@ public final class SidebarContainerView: NSView {
                 // resizes live. The collapse prototype is tracked here too,
                 // so Debug Settings retargets an in-flight transition.
                 ((model.presentation, model.style, model.isRailOpen, model.isFloating), model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
-                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
+                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter,
+                                                        // The sidebar's dim follows its tunables and the chrome shade live.
+                                                        CGFloat(SidebarTunables.surfaceDimDark.value), CGFloat(SidebarTunables.surfaceDimLight.value),
+                                                        Metrics.mainPaneChromeShade(isDark: true), Metrics.mainPaneChromeShade(isDark: false)])
             }) {
                 self?.handle.restingLineWidth = border
                 if let self, self.resizeBand != self.mountedBand || self.paneReach != self.mountedPaneReach {
@@ -343,6 +346,7 @@ public final class SidebarContainerView: NSView {
                 self?.followDefaultWidth(defaultWidth)
                 self?.syncRail()
                 self?.apply()
+                self?.applySurfaceFill()
             }
         }
     }
