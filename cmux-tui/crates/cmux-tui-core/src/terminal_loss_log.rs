@@ -2,8 +2,9 @@
 //!
 //! A terminal whose host ended without an exit record is a host loss
 //! ([`TerminalEnd::HostLost`]). The owner appends one JSON line per loss to
-//! `terminal-losses.jsonl` in the session's state directory (the parent of
-//! the terminal-host record directory), with the typed end and every signal
+//! `terminal-losses.jsonl` in the state root (the parent of the session's
+//! `terminal-hosts-<hash>` record directory, so every session of that root
+//! shares the file; `daemon stop --purge` leaves it), with the typed end and every signal
 //! the host recorded before it ended (`<terminal-id>.signals`, written by
 //! the host's signal guard). A loss with no recorded signal was caused by
 //! something the host could not observe: `SIGKILL`, a crash, or memory
