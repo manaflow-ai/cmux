@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise the real DEV proof without launching an app or creating a Cloud machine."""
 
+import base64
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -16,13 +18,19 @@ from unittest.mock import Mock, patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/cloud-chat-proof.py"
 STAGING_API = "https://cloud-api-staging.cmux.dev"
+# A fake `claude setup-token` login, shaped as CloudCredentialTransfer.validate wants.
+FAKE_TOKEN = "sk-ant-oat01-" + "x" * 40
+sys.path.insert(0, str(SCRIPT.parent))
+import claude_login_cache  # noqa: E402
 
 
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
-                  from_folder=False, folder_reply=True, grant=False, login="", agent="claude"):
+                  from_folder=False, folder_reply=True, grant=False, login="", agent="claude",
+                  cache=False, secret_exit=0):
         calls = []
+        stored = {}
         folders = []
         configs = []
         clock = 0.0
@@ -44,10 +52,13 @@ class CloudChatProofTests(unittest.TestCase):
             app = Path("/Applications/Cloud Proof.app")
             evidence_path = Path(temporary) / "evidence.json"
 
-            def run(command, *, env, capture_output, text, timeout):
+            def run(command, *, env, capture_output, text, timeout, input=None):
                 nonlocal clock, auth_reads
                 clock += 0.25
                 self.assertEqual(command[0], str(app / "Contents/Resources/bin/cmux"))
+                # The token reaches the CLI on `cloud secret set`'s stdin only, never its environment or argv.
+                self.assertNotIn(claude_login_cache.TOKEN_ENV, env)
+                self.assertFalse(any(FAKE_TOKEN in word for word in command))
                 self.assertEqual(env["CMUX_SOCKET_PATH"], "/tmp/cmux-debug-proof-test.sock")
                 config = env.get("CMUX_NEXT_CONFIG_FILE")
                 if grant:
@@ -72,7 +83,15 @@ class CloudChatProofTests(unittest.TestCase):
                     auth_reads += 1
                     # The launched app can answer while its session is still restoring.
                     value = {"signed_in": signed_in and auth_reads > 1,
-                             "backend": backend, "cloud_environment": environment}
+                             "backend": backend, "cloud_environment": environment,
+                             "user_id": "stack-user-1", "team_id": "team-1"}
+                elif words[:3] == ["cloud", "secret", "set"]:
+                    code = secret_exit
+                    stored[words[3]] = json.loads(input)
+                    value = {"stored": code == 0}
+                elif words[:3] == ["cloud", "secret", "rm"]:
+                    stored.pop(words[3], None)
+                    value = {"removed": True}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
                 elif words[:2] == ["cloud", "start-chat"]:
@@ -124,8 +143,11 @@ class CloudChatProofTests(unittest.TestCase):
                     "--prompt", "Return the marker.", "--agent", agent,
                     "--cloud-backend", backend_name, "--expected-api-origin", expected_api,
                     "--evidence", str(evidence_path)] + (["--from-folder"] if from_folder else []) \
-                + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else [])
+                + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else []) \
+                + (["--cache-claude-login"] if cache else [])
+            token_env = {claude_login_cache.TOKEN_ENV: FAKE_TOKEN} if cache else {}
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
+                    patch.dict(os.environ, token_env), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
                     patch("time.monotonic", side_effect=lambda: clock), \
                     patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
@@ -143,6 +165,7 @@ class CloudChatProofTests(unittest.TestCase):
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
             for folder in folders:
                 self.assertFalse(folder.exists(), "The proof removes the folder it made")
+            self.assertEqual(stored, {}, "The proof removes every cached login it stored")
             return stopped.exception.code, json.loads(evidence_path.read_text()), calls
 
     def assert_no_cloud_work(self, calls):
@@ -179,7 +202,7 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(calls[-1], ["app", "quit", "--json"])
                 self.assertEqual(steps["app exited"]["exit"], 0)
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
-                self.assertEqual(evidence["claude_login"], {"consent_granted": False, "login": None})
+                self.assertEqual(evidence["claude_login"], {"consent_granted": False, "login": None, "cached": False})
 
     def test_grant_claude_login_gives_the_launch_its_consent_and_the_chat_its_login(self):
         # CI's unattended Claude chat on either backend: the consent a Release build's headless start waits for,
@@ -189,16 +212,68 @@ class CloudChatProofTests(unittest.TestCase):
             with self.subTest(backend=backend_name):
                 code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="none")
                 self.assertEqual(code, 0, evidence)
-                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "none"})
+                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "none", "cached": False})
                 start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
                 self.assertEqual(start[start.index("--login") + 1], "none")
+
+    def test_cache_claude_login_gives_the_account_its_cached_login_and_the_chat_copies_it(self):
+        # CI's unattended Claude chat: the account's cached login (what a start copies to its own machine), stored
+        # for the run under the team's and the personal scope the app reads, then `--login pass` copies it.
+        for backend_name in ("staging", "prod"):
+            with self.subTest(backend=backend_name):
+                code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="pass", cache=True)
+                self.assertEqual(code, 0, evidence)
+                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "pass", "cached": True})
+                entries = [claude_login_cache.name("stack-user-1", "team-1"),
+                           claude_login_cache.name("stack-user-1", None)]
+                self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
+                self.assertEqual(sorted(words[3] for words in calls if words[:3] == ["cloud", "secret", "rm"]),
+                                 sorted(entries))
+                chat = next(index for index, words in enumerate(calls) if words[:2] == ["cloud", "start-chat"])
+                last_set = max(index for index, words in enumerate(calls) if words[:3] == ["cloud", "secret", "set"])
+                self.assertLess(last_set, chat, "the login is cached before the start reads it")
+                self.assertEqual(calls[chat][calls[chat].index("--login") + 1], "pass")
+                self.assertNotIn(FAKE_TOKEN, json.dumps(evidence))
+
+    def test_a_failed_cache_fails_before_any_machine_and_still_removes_it(self):
+        code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, secret_exit=1)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: cache claude login")
+        self.assertFalse(any(words[:2] == ["cloud", "start-chat"] for words in calls))
+        self.assertTrue(any(words[:3] == ["cloud", "secret", "rm"] for words in calls))
+
+    def test_cache_claude_login_refuses_without_a_setup_token_login(self):
+        argv = [str(SCRIPT), "--app", "/Applications/Cloud Proof.app", "--tag", "proof-test", "--cloud-backend",
+                "staging", "--expected-api-origin", STAGING_API, "--evidence", "/dev/null", "--cache-claude-login"]
+        for value in ("", "not-a-login", "sk-ant-api03-" + "x" * 40):
+            with self.subTest(value=value), patch.object(sys, "argv", argv), \
+                    patch.dict(os.environ, {claude_login_cache.TOKEN_ENV: value}), \
+                    patch("subprocess.run") as run, contextlib.redirect_stderr(io.StringIO()) as stderr:
+                with self.assertRaises(SystemExit) as stopped:
+                    runpy.run_path(str(SCRIPT), run_name="__main__")
+                self.assertEqual(stopped.exception.code, 2)
+                run.assert_not_called()
+                if value:
+                    self.assertNotIn(value, stderr.getvalue())
+
+    def test_cached_login_entries_are_the_apps_own_names_and_envelope(self):
+        # CloudCredentialLogin.name: SHA256("user:team-or-personal:").prefix(12) in hex; store's envelope.
+        self.assertEqual(claude_login_cache.name("u", "t"),
+                         "CLAUDE_TRANSFER_" + hashlib.sha256(b"u:t:").digest()[:12].hex())
+        self.assertEqual(claude_login_cache.name("u", None),
+                         "CLAUDE_TRANSFER_" + hashlib.sha256(b"u:personal:").digest()[:12].hex())
+        self.assertEqual(claude_login_cache.names({"user_id": "u", "team_id": None}),
+                         [claude_login_cache.name("u", None)])
+        self.assertEqual(claude_login_cache.names({"team_id": "t"}), [])
+        self.assertEqual(json.loads(claude_login_cache.envelope(FAKE_TOKEN, now=5.0)),
+                         {"created": 5.0, "credential": base64.b64encode(FAKE_TOKEN.encode()).decode()})
 
     def test_login_follows_the_folder_and_goes_to_a_claude_chat_only(self):
         code, evidence, _ = self.run_proof(from_folder=True, grant=True, login="none")
         self.assertEqual(code, 0, evidence)
         code, evidence, calls = self.run_proof(agent="codex", grant=True, login="none")
         self.assertEqual(code, 0, evidence)
-        self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": None})
+        self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": None, "cached": False})
         start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
         self.assertNotIn("--login", start)
 

@@ -126,6 +126,42 @@ class GrantTests(unittest.TestCase):
         m.quit()
         self.assertFalse(config.exists())
 
+    def test_cache_claude_login_stores_for_the_signed_in_account_and_removes_at_quit(self):
+        from unittest.mock import patch
+        token = "sk-ant-oat01-" + "x" * 40
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": "not-a-login"}), self.assertRaises(SystemExit):
+            matrix.parse_args([*self.APP, "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": token}):
+            m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login", "--cache-claude-login",
+                                                 "--login", "pass"]))
+        # No CLI call inherits the token; it goes to `cloud secret set` on stdin only.
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", m.env)
+        status = {"pid": 1, "app_bundle_path": "/Applications/cmux.app", "signed_in": True,
+                  "cloud_environment": "staging", "backend": "https://example.invalid",
+                  "user_id": "stack-user-1", "team_id": "team-1", "account": {"signed_in": True}, "loaded": True}
+        calls = []
+
+        def run(command, *, env, input=None, capture_output, text, timeout):
+            calls.append((command[1:], input))
+            self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
+            self.assertNotIn(token, " ".join(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(m, "cmux", return_value=(0, json.dumps({"result": status}), "")), \
+                patch("subprocess.Popen"), patch("subprocess.run", side_effect=run):
+            self.assertEqual(m.launch(), "")
+            entries = [matrix.claude_login_cache.name("stack-user-1", "team-1"),
+                       matrix.claude_login_cache.name("stack-user-1", None)]
+            self.assertEqual([words for words, _ in calls], [["cloud", "secret", "set", e] for e in entries])
+            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in calls))
+            calls.clear()
+            m.launcher = None
+            m.quit()
+            self.assertEqual(sorted(words for words, _ in calls), sorted(["cloud", "secret", "rm", e] for e in entries))
+        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
+
 
 class StopTests(unittest.TestCase):
     def test_a_cancelled_run_starts_no_more_cell_work(self):
