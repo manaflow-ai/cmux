@@ -224,7 +224,7 @@
   max-height: calc(4 * var(--ds-control-row) + 3 * var(--ds-space-2) + 2 * var(--ds-space-1));
   overflow-y: auto; overscroll-behavior: contain;
 }
-.acpmux-cloud-too-big__repo { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace); }
+.acpmux-cloud-too-big__repo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace); }
 .acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
 .acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
 /* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */
