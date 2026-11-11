@@ -4499,16 +4499,6 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
-    # A failing test as often as the head fails it, on one verdict (#41222's review F1 at 6719ba22: a name failing
-    # twice is two failures, so a head failing it twice is not a base that failed it once). Each test may be on its own
-    # verdict of the window (the per-test window); a quarantined flake is the base's however often it fails.
-    times = test_reds.failed_tests(test_reds.lines_of(head_text))
-    if often := {test: n for test, n in times.items() if n > 1 and test not in known}:
-        most = Counter()
-        for _, view, *_ in window:
-            most |= test_reds.failed_tests(test_reds.lines_of(view_text(view)))
-        if fewer := sorted(f"{test} x{n} (at most x{most[test]})" for test, n in often.items() if most[test] < n):
-            raise Refused(f"'{name}': failing tests more often than on any of {base} {runs}: {'; '.join(fewer)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
     # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
     # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
@@ -4519,9 +4509,31 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     gaps = [mine - failed_step_keys(view.job) for _, view, *_ in window]
     if all(gaps):
         missing = min(gaps, key=lambda gap: sum(gap.values()))
-        alone = ", each verdict alone" if len(window) > 1 else ""
-        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{alone}: "
+        each = ", each verdict alone" if len(window) > 1 else ""
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{each}: "
                       f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
+    # Each failing test whole on ONE verdict of the window: its name, its diagnostic (classify's shared: the same error
+    # and the same files) and as often as the head fails it (#41222's review F1 at 6719ba22: a name failing twice is
+    # two failures). #41329's review F1: the name and diagnostic were taken from any verdict and the count from the
+    # most any verdict had, so a head failing A twice with no error matched a base that failed it once that way and
+    # an older one that failed it twice with a TypeError, a failure no base run had. Each test may still be on its own
+    # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
+    # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
+    # it fails.
+    times = test_reds.failed_tests(test_reds.red_lines(head_text))
+    alone = []
+    for (run, view, *_), gap in zip(window, gaps):
+        if gap:
+            continue
+        text = view_text(view)
+        judged = test_reds.classify(head_text, text, name, f"{base} run {run['id']}")
+        alone.append((set(judged.shared) if judged is not None else set(),
+                      test_reds.failed_tests(test_reds.red_lines(text))))
+    if lone := sorted(f"{test} x{n} (at most x{max([counts[test] for same, counts in alone if test in same] or [0])})"
+                      for test, n in times.items() if test not in known
+                      and not any(test in same and counts[test] >= n for same, counts in alone)):
+        raise Refused(f"'{name}': failing tests more often than on any of {base} {runs} that fails them the same way with the head's failed steps, "
+                      f"each verdict alone: {'; '.join(lone)[:600]}")
     if head_pairs is not None and compared[-1][0] == "errors":
         printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
         if missing := sorted(f"{error} (step '{step}')" for step, error in head_pairs

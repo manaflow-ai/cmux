@@ -13,10 +13,15 @@ whenever it excuses, an oracle computed from the generator's own ground truth (n
 
 1. Identity: some ONE base verdict of the window judge() can read has every failed step of the head, by (name,
    conclusion), as often (a multiset that covers the head's); a whole-log head's failing tests must be on that same
-   verdict, as often; a placed head's each on some verdict of the window (the per-test window, BASE_WINDOW).
+   verdict, as often; a placed head's each on some verdict of the window that has those steps (the per-test window,
+   BASE_WINDOW), as often, and with an error printed there exactly when the head prints one (#41329's review F1).
 2. Count: every failure the head's runners report is one its parsers name: no unparseable failure in it. Exempt is an
    XCTest-family failure (XCTest, xcresult, xcodebuild's list) beside a named one of that family: XCTest's summary
    counts assertion failures per enclosing suite, never failing tests, so no total can show the unnamed one.
+
+3. Single verdict (black-box, #41329's review: "an excuse built from facts drawn from different records"): each of
+   the head's failing tests, alone in the head, that the window excuses is excused by some ONE reachable base verdict
+   alone (single_verdict_violations). judge() alone decides it, so it holds whatever the oracle above models.
 
 BASE_RED_PROPERTY_SEEDS (default 1500) sets how many seeds run, BASE_RED_PROPERTY_START the first. Each violation is
 printed with its seed and a short description; replay one with BASE_RED_PROPERTY_START=SEED BASE_RED_PROPERTY_SEEDS=1.
@@ -84,8 +89,25 @@ def final_identities(block: dict) -> list:
     """(runner, identity, named) of each of BLOCK's final failures, as its log can tell them. A bun recap that alone
     names its failures prints `(fail) pane > NAME`, no file: each line is one failure of that title, so a title listed
     twice is two failures of it (#41222's review F1 at 6719ba22: "a name failing twice is 2")."""
-    return [(runner, f"pane > {name}" if runner == "bun" and block.get("recap") == "only" else key(runner, name), ok)
+    return [(runner, f"pane > {name}" if runner == "bun" and titled(block) else key(runner, name), ok)
             for runner, name, ok in final_failures(block)]
+
+
+def titled(block: dict) -> bool:
+    """Whether BLOCK's bun failures are named by title alone (`pane > NAME`): its recap alone names them, or its run
+    printed no file header (bun's results are then titles, each with its error)."""
+    return block.get("recap") == "only" or bool(block.get("headerless"))
+
+
+def diagnosed(steps: list) -> set:
+    """The named failure identities a log prints an error for (test_reds' messages): bun's results print their
+    assertion block; a recap names a title with none. Every other runner's are compared by name."""
+    found = set()
+    for step in steps:
+        for block in step["blocks"]:
+            if block["runner"] == "bun" and block.get("recap") != "only":
+                found |= {ident for _, ident, ok in final_identities(block) if ok}
+    return found
 
 
 def truth(steps: list) -> tuple[Counter, Counter, list]:
@@ -96,8 +118,9 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
         for block in step["blocks"]:
             if block.get("retry") is not None:
                 # run-webviews-tests.sh's contract: a file run again, alone, is judged by that run only, so every
-                # earlier failure of the file in the log (every bun block here runs one file) is superseded.
-                found = [failure for failure in found if failure[0] != "bun"]
+                # earlier failure of the file in the log (every bun block here runs one file) is superseded. A title
+                # no file names (titled) is no failure of the file.
+                found = [failure for failure in found if failure[0] != "bun" or failure[1].startswith("pane > ")]
             found += final_identities(block)
     named = Counter(ident for runner, ident, ok in found if ok)
     return keys, named, [(runner, ident) for runner, ident, ok in found if not ok]
@@ -165,16 +188,17 @@ def block_lines(block: dict) -> list[str]:
                    "=========================")
     elif runner == "bun":
         recap = block.get("recap")
-        out += bun_run(failures, passes, recap)
+        out += bun_run(failures, passes, recap, headerless=bool(block.get("headerless")))
         if block.get("retry") is not None:
             out += ["--- retry, alone ---"] + bun_run(sorted(block["retry"], key=lambda f: not f[2]), 0, recap)
     return out
 
 
-def bun_run(failures: list, passes: int, recap: str | None = None) -> list[str]:
+def bun_run(failures: list, passes: int, recap: str | None = None, headerless: bool = False) -> list[str]:
     """One bun invocation of FAILURES (named ones first). RECAP "both": the closing `N tests failed:` recap repeats
-    each named result's title; "only": no result line names a failure, the recap alone does."""
-    out = ["bun test v1.3.0", "test/pane.test.ts:"]
+    each named result's title; "only": no result line names a failure, the recap alone does. HEADERLESS: no file
+    header, so each result is named by its title alone, with its error (#41329's review F1)."""
+    out = ["bun test v1.3.0"] + ([] if headerless else ["test/pane.test.ts:"])
     out += [f"(pass) pane > ok {n} [0.10ms]" for n in range(passes)]
     for _, name, ok in failures:
         out += ["error: expect(received).toBe(expected)", "", f"Expected: \"{name}\"", "Received: \"other\"", ""]
@@ -236,6 +260,13 @@ def gen_block(rng: random.Random, unnamed_rate: float) -> dict:
         # beside `2 fail` are one identity). A recap-only block is never retried here: its titles name no file, so
         # the wrapper's retry cannot drop them (read_bun keeps them: stricter, never an excuse).
         block["recap"] = "both" if block["retry"] is not None else rng.choice(("both", "only"))
+        named = [failure for failure in failures if failure[2]]
+        if named and rng.random() < 0.5:
+            failures.append(rng.choice(named))
+    elif runner == "bun" and block["retry"] is None and rng.random() < 0.3:
+        # No file header: each result is named by its title, the identity a recap-only block gives it, but with its
+        # error (#41329's review F1: the same title, one verdict with an error and another without).
+        block["headerless"] = True
         named = [failure for failure in failures if failure[2]]
         if named and rng.random() < 0.5:
             failures.append(rng.choice(named))
@@ -383,11 +414,16 @@ def violations(case: dict, said: str) -> list[str]:
     sides = [truth(entry["steps"]) for entry in reds]
     if case["placed"]:
         one = [n for n, (theirs, _, _) in enumerate(sides) if not keys - theirs]
-        # Each failing test on some verdict of the window, as often as the head fails it (#41222's review F1).
-        most = Counter()
-        for _, tests, _ in sides:
-            most |= tests
-        tests_ok = not named - most
+        # Each failing test whole on ONE verdict of the window: there as often as the head fails it (#41222's review
+        # F1), with an error printed there exactly when the head prints one (#41329's review F1: the count from one
+        # verdict and the name and error from another is a failure no base run had).
+        mine = diagnosed(case["head"])
+        theirs_diagnosed = [diagnosed(entry["steps"]) for entry in reds]
+        # That verdict holds the head's failed steps too (the window detector's finding: a test on one verdict, the
+        # steps on another).
+        tests_ok = all(any(not keys - theirs and tests[ident] >= n and (ident in mine) == (ident in seen)
+                           for (theirs, tests, _), seen in zip(sides, theirs_diagnosed))
+                       for ident, n in named.items())
     else:
         one = [n for n, (theirs, tests, _) in enumerate(sides) if not keys - theirs and not named - tests]
         tests_ok = True
@@ -403,6 +439,52 @@ def violations(case: dict, said: str) -> list[str]:
             for what in found]
 
 
+def judged(case: dict) -> str | None:
+    """What judge() says of CASE: its audit line, or None when it refuses."""
+    try:
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], PropertyGitHub(case)))
+    except excuse.Refused:
+        return None
+
+
+def only(steps: list, ident: str) -> list:
+    """STEPS with every failure but those of identity IDENT taken out (a block left with none is dropped): one failing
+    test of the head, its steps kept as they are."""
+    steps = copy.deepcopy(steps)
+    for step in steps:
+        for block in step["blocks"]:
+            mine = [n for n, (_, found, _) in enumerate(final_identities(block)) if found == ident]
+            final = final_failures(block)
+            kept = [final[n] for n in mine]
+            if block.get("retry") is not None:
+                block["retry"] = kept
+                block["failures"] = [f for f in block["failures"] if f in kept] or kept
+            else:
+                block["failures"] = kept
+        step["blocks"] = [block for block in step["blocks"] if final_failures(block)]
+    return steps
+
+
+def single_verdict_violations(case: dict) -> list[str]:
+    """The window detector of #41329's review ("an excuse built from facts drawn from different records"): each of
+    the head's failing tests, alone in the head, that the window excuses must be excused by some ONE reachable base
+    verdict alone. The per-test window lets two tests rest on two verdicts; never one test's name, error and count on
+    several. Black-box: judge() alone decides, no ground truth."""
+    reds = reachable(case["window"])
+    if len(reds) < 2:
+        return []
+    _, named, _ = truth(case["head"])
+    found = []
+    for ident in sorted(named):
+        head = only(case["head"], ident)
+        if truth(head)[1] != Counter({ident: named[ident]}) or judged(dict(case, head=head)) is None:
+            continue
+        if not any(judged(dict(case, head=head, window=[entry])) is not None for entry in reds):
+            found.append(f"seed {case['seed']} ({'placed' if case['placed'] else 'whole log'}): single verdict: "
+                         f"{ident} x{named[ident]} is excused by the window of {len(reds)} verdicts and by none alone")
+    return found
+
+
 def run_seeds(start: int, count: int) -> tuple[list[str], int, Counter]:
     """(violations, excuses, refusals by kind) over seeds START .. START + COUNT."""
     found, excused, refused = [], 0, Counter()
@@ -415,6 +497,7 @@ def run_seeds(start: int, count: int) -> tuple[list[str], int, Counter]:
             continue
         excused += 1
         found += violations(case, said)
+        found += single_verdict_violations(case)
     return found, excused, refused
 
 

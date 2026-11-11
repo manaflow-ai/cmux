@@ -9920,6 +9920,46 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                     path(unnamed_retry, self.BASE_ONE)
 
 
+
+class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
+    """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
+    recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base
+    alone excuses it, yet the combined window does. For each test, require the identity, diagnostic and count to all
+    hold on one verdict." """
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    NEWEST = bun_lines(recap=["a > one"], fail=1)
+    # bun with no file header names its results by title alone, as the recap does: the same test, its own error.
+    OLDER = ["bun test v1.3.0", "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]",
+             "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+
+    def judge(self, *bases):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, *self.HEAD_RECAP)
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                     "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            github.jobs[run] = failed_job(run, run, BASE_SHA)
+            github.logs[run] = log(SWIFT, TEST_STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_each_base_alone_refuses_it(self):
+        for bases in ((self.NEWEST,), (self.OLDER,)):
+            with self.subTest(base=bases[0][-1]), self.assertRaises(excuse.Refused):
+                self.judge(*bases)
+
+    def test_the_window_does_not_combine_one_verdicts_identity_with_anothers_count(self):
+        with self.assertRaisesRegex(excuse.Refused, "a > one x2"):
+            self.judge(self.NEWEST, self.OLDER)
+
+    def test_one_verdict_with_all_three_still_excuses(self):
+        said = self.judge(self.NEWEST, self.HEAD_RECAP)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
 class GuardCrashIsNotItsFinding(unittest.TestCase):
     """hq#9218: the test-integrity guard (`deleted-or-weakened-tests`) prints each `--strict` finding as an `::error`
     naming its kind and path, and its workflow says "the guard itself failed" when it crashed. A crash and a finding,
