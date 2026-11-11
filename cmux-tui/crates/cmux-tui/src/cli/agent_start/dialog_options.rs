@@ -679,6 +679,41 @@ mod tests {
         assert_eq!(asked["msg"], "Run the build (all targets)?", "{asked}");
     }
 
+    /// A dialog whose choices do not parse as options, with an input-box
+    /// hint below it.
+    const UNPARSED_DIALOG: &str = "\
+ The agent wants to run: touch /tmp/w6bc-k
+ Allow this action? (y/n)
+
+ ? for shortcuts";
+
+    /// One agent record of `term_w6bc`.
+    fn record(source: &str, agent: &str, state: &str, at: &str) -> Value {
+        json!({"terminal_id": "term_w6bc", "state": state, "source": source,
+               "updated_at_ms": at, "extra": {"agent": agent}})
+    }
+
+    /// W6-BC review 3 (lead decision): a screen guess of blocked drops only
+    /// for a harness whose hooks report dialogs, and only on its own live
+    /// session's reports. Kiro's hooks have no dialog event, Copilot's
+    /// Notification is a turn's end (idle at a dialog), and a Claude session
+    /// that ended before a Qwen agent started in the same terminal says
+    /// nothing about Qwen.
+    #[test]
+    fn w6bc_only_an_agent_whose_hooks_report_dialogs_ends_a_screen_guess() {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running"});
+        let cases = [
+            ("kiro", vec![record("hook", "kiro", "idle", "1500")]),
+            ("qwen", vec![record("hook", "claude", "done", "500")]),
+            ("copilot", vec![record("hook", "copilot", "idle", "1500")]),
+        ];
+        for (harness, mut agents) in cases {
+            agents.push(record("plugin", harness, "blocked", "1902"));
+            let dialog = blocked_dialog(&terminal, &agents, UNPARSED_DIALOG);
+            assert!(dialog.is_some(), "{harness}: the block must hold");
+        }
+    }
+
     /// W6-BC review: a footer hint (`? for shortcuts`) is no question.
     #[test]
     fn w6bc_a_footer_hint_is_no_question() {

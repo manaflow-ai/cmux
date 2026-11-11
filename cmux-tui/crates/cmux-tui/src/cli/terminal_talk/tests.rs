@@ -590,7 +590,11 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
 fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
     let mut stale = snapshot();
     stale["agents"][1]["source"] = json!("plugin");
-    // The agent's own newest report says its dialog ended.
+    // The agent's hook reported the dialog, and its own newest report
+    // (OSC 7501) says the dialog ended.
+    stale["agents"].as_array_mut().expect("agents").push(json!({
+        "terminal_id": "term_c0dec000000000000000000000000004", "state": "blocked",
+        "source": "hook", "updated_at_ms": "50", "extra": {"agent": "codex"}}));
     stale["terminals"][3]["extra"] =
         json!({"program_status": [{"app": "codex", "state": "idle", "updated_at_ms": "90"}]});
     let screen = "› \n\n  ? for shortcuts                                100% context left";
@@ -626,6 +630,32 @@ fn w6bc_a_send_is_refused_at_a_reported_or_plugin_only_dialog() {
         let failure = send::run(&daemon, None, &request).expect_err("refused");
         assert_eq!(failure.exit, 4, "{screen}: {:?}", failure.failure.error);
         assert!(daemon.writes().is_empty(), "{screen}");
+    }
+}
+
+/// W6-BC review 3 (lead decision): a send is refused at a plugin's guess
+/// of a dialog for a harness whose hooks report no dialog (Kiro), whose
+/// Notification is a turn's end (Copilot), or whose only own record is an
+/// earlier agent's ended session (Claude before Qwen).
+#[test]
+fn w6bc_a_send_is_refused_when_no_own_report_can_end_the_dialog() {
+    let target = "term_c0dec000000000000000000000000004";
+    let screen =
+        " The agent wants to run: touch /tmp/w6bc-k\n Allow this action? (y/n)\n\n ? for shortcuts";
+    for (harness, own_agent, own_state) in
+        [("kiro", "kiro", "idle"), ("qwen", "claude", "done"), ("copilot", "copilot", "idle")]
+    {
+        let mut snapshot = snapshot();
+        snapshot["agents"][1]["extra"]["agent"] = json!(own_agent);
+        snapshot["agents"][1]["state"] = json!(own_state);
+        snapshot["agents"].as_array_mut().expect("agents").push(json!({
+            "terminal_id": target, "state": "blocked", "source": "plugin",
+            "updated_at_ms": "200", "extra": {"agent": harness}}));
+        let daemon = FakeDaemon::new(snapshot, &[(1, screen)]);
+        let request = SendRequest { target: target.into(), wait: Wait::None, ..quick("yes") };
+        let failure = send::run(&daemon, None, &request).expect_err("refused");
+        assert_eq!(failure.exit, 4, "{harness}: {:?}", failure.failure.error);
+        assert!(daemon.writes().is_empty(), "{harness}");
     }
 }
 
