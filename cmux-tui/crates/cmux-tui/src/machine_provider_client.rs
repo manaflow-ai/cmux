@@ -2767,9 +2767,10 @@ mod tests {
     fn a_create_slower_than_the_control_bound_is_not_a_timeout() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
-        // A scoped thread: the scope owns and joins the fake provider.
+        // A scoped thread: the scope owns the fake provider, joins it on exit,
+        // and re-raises its panic.
         thread::scope(|scope| {
-            let server = scope.spawn(move || {
+            scope.spawn(move || {
                 let (mut stream, _) = listener.accept().expect("accept control socket");
                 let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
                 accept_hello(&mut stream, &mut reader, "provider-secret");
@@ -2816,7 +2817,6 @@ mod tests {
                 .expect("a create slower than the control bound must not time out");
             assert_eq!(created.machine_id, id("machine-1"));
             drop(provider);
-            server.join().expect("join fake provider");
         });
     }
 
