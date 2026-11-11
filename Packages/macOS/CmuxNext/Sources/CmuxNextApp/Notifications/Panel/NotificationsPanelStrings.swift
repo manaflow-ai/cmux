@@ -6,6 +6,7 @@ enum NotificationsPanelStrings {
     static var title: String { String(localized: "notificationsPanel.title", defaultValue: "Notifications", table: "NotificationsPanel", bundle: .module) }
     static var markAllRead: String { String(localized: "notificationsPanel.markAllRead", defaultValue: "Mark All Read", table: "NotificationsPanel", bundle: .module) }
     static var clearAll: String { String(localized: "notificationsPanel.clearAll", defaultValue: "Clear All", table: "NotificationsPanel", bundle: .module) }
+    static var close: String { String(localized: "notificationsPanel.close", defaultValue: "Close", table: "NotificationsPanel", bundle: .module) }
     static var emptyTitle: String { String(localized: "notificationsPanel.empty.title", defaultValue: "You're all caught up", table: "NotificationsPanel", bundle: .module) }
     static var emptySubtitle: String { String(localized: "notificationsPanel.empty.subtitle", defaultValue: "New activity will appear here.", table: "NotificationsPanel", bundle: .module) }
     static var sourceClosed: String { String(localized: "notificationsPanel.sourceClosed", defaultValue: "The tab that posted this notification has closed.", table: "NotificationsPanel", bundle: .module) }

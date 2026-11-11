@@ -15,7 +15,7 @@ final class NotificationRowView: NSView {
     let row: NotificationsPanelRow
     private let callbacks: Callbacks
     private let dot = NSView()
-    private var close: NSButton?
+    private lazy var close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismissPressed))
     /// Each label and the color it draws in, applied in the view's theme scope.
     private var tinted: [(ChromeLabel, Tone)] = []
     var isSelected = false { didSet { needsDisplay = true } }
@@ -80,7 +80,7 @@ final class NotificationRowView: NSView {
     private func applyColors() {
         performWithTheme {
             for (label, tone) in tinted { label.textColor = tone.color }
-            close?.contentTintColor = Palette.textTertiary
+            close.contentTintColor = Palette.textTertiary
         }
         needsDisplay = true
     }
@@ -125,10 +125,8 @@ final class NotificationRowView: NSView {
         for line in lines { line.widthAnchor.constraint(lessThanOrEqualTo: text.widthAnchor).isActive = true }
         header.widthAnchor.constraint(equalTo: text.widthAnchor).isActive = true
 
-        let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismissPressed))
         close.setAccessibilityLabel(NotificationsPanelStrings.dismiss)
         close.isBordered = false
-        self.close = close
         close.setAccessibilityIdentifier("cmux.notifications.dismiss")
         close.translatesAutoresizingMaskIntoConstraints = false
 

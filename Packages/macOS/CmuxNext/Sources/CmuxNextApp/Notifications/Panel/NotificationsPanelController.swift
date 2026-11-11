@@ -24,6 +24,7 @@ final class NotificationsPanelController {
         let card = NotificationsPanelView()
         card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
         card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
+        card.onClose = { [weak self] in self?.close() }
         cardView = card
         return card
     }

@@ -54,13 +54,14 @@ final class NotificationsPanelView: NSView {
 
     var onMarkAllRead: (() -> Void)?
     var onClearAll: (() -> Void)?
+    var onClose: (() -> Void)?
 
     private let background = NSView()
     /// The glass under the content; the panel's clear window is all it covers.
     private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
-    private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()
+    private let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: nil, action: nil)
     private let scroll = NSScrollView()
     private let list = NSStackView()
     private let empty = NSStackView()
@@ -74,8 +75,6 @@ final class NotificationsPanelView: NSView {
         super.init(frame: frame)
         background.wantsLayer = true
         background.translatesAutoresizingMaskIntoConstraints = false
-        body.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(body)
         glass.samplesBehindWindow = true
         addSubview(glass)
         addSubview(background)
@@ -88,10 +87,6 @@ final class NotificationsPanelView: NSView {
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.topAnchor.constraint(equalTo: topAnchor),
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            body.topAnchor.constraint(equalTo: background.topAnchor),
-            body.bottomAnchor.constraint(equalTo: background.bottomAnchor),
         ])
         build()
     }
@@ -105,7 +100,8 @@ final class NotificationsPanelView: NSView {
         let titleFont = NSFont.systemFont(ofSize: Typography.body.pointSize + 2, weight: .semibold)
         let title = NotificationRowView.label(NotificationsPanelStrings.title, font: titleFont)
         for (button, text, action, id) in [(markAllRead, NotificationsPanelStrings.markAllRead, #selector(markAllPressed), "markAllRead"),
-                                           (clearAll, NotificationsPanelStrings.clearAll, #selector(clearAllPressed), "clearAll")] {
+                                           (clearAll, NotificationsPanelStrings.clearAll, #selector(clearAllPressed), "clearAll"),
+                                           (close, "", #selector(closePressed), "close")] {
             button.title = text
             button.isBordered = false
             button.font = Typography.body
@@ -113,9 +109,12 @@ final class NotificationsPanelView: NSView {
             button.action = action
             button.setAccessibilityIdentifier("cmux.notifications.\(id)")
         }
+        // The × closes the panel, as Esc and a click outside it do; it lines up with the rows' ×.
+        close.setAccessibilityLabel(NotificationsPanelStrings.close)
+        close.widthAnchor.constraint(equalToConstant: Metrics.space6).isActive = true
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let header = NSStackView(views: [title, spacer, markAllRead, clearAll])
+        let header = NSStackView(views: [title, spacer, markAllRead, clearAll, close])
         header.spacing = Metrics.space3
 
         list.orientation = .vertical
@@ -152,20 +151,20 @@ final class NotificationsPanelView: NSView {
 
         for view in [header, scroll, empty] {
             view.translatesAutoresizingMaskIntoConstraints = false
-            body.addSubview(view)
+            background.addSubview(view)
         }
         let inset = Metrics.panelInset
         let listHeight = scroll.heightAnchor.constraint(equalToConstant: 0)
         self.listHeight = listHeight
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.width),
-            header.topAnchor.constraint(equalTo: body.topAnchor, constant: inset),
-            header.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: inset + Metrics.space2),
-            header.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -inset - Metrics.space2),
+            header.topAnchor.constraint(equalTo: background.topAnchor, constant: inset),
+            header.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: inset + Metrics.space2),
+            header.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -inset - Metrics.space2),
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Metrics.space2),
-            scroll.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: inset),
-            scroll.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -inset),
-            scroll.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -inset),
+            scroll.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: inset),
+            scroll.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -inset),
+            scroll.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -inset),
             listHeight,
             empty.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
@@ -218,12 +217,13 @@ final class NotificationsPanelView: NSView {
             glass.cornerRadius = Metrics.panelCornerRadius
             for (label, tone) in tinted { label.textColor = tone.color }
             emptyIcon.contentTintColor = Palette.textSecondary
-            for button in [markAllRead, clearAll] { button.contentTintColor = Palette.textSecondary }
+            for button in [markAllRead, clearAll, close] { button.contentTintColor = Palette.textSecondary }
         }
     }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }
+    @objc private func closePressed() { onClose?() }
 }
 
 private final class FlippedView: NSView {
