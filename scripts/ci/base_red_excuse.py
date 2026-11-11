@@ -79,6 +79,7 @@ import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from collections import Counter
 from typing import Callable, NamedTuple
 
 _http_spec = importlib.util.spec_from_file_location("deadline_http", Path(__file__).with_name("deadline_http.py"))
@@ -1368,39 +1369,42 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # step's own: UNPLACED) has no section per step, so no line can be charged to the step that failed. Seen on
 # 2026-11-11 on 'cmux-next checks (god files, concurrency, crash safety, l10n)' (cmux#40954) and 'CmuxMobileKit tests
 # (macOS swift test, iOS simulator)' (cmux#40598, #40664): every red in those jobs was refused, the base's own too.
-# Such a red is compared whole instead, on both sides alike, and excused only on identity: the newest base verdict for
-# the job is a failure, and it has exactly the head's failed steps (by the jobs API), exactly the head's failing tests,
-# and exactly the head's error lines (numbers masked), read from the whole log less the runner's echo of each script,
-# with at least one test or error line. Whole-log reading may take in a passing step's expected `✘ Test` or error line
-# (#40542's Codex BLOCKs); on both sides alike that cancels out, and any line the head prints that the base does not,
-# a new failure's included, breaks identity and refuses. A subset is never enough: a new red that adds one line is the
-# PR's own.
+# Such a red is compared whole instead, on both sides alike, and excused only on identity with the newest base verdict
+# for the job, itself a failure: exactly the head's failed steps (by the jobs API), and exactly the same failing-test
+# lines and error lines (numbers masked) the same number of times each, read from the whole log less the runner's echo
+# of each script, with at least one. Counts, not sets: a whole log may take in a passing step's expected `✘ Test` or
+# error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a line the base printed only from a
+# passing step prints it once more than the base, and is refused. Any line the head prints more or less often than
+# the base breaks identity: a subset either way is never enough.
 class UnplacedSignature(NamedTuple):
     steps: frozenset
-    tests: frozenset
-    errors: frozenset
+    tests: Counter
+    errors: Counter
 
 
 def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
-    """UnplacedSignature of JOB's whole LOG (see above): the failed steps by the jobs API, and the failing tests and
-    error lines of every line but the runner's echo of a script."""
+    """UnplacedSignature of JOB's whole LOG (see above): the failed steps by the jobs API, and how often each
+    failing-test line and error line appears in every line but the runner's echo of a script."""
     steps = frozenset(str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
                       if step.get("conclusion") not in (None, "success", "skipped"))
-    skip = test_reds.echoed(test_reds.log_lines(log))
-    tests = frozenset(test_reds.failed_names(test_reds.lines_of(log)))
-    errors = set()
-    for n, line in enumerate(lines_of(log)):
-        if n in skip or line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
+    output = test_reds.lines_of(log)
+    named = test_reds.failed_names(output)
+    # Each line that names a failing test by itself, counted; a listing (xcodebuild's `Failing tests:`) adds its names.
+    tests = Counter(normalise_error(text) for text in output if test_reds.failed_names([text]))
+    tests.update(f"listed: {name}" for name in named - set().union(*(test_reds.failed_names([text]) for text in output)))
+    errors: Counter = Counter()
+    for line in output:
+        if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
             continue
         if ((ERROR.search(line)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
-             or (not tests and ("default" in job.get("name", "").lower()
+             or (not named and ("default" in job.get("name", "").lower()
                                 or "snapshot" in job.get("name", "").lower())
                  and SUMMARY_FAILURE.search(line)))
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
                 and not SUCCESS_DIAGNOSTIC.search(line)):
-            errors.add(normalise_error(line))
-    return UnplacedSignature(steps, tests, frozenset(errors))
+            errors[normalise_error(line)] += 1
+    return UnplacedSignature(steps, tests, errors)
 
 
 def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignature:
@@ -1419,16 +1423,18 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if not head.tests and not head.errors:
         raise Refused(f"'{name}': {UNPLACED_WHY}, and its log names no failing test or error line; nothing to "
                       "compare with the base")
-    for what, mine, theirs in (("failed steps", head.steps, found.steps), ("failing tests", head.tests, found.tests),
-                               ("error lines", head.errors, found.errors)):
+    if head.steps != found.steps:
+        raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its failed steps {sorted(head.steps)} are not "
+                      f"{where}'s {sorted(found.steps)}")
+    for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
         if mine != theirs:
-            only_head, only_base = sorted(mine - theirs), sorted(theirs - mine)
+            more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
             raise Refused(f"'{name}': {UNPLACED_WHY}; compared whole, its {what} are not {where}'s"
-                          + (f": only on this head: {'; '.join(only_head)[:500]}" if only_head else "")
-                          + (f"; only on the base: {'; '.join(only_base)[:300]}" if only_base else ""))
+                          + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
+                          + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
     return (f"excused '{name}': its log does not map onto its steps, so it was compared whole: the same failed steps "
-            f"({'; '.join(sorted(head.steps))[:200]}), failing tests and error lines as {where}: "
+            f"({'; '.join(sorted(head.steps))[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
 
 

@@ -7096,8 +7096,8 @@ class FailingStepLogOnly(unittest.TestCase):
         github = self.github(log, self.raw(self.adjacent_sections(missing)))
         github.jobs = {1: self.job(1, 10, HEAD, self.adjacent_steps()),
                        2: self.job(2, 20, BASE_SHA, self.adjacent_steps())}
-        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+        self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
     def test_a_continue_on_error_steps_exit_line_in_a_shared_second_still_counts(self):
         # The other side of the ambiguous second: a continue-on-error step that failed (a success to the jobs API)
@@ -7725,8 +7725,9 @@ def random_layout(rng):
 
 class StepLayouts(unittest.TestCase):
     """LAYOUT_CASES random layouts from LAYOUT_SEED, each in both log formats: failed_steps_log never drops a line of
-    a failing or error-bearing section; judge() refuses whenever step_owners finds any section ambiguous, and never
-    excuses unless the head's and the base's failures are both proven failures of the same step (random_layout)."""
+    a failing or error-bearing section; judge() excuses a log with an ambiguous section only on counted whole-log
+    identity with the base's (UnplacedSignature), and a placed one only when the head's and the base's failures are
+    both proven failures of the same step (random_layout)."""
 
     def test_random_step_layouts(self):
         import random
@@ -7751,7 +7752,13 @@ class StepLayouts(unittest.TestCase):
                     said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
                 except excuse.Refused:
                     continue
-                self.assertFalse(ambiguous, f"case {n}: excused with an ambiguous section: {said}")
+                if ambiguous:
+                    # Compared whole (UnplacedSignature): only on identity, counted, with the base's whole log.
+                    self.assertIn("compared whole", "\n".join(said), f"case {n}")
+                    self.assertEqual(excuse.unplaced_signature(github.jobs[1], pair[0]),
+                                     excuse.unplaced_signature(github.jobs[2], pair[1]), f"case {n}: {said}")
+                    seen["excused whole"] = seen.get("excused whole", 0) + 1
+                    continue
                 if allowed is not None:
                     self.assertTrue(allowed, f"case {n}: excused without proven failures of the same step: {said}")
                     seen["excused across"] += 1
@@ -7884,15 +7891,15 @@ class UnplacedSignature(unittest.TestCase):
         self.assertFalse(excuse.quarantined_only(excuse.failed_view(self.job(), framed_log(self.lines(FLAKE), SWIFT),
                                                                     base=False, **UNKNOWN), {"sometimes()": "hq#1"}))
 
-    def test_judge_refuses_an_unplaced_head_whatever_the_base(self):
+    def test_judge_compares_an_unplaced_head_whole(self):
         for columns in (False, True):
             with self.subTest(columns=columns):
                 github = FakeGitHub()
                 github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
                 github.logs = {1: framed_log(self.lines(NEW_RED), SWIFT, columns=columns),
                                2: framed_log(self.lines(NEW_RED, placed=True), SWIFT, columns=columns)}
-                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+                self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
 
 class StepNamesAreRequired(unittest.TestCase):
@@ -8010,15 +8017,15 @@ class NamedRunStepHeader(unittest.TestCase):
         for label, fmt in self.formats():
             with self.subTest(log=label):
                 github = self.github(fmt, self.workflow(tests_named=False), tests_name="Run swift test")
-                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+                self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
     def test_an_unread_workflow_leaves_a_run_named_step_unproven(self):
         for label, fmt in self.formats():
             with self.subTest(log=label):
                 github = self.github(fmt, None)
-                with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+                self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
     def test_a_workflow_whose_steps_do_not_match_the_jobs_steps_proves_nothing(self):
         # A step the workflow does not list (a `Pre` step, a container step) or a name that is not the workflow's
@@ -8030,8 +8037,8 @@ class NamedRunStepHeader(unittest.TestCase):
             for workflow in (extra, renamed):
                 with self.subTest(log=label, workflow=workflow):
                     github = self.github(fmt, workflow)
-                    with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-                        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                    # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+                    self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
 
 class LocalCompositeCannotPose(unittest.TestCase):
@@ -8119,8 +8126,8 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
                     self.assertIs(excuse.failed_view(job, log_text, base=True, step_names=names), excuse.UNPLACED)
-                    with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
-                        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps))
+                    # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
+                    self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps))))
 
 
 # The step-name detector. A line of step_lines' callers and owner, or of anything else in base_red_excuse.py and
@@ -8552,11 +8559,11 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         base = ["##[error]red check: Check the app FFI pin"]
         head = base + ["##[error]raw colour outside the tokens", "##[error]red check: Motion and colour tokens"]
         with self.assertRaisesRegex(excuse.Refused, r"compared whole, its error lines are not feat-cmux-next run 20.*"
-                                    r"only on this head: .*Motion and colour tokens"):
+                                    r"more on this head: .*Motion and colour tokens"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, head, base))
 
     def test_a_different_check_red_is_the_prs_own(self):
-        with self.assertRaisesRegex(excuse.Refused, "only on this head: .*Motion and colour tokens; only on the base"):
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*Motion and colour tokens; more on the base"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP,
                                       ["##[error]red check: Motion and colour tokens"],
                                       ["##[error]red check: Check the app FFI pin"]))
@@ -8570,7 +8577,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
     def test_a_kit_test_only_the_head_fails_is_the_prs_own(self):
         base = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
         head = base + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
-        with self.assertRaisesRegex(excuse.Refused, "its failing tests are not .*only on this head: reconnectsAfterSleep"):
+        with self.assertRaisesRegex(excuse.Refused, "its failing tests are not .*more on this head: .*reconnectsAfterSleep"):
             self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
@@ -8578,14 +8585,22 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         # head's failures are only those (a red the base hides could be the PR's).
         head = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
         base = head + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
-        with self.assertRaisesRegex(excuse.Refused, "only on the base: reconnectsAfterSleep"):
+        with self.assertRaisesRegex(excuse.Refused, "more on the base: .*reconnectsAfterSleep"):
             self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
 
     def test_another_failed_step_is_the_prs_own(self):
         github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["##[error]x"], ["##[error]x"])
         github.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
-        with self.assertRaisesRegex(excuse.Refused, "its failed steps are not"):
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \[.swift test \(macOS\).\] are not"):
             self.judge(github)
+
+    def test_a_line_the_base_printed_from_a_passing_step_is_still_new_in_the_failing_one(self):
+        # #40542's Codex BLOCK, whole: the base's passing negative case prints the error the head's failing step now
+        # prints too. As sets the two logs match; counted, the head prints it once more, and is refused.
+        negative = "##[error]error: Sources/New.swift:3: cannot find 'x' in scope"
+        base = [negative, "##[error]red check: Check the app FFI pin"]
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*New.swift"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
     def test_a_red_that_names_nothing_is_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
@@ -8594,7 +8609,8 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
         echo = ["##[group]Run echo \"::error::red check: Motion and colour tokens\"",
-                "\x1b[36;1mecho \"::error::red check: Motion and colour tokens\"\x1b[0m", "##[endgroup]"]
+                "\x1b[36;1mecho \"::error::red check: Motion and colour tokens\"\x1b[0m",
+                "shell: /usr/bin/bash -e {0}", "##[endgroup]"]
         red = ["##[error]red check: Check the app FFI pin"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
