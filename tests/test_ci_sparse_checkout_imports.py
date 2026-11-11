@@ -380,8 +380,8 @@ def find_modules(
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
 #     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
 #     keyed by (loading file, loaded file).
-# P must be a fixed path in the repo: a string literal (relative to the repo root, the run step's
-# directory), or __file__ through Path(), str(), os.fspath(), .resolve(), .absolute(), .parent,
+# P must be a fixed path in the repo: a string literal (relative to the run's working directory: the
+# step's working-directory and the `cd`s before the command; no literal is fixed when that is unknown), or __file__ through Path(), str(), os.fspath(), .resolve(), .absolute(), .parent,
 # .parents[N], / "literal", .with_name("literal"), .joinpath("literal"), os.path.abspath/realpath/
 # dirname or os.path.join(..., "literal"), directly or through a name bound exactly once by a plain
 # `NAME = ...` statement in the body of the innermost function around the call (or, for a name that
@@ -508,15 +508,18 @@ def _scope_bindings(tree: ast.Module) -> dict[int, Bindings]:
 class _FixedPath:
     """Evaluates a path in the forms the comment above lists; None for anything else."""
 
-    def __init__(self, here: Path, root: Path, aliases: dict[str, str], bindings: "Bindings") -> None:
+    def __init__(
+        self, here: Path, root: Path, aliases: dict[str, str], bindings: "Bindings", cwd: Path | None = None
+    ) -> None:
         self.here, self.root, self.aliases, self.bindings = here, root, aliases, bindings
+        self.cwd = cwd  # a relative literal's folder: the run's working directory, None when unknown
 
     def __call__(self, node: ast.AST, depth: int = 0) -> Path | None:
         if depth > 20:
             return None
         ev = lambda n: self(n, depth + 1)  # noqa: E731
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return None if os.path.isabs(node.value) else self.root / node.value
+            return None if os.path.isabs(node.value) or self.cwd is None else self.cwd / node.value
         if isinstance(node, ast.Name):
             if node.id == "__file__":
                 return self.here
@@ -524,7 +527,7 @@ class _FixedPath:
             if bound is None:
                 return None
             expr, scope = bound
-            return _FixedPath(self.here, self.root, self.aliases, scope)(expr, depth + 1)
+            return _FixedPath(self.here, self.root, self.aliases, scope, self.cwd)(expr, depth + 1)
         if isinstance(node, ast.Attribute) and node.attr == "parent":
             base = ev(node.value)
             return None if base is None else Path(os.path.normpath(base)).parent
@@ -638,13 +641,15 @@ def _builds_path(call: ast.Call, aliases: dict[str, str]) -> bool:
 
 @lru_cache(maxsize=None)
 def dynamic_calls(
-    root: Path, rel: str
+    root: Path, rel: str, cwd: str | None = ""
 ) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...], tuple[tuple[str, int], ...]]:
     """What a file's dynamic imports do, in source order: (("insert" or "append", folder, ordered,
     call, line, argument text) for each fixed sys.path change, files learned spec_from_file_location
     calls load, unresolved (call, line, argument text)). A path change is `ordered` only when it is a
     statement of its own directly in the module body: straight-line code that runs once, in source
-    order, at import. The argument text is _call_text's, so the audit can name the exact call."""
+    order, at import. The argument text is _call_text's, so the audit can name the exact call. A
+    relative string literal names a path from `cwd`, the run's working directory (repo-relative; None
+    when this check cannot resolve it, and then no literal is a fixed path)."""
     try:
         tree = ast.parse((root / rel).read_bytes())
     except (OSError, SyntaxError, ValueError):
@@ -658,7 +663,8 @@ def dynamic_calls(
 
     def in_repo(node: ast.AST, want_dir: bool) -> str | None:
         # A name resolves in the innermost function first, then at module level (lexical scope).
-        found = _FixedPath(root / rel, root, aliases, scopes.get(id(node), {}))(node)
+        start = None if cwd is None else root / cwd if cwd else root
+        found = _FixedPath(root / rel, root, aliases, scopes.get(id(node), {}), start)(node)
         if found is None:
             return None
         found = Path(os.path.normpath(found))
@@ -713,8 +719,8 @@ class NameProof:
     """Proves that the order of some search-path folders cannot change what an import loads: no
     top-level name is offered by two of them, nor by one of them and the stdlib
     (sys.stdlib_module_names) or an installed distribution of this interpreter. The folders are every
-    one the checker models on the path: the entry folder (the repo root itself for `python -m` from
-    there), PYTHONPATH's and the inserted ones. Names come from the tree's full file list, built once
+    one the checker models on the path: sys.path[0] (the script's folder for `python script.py`, the
+    working directory for `python -m`, `-c` and stdin), PYTHONPATH's and the inserted ones. Names come from the tree's full file list, built once
     per find_misses run (module_name_index), never from the sparse list or an earlier run."""
 
     def __init__(self, root: Path) -> None:
@@ -839,14 +845,19 @@ def full_run(
     how: tuple[str, str] | None,
     audited: frozenset = frozenset(),
     names: NameProof | None = None,
+    base: str | None = None,
+    cwd: str | None = "",
 ) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int, str], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
     path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). The
     closure's fixed sys.path changes build the search path when their order is provable
     (_search_path), and learned loads join the closure unless `audited` holds (loader, file); the run
     repeats until neither changes. A search that comes back to an earlier state without settling is
-    one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places."""
-    base = how[1] if how else script.rsplit("/", 1)[0]
+    one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places.
+    `base` is sys.path[0] (run_configs): the script's folder for `python script.py`, else the step's
+    working directory. `cwd` is the run's working directory, for relative literals in path changes."""
+    if base is None:
+        base = default_base(script, how)
     module = how[0] if how else None
     names = names or NameProof(root)
     front: list[str] = []
@@ -861,7 +872,7 @@ def full_run(
         unresolved = []
         rel_ops = []
         for rel in files:
-            path_ops, loads, calls = dynamic_calls(root, rel)
+            path_ops, loads, calls = dynamic_calls(root, rel, cwd)
             if path_ops:
                 rel_ops.append((rel, path_ops))
             for file in loads:
@@ -976,6 +987,138 @@ def how_it_runs(script: str, modules: tuple[str, ...]) -> tuple[str, str] | None
     return None
 
 
+def default_base(script: str, how: tuple[str, str] | None) -> str:
+    """sys.path[0] when nothing says otherwise: the module's root folder for `python -m`, else the
+    script's folder."""
+    return how[1] if how else script.rsplit("/", 1)[0]
+
+
+_PYTHON = r"\bpython[\d.]*(?:\s+-[A-Za-z]*[BdEhiIOPqsSuvVWxX][A-Za-z]*)*"
+_RUN_CODE = re.compile(_PYTHON + r"\s+-[A-Za-z]*c")
+_RUN_STDIN = re.compile(_PYTHON + r"(?:\s+-(?=\s|$)|\s*<|\s*$)")
+_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+
+
+def _resolve_dir(raw: str, cwd: str | None, root: Path) -> str | None:
+    """The repo folder `cd raw` lands in from `cwd`, or None when this check cannot tell (a variable,
+    an absolute path, a folder outside the repo or not in it)."""
+    if cwd is None:
+        return None
+    part = raw.strip().strip("'\"")
+    anchored = _WORKSPACE.match(part)
+    if anchored:
+        part, cwd = part[anchored.end():].lstrip("/") or ".", ""
+    if not part or part.startswith(("/", "~", "-")) or "$" in part or "`" in part:
+        return None
+    rel = os.path.normpath(os.path.join(cwd, part)) if cwd else os.path.normpath(part)
+    if rel == ".." or rel.startswith("../"):
+        return None
+    rel = "" if rel == "." else rel
+    return rel if (root / rel).is_dir() else None
+
+
+def _step_cwd(doc: dict, job: dict, step: dict, root: Path) -> str | None:
+    """The folder a run step starts in: its working-directory, else the job's, then the workflow's
+    defaults.run.working-directory, else the repo root."""
+    for scope, key in ((step, None), (job, "defaults"), (doc, "defaults")):
+        if not isinstance(scope, dict):
+            continue
+        holder = scope if key is None else ((scope.get(key) or {}).get("run") or {})
+        if isinstance(holder, dict) and holder.get("working-directory") is not None:
+            return _resolve_dir(str(holder["working-directory"]), "", root)
+    return ""
+
+
+def _words(line: str) -> list[str] | None:
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _follow_cd(line: str, cwd: str | None, root: Path, upto=None) -> str | None:
+    """`cwd` after the `cd`/`pushd`/`popd` commands of one logical line (only those before the first
+    command `upto(command text)` accepts, when given). A subshell's `cd` ends at its `)`. A line shlex cannot
+    split that changes folder, or a change this check cannot resolve, gives None."""
+    words = _words(line)
+    if words is None:
+        return None if re.search(r"(?:^|[;&|(\s])(?:cd|pushd|popd)\b", line) else cwd
+    stack: list[str | None] = []
+    command: list[str] = []
+    for word in [*words, ";"]:
+        if word not in _SHELL_OPERATORS:
+            command.append(word)
+            continue
+        if upto is not None and upto(" ".join(command)):
+            return cwd
+        if command[:1] in (["cd"], ["pushd"]):
+            cwd = _resolve_dir(command[1], cwd, root) if len(command) == 2 else None
+        elif command[:1] == ["popd"]:
+            cwd = None
+        command = []
+        if word == "(":
+            stack.append(cwd)
+        elif word == ")" and stack:
+            cwd = stack.pop()
+    return cwd
+
+
+def _run_kind(text: str) -> str:
+    if _RUN_MODULE.search(text):
+        return "module"
+    if _RUN_CODE.search(text):
+        return "code"
+    return "stdin" if _RUN_STDIN.search(text) else "script"
+
+
+def _script_command(line: str, script: str, how: tuple[str, str] | None) -> str:
+    """The command on this logical line that names `script` (the whole line if shlex cannot split it)."""
+    words = _words(line)
+    if words is None:
+        return line
+    command: list[str] = []
+    for word in [*words, ";"]:
+        if word not in _SHELL_OPERATORS:
+            command.append(word)
+        elif _mentions(" ".join(command), script, how):
+            return " ".join(command)
+        else:
+            command = []
+    return line
+
+
+@lru_cache(maxsize=None)
+def _run_lines(run: str, root: Path, start: str | None) -> tuple[tuple[str, str, str, str | None], ...]:
+    """(logical line, the line holding its command, how Python runs there, cwd before that line) per
+    logical line of a run script. How: "module" (-m), "code" (-c), "stdin" (`python -`, `python <`, or
+    the body of a heredoc fed to python, whose command line is the heredoc's), "text" (the body of
+    another command's heredoc), else "script". Parsed once per step, not once per listed script."""
+    return tuple(_run_lines_uncached(run, root, start))
+
+
+def _run_lines_uncached(run: str, root: Path, start: str | None):
+    cwd = start
+    heredoc: tuple[str, str, str | None] | None = None  # (delimiter, its python line, cwd there)
+    for line in _logical_lines(run):
+        if heredoc is not None:
+            if line.strip() == heredoc[0]:
+                heredoc = None
+            elif heredoc[1]:
+                yield line, heredoc[1], "stdin", heredoc[2]
+            else:
+                yield line, line, "text", heredoc[2]  # another command's heredoc: read as before
+            continue
+        kind = _run_kind(line)
+        yield line, line, kind, cwd
+        marker = _HEREDOC.search(line)
+        if marker:
+            # A heredoc fed to python is its program; any other command's heredoc is not shell either.
+            heredoc = (marker.group(1), line if kind == "stdin" else "", cwd)
+        cwd = _follow_cd(line, cwd, root)
+
+
 def pythonpath_dirs(value: object, root: Path) -> tuple[tuple[str, ...], list[str]]:
     """(repo folders, entries it cannot resolve) of one PYTHONPATH value. ${{ github.workspace }} and
     $GITHUB_WORKSPACE are the repo root; other expressions, variables, absolute paths and paths
@@ -1015,9 +1158,12 @@ def _logical_lines(run: str) -> list[str]:
     return re.sub(r"\\\r?\n", "", run).splitlines()
 
 
-def _command_env(line: str, script: str, how: tuple[str, str] | None) -> dict[str, str] | None:
-    """The VAR=value words before the command on this logical line that runs `script` ({} if none,
-    or no command on it names the script); None when shlex cannot split the line."""
+def _command_env(
+    line: str, script: str, how: tuple[str, str] | None, needle: str | None = None
+) -> dict[str, str] | None:
+    """The VAR=value words before the command on this logical line that runs `script` (or, given
+    `needle`, the first command containing it: the python a heredoc feeds) ({} if none, or no command
+    on it names the script); None when shlex cannot split the line."""
     lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
@@ -1031,7 +1177,7 @@ def _command_env(line: str, script: str, how: tuple[str, str] | None) -> dict[st
         else:
             commands[-1].append(word)
     for command in commands:
-        if not _mentions(" ".join(command), script, how):
+        if not (needle in " ".join(command) if needle else _mentions(" ".join(command), script, how)):
             continue
         assigned: dict[str, str] = {}
         for word in command[1:] if command[:1] == ["env"] else command:
@@ -1043,47 +1189,76 @@ def _command_env(line: str, script: str, how: tuple[str, str] | None) -> dict[st
     return {}
 
 
-def pythonpath_configs(
+def run_configs(
     doc: dict, job: dict, script: str, how: tuple[str, str] | None, root: Path
-) -> tuple[list[tuple[str, ...]], list[str]]:
-    """Each distinct PYTHONPATH (as repo folders) `script` runs with, and why any of it cannot be
-    verified. For each run step whose script names `script` on a logical line (continuations
-    joined), it is a `PYTHONPATH=...` before that command, else the step's effective env; with no
-    such step, the job's (workflow then job) env. A line naming the script that shlex cannot split,
-    or a step that sets PYTHONPATH any other way (export, another command), cannot be verified."""
-    values: list[object] = []
+) -> tuple[list[tuple[tuple[str, ...], str, str | None]], list[str]]:
+    """Each distinct (PYTHONPATH as repo folders, sys.path[0], working directory or None when it
+    cannot be resolved) `script` runs with, and why any of it
+    cannot be verified. For each run step whose script names `script` on a logical line (continuations
+    joined), PYTHONPATH is a `PYTHONPATH=...` before that command, else the step's effective env; with
+    no such step, the job's (workflow then job) env. sys.path[0] is the script's folder for `python
+    script.py`; for `python -m`, `python -c` and Python reading stdin it is the working directory (the
+    step's working-directory and the `cd`s before the command), as Python puts it there. A line naming
+    the script that shlex cannot split, a step that sets PYTHONPATH any other way (export, another
+    command), a working directory this check cannot resolve, or a `python -m` whose module is in
+    neither the working directory nor PYTHONPATH, cannot be verified."""
+    values: list[tuple[object, str, str | None]] = []
     bad: list[str] = []
+    default = default_base(script, how)
     for step in job.get("steps") or []:
         if not (isinstance(step, dict) and isinstance(step.get("run"), str)):
             continue
         consumed = 0
         named = False
-        for line in _logical_lines(step["run"]):
+        for line, command_line, kind, cwd in _run_lines(step["run"], root, _step_cwd(doc, job, step, root)):
             if not _mentions(line, script, how):
                 continue
             named = True
-            assigned = _command_env(line, script, how)
+            text = kind == "text"
+            if text:
+                kind = "script"
+            elif command_line == line:  # a command line: the command that names the script decides
+                kind = _run_kind(_script_command(line, script, how))
+            if kind == "module" and not (how and how[0].removesuffix(".__main__") in _RUN_MODULE.findall(line)):
+                kind = "script"  # another module (pytest, unittest) runs the script: sys.path[0] as before
+            names_it = (lambda c: "python" in c) if kind == "stdin" else (lambda c: _mentions(c, script, how))
+            here = cwd if text else _follow_cd(command_line, cwd, root, names_it)
+            if kind == "script":
+                base: str | None = default
+            else:
+                base = here
+                if base is None:
+                    flag = {"module": "-m", "code": "-c"}.get(kind, "reading stdin")
+                    bad.append(f"runs with `python {flag}` from a working directory this check cannot resolve")
+                    continue
+            assigned = _command_env(command_line, script, how, None if kind != "stdin" else "python")
             if assigned is None:
                 bad.append(f"runs from a line this check cannot parse: {line.strip()[:120]!r}")
                 continue
             if "PYTHONPATH" in assigned:
                 consumed += 1
-                values.append(assigned["PYTHONPATH"])
+                values.append((assigned["PYTHONPATH"], base, here))
             else:
-                values.append(effective_env(doc, job, step).get("PYTHONPATH"))
+                values.append((effective_env(doc, job, step).get("PYTHONPATH"), base, here))
         if named and step["run"].count("PYTHONPATH") > consumed:
             bad.append("runs in a step that sets or reads PYTHONPATH where this check cannot follow it")
     if not values:
-        values.append(effective_env(doc, job).get("PYTHONPATH"))
-    configs: list[tuple[str, ...]] = []
-    for value in values:
+        values.append((effective_env(doc, job).get("PYTHONPATH"), default, ""))
+    configs: list[tuple[tuple[str, ...], str, str | None]] = []
+    for value, base, here in values:
         folders, unresolved = pythonpath_dirs(value, root)
         bad += [
             f"runs with PYTHONPATH entry {entry!r}, which this check cannot resolve to a repo folder"
             for entry in unresolved
         ]
-        if folders not in configs:
-            configs.append(folders)
+        if how and how[1] != base and how[1] not in folders:
+            bad.append(
+                f"runs as `python -m {how[0].removesuffix('.__main__')}` from {base or 'the repo root'}, "
+                "where this check cannot find the module"
+            )
+            continue
+        if (folders, base, here) not in configs:
+            configs.append((folders, base, here))
     return configs, list(dict.fromkeys(bad))
 
 
@@ -1123,6 +1298,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     audited = {normal_audit_key(key) for key in audit}
     frozen_audit = frozenset(audit)
     names = NameProof(root)  # one full-tree name index per run
+    _run_lines.cache_clear()  # run steps parse once per run, never from an earlier one
     memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
     for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
@@ -1131,17 +1307,17 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             continue
         prefix = f"{workflow} {job_id} {step}: "
         modules = _job_run_modules(job)
-        runs = []  # (script, how, PYTHONPATH folders)
+        runs = []  # (script, how, PYTHONPATH folders, sys.path[0], working directory)
         bad_paths: list[str] = []
         for script in listed:
             how = how_it_runs(script, modules)
-            configs, bad = pythonpath_configs(doc, job, script, how, root)
-            runs += [(script, how, extra) for extra in configs]
+            configs, bad = run_configs(doc, job, script, how, root)
+            runs += [(script, how, extra, base, cwd) for extra, base, cwd in configs]
             bad_paths += [f"{prefix}{script} {why}" for why in bad]
         full = {}
         for run in runs:
             if run not in memo:
-                memo[run] = full_run(root, run[0], run[2], run[1], frozen_audit, names)
+                memo[run] = full_run(root, run[0], run[2], run[1], frozen_audit, names, run[3], run[4])
             full[run] = memo[run]
         files = set(listed)
         for places, *_ in full.values():
@@ -1786,6 +1962,83 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
+    # Python puts the working directory, not the script's folder, first for `python -m`, `python -c`
+    # and stdin; relative path literals name paths from it too. Both tests/ and scripts/ci/tests/ hold
+    # a `tests` package.
+    CWD = {
+        "scripts/ci/mx.py": (
+            "import os\nimport sys\ndef extend():\n"
+            "    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mxvendor'))\n"
+            "extend()\nimport tests.mxhelp\n"
+        ),
+        "scripts/ci/mxvendor/mxv.py": "",
+        "scripts/ci/mx2.py": "import tests.mxhelp\n",
+        "scripts/ci/mx3.py": "import tests.mxhelp\n",
+        "scripts/ci/mxlit.py": "import sys\nsys.path.insert(0, 'mxlitdir')\nimport mxlitmod\n",
+        "scripts/ci/mxlitdir/mxlitmod.py": "",
+        "mxlitdir/mxlitmod.py": "",
+        "tests/__init__.py": "",
+        "tests/mxhelp.py": "",
+        "scripts/ci/tests/__init__.py": "",
+        "scripts/ci/tests/mxhelp.py": "",
+    }
+    IN_SCRIPTS_CI = "working-directory: scripts/ci\n        env:\n          PYTHONPATH: ${{ github.workspace }}"
+
+    def test_fixture_review_m_a_module_run_counts_its_working_directory_in_the_proof(self) -> None:
+        # `python -m scripts.ci.mx` from scripts/ci, found through PYTHONPATH: sys.path is [scripts/ci,
+        # the repo root], both offer `tests`, so the append in extend() cannot be ordered by a proof.
+        listed = self.block(
+            "scripts/ci/mx.py", "tests/__init__.py", "tests/mxhelp.py",
+            "scripts/ci/tests/__init__.py", "scripts/ci/tests/mxhelp.py",
+        )
+        self.assertEqual(
+            self._misses(listed, run="python3 -m scripts.ci.mx", run_env=self.IN_SCRIPTS_CI, more=self.CWD),
+            [
+                "w.yml run Check out: scripts/ci/mx.py calls sys.path.append(os.path.join(os.path.dirname("
+                "os.path.abspath(__file__)), 'mxvendor')) (line 4), which this check cannot follow; make the "
+                "import static or audit it in DYNAMIC_IMPORT_AUDIT"
+            ],
+        )
+
+    def test_fixture_review_m_a_module_run_imports_from_its_working_directory_first(self) -> None:
+        # The same step with no path change: `tests` is scripts/ci/tests (the working directory), not
+        # the repo root's.
+        listed = self.block("scripts/ci/mx2.py", "tests/__init__.py", "tests/mxhelp.py")
+        self.assertEqual(
+            self._misses(listed, run="python3 -m scripts.ci.mx2", run_env=self.IN_SCRIPTS_CI, more=self.CWD),
+            [
+                "w.yml run Check out: scripts/ci/mx2.py imports scripts/ci/tests/__init__.py, not in its sparse checkout",
+                "w.yml run Check out: scripts/ci/mx2.py imports scripts/ci/tests/mxhelp.py, not in its sparse checkout",
+            ],
+        )
+
+    def test_fixture_review_m_code_and_stdin_runs_import_from_the_working_directory(self) -> None:
+        # `python -c` and a heredoc fed to python from the repo root: `tests` is the root's.
+        listed = self.block("scripts/ci/mx3.py", "scripts/ci/tests/__init__.py", "scripts/ci/tests/mxhelp.py")
+        expected = [
+            "w.yml run Check out: scripts/ci/mx3.py imports tests/__init__.py, not in its sparse checkout",
+            "w.yml run Check out: scripts/ci/mx3.py imports tests/mxhelp.py, not in its sparse checkout",
+        ]
+        runs = {
+            "-c": "python3 -c \"import runpy; runpy.run_path('scripts/ci/mx3.py')\"",
+            "heredoc": "|\n            python3 - <<'EOF'\n            import runpy\n"
+            "            runpy.run_path('scripts/ci/mx3.py')\n            EOF",
+        }
+        for label, run in runs.items():
+            with self.subTest(run=label):
+                self.assertEqual(self._misses(listed, run=run, more=self.CWD), expected)
+
+    def test_fixture_review_m_a_relative_literal_names_a_path_from_the_working_directory(self) -> None:
+        # `python3 mxlit.py` in scripts/ci: 'mxlitdir' is scripts/ci/mxlitdir, not the root's mxlitdir.
+        listed = self.block("scripts/ci/mxlit.py", "mxlitdir/mxlitmod.py")
+        self.assertEqual(
+            self._misses(listed, run="python3 mxlit.py", run_env="working-directory: scripts/ci", more=self.CWD),
+            [
+                "w.yml run Check out: scripts/ci/mxlit.py imports scripts/ci/mxlitdir/mxlitmod.py, "
+                "not in its sparse checkout"
+            ],
+        )
+
     def test_fixture_codex_a_star_import_makes_module_names_unprovable(self) -> None:
         # P at module level comes from `from starconf import *` (scripts/b); f()'s local P = 'scripts/a'
         # is another scope and must not stand in for it.
@@ -1827,7 +2080,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
     def test_fixture_f3_run_as_module_needs_the_package_init(self) -> None:
         # `python -m mpkg.main` imports mpkg (its __init__.py) before main's `from .helper import go`.
         listed = self.block("scripts/ci/mpkg/main.py", "scripts/ci/mpkg/helper.py")
-        for run in ("cd scripts/ci && python3 -m mpkg.main", "python -u -m mpkg.main --flag"):
+        for run in ("cd scripts/ci && python3 -m mpkg.main", "cd scripts/ci; python -u -m mpkg.main --flag"):
             with self.subTest(run=run):
                 self.assertEqual(
                     self._misses(listed, run=run),
@@ -1836,6 +2089,14 @@ class SparseCheckoutImportTests(unittest.TestCase):
                         "not in its sparse checkout"
                     ],
                 )
+        # From the repo root, Python finds no mpkg (the working directory is sys.path[0]): fail closed.
+        self.assertEqual(
+            self._misses(listed, run="python -u -m mpkg.main --flag"),
+            [
+                "w.yml run Check out: scripts/ci/mpkg/main.py runs as `python -m mpkg.main` from the repo root, "
+                "where this check cannot find the module"
+            ],
+        )
         run = "cd scripts/ci && python3 -m mpkg.main"
         self.assertEqual(
             self._misses(self.block("scripts/ci/mpkg/main.py"), run=run),
