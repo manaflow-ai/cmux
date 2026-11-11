@@ -49,7 +49,8 @@ struct ConnectivityPolicyTests {
 
     @Test func everyoneLosesFreeText() throws {
         var policy = ConnectivityPolicy()
-        let record = try #require(policy.admit(failure(), audience: .everyone))
+        let admitted = policy.admit(failure(), audience: .everyone)
+        let record = try #require(admitted)
         #expect(record.detail == nil)
         #expect(record.fields["error"] == nil)
         #expect(record.fields["transport"] == .code("wireGuard"))
@@ -62,7 +63,8 @@ struct ConnectivityPolicyTests {
         var policy = ConnectivityPolicy()
         let event = ConnectivityEvent(.link, "dial_ok", outcome: .failure,
                                       fields: ["ms_remote_10_0_0_2": .number(4), "ms remote 10.0.0.2": .number(4), "ms_relay": .number(9)])
-        let record = try #require(policy.admit(event, audience: .everyone))
+        let admitted = policy.admit(event, audience: .everyone)
+        let record = try #require(admitted)
         #expect(record.fields.keys.sorted() == ["ms_relay", "ms_remote_10_0_0_2"])
         #expect(ConnectivityEvent.Value.isSafeKey("ms_relay"))
         #expect(!ConnectivityEvent.Value.isSafeKey("ms remote 10.0.0.2"))
@@ -73,9 +75,12 @@ struct ConnectivityPolicyTests {
         var policy = ConnectivityPolicy(configuration: .init(sampleEvery: 10, everyonePerHour: 1000))
         let connecting = ConnectivityEvent(.link, "phase", fields: ["phase": .code("connecting")], date: start)
         let connected = ConnectivityEvent(.link, "phase", outcome: .success, fields: ["phase": .code("connected")], date: start)
-        #expect(policy.admit(connecting, audience: .everyone) != nil)
-        #expect(policy.admit(connected, audience: .everyone) != nil)
-        #expect(policy.admit(connecting, audience: .everyone) == nil)
+        let first = policy.admit(connecting, audience: .everyone)
+        let otherPhase = policy.admit(connected, audience: .everyone)
+        let repeated = policy.admit(connecting, audience: .everyone)
+        #expect(first != nil)
+        #expect(otherPhase != nil)
+        #expect(repeated == nil)
     }
 
     @Test func foreignCodesThatAreNotWordsBecomeOther() {
@@ -100,10 +105,10 @@ struct ConnectivityPolicyTests {
 
     @Test func everyoneHourlyBudgetCountsDrops() {
         var policy = ConnectivityPolicy(configuration: .init(sampleEvery: 1, everyonePerHour: 2))
-        #expect(policy.admit(failure(0), audience: .everyone) != nil)
-        #expect(policy.admit(failure(1), audience: .everyone) != nil)
-        #expect(policy.admit(failure(2), audience: .everyone) == nil)
-        #expect(policy.admit(failure(3), audience: .everyone) == nil)
+        let inBudget = [0.0, 1].map { policy.admit(failure($0), audience: .everyone) }
+        let overBudget = [2.0, 3].map { policy.admit(failure($0), audience: .everyone) }
+        #expect(inBudget.allSatisfy { $0 != nil })
+        #expect(overBudget.allSatisfy { $0 == nil })
         let next = policy.admit(failure(3601), audience: .everyone)
         #expect(next?.droppedBefore == 2)
     }
@@ -211,10 +216,16 @@ struct ConnectivityRemoteGateTests {
 
     @Test func teamSendsEveryFailureEveryoneOnePerKeyPerHour() {
         var gate = ConnectivityRemoteGate()
-        #expect((0..<5).allSatisfy { gate.sendsEvent(for: record(.team, .failure, at: Double($0))) })
-        #expect(!gate.sendsEvent(for: record(.team, .success, at: 6)))
-        #expect(gate.sendsEvent(for: record(.everyone, .failure, at: 10)))
-        #expect(!gate.sendsEvent(for: record(.everyone, .failure, at: 20)))
-        #expect(gate.sendsEvent(for: record(.everyone, .failure, at: 3611)))
+        // Mutating calls stay outside #expect: the macro takes its operand immutably.
+        let teamFailures = (0..<5).map { gate.sendsEvent(for: record(.team, .failure, at: Double($0))) }
+        let teamSuccess = gate.sendsEvent(for: record(.team, .success, at: 6))
+        let everyoneFirst = gate.sendsEvent(for: record(.everyone, .failure, at: 10))
+        let everyoneSameHour = gate.sendsEvent(for: record(.everyone, .failure, at: 20))
+        let everyoneNextHour = gate.sendsEvent(for: record(.everyone, .failure, at: 3611))
+        #expect(teamFailures == [true, true, true, true, true])
+        #expect(!teamSuccess)
+        #expect(everyoneFirst)
+        #expect(!everyoneSameHour)
+        #expect(everyoneNextHour)
     }
 }

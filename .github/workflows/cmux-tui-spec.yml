@@ -560,7 +560,7 @@ jobs:
           rc=0
           python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
           if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
-            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            # The script already printed a ::warning file=<the file>,line= annotation for each unformatted file.
             exit 0
           fi
           exit "$rc"
