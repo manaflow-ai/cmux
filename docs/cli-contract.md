@@ -86,6 +86,21 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
+app's `agent.chat.perf` runs the chat page's own capture for that many
+seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
+unmeasured_reason, visibility, frames, long_tasks, layout_shift, records}`:
+frame intervals (p50/p95/p99/max, frames over 33 and 50 ms), long animation
+frames (or long tasks) with their top scripts' invoker and URL, non-input
+layout shift, and for each record the selected chat receives, its time from
+arrival to the first painted frame and its apply time, by kind (`tool_call`,
+`tool_call_update`, `agent_message_chunk`, `other`, `all`). It never focuses,
+selects, shows or un-occludes the tab; a hidden or covered page draws no
+frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
+`no_frames`. Nothing in the page measures outside a capture. A tab that is
+not an agent chat is `invalid_params`; a chat whose page this launch never
+made is `unavailable`.
+
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
 `{machines: [{id, name, kind, isLocal, linkState, online, serverState,
@@ -554,16 +569,20 @@ chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
 `unknown`, or `ended` for an ended session (as in the `send` receipt; it was
 null); `state` is a deprecated alias with the same word, and an acpmux chat's
-own status is `acp_status`. The CLI does not list an ended agent of a terminal
-that closed; `--state ended` shows those rows too, and the text output ends
-with a line that says how many rows it left out. `--state` takes those words and
+own status is `acp_status`. A terminal that closed has no agent: the daemon
+deletes the agent record with the terminal, so no output lists it, `--state
+ended` included (the ended chat stays in `cmux history list --kind agent`).
+The CLI still leaves out an ended agent whose terminal the snapshot does not
+have (a daemon of an older build kept the records of closed terminals);
+`--state ended` shows those rows too, and the text output ends with a line
+that says how many rows it left out. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
 ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
 that ended (`--state done` is an old alias of it), and its record says
 `ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
-`total`, and `hidden_ended`, the ended agents of closed terminals it left out
+`total`, and `hidden_ended`, the ended agents it left out
 (`{"agents": [...], "counts": {...}, "hidden_ended": 0}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`

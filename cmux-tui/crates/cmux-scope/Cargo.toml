@@ -1,0 +1,19 @@
+[package]
+name = "cmux-scope"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "An owner for async tasks: a Scope spawns them, cancels them and joins them within a deadline (cmux-process's kill-on-drop Child is the same rule for processes)"
+
+[lints]
+workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
