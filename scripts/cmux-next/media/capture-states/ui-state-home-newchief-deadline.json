@@ -1,0 +1,51 @@
+{
+  "title": "Home: a new Chief (no newest message) whose first read hangs: past HomeStore.firstPageDeadline (10 s) the error with Try Again (ui-state-fixes M1, no-newest case)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The new Chief's first read held (it never answers)",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "transcript": "loading",
+          "chief": "new"
+        }
+      },
+      "wait": 1.5,
+      "record": true
+    },
+    {
+      "title": "Before the deadline: loading",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Past the 10 s deadline",
+      "wait": 11,
+      "shot": false
+    },
+    {
+      "title": "After the deadline: first page failed, the read still held",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}
