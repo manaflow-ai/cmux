@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// `updates.downloadAutomatically` is opt-in on stable and on by default in NIGHTLY and DEV. The
+/// `updates.downloadAutomatically` is on by default on every channel (Leo 2026-11-07). The
 /// channel default fills the effective settings only: cmux-next.json is shared by every channel,
 /// so nothing is written there, and a value someone wrote always wins.
 @MainActor @Suite(.serialized) struct SettingsBuildDefaultsTests {

@@ -54,7 +54,7 @@ import Testing
     /// update by itself, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func everyChannelDownloadsByDefaultAndAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
-        #expect(identity.track.downloadsAutomaticallyByDefault, "\(identity.track) asks before it downloads by default")
+        #expect(identity.track.downloadsAutomaticallyByDefault, "\(identity.track) does not download by default")
         let (updater, effects) = Self.make(identity)
         #expect(updater.automaticUpdates && updater.downloadsFoundUpdates,
                 "\(identity.track) (tip \(identity.isTipBuild)) does not download found updates by default")

@@ -33,7 +33,7 @@ import Testing
     }
 
     /// The harness with the install seams counted. `downloadsAsk`: found updates wait for a click
-    /// (`updates.downloadAutomatically` off, the nightly default); `cancellable`: this app's driver
+    /// (`updates.downloadAutomatically` off; on is the default); `cancellable`: this app's driver
     /// holds the staged installer; `pulled`: pulled.json's builds.
     static func make(newer: Bool, held: Bool = false, downloadsAsk: Bool = false, cancellable: Bool = true,
                      pulled: [String] = []) -> (Base.Harness, Installs) {
