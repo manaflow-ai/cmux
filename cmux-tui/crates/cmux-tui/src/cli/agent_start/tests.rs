@@ -2110,3 +2110,33 @@ fn w6f_caller_pane_current_on_a_session_route_without_the_callers_terminal_is_re
     let options = Options { pane: Some("current".into()), ..plain_start() };
     refused_in_room(room, &other_route(FOREIGN), &RoomStep::Start("a1", &options));
 }
+
+/// Review of #40878 (W6-F): `--pane caller` names the caller's pane like
+/// `--pane current`, but on a `--session` route not known to be the
+/// caller's it failed with `selector.not_found`, also when the session has
+/// the caller's terminal. It is the caller's pane there: the agent opens as
+/// a tab in it, and no pane moves.
+#[test]
+fn w6f_caller_pane_caller_on_a_session_route_opens_in_the_callers_pane() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let before = room.rects();
+    let options = Options { pane: Some("caller".into()), ..plain_start() };
+    let views = room_run(room, &other_route(CALLER), &[RoomStep::Start("a1", &options)]);
+    let view = &views[0];
+    assert_eq!(view.report["placement"], "tab", "{}", view.report);
+    assert_eq!(view.report["pane_id"], CALLER_PANE, "{}", view.report);
+    assert_eq!(view.rects, before, "a pane moved");
+}
+
+/// Review of #40878 (W6-F): `--pane caller` from a terminal of another
+/// session is refused like `--pane current` (exit 2,
+/// `agent.start.caller_not_in_session`, nothing changes), not with
+/// `selector.not_found`.
+#[test]
+fn w6f_caller_pane_caller_on_a_session_route_without_the_callers_terminal_is_refused() {
+    let mut room = Room::new(200, 40, caller_beside_shell(0.7));
+    room.focused = ROOM_SHELL_PANE.into();
+    let options = Options { pane: Some("caller".into()), ..plain_start() };
+    refused_in_room(room, &other_route(FOREIGN), &RoomStep::Start("a1", &options));
+}
