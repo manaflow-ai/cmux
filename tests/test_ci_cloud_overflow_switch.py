@@ -18,8 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # The watch's own bounded CI_TRUSTED_RUNNER selector: ephemeral labels only, never a probed size.
+# CI_BLACKSMITH_OFF='1' (Leo, 2026-11-10: "just stop using blacksmith temporarily") runs the watch on GitHub-hosted
+# Ubuntu: the job that moves every variable off Blacksmith cannot wait for Blacksmith.
 WATCH_SELECTOR = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_BLACKSMITH_OFF == '1' && 'ubuntu-24.04' || contains(fromJSON('"
     '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
     "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
@@ -853,10 +855,14 @@ class WorkflowTests(unittest.TestCase):
                   "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
         for value in sorted(values):
             label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
-                                            "vars.CI_TRUSTED_RUNNER": value})
+                                            "vars.CI_TRUSTED_RUNNER": value, "vars.CI_BLACKSMITH_OFF": ""})
             with self.subTest(CI_TRUSTED_RUNNER=value):
                 self.assertNotIn(label, switch.PROBE_LABELS)
                 self.assertIn(label, {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"})
+            label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                            "vars.CI_TRUSTED_RUNNER": value, "vars.CI_BLACKSMITH_OFF": "1"})
+            with self.subTest(CI_TRUSTED_RUNNER=value, CI_BLACKSMITH_OFF="1"):
+                self.assertEqual(label, "ubuntu-24.04")
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:

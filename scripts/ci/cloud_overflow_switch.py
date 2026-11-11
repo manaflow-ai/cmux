@@ -45,6 +45,15 @@ elsewhere is left alone. Nothing here touches the lane switches
 (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...): minis-first routing
 never changes, only where overflow goes.
 
+CI_BLACKSMITH_OFF (temporary; Leo, 2026-11-10: "just stop using blacksmith
+temporarily"): while that repository variable is '1' the probe job is skipped
+and every run turns overflow off as if every probe had stalled, with the
+non-Blacksmith values of off_values() (Linux on the GCP fleet's
+cmux-fleet-linux-x64, CI_TRUSTED_RUNNER on ubuntu-24.04, the macOS variables on
+the owned pools), through the same record. No stuck run is cancelled for it.
+Delete the variable and the probe runs again: once every probe starts, each
+variable goes back to exactly the value the record holds.
+
 Some variables are read by signing jobs' runs-on, and those must only ever
 name an ephemeral runner (rule 7 of
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py on
@@ -132,6 +141,14 @@ SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIAB
 # Blacksmith label for a macOS variable, or a reused machine signing jobs
 # would run on).
 OVERRIDABLE_VARIABLES = (*SWITCHED_VARIABLES, "MACOS_RUNNER_TESTS")
+
+# CI_BLACKSMITH_OFF: '1' keeps every runner variable off Blacksmith (off_values()); the record says so.
+OFF_VARIABLE = "CI_BLACKSMITH_OFF"
+OFF_RECORD_KEY = "blacksmith_off"
+GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+# CI_TRUSTED_RUNNER's readers accept only ubuntu-24.04 and two Blacksmith sizes; it holds App keys, so an
+# ephemeral runner it must be: GitHub-hosted Ubuntu.
+TRUSTED_OFF = "ubuntu-24.04"
 
 # Blacksmith Linux started 35,454 jobs on 2026-09-27 with a queue p90 of 13 s;
 # 18 waited more than a minute. A probe still queued after 5 minutes is far
@@ -262,6 +279,52 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
     return values, problems
+
+
+def blacksmith_off(env: Mapping[str, str]) -> bool:
+    """Whether CI_BLACKSMITH_OFF is on: exactly '1'."""
+    return (env.get(OFF_VARIABLE) or "").strip() == "1"
+
+
+def off_values(failover: Mapping[str, str]) -> dict[str, str]:
+    """Where each variable goes while CI_BLACKSMITH_OFF is on: never a Blacksmith label.
+
+    The macOS variables keep failover_values()' owned pools (overrides included); Linux takes the GCP fleet and
+    CI_TRUSTED_RUNNER GitHub-hosted Ubuntu, the only non-Blacksmith value its readers accept. A variable signing
+    jobs read takes only what signing_safe() allows (MACOS_RUNNER_26 has no such value, so it keeps its own).
+    """
+    values = {name: value for name, value in failover.items()
+              if name not in LINUX_VARIABLES and not cloud_label(value)}
+    values[LINUX_VARIABLE] = GCP_FLEET_LINUX
+    values[TRUSTED_VARIABLE] = TRUSTED_OFF
+    return {name: value for name, value in values.items() if signing_safe(name, value)}
+
+
+def plan_blacksmith_off(record: Mapping[str, Any] | None, current: Mapping[str, str | None],
+                        values: Mapping[str, str]) -> dict[str, dict[str, str | None]]:
+    """The record's `changed` once CI_BLACKSMITH_OFF has moved every variable still on Blacksmith.
+
+    With no record it is plan_off(). With one (an outage failover, or an earlier pass of this switch) each
+    variable that still sends jobs to Blacksmith (unset, a blacksmith-* label, or the record's own failover) moves
+    to its off value and keeps the record's `before`, so turning the switch back off restores what was there
+    before either change. A variable someone set elsewhere is left alone.
+    """
+    if not record:
+        return plan_off(current, values)
+    changed = {name: dict(change) for name, change in (record.get("changed") or {}).items()
+               if isinstance(change, Mapping)}
+    for name, after in values.items():
+        now = (current.get(name) or "").strip() or None
+        if now == after:
+            continue
+        entry = changed.get(name)
+        if entry is not None:
+            if now != entry.get("after") and not (now is None or cloud_label(now)):
+                continue
+            changed[name] = {**entry, "after": after}
+        elif name == PAID_OVERFLOW_VARIABLE or now is None or cloud_label(now):
+            changed[name] = {"before": now, "after": after}
+    return dict(sorted(changed.items()))
 
 
 def plan_off(current: Mapping[str, str | None], failover: Mapping[str, str]) -> dict[str, dict[str, str | None]]:
@@ -786,6 +849,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         labels, args.dry_run = (drill,), True
         log(f"drill: probing {drill} instead; a dry run whatever it finds")
     label = ", ".join(labels)
+    if blacksmith_off(env) and not drill:
+        code = switch_blacksmith_off(record, current, off_values(failover), switch=switch, dry_run=args.dry_run,
+                                     stamp=iso(now()), run=f"https://github.com/{repo}/actions/runs/{run_id}",
+                                     log=log)
+        out = env.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a", encoding="utf-8") as handle:
+                handle.write("outcome=off\n")
+        write_summary(env, lines)
+        return code
     state = f"off since {record.get('since')}" if record else "on"
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")
@@ -812,7 +885,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     elif outcome == "started":
         log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
         if record:
-            restores = plan_on(record, current, started)
+            # A record CI_BLACKSMITH_OFF wrote goes back exactly: its befores were live when it was written.
+            restores = plan_on(record, current, None if record.get(OFF_RECORD_KEY) else started)
             if args.dry_run:
                 for item in restores:
                     if item.skipped:
@@ -907,6 +981,38 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"outcome={outcome}\n")
     write_summary(env, lines)
     return code
+
+
+def switch_blacksmith_off(record: Mapping[str, Any] | None, current: Mapping[str, str | None],
+                          values: Mapping[str, str], *, switch: GitHub | None, dry_run: bool, stamp: str, run: str,
+                          log: Callable[[str], None]) -> int:
+    """CI_BLACKSMITH_OFF=1: move every runner variable off Blacksmith through the record, without probing."""
+    log(f"{OFF_VARIABLE}=1: Blacksmith is off by hand (temporary); no probe. Delete {OFF_VARIABLE} to go back")
+    changed = plan_blacksmith_off(record, current, values)
+    moves = {name: change for name, change in changed.items()
+             if (current.get(name) or "").strip() != change["after"]}
+    if record and not moves and record.get(OFF_RECORD_KEY):
+        log("every runner variable is already off Blacksmith")
+        return 0
+    new_record = {**(record or {}), OFF_RECORD_KEY: True, "changed": changed,
+                  "reason": f"{OFF_VARIABLE}=1", "run": run}
+    new_record.setdefault("since", stamp)
+    new_record.setdefault("probe", ", ".join(PROBE_LABELS))
+    if dry_run:
+        for name, change in moves.items():
+            log(f"- {name}: would set {change['after']} (now {current.get(name) or 'unset'}; dry run)")
+        return 0
+    if switch is None:
+        log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); set by hand: " + "; ".join(
+            f"{name} -> {change['after']}" for name, change in moves.items()))
+        return 1
+    # The record first: a failure halfway still knows the way back.
+    switch.set_variable(RECORD_VARIABLE, json.dumps(new_record, sort_keys=True))
+    for name, change in moves.items():
+        switch.set_variable(name, str(change["after"]))
+        log(f"- {name}: {current.get(name) or 'unset'} -> {change['after']}")
+    log(f"Blacksmith off; {RECORD_VARIABLE} holds the values to put back")
+    return 0
 
 
 def write_summary(env: Mapping[str, str], lines: Sequence[str]) -> None:
