@@ -61,12 +61,11 @@ async function mount(container: HTMLElement, node: React.ReactNode) {
 
 type Hold = { set(value: string | undefined): void; released: string[] };
 const hold: { current?: Hold } = {};
-function HoldProbe({ ms, out }: { ms: number; out: { current?: Hold } }) {
+const keepHold = (next: Hold) => void (hold.current = next);
+function HoldProbe({ ms, onHold }: { ms: number; onHold(hold: Hold): void }) {
   const [released] = useState<string[]>(() => []);
   const [value, set] = useAnswerHold<string>(ms, (gone) => released.push(gone));
-  useEffect(() => {
-    out.current = { set, released };
-  }, [out, set, released]);
+  useEffect(() => onHold({ set, released }), [onHold, set, released]);
   return <span>{value ?? "none"}</span>;
 }
 
@@ -75,7 +74,7 @@ test("an answered ask whose owner never takes it away takes an answer again", as
   jest.useFakeTimers();
   hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={ANSWER_HOLD_MS} out={hold} />);
+  await mount(container, <HoldProbe ms={ANSWER_HOLD_MS} onHold={keepHold} />);
   await act(async () => hold.current!.set("ask-1"));
   expect(container.textContent).toBe("ask-1");
   await wait(ANSWER_HOLD_MS - 1);
@@ -90,7 +89,7 @@ test("a refusal lets go at once, and a newer answer starts its own deadline", as
   jest.useFakeTimers();
   hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={1_000} out={hold} />);
+  await mount(container, <HoldProbe ms={1_000} onHold={keepHold} />);
   await act(async () => hold.current!.set("ask-1"));
   await act(async () => hold.current!.set(undefined));
   expect(container.textContent).toBe("none");
@@ -109,7 +108,7 @@ test("a Retry acpmux took whose attempt never shows stops saying Retrying…", a
   jest.useFakeTimers();
   hold.current = undefined;
   const container = installDom();
-  await mount(container, <HoldProbe ms={RETRY_HOLD_MS} out={hold} />);
+  await mount(container, <HoldProbe ms={RETRY_HOLD_MS} onHold={keepHold} />);
   await act(async () => hold.current!.set("went"));
   await wait(RETRY_HOLD_MS - 1);
   expect(container.textContent).toBe("went");
@@ -119,11 +118,10 @@ test("a Retry acpmux took whose attempt never shows stops saying Retrying…", a
 
 type HoldSet = ReturnType<typeof useAnswerHoldSet>;
 const holdSet: { current?: HoldSet } = {};
-function SetProbe({ items, out }: { items: string[]; out: { current?: HoldSet } }) {
+const keepHoldSet = (next: HoldSet) => void (holdSet.current = next);
+function SetProbe({ items, onHold }: { items: string[]; onHold(ids: HoldSet): void }) {
   const ids = useAnswerHoldSet(1_000);
-  useEffect(() => {
-    out.current = ids;
-  }, [out, ids]);
+  useEffect(() => onHold(ids), [onHold, ids]);
   const shown = items.filter((id) => !ids.held.has(id));
   return <span>{`${shown.length}:${shown.join(",")}`}</span>;
 }
@@ -133,7 +131,7 @@ test("a Needs you row answered but never taken off the list comes back, so its c
   jest.useFakeTimers();
   const container = installDom();
   const items = ["a", "b"];
-  await mount(container, <SetProbe items={items} out={holdSet} />);
+  await mount(container, <SetProbe items={items} onHold={keepHoldSet} />);
   await act(async () => holdSet.current!.add("a"));
   expect(container.textContent).toBe("1:b");
   await wait(500);
