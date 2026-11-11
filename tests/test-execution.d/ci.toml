@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "scripts/cmux-next/tests/test_ci_apply.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
@@ -119,6 +123,10 @@ path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_expression_falsy_ternary.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -206,6 +214,10 @@ reason = "Portable unit tests for the overflow watch's hosted light rescue (main
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_reliability_matrix.py"
 lane = "linux-guard"
 
 [[test]]
@@ -300,6 +312,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_no_bare_urlopen.py"
 lane = "linux-guard"
 
 [[test]]
@@ -687,6 +703,10 @@ lane = "linux-guard"
 path = "tests/test_ci_webviews_affected.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
+path = "tests/test_ci_workflow_file_size.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"

@@ -2,6 +2,14 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "cmux-tui/bindings/codegen/tests/test_swift_app.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_swift_logic_lines.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 

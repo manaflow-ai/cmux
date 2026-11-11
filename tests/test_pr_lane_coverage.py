@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every tests/test_*.py runs on a pull request lane, or is a reviewed exemption.
+"""Every test_*.py (in tests/ or anywhere else) runs on a pull request lane, or is a reviewed exemption.
 
 The registry validator accepted a linux-guard test that any workflow named.
 tests/test_webviews_tests_per_file.py was named only by web-validation.yml's
@@ -18,7 +18,9 @@ Needs PyYAML (the Linux runners and the guard venv have it).
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -329,6 +331,88 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("tests/test_gone.py does not exist", errors[0])
         self.assertEqual([warning.split(":", 1)[0] for warning in warnings], ["tests/test_old.py"], warnings)
+
+
+class TestsOutsideTests(unittest.TestCase):
+    """Discovery reads every test_*.py, not only tests/test_*.py: 54 tests under scripts/cmux-next/tests/
+    and 175 more elsewhere ran in no job, and cmux#41318 found scripts/cmux-next/tests/test_hot_apply.py
+    stale that way."""
+
+    def git(self, root: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", *args],
+            cwd=root, check=True, text=True, capture_output=True,
+        ).stdout.strip()
+
+    def tree(self, workflow_run: str, working_directory: str = "") -> Tree:
+        steps = f"    steps:\n      - run: {workflow_run}\n"
+        if working_directory:
+            steps += f"        working-directory: {working_directory}\n"
+        workflow = FEAT_PULL_REQUEST + "jobs:\n  check:\n    runs-on: ubuntu-24.04\n" + steps
+        tree = Tree(["tests/test_a.py"], {"next.yml": workflow})
+        self.addCleanup(tree.close)
+        for path in ("scripts/tool/tests/test_b.py", "pkg/tests/test_c.py", "pkg/node_modules/x/test_d.py"):
+            (tree.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (tree.root / path).write_text("", encoding="utf-8")
+        git_fixture_env.init_repo(tree.root, "-b", BRANCH)
+        self.git(tree.root, "add", "-A")
+        self.git(tree.root, "commit", "--quiet", "-m", "tree")
+        return tree
+
+    def unrun(self, tree: Tree) -> list[str]:
+        return sorted(error.split(":", 1)[0] for error in tree.errors() if validator.UNRUN_ON_PULL_REQUESTS in error)
+
+    def test_every_tracked_test_file_is_discovered_outside_installed_packages(self):
+        tree = self.tree("python3 tests/test_a.py")
+        self.assertEqual(validator.discover_tests(tree.root),
+                         ["pkg/tests/test_c.py", "scripts/tool/tests/test_b.py", "tests/test_a.py"])
+
+    def test_a_test_outside_tests_that_no_job_runs_is_flagged(self):
+        tree = self.tree("python3 tests/test_a.py")
+        self.assertEqual(self.unrun(tree), ["pkg/tests/test_c.py", "scripts/tool/tests/test_b.py"])
+
+    def test_a_step_that_names_the_file_runs_it(self):
+        tree = self.tree("python3 tests/test_a.py && python3 scripts/tool/tests/test_b.py")
+        self.assertEqual(self.unrun(tree), ["pkg/tests/test_c.py"])
+
+    def test_a_longer_path_ending_in_a_test_path_does_not_run_it(self):
+        # tests/test_quality_report.py is the tail of scripts/cmux-next/tests/test_quality_report.py.
+        self.assertFalse(validator.names_path("python3 scripts/x/tests/test_a.py", "tests/test_a.py"))
+        self.assertFalse(validator.names_path("python3 tests/test_a.pyc", "tests/test_a.py"))
+        for text in ("python3 tests/test_a.py", "./tests/test_a.py", "$GITHUB_WORKSPACE/tests/test_a.py",
+                     '"tests/test_a.py"', "pytest tests/test_a.py::Case"):
+            with self.subTest(text=text):
+                self.assertTrue(validator.names_path(text, "tests/test_a.py"))
+
+    def test_discover_from_a_working_directory_runs_that_folders_tests(self):
+        # cmux-tui-sdks.yml: `python3 -m unittest discover -s tests` from cmux-tui/bindings/python.
+        tree = self.tree("python3 -m unittest discover -s tests", working_directory="pkg")
+        self.assertEqual(self.unrun(tree), ["scripts/tool/tests/test_b.py", "tests/test_a.py"])
+        import pr_test_lanes  # noqa: PLC0415
+
+        self.assertIn(("python3 -m unittest discover -s tests", "pkg"),
+                      pr_test_lanes.pull_request_steps(tree.root, BRANCH))
+
+    def test_the_coverage_detector_fails_on_an_unrun_test_and_passes_with_none(self):
+        tree = self.tree("python3 tests/test_a.py")
+        args = ["--repo-root", str(tree.root), "--pr-lanes", BRANCH, "--fail-on-unrun"]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            self.assertEqual(validator.main(args), 1)
+        self.assertIn(f"tests no job a pull request into {BRANCH} runs: 2", output.getvalue())
+        workflow = tree.root / ".github" / "workflows" / "next.yml"
+        workflow.write_text(workflow.read_text(encoding="utf-8").replace(
+            "python3 tests/test_a.py",
+            "python3 tests/test_a.py && python3 scripts/tool/tests/test_b.py && python3 pkg/tests/test_c.py"),
+            encoding="utf-8")
+        registry = tree.root / "tests" / "test-execution.toml"
+        registry.write_text(registry.read_text(encoding="utf-8") + "".join(
+            f'\n[[test]]\npath = "{path}"\nlane = "linux-guard"\n'
+            for path in ("pkg/tests/test_c.py", "scripts/tool/tests/test_b.py")), encoding="utf-8")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            self.assertEqual(validator.main(args), 0, output.getvalue())
+        self.assertIn(f"tests no job a pull request into {BRANCH} runs: 0", output.getvalue())
 
 
 class ThisTree(unittest.TestCase):

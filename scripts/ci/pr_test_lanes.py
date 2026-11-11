@@ -442,6 +442,18 @@ def action_texts(root: Path, name: str) -> list[str]:
 
 def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tuple[str, ...] = ()) -> list[str]:
     """`run:` text a workflow file executes under `context`, following local calls."""
+    return [run for run, _ in workflow_steps(root, name, context, seen)]
+
+
+def workflow_steps(root: Path, name: str, context: dict[str, object],
+                   seen: tuple[str, ...] = ()) -> list[tuple[str, str]]:
+    """(`run:` text, working directory) of each step a workflow file executes under `context`.
+
+    The working directory is the step's `working-directory`, else its job's or the workflow's
+    `defaults.run.working-directory`, else "" (the checkout). A step reached through guards-local.sh
+    or a local composite action runs from the checkout. `python3 -m unittest discover -s tests` in
+    a step that runs from cmux-tui/bindings/python runs that folder's tests, not tests/.
+    """
     if name in seen:
         return []
     path = root / WORKFLOWS / name
@@ -449,14 +461,16 @@ def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tupl
         return []
     workflow = load_yaml(path)
     jobs = workflow.get("jobs") or {}
-    texts: list[str] = []
+    workflow_dir = str((((workflow.get("defaults") or {}).get("run")) or {}).get("working-directory") or "")
+    steps: list[tuple[str, str]] = []
     for job_name in kept_jobs(jobs, context):
         job = jobs[job_name] if isinstance(jobs[job_name], dict) else {}
         called = LOCAL_WORKFLOW.match(str(job.get("uses", "")))
         if called:
-            texts += workflow_texts(root, called.group(1), call_context(root, called.group(1), job, context),
+            steps += workflow_steps(root, called.group(1), call_context(root, called.group(1), job, context),
                                     seen + (name,))
             continue
+        job_dir = str((((job.get("defaults") or {}).get("run")) or {}).get("working-directory") or workflow_dir)
         rows = matrix_rows(job, context)
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -465,12 +479,12 @@ def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tupl
                 continue
             run = str(step.get("run", ""))
             if run:
-                texts.append(run)
-                texts += guards_local_texts(root, run)
+                steps.append((run, str(step.get("working-directory") or job_dir)))
+                steps += [(text, "") for text in guards_local_texts(root, run)]
             action = LOCAL_ACTION.match(str(step.get("uses", "")))
             if action:
-                texts += action_texts(root, action.group(1))
-    return texts
+                steps += [(text, "") for text in action_texts(root, action.group(1))]
+    return steps
 
 
 def call_context(root: Path, name: str, job: dict, caller: dict[str, object]) -> dict[str, object]:
@@ -495,7 +509,12 @@ def call_context(root: Path, name: str, job: dict, caller: dict[str, object]) ->
 
 def pull_request_texts(root: Path, branch: str) -> list[str]:
     """Every `run:` text a pull request into `branch` can execute."""
-    texts: list[str] = []
+    return [run for run, _ in pull_request_steps(root, branch)]
+
+
+def pull_request_steps(root: Path, branch: str) -> list[tuple[str, str]]:
+    """(`run:` text, working directory) of every step a pull request into `branch` can execute."""
+    steps: list[tuple[str, str]] = []
     for path in sorted((root / WORKFLOWS).glob("*.y*ml")):
         workflow = load_yaml(path)
         if not runs_on_pull_requests_into(workflow, branch):
@@ -506,5 +525,5 @@ def pull_request_texts(root: Path, branch: str) -> list[str]:
             context[f"inputs.{key}"] = ""
         for key in ((triggers(workflow).get("workflow_call") or {}).get("inputs") or {}):
             context[f"inputs.{key}"] = ""
-        texts += workflow_texts(root, path.name, context)
-    return texts
+        steps += workflow_steps(root, path.name, context)
+    return steps

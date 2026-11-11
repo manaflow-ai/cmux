@@ -2,6 +2,22 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "scripts/ci/tests/test_ios_sim_release_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_ios_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_ios_source_archive.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/tests/test_ios_package_conventions.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_app_review_gate.py"
 lane = "linux-guard"
 

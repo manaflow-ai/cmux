@@ -109,6 +109,8 @@ class PostEditChecks(unittest.TestCase):
         self.assertIn("tests/test_new_thing.py is a new test", out)
         self.assertIn("validate_test_execution_registry.py --write --only tests/test_new_thing.py", out)
         # Registered, or already on the base: nothing to say.
+        self.write("scripts/tool/tests/test_tool.py", "print('ok')\n")
+        self.assertIn("scripts/tool/tests/test_tool.py is a new test", self.hook("scripts/tool/tests/test_tool.py"))
         self.write("tests/test_registered.py", "print('ok')\n")
         self.assertEqual(self.hook("tests/test_registered.py"), "")
         self.write("tests/test_old.py", "print('ok')\n")

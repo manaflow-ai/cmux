@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Validate that every Python regression has a declared, live execution path.
 
+Every tracked test_*.py is a test here, in tests/ or anywhere else (discover_tests). With
+`--pr-lanes BRANCH --fail-on-unrun` this is the coverage detector: it fails when any test_*.py is in
+no job a pull request into BRANCH runs and is neither manual nor exempt, and prints the count.
+
 Enforcement is scoped to the pull request that causes the problem.
 
 A test that does not run -- a file with no registry entry, an entry on a
@@ -81,7 +85,12 @@ CI_GUARDS = WORKFLOWS / "ci-guards.yml"
 # One invocation may run several lanes (`--lane a --lane b`), in any flag order.
 RUNNER_RE = re.compile(r"scripts/ci/run_python_test_lane\.py(?P<args>[^\n]*)")
 RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
-TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
+# Every tracked test_*.py file is a test the registry places, wherever it lives: 54 under
+# scripts/cmux-next/tests/ and 175 more outside tests/ ran in no job while discovery read only
+# tests/test_*.py (cmux#41318: scripts/cmux-next/tests/test_hot_apply.py went stale unseen).
+TEST_PATH_RE = re.compile(r"^(?:[^/]+/)*test_[A-Za-z0-9_.-]+\.py$")
+# Folders that hold no repository test of ours: installed packages and build output.
+IGNORED_TEST_DIRS = {"node_modules", ".build", "build", "dist-newstyle", ".venv", "venv", "__pycache__", ".git"}
 ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"fish"}
@@ -103,6 +112,83 @@ PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
 UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
 # What validate_pr_lanes reads, extracted from the base to judge it there too.
 PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
+
+
+def names_path(text: str, path: str) -> bool:
+    """Whether `text` names the repository path `path` itself, not a longer path ending in it.
+
+    tests/test_quality_report.py is the tail of scripts/cmux-next/tests/test_quality_report.py, so a
+    plain substring test credited one for the other once discovery read both. A path counts at the
+    start of a word, after `./`, or after the workspace (`$GITHUB_WORKSPACE/`, `${{ github.workspace }}/`).
+    """
+    for match in re.finditer(re.escape(path), text):
+        before = text[:match.start()]
+        after = text[match.end():match.end() + 1]
+        if after and (after.isalnum() or after in "_.-/"):
+            continue
+        if not before or not (before[-1].isalnum() or before[-1] in "_.-/"):
+            return True
+        if before.endswith("/") and (before[:-1].endswith(("$GITHUB_WORKSPACE", "github.workspace }}"))
+                                     or not before[:-1] or not (before[-2].isalnum() or before[-2] in "_-")):
+            if not before.endswith("../"):
+                return True
+    return False
+
+
+def discover_tests(root: Path) -> list[str]:
+    """Every test_*.py file of the repository under `root`, sorted.
+
+    Tracked files when `root` is a git checkout (an untracked scratch file is not a test of the
+    repository, and a sparse checkout still has every test); otherwise, as in a throwaway fixture tree or an extracted base, every such file
+    on disk outside IGNORED_TEST_DIRS.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", ":(glob)**/test_*.py"],
+            capture_output=True, check=True,
+        ).stdout.decode("utf-8", "replace").split("\0")
+        top = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        in_repo = Path(top).resolve() == root.resolve()
+    except (OSError, subprocess.CalledProcessError):
+        in_repo = False
+    if in_repo:
+        return sorted(
+            path for path in listed
+            if path and TEST_PATH_RE.fullmatch(path) and not IGNORED_TEST_DIRS.intersection(path.split("/")[:-1])
+        )
+    found = []
+    for directory, folders, files in os.walk(root):
+        folders[:] = [folder for folder in folders if folder not in IGNORED_TEST_DIRS]
+        for name in files:
+            path = (Path(directory) / name).relative_to(root).as_posix()
+            if TEST_PATH_RE.fullmatch(path):
+                found.append(path)
+    return sorted(found)
+
+
+def executed_tests(root: Path, steps: list[tuple[str, str]]) -> set[str]:
+    """Test files the (run text, working directory) steps execute without naming their path.
+
+    `python3 -m unittest discover -s tests` from cmux-tui/bindings/python, `pytest DIR` and a path
+    relative to a step's working directory, resolved by scripts/ci/workflow_paths_cover_inputs.py's
+    reader (which needs a git checkout). A step whose text names the path is credited by the caller.
+    """
+    try:
+        import workflow_paths_cover_inputs as reader  # noqa: PLC0415
+
+        repo = reader.Repo.load(root)
+    except (ImportError, OSError, subprocess.CalledProcessError):
+        return set()
+    walker = reader.Walker(repo)
+    found: set[str] = set()
+    for run, directory in steps:
+        cwd = root / directory if directory and "$" not in directory else root
+        try:
+            found.update(walker.entries(run, str(cwd), {}))
+        except (ValueError, OSError, RecursionError):
+            continue
+    return found
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -214,6 +300,17 @@ def recipe_checks(source: str) -> list[tuple[str, list[str]]]:
     return []
 
 
+def all_workflow_steps(root: Path) -> list[tuple[str, str]]:
+    """(run text, working directory) of every step of every workflow, any event; none without PyYAML."""
+    try:
+        import pr_test_lanes  # noqa: PLC0415 - needs PyYAML; the pre-commit hook copy may lack it
+
+        return [step for workflow in workflow_files(root / ".github" / "workflows")
+                for step in pr_test_lanes.workflow_steps(root, workflow.name, {})]
+    except (ImportError, OSError, ValueError, BaseYAMLError):
+        return []
+
+
 def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:
     lanes: set[str] = set()
     for workflow in workflow_files(workflows):
@@ -224,7 +321,7 @@ def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:
 def workflow_running(path: str, workflows: Path = WORKFLOWS) -> str | None:
     """The first workflow whose text already runs `path`, if any."""
     for workflow in workflow_files(workflows):
-        if path in workflow.read_text(encoding="utf-8"):
+        if names_path(workflow.read_text(encoding="utf-8"), path):
             return workflow.name
     return None
 
@@ -297,9 +394,7 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
     commit's own tests, so it never writes the base's unregistered ones into a pull request."""
     workflows = root / ".github" / "workflows"
     registered = {entry.get("path") for entry in load_tree(root)}
-    discovered = sorted(
-        path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
-    )
+    discovered = discover_tests(root)
     added = [path for path in discovered
              if path not in registered and (only is None or path in only) and workflow_running(path, workflows)]
     if added and (root / FRAGMENTS).is_dir():
@@ -328,7 +423,7 @@ def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
             comparison_point(base_sha, root),
             "HEAD",
             "--",
-            "tests",
+            ":(glob)**/test_*.py",
         ],
         cwd=root,
         text=True,
@@ -369,11 +464,7 @@ def validate(
 
     entries = load_tree(root)
 
-    discovered = {
-        path.relative_to(root).as_posix()
-        for path in (root / "tests").glob("test_*.py")
-        if path.is_file()
-    }
+    discovered = set(discover_tests(root))
 
     paths: list[str] = []
     by_path: dict[str, dict[str, object]] = {}
@@ -456,12 +547,16 @@ def validate(
             )
 
     guard_text = all_workflow_text(workflows)
+    guard_executed: set[str] | None = None
     for path, entry in sorted(by_path.items()):
         lane = entry.get("lane")
         if lane in INVENTORY_LANES:
             continue
         if lane == DIRECT_RUN_LANE:
-            if path not in guard_text:
+            named = names_path(guard_text, path)
+            if not named and guard_executed is None:
+                guard_executed = executed_tests(root, all_workflow_steps(root))
+            if not named and path not in (guard_executed or set()):
                 warnings.append(f"{path}: linux-guard lane is not run by any workflow")
         elif lane not in live_runner_lanes:
             warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
@@ -506,11 +601,13 @@ def pr_lane_exemptions(root: Path) -> tuple[dict[str, str], list[str]]:
     return exempt, errors
 
 
-def pr_lane_tests(root: Path, branch: str) -> tuple[str, set[str]]:
-    """The text a pull request into `branch` executes, and the runner lanes it invokes."""
+def pr_lane_tests(root: Path, branch: str) -> tuple[str, set[str], set[str]]:
+    """The text a pull request into `branch` executes, the runner lanes it invokes, and the test
+    files its steps run without naming them (executed_tests)."""
     import pr_test_lanes  # noqa: PLC0415 - needs PyYAML; the pre-commit hook copy never loads it
 
-    texts = pr_test_lanes.pull_request_texts(root, branch)
+    steps = pr_test_lanes.pull_request_steps(root, branch)
+    texts = [run for run, _ in steps]
     workflows = root / ".github" / "workflows"
     reached = list(texts) + recipe_tests(texts, workflows)
     for text in texts:
@@ -521,7 +618,7 @@ def pr_lane_tests(root: Path, branch: str) -> tuple[str, set[str]]:
     lanes: set[str] = set()
     for text in texts:
         lanes.update(runner_lanes_from_workflow_text(text))
-    return "\n".join(reached), lanes
+    return "\n".join(reached), lanes, executed_tests(root, steps)
 
 
 def validate_pr_lanes(root: Path, branch: str) -> list[str]:
@@ -538,16 +635,14 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     lists it with a reason.
     """
     exempt, errors = pr_lane_exemptions(root)
-    text, lanes = pr_lane_tests(root, branch)
+    text, lanes, executed = pr_lane_tests(root, branch)
     lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_tree(root)}
-    discovered = sorted(
-        path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
-    )
+    discovered = discover_tests(root)
     for path in sorted(set(exempt) - set(discovered)):
         errors.append(f"{PR_LANE_EXEMPTIONS}: {path} does not exist; remove it from the list")
     for path in discovered:
         lane = lane_of.get(path)
-        runs = path in text or (isinstance(lane, str) and lane in lanes)
+        runs = names_path(text, path) or path in executed or (isinstance(lane, str) and lane in lanes)
         if runs and path in exempt:
             errors.append(
                 f"{path}: a pull request into {branch} runs it now; remove it from {PR_LANE_EXEMPTIONS}"
@@ -730,6 +825,9 @@ def main(argv: list[str]) -> int:
                         help="with --write, register only these tests (repeatable)")
     parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
                         help="also warn on a test no pull request into BRANCH runs (needs PyYAML)")
+    parser.add_argument("--fail-on-unrun", action="store_true",
+                        help="with --pr-lanes, fail when any test_*.py is in no job (the coverage detector); "
+                             "prints the count either way")
     parser.add_argument("--warn-only", action="store_true",
                         help="report every finding as a warning and exit 0 (a push to the branch)")
     args = parser.parse_args(argv)
@@ -754,8 +852,14 @@ def main(argv: list[str]) -> int:
             lane_errors, lane_warnings = pr_lane_findings(root, args.pr_lanes, args.base_sha)
             errors += lane_errors
             warnings += lane_warnings
+            unrun = [warning for warning in lane_warnings if UNRUN_ON_PULL_REQUESTS in warning.split("\n", 1)[0]]
+            print(f"tests no job a pull request into {args.pr_lanes} runs: {len(unrun)}")
+            if args.fail_on_unrun:
+                errors += unrun
         except (OSError, ValueError, ImportError) as error:
             errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
+    elif args.fail_on_unrun:
+        errors.append("--fail-on-unrun needs --pr-lanes BRANCH")
 
     if args.warn_only:
         warnings, errors = [*warnings, *errors], []
@@ -768,7 +872,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     summary = ", ".join(f"{lane}={count}" for lane, count in sorted(lane_counts.items()))
-    discovered = sum(1 for path in (root / "tests").glob("test_*.py") if path.is_file())
+    discovered = len(discover_tests(root))
     print(f"Python test execution registry valid: {discovered} tests ({summary})")
     return 0
 

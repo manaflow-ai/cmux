@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "cmux-tui/build-support/notices/ghostty/test_shell_integration_notices.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_shell_claude_rereports_pwd.py"
 lane = "linux-guard"
 

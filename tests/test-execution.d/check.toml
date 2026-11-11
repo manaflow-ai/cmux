@@ -2,11 +2,63 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "cmux-tui/bindings/tests/test_check_package_license.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_check_versions.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_check_release_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_check_resource_api_boundary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_check_sdk_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_check_spec_inventory.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_check_bundle_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_check_first_party_licenses.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_check_ghostty_vt_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_check_package_dependency_lists.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_check_pr_split.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_closure_mutex.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_concurrency_pipe_reads.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_concurrency_pipe_writes.py"
 lane = "linux-guard"
 
 [[test]]

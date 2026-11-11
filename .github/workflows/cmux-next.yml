@@ -327,6 +327,39 @@ on:
       - scripts/web_lint_prepush.py
       - scripts/strip-release-bundle.sh
       - scripts/write-app-symbol-map.py
+      # The test_*.py files outside tests/ that the checks job runs, and what they read (no build reads them).
+      - scripts/journeys/**
+      - scripts/fuzz/**
+      - scripts/perf-bench/**
+      - scripts/measure/**
+      - cmux-next-ios/verify/e2e/**
+      - scripts/tests/**
+      - ios/tests/**
+      - .github/scripts/**
+      - images/cmux-vm/machine-health/**
+      - scripts/lib/dev-secrets.sh
+      - scripts/lib/mobile-attach.sh
+      - scripts/lib/rust-targets.sh
+      - scripts/verify-iphone-auth.sh
+      - scripts/mobile-dev-launch.sh
+      - scripts/iphone-install-queue.sh
+      - scripts/git-hooks/refresh_checks.py
+      - scripts/analyze-ios-network-log.py
+      - ios/scripts/filter-ios-appstore-entitlements.py
+      # What the newly run tests/ files read (tests/test_ci_workflow_paths_cover_inputs.py); no build reads them.
+      - .github/test-determinism-allowlist.txt
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift
+      - cmux-next-ios/UITests/AppReviewGateUITests.swift
+      - cmux-next-ios/project.yml
+      - cmux-next-ios/reliability-matrix/cells.json
+      - cmux-next-ios/rust/Cargo.lock
+      - cmux-next-ios/scripts/app_review_gate.py
+      - ios/Config/Release.xcconfig
+      - ios/cmux/Settings.bundle/Acknowledgements.plist
+      - scripts/check-test-determinism.py
+      - scripts/gallery-matrix/runner.ts
+      - scripts/generate-computer-use-helper-icon.swift
+      - scripts/gh-merge-green
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -403,6 +436,10 @@ on:
       - scripts/ci/cargo-groups.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
+      # The shell libraries reload.sh and the Rust helper builds source (NATIVE_SCRIPT_INPUTS).
+      - scripts/lib/dev-secrets.sh
+      - scripts/lib/mobile-attach.sh
+      - scripts/lib/rust-targets.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -1812,6 +1849,152 @@ jobs:
             # A skip against an issue fails from its checked-in date on (tests/known_red.py).
             python3 -I tests/test_known_red.py
             bash scripts/cef/tests/test-embedder-step.test.sh
+            # Every other test_*.py outside tests/ that Linux can run. The registry discovers every test_*.py
+            # (validate_test_execution_registry.py --pr-lanes); these ran in no job before (cmux#41318).
+            python3 .github/actions/setup-cmux-tui-rust/tests/test_python_command.py
+            python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
+            python3 Native/OptChat/optchat-chief/measure/test_chief_digest.py
+            python3 Native/OptChat/optchat-chief/measure/test_chief_health.py
+            python3 Native/OptChat/optchat-chief/measure/test_replay_cases.py
+            python3 Native/OptChat/optchat-chief/measure/test_team_eval.py
+            python3 cmux-next-ios/verify/e2e/test_rig_cleanup.py
+            python3 cmux-next-ios/verify/e2e/test_rig_id.py
+            python3 cmux-tui/bindings/codegen/pane/tests/test_pane_emit_go.py
+            python3 cmux-tui/build-support/notices/browser-host/test_browser_host_js_notices.py
+            python3 cmux-tui/build-support/notices/browser-host/test_linux_release_notices.py
+            python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
+            python3 cmux-tui/build-support/notices/ghostty/test_shell_integration_notices.py
+            python3 cmux-tui/build-support/notices/test_fetch_crates.py
+            python3 cmux-tui/build-support/notices/test_license_match.py
+            python3 cmux-tui/build-support/notices/test_python_floor.py
+            python3 cmux-tui/build-support/notices/test_rust_notices.py
+            python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
+            python3 cmux-tui/dist/scripts/test_package_notices.py
+            python3 cmux-tui/scripts/tests/test_measure_frames.py
+            python3 images/cmux-vm/machine-health/test_cmux_machine_health.py
+            python3 ios/tests/test_appstore_entitlements.py
+            python3 ios/tests/test_dogfood_readiness_app_receipt.py
+            python3 ios/tests/test_testflight_prepare_only.py
+            python3 scripts/ci/tests/test_base_red_checks.py
+            python3 scripts/ci/tests/test_ios_sim_release_build.py
+            python3 scripts/cmux-next/notices/test_check_first_party_licenses.py
+            python3 scripts/cmux-next/notices/test_compose_notices.py
+            python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+            python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
+            python3 scripts/cmux-next/notices/test_ghosttykit_repin.py
+            python3 scripts/cmux-next/notices/test_ios_notices.py
+            python3 scripts/cmux-next/notices/test_ios_source_archive.py
+            python3 scripts/cmux-next/notices/test_vt_link_graph.py
+            python3 scripts/cmux-next/proxy-demo/test_proxy_demo.py
+            python3 scripts/cmux-next/test_cloud_chat_matrix.py
+            python3 scripts/cmux-next/test_one_motion_series.py
+            python3 scripts/cmux-next/test_reduce_motion_audit.py
+            python3 scripts/cmux-next/test_split_scale_background.py
+            python3 scripts/cmux-next/test_split_scale_metrics.py
+            python3 scripts/cmux-next/tests/test_arch_layers.py
+            python3 scripts/cmux-next/tests/test_arch_ratchet.py
+            python3 scripts/cmux-next/tests/test_bench_arms.py
+            python3 scripts/cmux-next/tests/test_bench_background.py
+            python3 scripts/cmux-next/tests/test_bench_hover_preload_stalls.py
+            python3 scripts/cmux-next/tests/test_bench_launch_calls.py
+            python3 scripts/cmux-next/tests/test_bench_launch_executable.py
+            python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
+            python3 scripts/cmux-next/tests/test_bench_startup_daemon_build.py
+            python3 scripts/cmux-next/tests/test_bench_startup_linger.py
+            python3 scripts/cmux-next/tests/test_bench_startup_owner_socket.py
+            python3 scripts/cmux-next/tests/test_bench_startup_seed_marker.py
+            python3 scripts/cmux-next/tests/test_bench_terminal_resize.py
+            python3 scripts/cmux-next/tests/test_chat_open_bench.py
+            python3 scripts/cmux-next/tests/test_chat_open_frames.py
+            python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
+            python3 scripts/cmux-next/tests/test_check_pr_split.py
+            python3 scripts/cmux-next/tests/test_ci_apply.py
+            python3 scripts/cmux-next/tests/test_git_stdin_never_piped.py
+            python3 scripts/cmux-next/tests/test_holder_dogfood.py
+            python3 scripts/cmux-next/tests/test_hot_apply.py
+            python3 scripts/cmux-next/tests/test_idle_budget.py
+            python3 scripts/cmux-next/tests/test_kit_downloads.py
+            python3 scripts/cmux-next/tests/test_launch_shift.py
+            python3 scripts/cmux-next/tests/test_launch_time_profile.py
+            python3 scripts/cmux-next/tests/test_layer_gate.py
+            python3 scripts/cmux-next/tests/test_live_apply.py
+            python3 scripts/cmux-next/tests/test_live_apply_loop.py
+            python3 scripts/cmux-next/tests/test_open_panel_bench.py
+            python3 scripts/cmux-next/tests/test_pane_perf_rows.py
+            python3 scripts/cmux-next/tests/test_perceived_speed.py
+            python3 scripts/cmux-next/tests/test_perf_completeness.py
+            python3 scripts/cmux-next/tests/test_perf_cron.py
+            python3 scripts/cmux-next/tests/test_perf_cron_arch_report.py
+            python3 scripts/cmux-next/tests/test_perf_cron_io.py
+            python3 scripts/cmux-next/tests/test_perf_stress_session.py
+            python3 scripts/cmux-next/tests/test_prepush_gate_watchdog.py
+            python3 scripts/cmux-next/tests/test_prepush_window_freeze.py
+            python3 scripts/cmux-next/tests/test_push_from_host.py
+            python3 scripts/cmux-next/tests/test_quality_report.py
+            python3 scripts/cmux-next/tests/test_rj_fake_cli_agent.py
+            python3 scripts/cmux-next/tests/test_script_storm_worker.py
+            python3 scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py
+            python3 scripts/cmux-next/tests/test_swift_logic_lines.py
+            python3 scripts/cmux-next/tests/test_tag_teardown.py
+            python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
+            python3 scripts/cmux-next/tests/test_update_harness_cleanup.py
+            python3 scripts/cmux-next/tests/test_window_zoom_motion.py
+            python3 scripts/cmux-next/tests/test_workspace_scaling_bench.py
+            python3 scripts/cmux-next/workflows/test_gallery.py
+            python3 scripts/cmux-next/workflows/test_native.py
+            python3 scripts/cmux-next/workflows/test_workflow.py
+            python3 scripts/fuzz/browser/test_fuzz_model.py
+            python3 scripts/fuzz/r3a/test_replay_check.py
+            python3 scripts/fuzz/restore/test_restore_fuzz.py
+            python3 scripts/journeys/test_ext_marker.py
+            python3 scripts/journeys/test_focused_terminal.py
+            python3 scripts/journeys/test_fuzz.py
+            python3 scripts/journeys/test_fuzz_sim.py
+            python3 scripts/journeys/test_hid_inject_log.py
+            python3 scripts/journeys/test_journey_end_hooks.py
+            python3 scripts/journeys/test_judge_goldens.py
+            python3 scripts/journeys/test_judge_goldens_review.py
+            python3 scripts/journeys/test_judge_goldens_truth.py
+            python3 scripts/journeys/test_process_scope.py
+            python3 scripts/journeys/test_quitfuzz.py
+            python3 scripts/journeys/test_reader_bands.py
+            python3 scripts/journeys/test_run_release.py
+            python3 scripts/journeys/test_run_stale.py
+            python3 scripts/journeys/test_run_stale_result.py
+            python3 scripts/journeys/test_run_vdisplay.py
+            python3 scripts/journeys/test_sidebar_film.py
+            python3 scripts/journeys/test_smoke_gate.py
+            python3 scripts/journeys/test_video_judge_classes.py
+            python3 scripts/journeys/tui-kit/test_load_profiles.py
+            python3 scripts/journeys/tui-kit/test_tuikit.py
+            python3 scripts/journeys/video-cases/test_judge_pixel.py
+            python3 scripts/measure/cu-bench/test_cu_bench.py
+            python3 scripts/perf-bench/tests/test_session_real.py
+            python3 scripts/tests/test_analyze_ios_network_log.py
+            python3 scripts/tests/test_readiness_soak.py
+            python3 scripts/tests/test_vercel_merge_gate.py
+            python3 tests/fixtures/model-stub/test_model_stub.py
+            python3 webviews/scripts/agent-pane/chat-load/test_cold_local.py
+            python3 webviews/scripts/agent-pane/chat-load/test_daemon_bench.py
+            # tests/test_*.py files no feat-cmux-next pull request ran (the registry only warned on them).
+            python3 tests/test_cargo_locks.py
+            python3 tests/test_check_closure_mutex.py
+            python3 tests/test_check_concurrency_pipe_writes.py
+            python3 tests/test_ci_expression_falsy_ternary.py
+            python3 tests/test_ci_ios_reliability_matrix.py
+            python3 tests/test_ci_merge_queue_required_checks.py
+            python3 tests/test_ci_reusable_workflow_permissions.py
+            python3 tests/test_cmux_tui_release_profile.py
+            python3 tests/test_computer_use_helper_icon_depth.py
+            python3 tests/test_dead_code_stripping.py
+            python3 tests/test_determinism_allowlist_ratchet.py
+            python3 tests/test_git_fixture_env.py
+            python3 tests/test_git_fixture_global_config.py
+            python3 tests/test_git_fixture_tmp_safety.py
+            python3 tests/test_ios_app_review_gate.py
+            python3 tests/test_nightly_live_code_variant.py
+            python3 tests/test_nightly_next_notary_receipt.py
             [web-bundle-key-inputs]
             bash tests/test_web_bundle_key_inputs.sh
           CHECKS
