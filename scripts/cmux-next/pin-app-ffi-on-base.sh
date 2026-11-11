@@ -75,13 +75,10 @@ push() {
     GIT_CONFIG_KEY_1="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_1="AUTHORIZATION: basic $auth" \
     git push --quiet "$remote" "HEAD:refs/heads/$branch"
 }
-# The pin the tree holds, in either form, through the canonical reader.
+# The pin the tree holds: app-ffi-pin.json read strictly, Package.swift holding its one loader block
+# (scripts/ci/app_ffi_pin.py); anything else is not canonical and goes to the pull request.
 current_pin() {
-  if [[ -f "$pin_file" ]]; then
-    python3 -I scripts/ci/app_ffi_pin.py read-pin-file "$pin_file" "$manifest"
-  else
-    python3 -I scripts/ci/app_ffi_pin.py read "$manifest"
-  fi | awk '{print $1}'
+  python3 -I scripts/ci/app_ffi_pin.py read-pin-file "$pin_file" "$manifest" | awk '{print $1}'
 }
 have() { git cat-file -e "$1^{commit}" 2>/dev/null || git fetch --quiet "$remote" "$1"; }
 
@@ -125,9 +122,8 @@ for attempt in 1 2 3 4 5; do
     bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     about="The release of ${sha:0:12}, whose FFI sources the tip ${tip:0:12} has (checksum $checksum)."
   fi
-  paths=("$manifest")
-  [[ -f "$pin_file" ]] && paths+=("$pin_file")
-  git add -- "${paths[@]}"
+  # repin-app-ffi.sh wrote the pin file and the checksum line of Package.swift's loader block, nothing else.
+  git add -- "$pin_file" "$manifest"
   git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
     commit --quiet -m "chore(next): pin CCmuxAppFFI to $tag" \
     -m "$about It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}." \

@@ -241,7 +241,21 @@
          let t2 = CACurrentMediaTime()
          if displayPass || DisplayTiming.flushOpen {
              DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
-@@ -1133,7 +1205,7 @@
+@@ -1071,6 +1143,13 @@
+     private func setTyping(_ on: Bool, _ spec: RowSpec) {
+         typingContainer.isHidden = !on
+         typingDiscs.forEach { $0.isHidden = !on }
++        // cmux: a group's typing bubble (body, dots and discs) sits at the bubbles' column, right of the avatar column.
++        let shift = on ? spec.cmuxIndent : 0
++        if contentView.layer.sublayerTransform.m41 != shift {
++            CATransaction.begin(); CATransaction.setDisableActions(true)
++            contentView.layer.sublayerTransform = shift == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(shift, 0, 0)
++            CATransaction.commit()
++        }
+         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
+         // large disc overlaps the bubble). Other rows keep the layer's own setting.
+         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
+@@ -1133,7 +1212,7 @@
      private func snapTyping() {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard case .typing? = spec?.kind else { return }
@@ -250,7 +264,7 @@
          // In the row's content, which snapRow already moved by rowSnap.
          let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
          guard top.isFinite, left.isFinite else { return }
-@@ -1197,8 +1269,11 @@
+@@ -1197,8 +1276,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -264,7 +278,7 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1224,11 +1299,14 @@
+@@ -1224,11 +1306,14 @@
  
      /// Messages' pop of my new tapback (macOS 27, lossless tapback-menu-heart-take1, times from
      /// our react commit, which Messages' rows follow 90 ms later): the badge grows from a dot at
@@ -284,7 +298,7 @@
      private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
          func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
              let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range
-@@ -1357,6 +1435,7 @@
+@@ -1357,6 +1442,7 @@
      /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
      /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
      /// every pass.
@@ -292,7 +306,7 @@
      static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
          guard abs(k) > 1e-6 else { return 0 }
          let r = o + k * v
-@@ -1386,7 +1465,7 @@
+@@ -1386,7 +1472,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -301,7 +315,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1402,7 +1481,7 @@
+@@ -1402,7 +1488,7 @@
      /// Moves the content to the snapped place; true when the snap changed.
      @discardableResult private func snapRow() -> Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
@@ -310,7 +324,7 @@
          let x = RowCell.anchorX(spec, layer.frame)
          guard windowY.isFinite, x.isFinite else { return false }
          let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
-@@ -1451,6 +1530,16 @@
+@@ -1451,6 +1537,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -327,7 +341,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1560,12 @@
+@@ -1471,10 +1567,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -343,7 +357,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1578,7 @@
+@@ -1487,7 +1585,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -352,7 +366,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1657,8 @@
+@@ -1566,6 +1664,8 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -361,7 +375,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1669,8 @@
+@@ -1576,6 +1676,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -370,7 +384,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1610,8 +1705,10 @@
+@@ -1610,8 +1712,10 @@
          // 0 after snapTyping), read from the window's layer tree.
          let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
          let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
@@ -382,7 +396,7 @@
              guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
              let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
              return abs(f) > 1e-6 ? f : 0
-@@ -1674,7 +1771,8 @@
+@@ -1674,7 +1778,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
