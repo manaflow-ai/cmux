@@ -32,7 +32,7 @@ fn weekly_spent() -> Probe {
 }
 
 fn claude(probe: Probe) -> Request {
-    Request { harness: Some("claude".into()), probe: Some(probe), now: NOW }
+    Request { harness: Some("claude".into()), model: None, probe: Some(probe), now: NOW }
 }
 
 #[test]
@@ -100,6 +100,45 @@ fn the_window_falls_back_to_the_rejected_one_and_the_reset_to_the_unified_one() 
         "Claude's usage limit is used up. Pick Codex, or start once it resets."
     );
     assert_eq!(unknown.fresh_until, NOW + SPENT_UNKNOWN_RESET_SECONDS);
+}
+
+/// A model's own weekly window stops only a start of that model, and resets at the unified reset.
+#[test]
+fn a_models_own_weekly_window_stops_only_that_model() {
+    let opus_spent = probe(
+        429,
+        &[
+            ("anthropic-ratelimit-unified-status", "rejected"),
+            ("anthropic-ratelimit-unified-representative-claim", "seven_day_opus"),
+            ("anthropic-ratelimit-unified-7d-reset", "1794900000"),
+            ("anthropic-ratelimit-unified-reset", "1794661200"),
+        ],
+    );
+    let found = limit(&opus_spent);
+    assert_eq!(found, Some(Limit { window: Window::WeeklyOpus, resets_at: Some(NOV_14_1PM) }));
+    let with = |model: Option<&str>| {
+        check(&Request { model: model.map(str::to_owned), ..claude(opus_spent.clone()) })
+    };
+    assert_eq!(
+        with(Some("claude-opus-5-5")).refusal.unwrap().message,
+        "Claude's weekly Opus limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."
+    );
+    assert!(with(Some("opus")).refusal.is_some());
+    // Another model, or the harness default (unknown here): the start goes on.
+    for model in [Some("claude-sonnet-5-5"), Some("haiku"), None] {
+        let answer = with(model);
+        assert_eq!(
+            (answer.refusal, answer.fresh_until),
+            (None, NOW + ALLOWED_FRESH_SECONDS),
+            "{model:?}"
+        );
+    }
+    // The 5-hour and the whole weekly windows stop every model.
+    assert!(
+        check(&Request { model: Some("claude-sonnet-5-5".into()), ..claude(weekly_spent()) })
+            .refusal
+            .is_some()
+    );
 }
 
 #[test]

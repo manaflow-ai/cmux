@@ -101,8 +101,7 @@ struct CloudStartChat {
 
     /// The start; returns the machine's name.
     func run(_ start: AgentPaneCloudStart, from origin: Origin, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
-        let tab = origin.tab, auth = services.cloud.auth // before any machine: an agent that cannot run (a used-up Claude limit) leases none
-        if let refused = await services.cloud.agentCheck.limitRefusal(harness: start.harness, login: .init(), userID: auth.user?.id, teamID: auth.teamID, otherTeams: auth.loginScopes) { throw CloudMove.Failure(message: refused) }
+        let tab = origin.tab
         guard !start.home else { return try await runHome(start, from: origin, report: report) }
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.

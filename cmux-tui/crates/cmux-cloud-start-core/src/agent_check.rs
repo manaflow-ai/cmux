@@ -56,12 +56,25 @@ impl Window {
         }
     }
 
-    /// The header infix of this window's own reset (`5h`, `7d`), when it has one.
+    /// The header infix of this window's own reset (`5h`, `7d`), when it has one. A model's own weekly
+    /// window has none: its reset is the unified one, which is the representative claim's.
     fn infix(self) -> Option<&'static str> {
         match self {
             Self::Session => Some("5h"),
-            Self::Weekly | Self::WeeklyOpus | Self::WeeklySonnet => Some("7d"),
-            Self::Unknown => None,
+            Self::Weekly => Some("7d"),
+            Self::WeeklyOpus | Self::WeeklySonnet | Self::Unknown => None,
+        }
+    }
+
+    /// Whether a used-up window stops a start of `model` (the start's `--model` or the composer's pick;
+    /// None: the harness default). A model's own weekly window stops only a start of that model; one
+    /// whose model is unknown goes on, since this check never refuses a start that could run.
+    fn stops(self, model: Option<&str>) -> bool {
+        let family = |name: &str| model.is_some_and(|m| m.to_ascii_lowercase().contains(name));
+        match self {
+            Self::WeeklyOpus => family("opus"),
+            Self::WeeklySonnet => family("sonnet"),
+            Self::Session | Self::Weekly | Self::Unknown => true,
         }
     }
 
@@ -97,7 +110,8 @@ pub struct Limit {
 ///
 /// Used up: the unified status is `rejected`, or the reply is a 429 carrying unified headers. The
 /// window is the reply's representative claim, else the first of the 7-day and 5-hour windows whose
-/// own status is `rejected`. The reset is that window's own, else the unified one.
+/// own status is `rejected`. The reset is that window's own (a model's weekly window has none), else
+/// the unified one.
 pub fn limit(probe: &Probe) -> Option<Limit> {
     let unified: BTreeMap<String, &str> = probe
         .headers
@@ -130,12 +144,14 @@ pub fn limit(probe: &Probe) -> Option<Limit> {
     Some(Limit { window, resets_at })
 }
 
-/// What [`check`] reads: the start's agent (as `harness_login::login_provider` reads it), the probe's
-/// reply when the app made one, and the time now (unix seconds).
+/// What [`check`] reads: the start's agent (as `harness_login::login_provider` reads it) and model
+/// (None: the harness default), the probe's reply when the app made one, and the time now (unix
+/// seconds).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Request {
     pub harness: Option<String>,
+    pub model: Option<String>,
     pub probe: Option<Probe>,
     pub now: i64,
 }
@@ -162,15 +178,16 @@ pub fn probes(harness: Option<&str>) -> bool {
     crate::harness_login::login_provider(harness) == Some(crate::harness_login::Provider::Claude)
 }
 
-/// The start's answer. A Claude start whose probe reports a used-up limit that has not reset yet is
-/// refused; every other start goes on.
+/// The start's answer. A Claude start whose probe reports a used-up limit that has not reset yet,
+/// in a window that stops its model ([`Window::stops`]), is refused; every other start goes on.
 pub fn check(request: &Request) -> Answer {
     let found = request
         .probe
         .as_ref()
         .filter(|_| probes(request.harness.as_deref()))
         .and_then(limit)
-        .filter(|l| l.resets_at.is_none_or(|at| at > request.now));
+        .filter(|l| l.resets_at.is_none_or(|at| at > request.now))
+        .filter(|l| l.window.stops(request.model.as_deref()));
     let Some(found) = found else {
         let fresh_until =
             if request.probe.is_some() { request.now + ALLOWED_FRESH_SECONDS } else { request.now };
