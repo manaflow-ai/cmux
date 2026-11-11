@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 
@@ -195,13 +194,14 @@ class StatusMapping(unittest.TestCase):
         # Probes see a 404 (the service up), then every read is a 503 or a 530: handed off after BAD_BOUND.
         for bad in ("503", "530", "000", "403"):
             with self.subTest(code=bad):
-                started = time.monotonic()
                 code, posts, reads = self.run_step(None, CODES=bad, BAD_BOUND="3", READ_GAP="1", FALLBACK="true",
                                                    WAIT_SECONDS="2400")
-                self.assertLess(time.monotonic() - started, 20)
                 self.assertEqual(code, 0)
                 self.assertTrue(self.output.startswith(f"handoff=HTTP {bad} for "), self.output)
+                # The 3 s bound, not the 2400 s wait: at most one read a READ_GAP inside it (a step that read on to
+                # the deadline would read many more, and run into run_step's 60 s timeout).
                 self.assertGreaterEqual(len(reads), 1)
+                self.assertLessEqual(len(reads), 4, reads)
         # A deadline shorter than the bound still hands a bad last answer off, never "no compile result".
         code, posts, _ = self.run_step(None, CODES="530", WAIT_SECONDS="3", READ_GAP="1", FALLBACK="true")
         self.assertEqual((code, [p["state"] for p in posts]), (0, ["pending", "pending"]))
@@ -305,11 +305,12 @@ class FastCheckLinuxRoute(unittest.TestCase):
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
     def test_a_service_down_after_the_probes_hands_off_after_the_bound(self):
-        started = time.monotonic()
         code, verdict, reads = self.run_step(self.reply("pass"), CODES="530", BAD_BOUND="3", READ_GAP="1")
-        self.assertLess(time.monotonic() - started, 20)
         self.assertEqual((code, verdict), (0, "unavailable"))
+        # The 3 s bound, not the 1200 s wait: at most one read a READ_GAP inside it (a step that read on to the
+        # deadline would read many more, and run into run_step's 60 s timeout).
         self.assertGreaterEqual(len(reads), 1)
+        self.assertLessEqual(len(reads), 4, reads)
         code, verdict, reads = self.run_step(self.reply("pass"), PROBE_CODE="530")
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
@@ -349,7 +350,9 @@ class ResultsServer(http.server.ThreadingHTTPServer):
                 server.reads.append(self.path)
                 probe = len(server.reads) <= 2  # the step's two probes come first
                 if server.stall and not probe:
-                    server.release.wait(60)  # a stalled response: the connection open, no answer
+                    # A stalled response: the connection open, no answer, for longer than bash()'s 120 s timeout,
+                    # so a read not cut at its bound fails the test (TimeoutExpired) instead of getting an answer.
+                    server.release.wait(600)
                     return
                 self.send_response(server.probe_code if probe and server.probe_code else server.code)
                 self.send_header("Content-Type", "text/html")
@@ -400,11 +403,10 @@ class ResultsServiceDown(unittest.TestCase):
         return self.bash(script, DOWN=down, FAST=fast, MAC=mac)
 
     def test_a_pull_request_with_a_fallback_gets_the_fallbacks_verdict(self):
-        started = time.monotonic()
         code, _, output = self.compile_status(FALLBACK="true", PR="40600")
-        self.assertLess(time.monotonic() - started, 15)  # two probes 1 s apart, not 40 minutes
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "handoff=HTTP 530")
+        # Two probes, then the handoff, not 40 minutes of reads (which would also run into bash()'s timeout).
         self.assertEqual(len(self.server.reads), 2)
         self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads), self.server.reads)
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
@@ -453,21 +455,20 @@ class ResultsServiceDown(unittest.TestCase):
 
     def test_a_stalled_response_hands_off_at_the_bound(self):
         """A service that takes the connection and never answers: the read gets --max-time of what is left of the
-        bound, not a 30-minute long poll, and the step hands off when it expires."""
+        bound, not a 30-minute long poll, and the step hands off when it expires. The stall outlasts bash()'s
+        timeout, so a read not cut at the bound fails the test; the step reports the bound it used ("for N s")."""
         self.server.stall, self.server.probe_code = True, 404
-        started = time.monotonic()
         code, _, output = self.compile_status(FALLBACK="true", BAD_BOUND="4")
-        self.assertLess(time.monotonic() - started, 15)
         self.assertEqual(code, 0)
         self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         self.server.reads.clear()
-        started = time.monotonic()
-        code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", BAD_BOUND="4")
-        self.assertLess(time.monotonic() - started, 15)
+        # READ_GAP=1: the re-read after the first 404 comes inside the bound, so it is the stalled read.
+        code, stdout, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", READ_GAP="1", BAD_BOUND="4")
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
+        self.assertRegex(stdout, r"results service down \(HTTP 000 for [3-9] s\)")
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

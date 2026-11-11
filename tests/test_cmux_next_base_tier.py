@@ -782,13 +782,15 @@ class QuotaRetry(unittest.TestCase):
 
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
-    (0: all at once). It stops trickling when stop() is called or the client hangs up."""
+    (0: all at once). It stops trickling when stop() is called or the client hangs up; `completed` counts the
+    answers it trickled to their last byte."""
 
     def __init__(self, answer: bytes, gap: float):
         self.answer, self.gap = answer, gap
         self.done = threading.Event()
         # When each request reached the server (time.monotonic()), in order.
         self.arrivals: list[float] = []
+        self.completed = 0
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -819,6 +821,7 @@ class TricklingServer:
                     if self.done.wait(self.gap):
                         return
                     conn.sendall(bytes([byte]))
+                self.completed += 1
             except OSError:
                 return
 
@@ -835,10 +838,9 @@ class WholeRequestBound(unittest.TestCase):
     QuotaGitHub and the takeover's client, now ends within its bound on one monotonic clock."""
 
     BOUND = 0.3
-    SLACK = 0.4
     # Each header byte comes 0.03 s after the last (well under the 0.3 s socket timeout); all of them take
-    # about 2 s, far past the bound.
-    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 30 + b"\r\nContent-Length: 0\r\n\r\n"
+    # about 30 s, a hundred times the bound.
+    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 1000 + b"\r\nContent-Length: 0\r\n\r\n"
     FAST = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
 
     def serve(self, answer: bytes, gap: float) -> TricklingServer:
@@ -854,23 +856,38 @@ class WholeRequestBound(unittest.TestCase):
         return {"tree notify": tree, "QuotaGitHub": kick}
 
     def test_trickled_headers_end_the_call_at_its_bound(self):
-        self.assertGreater(len(self.SLOW) * 0.03, 4 * self.BOUND)
+        # The deadline each call takes (deadline_http.request makes one per call): recorded, so the test checks the
+        # bound the call used and that it ended at it, not how long it took.
+        made: list[deadline_http.Deadline] = []
+        real = deadline_http.Deadline
+
+        class Recorded(real):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                made.append(self)
+
+        deadline_http.Deadline = Recorded
+        self.addCleanup(setattr, deadline_http, "Deadline", real)
+        self.assertGreater(len(self.SLOW) * 0.03, 100 * self.BOUND)
         server = self.serve(self.SLOW, 0.03)
         for name, api in self.clients(server.url).items():
             for method, call in (("POST", lambda: api.post("repos/o/r/actions/workflows/w/dispatches", {})),
                                  ("GET", lambda: api.get("repos/o/r"))):
                 with self.subTest(client=name, method=method):
-                    started = time.monotonic()
+                    made.clear()
                     try:
                         outcome = call()
                     except Exception as error:  # noqa: BLE001
                         outcome = error
-                    elapsed = time.monotonic() - started
-                    self.assertLess(elapsed, self.BOUND + self.SLACK, f"{name} {method} returned {outcome!r}")
+                    returned_at = time.monotonic()
                     # Never a success: a timed-out write may have been taken, so it is reported as unknown.
-                    self.assertIsInstance(outcome, TimeoutError)
+                    self.assertIsInstance(outcome, TimeoutError, f"{name} {method} returned {outcome!r}")
                     self.assertIsInstance(outcome, notify.RequestTimeout)
-                    self.assertGreaterEqual(elapsed, self.BOUND * 0.9)
+                    # One deadline for the whole call, of the client's bound; the call ended at it, not before.
+                    self.assertEqual([deadline.seconds for deadline in made], [self.BOUND])
+                    self.assertGreaterEqual(returned_at, made[0].at)
+                    # ... and not after the answer: the server was still trickling the headers (about 30 s).
+                    self.assertEqual(server.completed, 0)
 
     def test_a_fast_answer_still_returns_its_body(self):
         server = self.serve(self.FAST, 0)
