@@ -326,14 +326,23 @@ impl Broker {
         // The Mac's own Codex keeps its token fresh; cmux only reads it, so no second refresher
         // ever rotates the Mac's refresh token. The same token again is no renewal: the holder
         // is asked, and a failed renewal tries the Mac again after its backoff.
+        // A device-code grant keeps renewing through the holder when the Mac's own Codex is
+        // signed in to another account: a yes given later (or a DEV build's, which needs no ask)
+        // never swaps the account under chats that already run on it (#41072 review).
         let source = self.st().local_sign_in.clone();
         if let Some(source) = source
             && let Some(grant) = source().await
         {
-            let cached = self.st().cached.clone();
-            if cached.as_ref().map(|c| &c.access_token) != Some(&grant.access_token) {
+            let (cached, cached_is_local) = {
+                let state = self.st();
+                (state.cached.clone(), state.cached_is_local)
+            };
+            let other_account = cached.as_ref().is_some_and(|c| c.account != grant.account);
+            if cached.as_ref().map(|c| &c.access_token) != Some(&grant.access_token)
+                && (cached_is_local || !other_account)
+            {
                 self.ensure_scope(cx)?;
-                if cached.is_some_and(|c| c.account != grant.account) {
+                if other_account {
                     return Err(BrokerError::AccountChanged.into());
                 }
                 if grant.expires_at <= now() + 60.0 {
