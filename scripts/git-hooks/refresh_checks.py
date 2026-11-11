@@ -20,6 +20,11 @@ with the blob it copies (stamp_of). The installer copies through this file too (
 and writes them into the copy as .pairs, so a file can never be copied without being stamped. It used to be the
 scripts/cmux-next tree alone, so a feat-cmux-next that changed only tests/workflow_jobs.py, which the copy also
 carries, never reached an installed hook (Codex on #40894).
+
+Every entry is confined (Codex on #40894, F1): a source must stay in the repository and a destination in the copy.
+parse_inputs refuses an empty, absolute or `..` path in the list itself, and confine_pairs, which the install, a
+refresh and post-merge (--sources) all go through before they write anything, resolves each through its symlinks
+(realpath) and refuses one that lands outside. A refusal names the entry and the rule it broke and writes nothing.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ import argparse
 import fcntl
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -76,16 +82,87 @@ def trusted_commit(repo: Path) -> str | None:
     return None
 
 
+class UnsafeCopyInput(ValueError):
+    """An INPUTS entry whose source would leave the repository or whose destination would leave the checks copy."""
+
+
+ARROW = re.compile(r"(?:^|\s)->(?:\s|$)")  # `source -> destination`; a bare `-> x` or `x ->` has an empty side
+
+
+def unsafe_relative(value: str) -> str | None:
+    """Why VALUE is not a plain relative path below its root, or None: it is empty, absolute, or has a `..`, `.` or
+    empty component (a folder's one trailing / aside)."""
+    if not value:
+        return "is empty"
+    if value.startswith("/") or os.path.isabs(value):
+        return "is an absolute path"
+    parts = value[:-1].split("/") if value.endswith("/") else value.split("/")
+    if ".." in parts:
+        return "has a .. component"
+    if any(part in ("", ".") for part in parts):
+        return "has an empty or . component"
+    return None
+
+
+def entry_text(source: str, destination: str | None) -> str:
+    return source if destination is None else f"{source} -> {destination}"
+
+
+def refuse(entry: str, role: str, value: str, rule: str) -> UnsafeCopyInput:
+    return UnsafeCopyInput(f'{INPUTS} entry "{entry}": its {role} {value!r} {rule}; nothing was copied')
+
+
 def parse_inputs(text: str) -> list[tuple[str, str | None]]:
     """The entries of a checks-copy-inputs file: (source, destination), destination None for "its own name" (a file)
-    or "its path under the folder" (a folder, ending in /). `source -> destination` installs under another name."""
+    or "its path under the folder" (a folder, ending in /). `source -> destination` installs under another name.
+    An empty, absolute or `..` source or destination is refused (UnsafeCopyInput), whoever reads the list."""
     out = []
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        source, arrow, destination = line.partition(" -> ")
-        out.append((source.strip(), destination.strip() if arrow else None))
+        sides = ARROW.split(line, maxsplit=1)
+        source, destination = sides[0].strip(), (sides[1].strip() if len(sides) == 2 else None)
+        for role, value in (("source", source), ("destination", destination)):
+            rule = None if value is None else unsafe_relative(value)
+            if rule:
+                raise refuse(line, role, value, rule)
+        out.append((source, destination))
+    return out
+
+
+def confined(root: Path, relative: str, entry: str, role: str) -> Path:
+    """ROOT/RELATIVE with every symlink resolved (realpath), refused (UnsafeCopyInput) unless it stays under ROOT."""
+    rule = unsafe_relative(relative)
+    if rule:
+        raise refuse(entry, role, relative, rule)
+    base = Path(os.path.realpath(root))
+    resolved = Path(os.path.realpath(base / relative))
+    if resolved != base and base not in resolved.parents:
+        where = "the repository" if role == "source" else "the checks copy"
+        raise refuse(entry, role, relative, f"resolves outside {where} through a symlink (to {resolved})")
+    return resolved
+
+
+def confine_sources(repo: Path, inputs: list[tuple[str, str | None]]) -> None:
+    """Refuse an entry whose source, resolved in the checkout, leaves REPO (a symlinked folder or file out of it)."""
+    for source, destination in inputs:
+        confined(repo, source, entry_text(source, destination), "source")
+
+
+def confine_pairs(repo: Path, stage: Path, inputs: list[tuple[str, str | None]],
+                  pairs: list[tuple[str, str]]) -> list[tuple[Path, Path]]:
+    """The one gate every copy through INPUTS passes before it writes: each entry's source and each pair's source
+    resolved under REPO, each pair's destination resolved under STAGE (which need not exist yet), or UnsafeCopyInput
+    naming the entry and the rule. Returns (source path, destination path) per pair, both resolved."""
+    confine_sources(repo, inputs)
+    out = []
+    for source, destination in pairs:
+        owner = next((entry_text(s, d) for s, d in inputs
+                      if (s == source and (d or Path(s).name) == destination)
+                      or (s.endswith("/") and source.startswith(s))), source)
+        entry = f"{owner} (copies {source} -> {destination})"
+        out.append((confined(repo, source, entry, "source"), confined(stage, destination, entry, "destination")))
     return out
 
 
@@ -157,8 +234,10 @@ def install_copy(repo: Path, stage: Path) -> list[tuple[str, str]]:
     .source stamp from exactly those pairs ("worktree" unless every copied file and the list match HEAD). Folder
     entries read tracked files only; a file entry is copied when it exists. Directories are made only below the
     open STAGE, so a stage removed meanwhile fails the install instead of coming back without its .in-use; a
-    tracked file missing from the checkout fails it too."""
+    tracked file missing from the checkout fails it too. An entry that leaves the repository or the copy is refused
+    (confine_pairs) before anything is copied."""
     inputs = read_inputs((repo / INPUTS).read_bytes()) or []
+    confine_sources(repo, inputs)  # before git reads them: a source through a symlink out never reaches ls-files
     # `git ls-files` run in the checkout, as the installer ran it: with core.fsmonitor=true this index read starts
     # the fsmonitor daemon, which must not inherit the install lock (test_cmux_next_guardrails stands in for it).
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -168,16 +247,17 @@ def install_copy(repo: Path, stage: Path) -> list[tuple[str, str]]:
     present = [path for path in tracked if path] + [source for source, _ in inputs
                                                   if not source.endswith("/") and (repo / source).is_file()]
     pairs = copy_pairs(inputs, present)
+    paths = confine_pairs(repo, stage, inputs, pairs)
     stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        for source, destination in pairs:
+        for (_, destination), (source_path, destination_path) in zip(pairs, paths):
             parts = destination.split("/")[:-1]
             for depth in range(1, len(parts) + 1):
                 try:
                     os.mkdir("/".join(parts[:depth]), dir_fd=stage_fd)
                 except FileExistsError:
                     pass
-            shutil.copy2(repo / source, stage / destination)
+            shutil.copy2(source_path, destination_path)
     finally:
         os.close(stage_fd)
     (stage / PAIRS).write_text(pairs_text(pairs))
@@ -282,6 +362,9 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
     tree = stamp.split()[1]
     if not stale(repo, hook_dir, commit, tree):
         return None
+    version = f"{CHECKS}.v{int(time.time())}.{os.getpid()}"
+    stage = hook_dir / f"{version}.partial"
+    paths = confine_pairs(repo, stage, inputs, pairs)  # before the lock, the stage or any file is written
     lock = os.open(hook_dir / "install.lock", os.O_RDWR | os.O_CREAT, 0o644)
     try:
         try:
@@ -291,15 +374,12 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
         if not stale(repo, hook_dir, commit, tree):  # another push refreshed it while this one waited
             return None
         # Exactly the pairs the stamp is made from (INPUTS says why each file is there).
-        files = [(entries[source][0], destination) for source, destination in pairs]
+        modes = [entries[source][0] for source, _ in pairs]
         contents = blobs(repo, [f"{commit}:{source}" for source, _ in pairs]) if pairs else []
-        version = f"{CHECKS}.v{int(time.time())}.{os.getpid()}"
-        stage = hook_dir / f"{version}.partial"
         shutil.rmtree(stage, ignore_errors=True)
         stage.mkdir()
         (stage / ".in-use").write_bytes(b"")
-        for (mode, relative), data in zip(files, contents):
-            target = stage / relative
+        for mode, (_, target), data in zip(modes, paths, contents):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             os.chmod(target, 0o755 if mode == "100755" else 0o644)
@@ -328,13 +408,24 @@ def main() -> int:
     parser.add_argument("--stamp", metavar="COMMIT", help="print the .source stamp of a copy made from COMMIT and exit")
     parser.add_argument("--install-copy", metavar="STAGE", type=Path,
                         help="install-git-hooks.sh: copy the working tree's pairs into STAGE, stamp it, print the pairs")
+    parser.add_argument("--sources", action="store_true",
+                        help="post-merge: print the source of every entry of the working tree's list, each confined")
     args = parser.parse_args()
-    if args.stamp:
-        print(stamp_for(args.repo, args.stamp))
-        return 0
-    if args.install_copy:
-        sys.stdout.write(pairs_text(install_copy(args.repo, args.install_copy)))
-        return 0
+    try:
+        if args.stamp:
+            print(stamp_for(args.repo, args.stamp))
+            return 0
+        if args.install_copy:
+            sys.stdout.write(pairs_text(install_copy(args.repo, args.install_copy)))
+            return 0
+        if args.sources:
+            inputs = read_inputs((args.repo / INPUTS).read_bytes()) or []
+            confine_sources(args.repo, inputs)
+            sys.stdout.write("".join(f"{source}\n" for source, _ in inputs))
+            return 0
+    except UnsafeCopyInput as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     if args.hook_dir is None:
         parser.error("--hook-dir is required")
     lines = sys.stdin.read().splitlines()
