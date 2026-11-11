@@ -370,10 +370,12 @@ def find_modules(
 # call and argument text with a reason. The check learns only forms it can prove, and only these:
 #   - sys.path.insert(0, P) and sys.path.append(P): P joins both runs' search path, each insert(0)
 #     in front of everything before it (so the last one wins), each append at the end, but only when
-#     their order is provable: every such call is a statement of its own directly in the module body
-#     and they all sit in one file of the closure, or no two of the folders involved offer the same
-#     top-level module name, so order cannot change what loads (changes that only name the entry
-#     folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
+#     their order is provable: every such call is a statement of the entry script's module body with
+#     nothing before it that could import a non-stdlib module (so every import sees the final path), or no top-level name is offered twice among the
+#     folders the checker models on the path (the entry folder, PYTHONPATH's, the inserted ones),
+#     the stdlib and this interpreter's installed distributions, counting .py files, extension
+#     modules and every folder (package or namespace) from the tree's full file list, so order cannot
+#     change what loads (changes that only name the entry folder are harmless in any order). Otherwise each one is unverifiable. A search path that keeps changing
 #     which file a module loads from is reported as "path search does not settle (A <-> B)";
 #   - importlib.util.spec_from_file_location(name, P): the file at P joins the closure and must be
 #     checked out, inside a `try:` or not. It is optional only when DYNAMIC_IMPORT_AUDIT says so,
@@ -473,35 +475,40 @@ def _bound_once(scope: ast.AST, star: bool = False) -> dict[str, ast.AST]:
     return once
 
 
-def _scope_bindings(tree: ast.Module) -> dict[int, dict[str, ast.AST | None]]:
-    """For every node in a function, the names a path there can use: the innermost function's
-    provable names, None for any other name that function (or an enclosing one) binds at all, then the
-    module's provable names. Nodes at module level get the module's. Keyed by node id."""
-    star = any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree))
-    module = _bound_once(tree, star)
-    out: dict[int, dict[str, ast.AST | None]] = {}
+Bindings = dict[str, "tuple[ast.AST, Bindings] | None"]
 
-    def visit(node: ast.AST, names: dict[str, ast.AST | None]) -> None:
+
+def _scope_bindings(tree: ast.Module) -> dict[int, Bindings]:
+    """For every node, the names a path there can use, each as (expression, the bindings of the scope
+    that assigned it) so the expression is evaluated where it was written, not where it is used: the
+    innermost function's provable names, None for any other name that function binds at all, then
+    the enclosing functions' and the module's. Keyed by node id."""
+    star = any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree))
+    module: Bindings = {}
+    module.update({name: (expr, module) for name, expr in _bound_once(tree, star).items()})
+    out: dict[int, Bindings] = {}
+
+    def visit(node: ast.AST, names: Bindings) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, _FUNCTIONS):
-                inner = dict(names)
+                inner: Bindings = dict(names)
                 inner.update({name: None for name, count in _binding_counts(child).items() if count})
                 if not isinstance(child, ast.Lambda):
-                    inner.update(_bound_once(child))
+                    inner.update({name: (expr, inner) for name, expr in _bound_once(child).items()})
                 out[id(child)] = inner
                 visit(child, inner)
             else:
                 out[id(child)] = names
                 visit(child, names)
 
-    visit(tree, dict(module))
+    visit(tree, module)
     return out
 
 
 class _FixedPath:
     """Evaluates a path in the forms the comment above lists; None for anything else."""
 
-    def __init__(self, here: Path, root: Path, aliases: dict[str, str], bindings: dict[str, ast.AST]) -> None:
+    def __init__(self, here: Path, root: Path, aliases: dict[str, str], bindings: "Bindings") -> None:
         self.here, self.root, self.aliases, self.bindings = here, root, aliases, bindings
 
     def __call__(self, node: ast.AST, depth: int = 0) -> Path | None:
@@ -514,7 +521,10 @@ class _FixedPath:
             if node.id == "__file__":
                 return self.here
             bound = self.bindings.get(node.id)
-            return None if bound is None else ev(bound)
+            if bound is None:
+                return None
+            expr, scope = bound
+            return _FixedPath(self.here, self.root, self.aliases, scope)(expr, depth + 1)
         if isinstance(node, ast.Attribute) and node.attr == "parent":
             base = ev(node.value)
             return None if base is None else Path(os.path.normpath(base)).parent
@@ -585,6 +595,47 @@ def normal_audit_key(key: tuple[str, ...]) -> tuple[str, ...]:
     return rel, call, _call_text(ast.parse(f"f({text})", mode="eval").body)
 
 
+_PATH_BUILDERS = {
+    "pathlib.Path", "str", "os.fspath", "os.path.abspath", "os.path.realpath", "os.path.dirname", "os.path.join",
+}
+
+
+def _clean_prefix_path_changes(tree: ast.Module, aliases: dict[str, str]) -> set[int]:
+    """ids of the sys.path calls that are statements of the module body with nothing before them that
+    could import a module outside the stdlib: before (and between) them only docstrings, imports of
+    stdlib modules, other such path calls, and plain assignments whose only calls build paths
+    (_PATH_BUILDERS, .resolve(), .absolute(), .with_name(), .joinpath()). Every import then runs
+    after the last of them, so the final search path is the one each import sees. A path call after
+    anything else is not in the set."""
+    clean: set[int] = set()
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+            continue
+        if isinstance(stmt, ast.Import) and all(a.name.split(".")[0] in sys.stdlib_module_names for a in stmt.names):
+            continue
+        if isinstance(stmt, ast.ImportFrom) and stmt.level == 0 and (stmt.module or "").split(".")[0] in sys.stdlib_module_names:
+            continue
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            if _dotted(stmt.value.func, aliases) in ("sys.path.insert", "sys.path.append"):
+                calls = [n for n in ast.walk(stmt.value) if isinstance(n, ast.Call) and n is not stmt.value]
+                if all(_builds_path(c, aliases) for c in calls):
+                    clean.add(id(stmt.value))
+                    continue
+            return clean
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            value = stmt.value
+            if value is not None and all(_builds_path(c, aliases) for c in ast.walk(value) if isinstance(c, ast.Call)):
+                continue
+        return clean
+    return clean
+
+
+def _builds_path(call: ast.Call, aliases: dict[str, str]) -> bool:
+    if isinstance(call.func, ast.Attribute) and call.func.attr in ("resolve", "absolute", "with_name", "joinpath"):
+        return True
+    return _dotted(call.func, aliases) in _PATH_BUILDERS
+
+
 @lru_cache(maxsize=None)
 def dynamic_calls(
     root: Path, rel: str
@@ -601,7 +652,7 @@ def dynamic_calls(
     aliases = _aliases(tree)
     scopes = _scope_bindings(tree)
     path_ops: list[tuple[str, str, bool, str, int, str]] = []
-    top_level = {id(stmt.value) for stmt in tree.body if isinstance(stmt, ast.Expr)}
+    top_level = _clean_prefix_path_changes(tree, aliases)
     loads: list[str] = []
     unresolved: list[tuple[str, int, str]] = []
 
@@ -658,41 +709,112 @@ def dynamic_calls(
 SEARCH_DOES_NOT_SETTLE = "path search does not settle"
 
 
-def _module_names(root: Path, folder: str) -> set[str]:
-    """Top-level module names a folder offers: x.py files and x/ folders (packages or namespaces)."""
+class NameProof:
+    """Proves that the order of some search-path folders cannot change what an import loads: no
+    top-level name is offered by two of them, nor by one of them and the stdlib
+    (sys.stdlib_module_names) or an installed distribution of this interpreter. The folders are every
+    one the checker models on the path: the entry folder (the repo root itself for `python -m` from
+    there), PYTHONPATH's and the inserted ones. Names come from the tree's full file list, built once
+    per find_misses run (module_name_index), never from the sparse list or an earlier run."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._index: dict[str, set[str]] | None = None
+        self._outside: set[str] | None = None
+
+    def disjoint(self, folders: list[str]) -> bool:
+        if self._index is None:
+            self._index = module_name_index(self.root)
+            self._outside = set(sys.stdlib_module_names) | _installed_names()
+        seen: set[str] = set()
+        for folder in dict.fromkeys(folders):
+            offered = self._index.get(folder, set())
+            if offered & seen or offered & self._outside:
+                return False
+            seen |= offered
+        return True
+
+
+def _tree_files(root: Path) -> list[str]:
+    """Every file of the tree: `git ls-files` (the checkout's revision) when `root` is a git work tree,
+    else every file on disk (a test fixture). Never the sparse list."""
     try:
-        entries = list((root / folder).iterdir()) if (root / folder).is_dir() else []
-    except OSError:
-        return set()
-    names = set()
-    for entry in entries:
-        if entry.is_dir() and entry.name.isidentifier():
-            names.add(entry.name)
-        elif entry.suffix == ".py" and entry.stem.isidentifier():
-            names.add(entry.stem)
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, check=True
+        ).stdout
+        if (root / ".git").exists():
+            return [rel for rel in listed.split("\0") if rel]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    out = []
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        out += [os.path.relpath(os.path.join(folder, n), root).replace(os.sep, "/") for n in names]
+    return out
+
+
+def _top_name(entry: str, is_file: bool) -> str | None:
+    """The top-level module name a folder entry offers, or None. A file: x.py, or an extension module
+    x.so / x.pyd with or without an ABI tag (x.cpython-312-x86_64-linux-gnu.so). A folder: any folder
+    with an identifier name, since Python imports one without __init__.py as a namespace package."""
+    if not is_file:
+        return entry if entry.isidentifier() else None
+    if entry.endswith(".py"):
+        name = entry[:-3]
+    elif entry.endswith((".so", ".pyd")):
+        name = entry.split(".", 1)[0]
+    else:
+        return None
+    return name if name.isidentifier() else None
+
+
+def module_name_index(root: Path) -> dict[str, set[str]]:
+    """folder (repo-relative, "" for the root) -> the top-level names it offers, from one pass over
+    the tree's full file list (see _tree_files and _top_name)."""
+    index: dict[str, set[str]] = {}
+    for rel in _tree_files(root):
+        parts = rel.split("/")
+        for depth in range(len(parts)):
+            name = _top_name(parts[depth], depth == len(parts) - 1)
+            if name is not None:
+                index.setdefault("/".join(parts[:depth]), set()).add(name)
+    return index
+
+
+def _installed_names() -> set[str]:
+    """Top-level names the distributions installed for this interpreter (sys.executable) provide."""
+    import importlib.metadata
+
+    names = set(importlib.metadata.packages_distributions())
+    for dist in importlib.metadata.distributions():
+        top = dist.read_text("top_level.txt") or ""
+        names.update(line.strip() for line in top.splitlines() if line.strip())
     return names
 
 
 def _search_path(
-    root: Path, rel_ops: list[tuple[str, tuple]], base: str, extra: tuple[str, ...], audited: frozenset
+    names: "NameProof",
+    entry: str,
+    rel_ops: list[tuple[str, tuple]],
+    base: str,
+    extra: tuple[str, ...],
+    audited: frozenset,
 ) -> tuple[list[str], list[str], list[tuple[str, str, int, str]]]:
     """(folders in front, folders at the end, path changes that cannot be ordered) from the closure's
     fixed sys.path changes, as (file, ops) in the order ModuleFinder met the files.
 
     Changes that only name the entry folder (already sys.path[0]) leave the search unchanged in any
-    order. Otherwise the order must be provable: every change is a module-level statement (see
-    dynamic_calls) and they all sit in one file; or no two folders of the search path involved (the
-    changed ones, the entry folder, PYTHONPATH's) offer the same top-level module name, so any order
-    loads the same files. When neither holds, each change that is not audited by (file, call,
+    order. Otherwise the order must be provable: every change sits in the entry script, as a module
+    statement with nothing that could import before it (_clean_prefix_path_changes), so every import
+    sees the final path; or NameProof.disjoint holds for every folder the
+    search path can hold, so any order loads the same files. When neither holds, each change that is not audited by (file, call,
     argument text) is unverifiable and none is learned; audited ones are dropped."""
     ops = [(rel, op) for rel, file_ops in rel_ops for op in file_ops]
     if all(op[1] == base for _, op in ops):
         return [], [], []
     files = {rel for rel, _ in ops}
-    folders = list(dict.fromkeys([base, *extra, *(op[1] for _, op in ops)]))
-    offered = [_module_names(root, folder) for folder in folders]
-    disjoint = sum(len(n) for n in offered) == len(set().union(*offered))
-    if disjoint or (len(files) == 1 and all(op[2] for _, op in ops)):
+    ordered = files == {entry} and all(op[2] for _, op in ops)
+    if ordered or names.disjoint([base, *extra, *(op[1] for _, op in ops)]):
         front: list[str] = []
         back: list[str] = []
         for _, (kind, folder, *_rest) in ops:
@@ -710,9 +832,13 @@ def _search_path(
     return [], [], unordered
 
 
-@lru_cache(maxsize=None)
 def full_run(
-    root: Path, script: str, extra: tuple[str, ...], how: tuple[str, str] | None, audited: frozenset = frozenset()
+    root: Path,
+    script: str,
+    extra: tuple[str, ...],
+    how: tuple[str, str] | None,
+    audited: frozenset = frozenset(),
+    names: NameProof | None = None,
 ) -> tuple[dict[str, str], dict[str, str], tuple[str, ...], tuple, tuple[tuple[str, str, int, str], ...]]:
     """ModuleFinder over the full tree: (places, importers, the search path used, the files loaded by
     path as (file, loader), unresolved dynamic calls as (file, call, line, argument text)). The
@@ -722,6 +848,7 @@ def full_run(
     one unresolved (script, SEARCH_DOES_NOT_SETTLE, 0, "A <-> B") naming the files that trade places."""
     base = how[1] if how else script.rsplit("/", 1)[0]
     module = how[0] if how else None
+    names = names or NameProof(root)
     front: list[str] = []
     back: list[str] = []
     loaded: dict[str, str] = {}  # file -> the file that loads it
@@ -741,7 +868,7 @@ def full_run(
                 if (rel, file) not in audited:
                     new_loaded.setdefault(file, rel)
             unresolved += [(rel, call, line, text) for call, line, text in calls]
-        new_front, new_back, unordered = _search_path(root, rel_ops, base, extra, audited)
+        new_front, new_back, unordered = _search_path(names, script, rel_ops, base, extra, audited)
         unresolved += unordered
         state = (front, back, loaded)
         states.append((state, places))
@@ -994,6 +1121,9 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     root = root.resolve()
     audit = audit or {}
     audited = {normal_audit_key(key) for key in audit}
+    frozen_audit = frozenset(audit)
+    names = NameProof(root)  # one full-tree name index per run
+    memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
     for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
         listed = listed_ci_scripts(entries, root)
@@ -1008,7 +1138,11 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             configs, bad = pythonpath_configs(doc, job, script, how, root)
             runs += [(script, how, extra) for extra in configs]
             bad_paths += [f"{prefix}{script} {why}" for why in bad]
-        full = {run: full_run(root, run[0], run[2], run[1], frozenset(audit)) for run in runs}
+        full = {}
+        for run in runs:
+            if run not in memo:
+                memo[run] = full_run(root, run[0], run[2], run[1], frozen_audit, names)
+            full[run] = memo[run]
         files = set(listed)
         for places, *_ in full.values():
             files |= _files_for(places, root)
@@ -1665,15 +1799,18 @@ class SparseCheckoutImportTests(unittest.TestCase):
 
     def test_fixture_codex_a_search_that_does_not_settle_is_reported(self) -> None:
         # scripts/ci/oschelper.py inserts scripts/alternate, whose own oschelper.py inserts nothing: each
-        # search path picks the other file. One named finding, and the rest of the scan still runs.
+        # search path picks the other file. The insert is in an imported module and both folders hold
+        # oschelper, so neither the ordered case nor the no-shared-names case proves it: it is reported as
+        # a call this check cannot follow before the search could cycle, and the rest of the scan still runs.
         self.assertEqual(
             self._misses(self.block("scripts/ci/osc_entry.py", "scripts/ci/oschelper.py", "scripts/ci/runner.py")),
             [
                 "w.yml run Check out: scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse "
                 "checkout (via scripts/ci/runner.py)",
                 "w.yml run Check out: scripts/ci/runner.py imports scripts/ci/helper.py, not in its sparse checkout",
-                "w.yml run Check out: scripts/ci/osc_entry.py unverifiable: path search does not settle "
-                "(scripts/ci/oschelper.py <-> scripts/alternate/oschelper.py)",
+                "w.yml run Check out: scripts/ci/oschelper.py calls sys.path.insert(0, 'scripts/alternate') (line 2), "
+                "which this check cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT "
+                "(via scripts/ci/osc_entry.py)",
             ],
         )
 
