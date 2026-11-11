@@ -285,6 +285,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
           });
         }),
     );
+  // fixed-wait: wall time is the behavior: a reply's chunks arrive over time, and a hidden page gets no frames to wait on.
   const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function open(name: string) {
@@ -362,6 +363,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
             // The reply starts streaming at the latest row, followed.
             for (let n = 0; n < 4; n++) {
               chunk(` ${LINE}\n\n`);
+              // fixed-wait: chunks a live stream spaces out, not a condition.
               await pause(120);
             }
             await settle(page);
@@ -373,6 +375,7 @@ await requireBrowserLane("agent-pane-hidden-return-follow.test.ts", async () => 
             await variant.away?.(page);
             scenario.away();
             // Long enough for the hidden page's 50 ms draws of what is not text (direct.ts).
+            // fixed-wait: a hidden page paints no frame and signals nothing to wait for.
             await pause(600);
             // Back.
             await variant.back?.(page);
