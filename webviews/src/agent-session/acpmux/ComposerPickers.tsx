@@ -1716,12 +1716,8 @@ export function ContextRing({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [shown]);
   return (
-    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
-    <span
-      ref={wrapper}
-      className="acpmux-picker acpmux-context"
-      title={known ? undefined : t("context.ringTooltipEmpty")}
-    >
+    // Before any usage the inert ring has no tooltip (Lucas 2026-11-11); once usage is known the card shows.
+    <span ref={wrapper} className="acpmux-picker acpmux-context">
       <button
         ref={trigger}
         type="button"

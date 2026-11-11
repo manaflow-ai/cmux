@@ -40,7 +40,7 @@ import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
-import { showsLocationRow } from "./locationRow";
+import { chatHasFirstSend, showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -2924,13 +2924,16 @@ function ComposerFrame({
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocus>
         }
-        // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
-        // reports usage (inert, ContextRing), so the first report moves nothing in the row
-        // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
-        // the context or the plan usage limits (composerRing; UsageRingMenu).
+        // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
+        // when the location strip goes. After that it keeps its place before the chat reports
+        // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the
+        // composer holds still while a turn runs); the context-usage setting hides it
+        // (showContextUsage), from its own right-click too, which also picks what it shows: the
+        // context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
-          showContextUsage && (
+          showContextUsage &&
+          chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
               <ContextRing
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
