@@ -55,7 +55,7 @@ const prompts = log.events.filter((event) => event.kind === "user_message").leng
 /// top of the whole chat once that row is drawn at the view's top, not only at the loaded rows' top.
 const FIRST_PROMPT = `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
-type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number };
+type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number; rows: string };
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -137,6 +137,8 @@ async function run(name: string, engine: BrowserType) {
           scrollTop: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
           clientHeight: scroller.clientHeight,
+          // The mounted rows, first and last: a frame that mounts or unmounts rows changes them.
+          rows: `${scroller.querySelector("[data-row-id]")?.getAttribute("data-row-id")}..${scroller.querySelectorAll("[data-row-id]").length}`,
         });
       });
       holder.__upWatch = {
@@ -151,6 +153,27 @@ async function run(name: string, engine: BrowserType) {
       };
       (holder as unknown as { __longtasks: boolean }).__longtasks = observer !== undefined;
     });
+    // TRACE=1 (Chromium): the timeline of the wheel; each frame over 50 ms prints what took its time.
+    const tracing =
+      process.env.TRACE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    const traceEvents: {
+      name: string;
+      ph: string;
+      ts: number;
+      dur?: number;
+      tid: number;
+      args?: Record<string, unknown>;
+    }[] = [];
+    if (tracing) {
+      tracing.on(
+        "Tracing.dataCollected",
+        (event: { value: typeof traceEvents }) => void traceEvents.push(...event.value),
+      );
+      await tracing.send("Tracing.start", {
+        categories: "toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing",
+        transferMode: "ReportEvents",
+      });
+    }
     // PROFILE=1 (Chromium): a CPU profile of the wheel, its busiest functions by self time printed at the end.
     let profiledAt = 0;
     const cdp =
@@ -224,6 +247,71 @@ async function run(name: string, engine: BrowserType) {
         longtasks: holder.__longtasks,
       };
     });
+    if (tracing) {
+      const done = new Promise<void>((resolve) => tracing.once("Tracing.tracingComplete", () => resolve()));
+      await tracing.send("Tracing.end");
+      await done;
+      // The renderer's main thread: the thread with the most layouts and script calls.
+      const main = new Map<number, number>();
+      for (const event of traceEvents)
+        if (event.name === "Layout" || event.name === "FunctionCall")
+          main.set(event.tid, (main.get(event.tid) ?? 0) + 1);
+      const tid = [...main.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const kinds = new Set([
+        "Layout",
+        "UpdateLayoutTree",
+        "Paint",
+        "PrePaint",
+        "Layerize",
+        "FunctionCall",
+        "EventDispatch",
+        "TimerFire",
+        "FireAnimationFrame",
+        "ParseHTML",
+        "HitTest",
+        "ScrollLayer",
+        "UpdateLayer",
+        "IntersectionObserverController::computeIntersections",
+        "ResizeObserverController::notify",
+        "Commit",
+        "v8.run",
+        "RunMicrotasks",
+        "ProfileCall",
+      ]);
+      console.log(
+        `transcript-scroll-up trace events ${traceEvents.length} main ${tid} runTasks ${traceEvents.filter((event) => event.tid === tid && event.name === "RunTask").length}`,
+      );
+      const tasks = traceEvents.filter(
+        (event) =>
+          event.tid === tid &&
+          event.ph === "X" &&
+          (event.name === "RunTask" || event.name === "ThreadControllerImpl::RunTask") &&
+          (event.dur ?? 0) > 40_000,
+      );
+      for (const task of tasks.slice(0, 12)) {
+        const end = task.ts + task.dur!;
+        const by = new Map<string, number>();
+        for (const event of traceEvents)
+          if (event.tid === tid && event.ph === "X" && event.ts >= task.ts && event.ts < end && kinds.has(event.name)) {
+            const detail =
+              event.name === "FunctionCall"
+                ? `FunctionCall ${(event.args?.data as { functionName?: string })?.functionName ?? ""}`
+                : event.name === "Layout"
+                  ? `Layout ${(event.args?.beginData as { dirtyObjects?: number })?.dirtyObjects ?? "?"}/${(event.args?.beginData as { totalObjects?: number })?.totalObjects ?? "?"} objects`
+                  : event.name === "UpdateLayoutTree"
+                    ? `Style ${(event.args?.elementCount as number) ?? (event.args?.beginData as { elementCount?: number })?.elementCount ?? "?"} elements`
+                    : event.name;
+            by.set(detail, (by.get(detail) ?? 0) + (event.dur ?? 0));
+          }
+        console.log(
+          `transcript-scroll-up trace task ${Math.round(task.dur! / 1000)} ms: ${[...by.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([k, v]) => `${k} ${Math.round(v / 1000)}`)
+            .join(", ")}`,
+        );
+      }
+    }
     if (cdp) {
       type Node = {
         id: number;
@@ -236,6 +324,8 @@ async function run(name: string, engine: BrowserType) {
       // Self time inside the long tasks only (each sample's page time: the profile's start, read on
       // the page, plus the deltas so far), by function.
       const inLong = new Map<string, number>();
+      /// Inclusive time inside the long tasks: which of the page's functions a long task was spent under.
+      const longTotal = new Map<string, number>();
       let clock = 0;
       const byId = new Map(profile.nodes.map((node) => [node.id, node]));
       const parents = new Map<number, Node>();
@@ -258,6 +348,13 @@ async function run(name: string, engine: BrowserType) {
           while (owner && !owner.callFrame.url) owner = parents.get(owner.id);
           const key = owner ? label(owner) : label(node);
           inLong.set(key, (inLong.get(key) ?? 0) + ms);
+          const under = new Set<string>();
+          for (let at: Node | undefined = node; at; at = parents.get(at.id)) {
+            const each = label(at);
+            if (under.has(each) || !at.callFrame.url) continue;
+            under.add(each);
+            longTotal.set(each, (longTotal.get(each) ?? 0) + ms);
+          }
         }
         // A native frame (a forced layout in getBoundingClientRect, scrollTop) is charged to the
         // script that called it, so the page's own reads and the harness's read apart.
@@ -282,6 +379,13 @@ async function run(name: string, engine: BrowserType) {
         console.log(`transcript-scroll-up profile self ${Math.round(ms)} ms ${key}`);
       for (const [key, ms] of top(inLong, 20))
         console.log(`transcript-scroll-up profile long ${Math.round(ms)} ms ${key}`);
+      for (const [key, ms] of top(longTotal, 120))
+        if (
+          !/^(perform|flush|commit|recursively|render|update|begin|work|batched|dispatch|process|exports|reconcile|complete|mount|create|run|safely|bubble|SyntheticBaseEvent)/.test(
+            key,
+          )
+        )
+          console.log(`transcript-scroll-up profile longTotal ${Math.round(ms)} ms ${key}`);
       for (const [key, ms] of top(callers, 15))
         console.log(`transcript-scroll-up profile native ${Math.round(ms)} ms ${key}`);
       // The source at each of the busiest anonymous or bundled frames, since a bundle's line says little.
@@ -298,7 +402,19 @@ async function run(name: string, engine: BrowserType) {
           );
       const sources = new Map<string, string[]>();
       const callerKeys = top(callers, 8).map(([key]) => key.split(" <- ")[1]!);
-      for (const key of new Set([...top(self, 20).map(([each]) => each), ...callerKeys])) {
+      for (const key of new Set([
+        ...top(self, 20).map(([each]) => each),
+        ...callerKeys,
+        ...top(longTotal, 40)
+          .map(([each]) => each)
+          .filter(
+            (each) =>
+              /main-|subagentFold|perf-/.test(each) &&
+              !/^(perform|flush|commit|recursively|render|update|begin|work|batched|dispatch|process|exports)/.test(
+                each,
+              ),
+          ),
+      ])) {
         const at = where.get(key);
         if (!at) continue;
         if (!sources.has(at.url))
@@ -376,6 +492,27 @@ async function run(name: string, engine: BrowserType) {
       driftSum: Math.round(drifts.reduce((sum, drift) => sum + drift, 0)),
       frameP50: round2(percentile(intervals, 50)),
       frameP95: round2(percentile(intervals, 95)),
+      // Frames split by what they did: a page landing (the content's height changed), a frame that
+      // mounted or unmounted rows with no landing, and a frame that only scrolled.
+      ...(() => {
+        const kinds = { landing: [] as number[], mount: [] as number[], scroll: [] as number[] };
+        for (let index = 1; index < watched.frames.length; index++) {
+          const [was, now] = [watched.frames[index - 1]!, watched.frames[index]!];
+          const kind = now.scrollHeight !== was.scrollHeight ? "landing" : now.rows !== was.rows ? "mount" : "scroll";
+          if (process.env.LANDINGS === "1" && kind === "landing")
+            console.log(
+              `transcript-scroll-up ${name} landing gap ${round2(now.paint - was.paint)} rows ${was.rows} -> ${now.rows} height ${was.scrollHeight} -> ${now.scrollHeight} next ${round2((watched.frames[index + 1]?.paint ?? now.paint) - now.paint)}`,
+            );
+          kinds[kind].push(now.paint - was.paint);
+        }
+        return Object.fromEntries(
+          Object.entries(kinds).flatMap(([kind, gaps]) => [
+            [`${kind}Frames`, gaps.length],
+            [`${kind}P95`, round2(percentile(gaps, 95))],
+            [`${kind}Max`, round2(Math.max(0, ...gaps))],
+          ]),
+        );
+      })(),
       frameMax: round2(Math.max(0, ...intervals)),
       longTasks: watched.longtasks ? watched.long.length : null,
       longTaskMs: watched.longtasks ? Math.round(watched.long.reduce((sum, ms) => sum + ms, 0)) : null,
