@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42992176851",
+  "recorded_at": "2026-11-11T09:07:11Z",
+  "reason": "cmux-tui 299cb0071ad8 changes the image's cmux-tui (pinned 7fc6f8dbf81b)",
+  "dry_run": false,
+  "cmux_tui": "299cb0071ad8926518ca18bdf1ac203ed3dd9cb0",
+  "fixes": [
+    {
+      "sha": "299cb0071ad8926518ca18bdf1ac203ed3dd9cb0",
+      "mergedAt": "2026-11-11T00:51:05-08:00",
+      "subject": "carrier fault: probe accounts are the provisioner's accounts in no shared team (#40495)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T09:07:11Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
