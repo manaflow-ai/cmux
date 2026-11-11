@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 @testable import CmuxNextCloudCredentials
 import Foundation
 import Testing

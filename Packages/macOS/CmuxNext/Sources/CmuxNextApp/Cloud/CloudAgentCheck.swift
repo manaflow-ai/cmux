@@ -1,5 +1,6 @@
-public import CmuxNextCloud
-public import Foundation
+import CmuxNextCloud
+import CmuxNextCloudCredentials
+import Foundation
 import os
 
 /// Whether a Cloud start's agent can run on the new machine it is about to make, asked right before that machine
@@ -17,7 +18,7 @@ import os
 ///   reads the reply's `anthropic-ratelimit-unified-*` headers; the rule and its words are Rust's (cmux-cloud-start-core
 ///   `agent_check`, app FFI `cloud_agent_check`). A used-up limit for the start's model refuses until it resets.
 /// Every other start goes on: this check refuses only a start it knows cannot run.
-@MainActor public final class CloudAgentCheck {
+@MainActor final class CloudAgentCheck {
     /// The probe's whole budget: a probe that has not answered by then lets the start go on.
     nonisolated static let probeTimeout: TimeInterval = 2.5
     /// The model a probe asks when the start names no full Claude model id: the cheapest, as Claude Code's small calls.
@@ -31,16 +32,16 @@ import os
     struct Answer: Decodable, Equatable { var refusal: Refusal?; var freshUntil: Int64 }
 
     /// Why a new machine is not made.
-    public enum Refused: Equatable, Sendable {
+    enum Refused: Equatable, Sendable {
         /// The harness login rules refuse a start that may show no prompt.
         case login(CloudHarnessLoginDecision.Reason)
         /// The person's Claude limit for this model is used up: the refusal's words.
         case limit(String)
 
         /// ``limit(_:)``'s words; nil for a login refusal.
-        public var limitWords: String? { if case .limit(let words) = self { words } else { nil } }
+        var limitWords: String? { if case .limit(let words) = self { words } else { nil } }
         /// ``login(_:)``'s reason; nil for a used-up limit.
-        public var loginReason: CloudHarnessLoginDecision.Reason? { if case .login(let reason) = self { reason } else { nil } }
+        var loginReason: CloudHarnessLoginDecision.Reason? { if case .login(let reason) = self { reason } else { nil } }
     }
 
     /// Each person's and model's last answer, while it stands (``Answer/freshUntil``): a used-up limit until it resets.
@@ -53,14 +54,14 @@ import os
     var now: @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970) }
     /// The person's cached Claude login (user, team, other teams), as the start reads it; tests replace it.
     var cachedLogin: (String, String?, [String?]) async -> Data? = { userID, teamID, otherTeams in
-        try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID)
+        await CloudCredentialTransfer.cachedClaudeLogin(userID: userID, teamID: teamID, otherTeams: otherTeams)
     }
 
-    public init() {}
+    init() {}
 
     /// Why the new machine of a start of `harness` and `model` (nil: the harness default) should not be made; nil
     /// when it goes on, and whenever the answer is unknown (no cached login, a Keychain or a probe that did not answer).
-    public func newMachineRefusal(harness: String?, model: String?, login: CloudHarnessLoginAsk, userID: String?, teamID: String?,
+    func newMachineRefusal(harness: String?, model: String?, login: CloudHarnessLoginAsk, userID: String?, teamID: String?,
                                   otherTeams: [String?], dogfood: Bool) async -> Refused? {
         guard let userID else { return nil }
         var decision = CloudHarnessLoginDecision(dogfood: dogfood, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
