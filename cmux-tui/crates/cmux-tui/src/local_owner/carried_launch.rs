@@ -14,6 +14,7 @@
 //! ([`super::spawn_detached_owner`]) are carried; anything else on the old
 //! argv, and every other variable, is not.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -44,16 +45,17 @@ fn own_settings_file() -> Option<PathBuf> {
     Some(std::path::absolute(&path).unwrap_or(path))
 }
 
-/// The launch environment of the owner `command` starts: the values a
-/// restart carried, then this client's own settings file, which wins over a
-/// carried one and goes to the owner absolute ([`own_settings_file`]).
-pub(super) fn apply_env(command: &mut std::process::Command, carried: &[(String, String)]) {
-    for (key, value) in carried {
-        command.env(key, value);
-    }
+/// The launch environment of the owner this client starts, in the order to
+/// set it: the values a restart carried, then this client's own settings
+/// file, which wins over a carried one and goes to the owner absolute
+/// ([`own_settings_file`]).
+pub(super) fn launch_env(carried: &[(String, String)]) -> Vec<(OsString, OsString)> {
+    let mut env: Vec<(OsString, OsString)> =
+        carried.iter().map(|(key, value)| (key.into(), value.into())).collect();
     if let Some(file) = own_settings_file() {
-        command.env(cmux_config::CONFIG_OVERRIDE, file);
+        env.push((cmux_config::CONFIG_OVERRIDE.into(), file.into_os_string()));
     }
+    env
 }
 
 /// The launch of a running owner that the next owner repeats.
