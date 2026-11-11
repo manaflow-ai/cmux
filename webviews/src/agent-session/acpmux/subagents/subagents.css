@@ -1625,6 +1625,30 @@ button.cv-subagent > :last-child {
     translate: 0 -70%;
   }
 }
+/* The shipped hand-over (hatParts.experiment.ts `hatStepLook` roll; Leo, 2026-11-11: "it's too slow
+   on the transitions and there's breif moments where it just looks like a blank tear that then
+   switches"): the new words push the old up a whole line, both at full ink, on the micro step. The
+   cell clips them, so every frame shows words (the old, the new, or the two halves meeting) and none
+   is blank, even a frame a slow page holds. */
+.acpmux-tick[data-slide="roll"] {
+  --acpmux-tick-slide: var(--agent-motion-in, 120ms);
+}
+.acpmux-tick[data-slide="roll"] > .acpmux-tick__in {
+  animation-name: acpmux-tick-roll-in;
+}
+.acpmux-tick[data-slide="roll"] > .acpmux-tick__out {
+  animation-name: acpmux-tick-roll-out;
+}
+@keyframes acpmux-tick-roll-in {
+  from {
+    translate: 0 100%;
+  }
+}
+@keyframes acpmux-tick-roll-out {
+  to {
+    translate: 0 -100%;
+  }
+}
 /* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
    old one up and out as the new one rises into its place; tabular figures keep its width. */
 .acpmux-tick__roll {

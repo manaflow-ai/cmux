@@ -24,6 +24,13 @@
 // A row that arrived is not moved: it fades in at its place (`cv-enter-fade`) as the rows under it
 // open its room.
 //
+// A row gliding down never draws over the row above it (Leo, 2026-11-11: "esp when it's lagging,
+// there's a breif moment where ther'es overlapping text between the sent out text (from you) and the
+// subequent tool calls/thinking"). Down means it starts where it was, over the room the row above
+// just took (the reply's new line, a call that arrived), so that row's bottom is cut back to the
+// gliding row's drawn top and uncovered on the same step and curve: the new words show as the row
+// under them moves off them, never under it, on any frame a slow page draws.
+//
 // Only `translate` plays, which never changes layout: the virtualizer's measured heights and the
 // scroll offset stay exact. Stop condition: each glide is one finite animation (the step's length)
 // and ends on its own; `stop` cancels what plays and forgets the tops (a chat switch, Jump to latest,
@@ -120,10 +127,27 @@ export type TailGlide = {
 export function createTailGlide(): TailGlide {
   let last: Map<string, { row: HTMLElement; top: number }> | undefined;
   const playing = new Set<Animation>();
+  // The rows a glide moves, and the clip each glide uncovers on the row above it: the two end together.
+  const gliding = new Set<Element>();
+  const clips = new Map<Animation, Animation>();
   const stop = () => {
     for (const animation of playing) animation.cancel();
     playing.clear();
+    gliding.clear();
+    clips.clear();
     last = undefined;
+  };
+  const keep = (animation: Animation, glided?: Element) => {
+    playing.add(animation);
+    if (glided) gliding.add(glided);
+    const done = () => {
+      playing.delete(animation);
+      clips.delete(animation);
+      if (glided && ![...playing].some((other) => (other.effect as KeyframeEffect | null)?.target === glided))
+        gliding.delete(glided);
+    };
+    animation.addEventListener("finish", done, { once: true });
+    animation.addEventListener("cancel", done, { once: true });
   };
   return {
     stop,
@@ -141,7 +165,9 @@ export function createTailGlide(): TailGlide {
         const row = (animation.effect as KeyframeEffect | null)?.target;
         if (!(row instanceof Element)) continue;
         const box = row.getBoundingClientRect();
-        if (box.bottom <= view.top || box.top >= view.bottom) animation.cancel();
+        if (box.bottom > view.top && box.top < view.bottom) continue;
+        animation.cancel();
+        clips.get(animation)?.cancel();
       }
     },
     place(thread, glide, anchor, track = true) {
@@ -160,24 +186,45 @@ export function createTailGlide(): TailGlide {
       if (look === "jump") return;
       // Only the rows from the anchor on: what lies above the view's top never shows.
       let below = false;
+      // The row above this one, and where its bottom is drawn as this pass's glides start.
+      let above: { row: HTMLElement; bottom: number } | undefined;
+      const origin = thread.getBoundingClientRect().top;
+      // How far from its layout top a row is drawn: a glide from an earlier pass may still carry it.
+      const drawnOffset = (row: HTMLElement) =>
+        gliding.has(row) ? row.getBoundingClientRect().top - origin - row.offsetTop : 0;
       for (const [id, { row, top }] of now) {
         if (id === anchor) below = true;
-        if (!below || id === anchor) continue;
+        if (!below) continue;
+        const prior = above;
+        above = { row, bottom: row.offsetTop + drawnOffset(row) + row.offsetHeight };
+        if (id === anchor) continue;
         const was = before.get(id);
         if (!was || typeof row.animate !== "function") continue;
         const moved = top - was.top - (to.top - from.top);
         if (Math.abs(moved) < MIN_MOVE_PX) continue;
         const { ms, easing } = timing(thread, look, moved);
         if (!(ms > 0)) return;
+        // Where the row is drawn now (a glide still playing adds to this one), from its layout top.
+        const drawn = drawnOffset(row);
         const animation = row.animate([{ translate: `0 ${-moved}px` }, { translate: "0 0" }], {
           duration: ms,
           easing,
           composite: "add",
         });
-        playing.add(animation);
-        const done = () => playing.delete(animation);
-        animation.addEventListener("finish", done, { once: true });
-        animation.addEventListener("cancel", done, { once: true });
+        keep(animation, row);
+        const start = row.offsetTop + drawn - moved;
+        above.bottom = start + row.offsetHeight;
+        // Starting over the row above: cut that row's bottom back to this row's top, uncovered as
+        // this one glides off it. Only its bottom edge: what it draws past its other sides stays.
+        const covered = prior ? prior.bottom - start : 0;
+        if (prior && covered >= MIN_MOVE_PX && typeof prior.row.animate === "function") {
+          const clip = prior.row.animate(
+            [{ clipPath: `inset(-100vh -100vw ${covered}px)` }, { clipPath: "inset(-100vh -100vw 0px)" }],
+            { duration: ms, easing },
+          );
+          keep(clip);
+          clips.set(animation, clip);
+        }
       }
     },
   };

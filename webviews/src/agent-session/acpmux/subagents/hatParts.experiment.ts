@@ -115,3 +115,33 @@ export const hatDoneCheckPlace = defineExperiment({
   },
   defaultArm: "column",
 });
+
+/// How the hat's step line hands over from one step to the next (trayMotion.tsx `Tick` slide: the
+/// header's words and a line's latest step). Leo, 2026-11-11: "the composer hat the way it switches
+/// between text is ugly bc it's too slow on the transitions and there's breif moments where it just
+/// looks like a blank tear that then switches". Compare them in the gallery's
+/// `agent-pane.composer-hat-step`.
+export const hatStepLook = defineExperiment({
+  id: "composer-hat-step",
+  title: "Composer hat: a step handing over",
+  description:
+    "How the hat's line turns from one step to the next: the new words push the old up, both fully drawn; the old fade-and-slide; or a plain swap.",
+  arms: {
+    roll: {
+      label: "Roll",
+      description:
+        "The new words rise from below and push the old up and out, both at full ink and clipped by the line, on the micro step (120 ms); there is always text in the line, never a blank between. A step that lands while one still rolls shows at once. Picked: fast, and never a blank.",
+    },
+    slide: {
+      label: "Fade and slide",
+      description:
+        "As before: the old words fade as they slide up, the new fade in rising from below, on the move step (180 ms); midway both are faint.",
+    },
+    cut: {
+      label: "Swap",
+      description:
+        "The new words replace the old in one frame; the line's width snaps with them, and what follows still glides.",
+    },
+  },
+  defaultArm: "roll",
+});

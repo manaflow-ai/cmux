@@ -306,6 +306,38 @@ describe("subagent tray motion", () => {
     await act(async () => root.unmount());
   });
 
+  test("roll: a step that lands while one still rolls shows at once; the swap arm never moves", async () => {
+    // Leo, 2026-11-11: "it's too slow on the transitions and there's breif moments where it just looks
+    // like a blank tear that then switches".
+    motion(true);
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, slide: true });
+    await act(async () => root.render(tick("Thinking")));
+    expect(element.querySelector(".acpmux-tick")!.getAttribute("data-slide")).toBe("roll");
+    await act(async () => root.render(tick("Bash")));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe("Thinking");
+    // The next step lands mid-roll: no new roll, the words show at once.
+    await act(async () => root.render(tick("Read relay.ts")));
+    expect(element.querySelector(".acpmux-tick__out, .acpmux-tick__in")).toBeNull();
+    expect(element.textContent).toBe("Read relay.ts");
+    // Settled, the next step rolls again.
+    await act(async () => root.render(tick("Grep latestLine")));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe("Read relay.ts");
+    await act(async () => root.unmount());
+    // The swap arm: one frame, nothing moves.
+    const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
+    const saved = experiments.cmuxExperiments;
+    experiments.cmuxExperiments = { "composer-hat-step": "cut" };
+    const swap = mount();
+    await act(async () => swap.root.render(tick("Thinking")));
+    await act(async () => swap.root.render(tick("Bash")));
+    expect(swap.element.querySelector(".acpmux-tick__out, .acpmux-tick__in")).toBeNull();
+    expect(swap.element.textContent).toBe("Bash");
+    await act(async () => swap.root.unmount());
+    experiments.cmuxExperiments = saved;
+    motion(false);
+  });
+
   test("a count rolling mid-slide keeps the sliding words: the slide plays on, never starting over", async () => {
     // Review of #37671 (F1): a subagent joining while the header's words slide must not remount them.
     motion(true);

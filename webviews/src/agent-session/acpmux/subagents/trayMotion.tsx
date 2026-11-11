@@ -17,6 +17,8 @@
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Sign, signed } from "../../../ui/Typography";
 import { cssTimeMs } from "../conversation/fold";
+import { experimentArm } from "../../../experiments/experiment";
+import { hatStepLook } from "./hatParts.experiment";
 import { motionAllowed, sameWords } from "./trayMotionModel";
 /// Text that ticks when it changes: the old words leave up as the new ones rise in, in one cell, on
 /// the message tokens (subagents.css `.acpmux-tick`). The first text, and any change while motion
@@ -34,7 +36,11 @@ import { motionAllowed, sameWords } from "./trayMotionModel";
 /// line turning from thinking to a tool call to another: "That animation, I like that"): the old words
 /// slide up and out as the new slide up from below, on one baseline, and the cell's width eases from
 /// the old words' to the new ones' on the same clock, so what follows them glides instead of jumping.
-/// Without it a change fades in place.
+/// Without it a change fades in place. The hand-over is hatParts.experiment.ts `hatStepLook`: `roll`
+/// (shipped) pushes the old words up with the new at full ink on the micro step, so the line is never
+/// blank and never slow, and a step that lands while one still rolls shows at once (Leo, 2026-11-11:
+/// "it's too slow on the transitions and there's breif moments where it just looks like a blank tear
+/// that then switches"); `slide` is the fade-and-slide before it; `cut` swaps in one frame.
 export function Tick({
   text,
   className,
@@ -61,6 +67,8 @@ export function Tick({
   };
   const [state, setState] = useState<TickState>({ text, entering: false, turn: 0, slid: 0 });
   const cell = useRef<HTMLSpanElement>(null);
+  // Read once per cell: the arm is the gallery's override or a dogfood key, never a per-tick read.
+  const [step] = useState(() => (slide ? experimentArm(hatStepLook) : undefined));
   // The words' drawn width before this change: the cell's width eases from it (`slide`).
   const widthFrom = useRef<number | undefined>(undefined);
   let shown = state;
@@ -71,7 +79,10 @@ export function Tick({
     shown = { ...state, text, rolled: moves ? state.text : undefined, turn: state.turn + 1 };
     setState(shown);
   } else if (state.text !== text) {
-    const moves = cell.current ? motionAllowed(cell.current) : false;
+    // A roll that is still playing when the next step lands gives way: the new words show at once, so
+    // a burst of steps never keeps the line mid-motion.
+    const rolling = step === "roll" && (state.previous !== undefined || state.entering);
+    const moves = cell.current && step !== "cut" && !rolling ? motionAllowed(cell.current) : false;
     if (moves && slide) widthFrom.current = cell.current?.getBoundingClientRect().width;
     shown = {
       text,
@@ -120,7 +131,7 @@ export function Tick({
             : { ...current, entering: false },
     );
   return (
-    <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"} data-slide={slide || undefined}>
+    <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"} data-slide={step}>
       {shown.previous !== undefined && (
         <span
           key={`out-${slid}`}
