@@ -644,3 +644,54 @@ fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_cr
         failed.join("\n")
     );
 }
+
+/// The stored workspace rows whose group key is not the one the projection states (the session's
+/// name): each as `name: group key`.
+fn rows_in_another_form(mux: &Arc<Mux>) -> Vec<String> {
+    let snapshot = mux.workspace_registry.lock().unwrap().snapshot().unwrap();
+    snapshot
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.group_key != mux.session)
+        .map(|workspace| format!("{}: {}", workspace.name, workspace.group_key))
+        .collect()
+}
+
+/// A plan that states a workspace row (a tab move that empties a workspace, a pane focus) must
+/// write it in the form the projection states. A created view states only the workspaces it
+/// changes, so a row that a plan wrote in another form stays in the store: the next create then
+/// differs from the full projection. Before, each create stated every workspace and wrote such a
+/// row again, which hid the difference.
+///
+/// The creates here run with the debug cross-check ON: it panics when the full projection would
+/// write a row that the create left out.
+#[test]
+fn a_plan_writes_a_workspace_row_as_the_projection_states_it() {
+    let mux = test_mux();
+    let first = mux.new_workspace(Some("source".into()), Some((80, 24))).unwrap();
+    let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+    mux.move_tab_to_workspace(second.id, None).unwrap();
+    let empty = mux.create_empty_workspace(Some("empty".into()), None, None).unwrap();
+    // The move empties the second workspace: the plan states that workspace's row.
+    mux.move_tab_to_workspace(second.id, Some(empty.workspace)).unwrap();
+    let after_move = rows_in_another_form(&mux);
+    assert!(
+        after_move.is_empty(),
+        "a tab move to another workspace wrote a workspace row with a group key that the          projection does not state: {after_move:?}"
+    );
+    let third = mux.new_tab(None, None, Some((80, 24))).unwrap();
+    // A pane focus in another workspace states the row of that workspace.
+    let pane = mux.with_state(|state| state.pane_of(first.id)).unwrap();
+    assert!(mux.focus_pane(pane), "the pane of the first workspace did not take the focus");
+    let after_focus = rows_in_another_form(&mux);
+    assert!(
+        after_focus.is_empty(),
+        "a pane focus wrote a workspace row with a group key that the projection does not          state: {after_focus:?}"
+    );
+    // A create in a workspace that is not the one the focus left.
+    let fourth = mux.new_tab(None, None, Some((80, 24))).unwrap();
+    for surface in [fourth, third, second, first] {
+        // The end of the test's terminals; a close is not the subject here.
+        let _ = mux.close_surface(surface.id);
+    }
+}
