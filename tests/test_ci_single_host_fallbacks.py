@@ -395,8 +395,7 @@ class PrepushGateLayer(unittest.TestCase):
         # to do; a venv, which reads its base's stdlib and so sees the marker (Codex on #40966), gets plain pip. The
         # decision is PEP668_ROUTE, the same text as leo-workspace machines/host-baseline.json's PyYAML install
         # carries; both repos pin its sha256 here, so a change to one side fails until the other matches.
-        self.assertEqual(hashlib.sha256(self.gate.PEP668_ROUTE.encode()).hexdigest(), PEP668_ROUTE_SHA256)
-        route, command = self.gate.pep668_route, self.gate.pyyaml_install_command
+        command = self.gate.pyyaml_install_command
         base = base_interpreter()
         with tempfile.TemporaryDirectory() as tmp:
             managed, plain, writable, env = (Path(tmp) / n for n in ("managed", "plain", "site", "venv"))
@@ -415,13 +414,15 @@ class PrepushGateLayer(unittest.TestCase):
                     (base, plain, str(writable), "pip", f"{shlex.quote(base)} -I -m pip install {pin}"),
                     (base, plain, unwritable, "sudo-pip", f"sudo {shlex.quote(base)} -I -m pip install {pin}")):
                 with self.subTest(python=python, stdlib=stdlib.name, purelib=purelib, want=want):
-                    self.assertEqual(route(python, str(stdlib), purelib), want)
                     got = command(python, purelib, str(stdlib), apt=False, syspath=[])
                     if line is None:
                         self.assertIn("externally managed", got)
                         self.assertNotIn("pip install", got)
                     else:
                         self.assertEqual(got, line)
+                    self.assertEqual(self.gate.pep668_route(python, str(stdlib), purelib), want)
+        # Last, so a behavior regression fails on behavior first: the route text is leo-workspace's, byte for byte.
+        self.assertEqual(hashlib.sha256(self.gate.PEP668_ROUTE.encode()).hexdigest(), PEP668_ROUTE_SHA256)
 
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")
