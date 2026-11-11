@@ -6216,6 +6216,81 @@ class WsCheckSquashTree(unittest.TestCase):
             excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
+class SetupFailsAsRefused(unittest.TestCase):
+    """dep-fleet-6 on cmux#41386 (F1 follow-up): a cache, mirror, temp dir or git setup that fails is a Refused (or,
+    for a cache that only saves reads, no cache), never a traceback out of the classifier. Each setup call runs inside
+    the block that guards it. An unwritable place is a path under a regular file, which refuses root as well (chmod
+    does not), and, when not root, also a directory with no write permission."""
+    REPO = "teamleaderleo/leo-workspace"
+    HEAD_SHA, TIP_SHA = "a" * 40, "c" * 40
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-setup-")
+        self.addCleanup(top.cleanup)
+        self.top = Path(top.name)
+        blocker = self.top / "a-file"
+        blocker.write_text("not a directory\n")
+        self.unwritable = [blocker / "cache"]
+        if os.geteuid() != 0:
+            locked = self.top / "locked"
+            locked.mkdir()
+            locked.chmod(0o500)
+            self.addCleanup(locked.chmod, 0o700)
+            self.unwritable.append(locked / "cache")
+
+    def no_home(self):
+        """Path.home() as on a host with no HOME and no passwd entry: RuntimeError."""
+        def home():
+            raise RuntimeError("Could not determine home directory.")
+        env = {k: v for k, v in os.environ.items() if k not in ("XDG_CACHE_HOME", "GH_MIRROR_ROOT",
+                                                                 excuse.SOURCE_CACHE_ENV, excuse.JOBS_CACHE_ENV)}
+        return (unittest.mock.patch.object(Path, "home", staticmethod(home)),
+                unittest.mock.patch.dict(os.environ, env, clear=True))
+
+    def test_an_unwritable_cache_path_refuses_the_squash_tree_check(self):
+        for where in self.unwritable:
+            with self.subTest(where=str(where)), unittest.mock.patch.dict(os.environ, {
+                    excuse.SOURCE_CACHE_ENV: str(where), "GH_MIRROR_ROOT": str(self.top / "no-mirrors")}):
+                with self.assertRaisesRegex(excuse.Refused, "no git repository for teamleaderleo/leo-workspace"):
+                    excuse.ws_check_squash_tree(self.REPO, self.HEAD_SHA, self.TIP_SHA)
+                with self.assertRaisesRegex(excuse.Refused, "no git repository"):
+                    excuse.ws_check_tested_tree(self.REPO, "main", self.HEAD_SHA, {"run": "7", "tree": "5" * 40},
+                                                self.TIP_SHA)
+                self.assertIsNone(excuse.git_cache(self.REPO))
+                self.assertIsNone(excuse.git_commit(self.REPO, "main"))
+                self.assertIsNone(excuse.git_text(self.REPO, "main", "README.md"))
+
+    def test_no_home_for_the_cache_or_the_mirror_refuses_and_never_raises(self):
+        home, env = self.no_home()
+        with home, env:
+            self.assertIsNone(excuse.ws_check_mirror(self.REPO))
+            self.assertIsNone(excuse.git_cache(self.REPO))
+            self.assertIsNone(excuse.git_commit(self.REPO, "main"))
+            with self.assertRaisesRegex(excuse.Refused, "no git repository"):
+                excuse.ws_check_squash_tree(self.REPO, self.HEAD_SHA, self.TIP_SHA)
+
+    def test_no_home_for_the_jobs_cache_reads_the_jobs_uncached(self):
+        page = {"jobs": [{"id": 1, "name": "a", "run_id": 77, "run_attempt": 1}]}
+        run = {"id": 77, "status": "completed", "run_attempt": 1, "updated_at": "2026-11-08T11:00:00Z"}
+
+        class Reader:
+            def json(self, route, paginate=False):
+                return [page]
+        home, env = self.no_home()
+        with home, env:
+            self.assertEqual(excuse.base_run_jobs("manaflow-ai/cmux", run, Reader())[0]["id"], 1)
+
+    def test_an_artifact_download_with_no_temp_dir_is_refused(self):
+        with unittest.mock.patch.object(tempfile, "tempdir", str(self.unwritable[0])), \
+                self.assertRaisesRegex(excuse.Refused, "artifact 7 could not be downloaded: .*Error"):
+            excuse.GitHub().artifact_file_whole("manaflow-ai/cmux", 7, "health.json")
+
+    def test_an_artifact_download_with_no_gh_is_refused(self):
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(self.top / "no-bin")}), \
+                self.assertRaisesRegex(excuse.Refused, "artifact 7 could not be downloaded: FileNotFoundError"):
+            excuse.GitHub().artifact_file_whole("manaflow-ai/cmux", 7, "health.json")
+
+
 class WsCheckFixedOnBase(unittest.TestCase):
     """2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
     green on main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red,
