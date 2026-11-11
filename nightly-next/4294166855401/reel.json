@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "build": "4294166855401",
+  "notes": "notes/4294166855401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39976,
+      "title": "cmux NEXT Home: a deleted Chief's conversation never reopens by itself (CMUX-40)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40919,
+      "title": "iOS Retry hold tests check the hold on a recorded clock, not the wall clock; the determinism gate now sees cmux-next-ios",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40946,
+      "title": "base red: webviews wire.ts declares ownCopy once (cmux-next web bundles)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40843,
+      "title": "ci(stable-next): follow the nightly-next feed to nightly-next/ and re-sign cmux NIGHTLY",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40928,
+      "title": "Daemon close: the later workspaces' state fields are read in bulk, one time (3b pair 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40895,
+      "title": "Chief chat: the text selection shows on light bubbles and themes",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40755,
+      "title": "app FFI pin: the stale report gives the step A / step B split rule",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40415,
+      "title": "Child processes: output pipes are always drained and closed (bridge stderr, ssh, host CLI, ripgrep, browser host, ditto, phone)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40920,
+      "title": "Close selection: the windows' state and its pick in Rust (Rust half)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40887,
+      "title": "Cloud chat proof: decide the Claude login for an unattended run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38188,
+      "title": "Composer: Cmd-Z / Shift-Cmd-Z undo text and attachments (Chief, agent chat)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40898,
+      "title": "base red: the app FFI and layout reducer FFI locks drop hashlink again (rusqlite cache revert)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40874,
+      "title": "What's New: the iOS photo paste highlight links its docs (base red, release-notary)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40875,
+      "title": "base red: the app FFI release asks again when a read of its release fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39980,
+      "title": "cmux-next: debug actions only in the Command Palette, behind Internal Developer Mode",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40808,
+      "title": "perf(cmux-tui): a whole-session snapshot read takes no registry lock and no state lock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40648,
+      "title": "webviews: synthetic growth suite for the pane's state layer; free what closed chats and cut frames kept",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40797,
+      "title": "gallery matrix: a play's capture CPU is taken out of its ready CPU time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40744,
+      "title": "gallery health: a ready-budget row may hold a fast state tighter than the default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40859,
+      "title": "Route the app build's script inputs to the app compiles, whatever their name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40805,
+      "title": "cmux-api: every read of a shared team feeds the grant copy a delete carries; a failed paid-plan read keeps the override",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40886,
+      "title": "cmux NEXT composer: read CoreAudio off the main thread for the outside-dictation mark",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40393,
+      "title": "Cloud: the person's pre-approval rides on every Cloud call",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40735,
+      "title": "cmux-tui: a printing terminal at rest writes nothing to the registry",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39984,
+      "title": "Sidebar: match the Codex sidebar at Default (dimmer surface and fills, softer titles, 30 pt rows)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40555,
+      "title": "Page Info: the Cookies page reopens on the site's last count, not Loading",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40883,
+      "title": "base red: the app FFI and layout reducer FFI locks take hashlink (rusqlite cache feature)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40727,
+      "title": "sidebar_caps test: count the projection's cost instead of timing it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40714,
+      "title": "ci: artifact downloads stream through deadline_http (urlopen batch 1 of 7)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40800,
+      "title": "acpmux: a watch reads a peer chat in bounded pages of the kinds it uses, once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40862,
+      "title": "acpmux: run a day of peer reconnects in ticked time (wall clock follows paused tokio, seeded jitter, refused dials)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40841,
+      "title": "cmux-next-ios: App Store review package and store listing in 14 locales",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40831,
+      "title": "cmux-next-ios: App Review path with no Mac, \"Chief Is Off\" card with Turn On",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38499,
+      "title": "fix(next): push local branch before Create PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40842,
+      "title": "cmux-vm: allow each platform's API origin and carrier relay as HTTPS proxy origins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40851,
+      "title": "test(cmux-next): the registry store's window answers follow each registry change (incognito, discarded, two owners)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40746,
+      "title": "Respawn gate: a terminal the person asks for does not wait for the restore line; a try after a back-off takes its turn",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40837,
+      "title": "Agent pane: a page makes the act-as-me pill when the grant is on, not in its build",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40845,
+      "title": "New Tab: a Cloud pick after the hint's X still tells the app, and a quiet adoption renders once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40834,
+      "title": "Cloud workspace matrix: a cancelled run cleans up promptly, with no lock wait or escaped child",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40824,
+      "title": "perf(daemon): a workspace close moves the later ledger positions with two statements",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40589,
+      "title": "ci(cloud-chat-proof): the tagged build keeps its app, so the proof gets an App path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40839,
+      "title": "perf(cmux-next): one new workspace writes its own window answers and builds the live order one time",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40432,
+      "title": "base red excuse (feat): a change to the Rust bindings alone is a step-A FFI change",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40830,
+      "title": "cmux-tui tests: two wall-clock bounds become a count and an order",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40821,
+      "title": "plans: swift-logic-classes rows for the close-selection declarations of #40649",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40763,
+      "title": "cmux-tui: a plugin report that repeats the roster writes nothing, and only a follower that is sent a row keeps it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40789,
+      "title": "cloud journey: an empty test-account pair fails, and the preview journey reads the pair that exists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40818,
+      "title": "Route CI-only checks-job inputs to the checks tier alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40761,
+      "title": "Agent pane: prefix passes hold rows weakly, so a closed chat leaves nothing cached",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40819,
+      "title": "cmux-tui: a write pass no longer drops the request to measure the total scrollback budget",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40683,
+      "title": "perf(daemon): one workspace close reads and projects the closed workspace only",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40775,
+      "title": "perf(cmux-next): a hidden button does no layout, so a page workspace switch stops paying for every kept workspace",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40732,
+      "title": "Daemon stop: a restored session ends in one commit (66 s at 826 workspaces)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40820,
+      "title": "New Tab: a page that only asked for a tip goes back to the spare pool at close",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40640,
+      "title": "Cloud start: wait for acpmux to be ready across a restart, not a fixed per-call timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40649,
+      "title": "cmux-next: a workspace close selects by the one close-selection rule (Chrome's)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40706,
+      "title": "perf(cmux-next): one changed sidebar row anchors the scroll on the rows in view",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40777,
+      "title": "ci: the sparse checkout import detector asks git what a list checks out, and follows relative imports",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
