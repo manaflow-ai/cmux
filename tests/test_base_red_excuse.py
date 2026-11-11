@@ -1,4 +1,5 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+import ast
 import contextlib
 import copy
 import re
@@ -6713,6 +6714,83 @@ class FailingStepLogOnly(unittest.TestCase):
                 github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class LoadedModuleList(unittest.TestCase):
+    """scripts/ci/base_red_excuse.modules.txt lists every scripts/ci path base_red_excuse.py can load, derived here by
+    AST: each import (top level or lazy, inside a function) whose module is a scripts/ci file, or a package in a
+    scripts/ci directory a string literal names (the _vendor it puts on sys.path); each string literal naming a
+    scripts/ci file (Path(__file__).with_name("x.py") for spec_from_file_location, a data file); then the same for
+    every sibling module found, transitively. Vendored packages are not read inside. merge_hold and the lane-gh broker
+    run base_red_excuse.py from a `git archive` of scripts/ci, and leo-workspace's test fixture is re-archived from
+    this list, so a new sibling fails here, at the PR that adds it, not as a broker refusal later."""
+
+    CI = ROOT / "scripts" / "ci"
+    LIST = CI / "base_red_excuse.modules.txt"
+
+    @staticmethod
+    def loads(ci: Path, rel: str) -> set[str]:
+        tree = ast.parse((ci / rel).read_text(), rel)
+        entries = {path.name for path in ci.iterdir()}
+        literals, modules = set(), set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules.add(node.module.split(".")[0])
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in entries:
+                literals.add(node.value)
+        roots = [ci] + [ci / name for name in sorted(literals) if (ci / name).is_dir()]
+        found = {name for name in literals if (ci / name).is_file()}
+        for module in modules:
+            for root in roots:
+                if (root / f"{module}.py").is_file():
+                    found.add((root / f"{module}.py").relative_to(ci).as_posix())
+                    break
+                if (root / module / "__init__.py").is_file():
+                    found.add((root / module).relative_to(ci).as_posix() + "/")
+                    break
+        return found
+
+    @classmethod
+    def derive(cls, ci: Path) -> set[str]:
+        seen, todo = set(), ["base_red_excuse.py"]
+        while todo:
+            for name in cls.loads(ci, todo.pop()) - seen - {"base_red_excuse.py"}:
+                seen.add(name)
+                if name.endswith(".py") and "/" not in name:
+                    todo.append(name)
+        return seen
+
+    @staticmethod
+    def listed(text: str) -> set[str]:
+        return {line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")}
+
+    def test_the_checked_in_list_is_every_path_base_red_excuse_loads(self):
+        derived, listed = self.derive(self.CI), self.listed(self.LIST.read_text())
+        self.assertEqual(sorted(derived - listed), [], f"loaded but not in {self.LIST.name}: add them")
+        self.assertEqual(sorted(listed - derived), [], f"in {self.LIST.name} but no longer loaded: remove them")
+
+    def test_every_listed_path_exists(self):
+        for name in self.listed(self.LIST.read_text()):
+            self.assertTrue((self.CI / name.rstrip("/")).exists(), name)
+
+    def test_a_new_sibling_import_is_found(self):
+        # A copy of scripts/ci whose base_red_excuse.py gains a lazy sibling import, and a sibling that loads another
+        # by path: both are found, so the list check above fails until they are listed.
+        with tempfile.TemporaryDirectory() as tmp:
+            ci = Path(tmp)
+            for name in self.listed(self.LIST.read_text()) | {"base_red_excuse.py"}:
+                if not name.endswith("/"):
+                    (ci / name).write_bytes((self.CI / name).read_bytes())
+            (ci / "_vendor" / "yaml").mkdir(parents=True)
+            (ci / "_vendor" / "yaml" / "__init__.py").write_text("")
+            script = ci / "base_red_excuse.py"
+            script.write_text(script.read_text() + "\n\ndef _probe():\n    import new_sibling\n    return new_sibling\n")
+            (ci / "new_sibling.py").write_text('from pathlib import Path\nNEXT = Path(__file__).with_name("deeper.py")\n')
+            (ci / "deeper.py").write_text("")
+            derived = self.derive(ci)
+        self.assertEqual(derived - self.listed(self.LIST.read_text()), {"new_sibling.py", "deeper.py"})
 
 
 if __name__ == "__main__":
