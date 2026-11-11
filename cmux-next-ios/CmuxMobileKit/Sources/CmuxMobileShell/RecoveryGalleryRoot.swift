@@ -29,10 +29,14 @@ public struct RecoveryGalleryRoot: View {
     }
 
     let scene: String
+    /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
+    let scheme: ColorScheme?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         scene = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let look = arguments.firstIndex(of: "-cmux-mobile-gallery-appearance").flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
+        scheme = look == "dark" ? .dark : look == "light" ? .light : nil
     }
 
     public var body: some View {
@@ -59,6 +63,7 @@ public struct RecoveryGalleryRoot: View {
         }
         .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
         .accessibilityIdentifier("recoveryGallery.\(scene)")
+        .preferredColorScheme(scheme)
     }
 
     private var states: some View {
