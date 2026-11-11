@@ -3514,9 +3514,10 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 
 /* A look at a video's frames (VideoFramesCard.tsx): the video's name and length, then its frames
- * in one row that scrolls sideways, each in a box of the video's shape with its time in a corner.
- * It hangs from the row's words, as any line under a row does. `grid` and `poster` are the
- * gallery's alternatives. */
+ * in rows that wrap down the pane, never a row that scrolls sideways (Leo, 2026-11-11: "shouldn't
+ * this be... not horizontally scrolled? as in, it goes down instead of to the right?"), each in a
+ * box of the video's shape with its time in a corner. It hangs from the row's words, as any line
+ * under a row does. `grid` and `poster` are the gallery's alternatives. */
 .cv-video-frames {
   --cv-video-frame-width: 112px;
   display: flex;
@@ -3577,9 +3578,9 @@ button.cv-video-frames__name:focus-visible {
 }
 .cv-video-frames__strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   max-width: 100%;
-  overflow-x: auto;
 }
 .cv-video-frames__grid {
   display: grid;
