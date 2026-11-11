@@ -37,7 +37,7 @@ import Testing
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: me)
         let (conv, w) = core.install(ConversationID("conv_viewer_keys"), items: items, summary: summary)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 800, height: 700)), wake: NoWake())
         window.contentView = controller.host
@@ -52,11 +52,13 @@ import Testing
                            index: 0)
     }
 
-    /// The viewer opened over `controller`'s pane the way a click opens it (``HomePictureViewerMount``).
+    /// The viewer opened over `controller`'s pane the way a click opens it (``ChatController/presentPictures``).
     static func openViewer(over controller: ChatController, closed: @escaping () -> Void) async throws -> HomePictureViewer {
         let picture = try HomePictureViewerTests.image(width: 1600, height: 1000, gray: 0.5)
-        #expect(HomePictureViewerMount(host: controller.host).open(gallery(), load: { _ in picture }, onClose: closed, onReply: { _ in }))
+        controller.presentPictures(gallery()) { _ in picture }
         let viewer = try #require(controller.pictureViewer)
+        let close = viewer.onClose
+        viewer.onClose = { close(); closed() }
         viewer.reduceMotion = { true }
         await viewer.loaded()
         viewer.layoutSubtreeIfNeeded()
@@ -80,6 +82,31 @@ import Testing
 
         window.firstResponder?.keyDown(with: try HomePictureViewerCloseAndFlipTests.key("\u{1b}", code: HomePictureViewerCloseAndFlipTests.escape))
         #expect(closed == 1, "one Esc closes the viewer")
+    }
+
+    @Test func anEscWhileTheBoxUnderTheViewerHasTheKeyboardStillClosesIt() async throws {
+        let (window, controller) = Self.pane()
+        var closed = 0
+        let viewer = try await Self.openViewer(over: controller) { closed += 1 }
+        let field = try #require(controller.demo?.compose.textView.view)
+        #expect(window.makeFirstResponder(field))
+        let esc = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        try #require(esc.window === window)
+        #expect(viewer.claimsEscape(esc), "the viewer's window monitor takes the Esc")
+        #expect(closed == 1)
+        #expect(!viewer.claimsEscape(esc), "a closed viewer leaves Esc to the pane")
+    }
+
+    @Test func theOpenViewerIsWhereHomesKeyboardAndTypedKeysGo() async throws {
+        let (_, controller) = Self.pane()
+        let field = try #require(controller.demo?.compose.textView.view)
+        #expect(controller.keyboardTarget === field)
+        let viewer = try await Self.openViewer(over: controller) {}
+        #expect(controller.keyboardTarget === viewer)
+        #expect(!controller.historyTakesArrowKeys(from: viewer), "Up and Down are the viewer's, not the box's history")
+        viewer.close()
+        #expect(controller.keyboardTarget === field, "a closing viewer gives the box its keyboard back")
     }
 
     /// A wheel event of `lines` notches (positive: the wheel turned away from the person) with no phase and no
