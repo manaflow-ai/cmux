@@ -7569,10 +7569,20 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text);
 }
-/* The quiet line under the row (RunElsewhere.tsx RunElsewhereLine) is the failed call's cause line
-   (.cv-tool-error, which it also carries): the plan loading, or why the command stays here. */
+/* The quiet line under the row (RunElsewhere.tsx RunElsewhereLine): the plan loading, or why the
+   command stays here. A status line in the row's dim ink, under its words, cut to the width. Its
+   own rule, not .cv-tool-error's: failed calls hide their cause line. */
 .cv-run-elsewhere-line {
   display: block;
+  margin: 0 0 var(--ds-space-1);
+  padding-left: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-run-elsewhere__head {
   display: flex;

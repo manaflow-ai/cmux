@@ -56,7 +56,8 @@ function usePast(due: number | undefined, now: () => number = Date.now): boolean
  * quiet line that says why it stays here (nothing to press: the line is the whole answer). */
 export function afterPlan(plan: RunPlan, last?: string): RunState {
   if (!plan.eligible) return { phase: "note", text: translate("runElsewhere.stays", { why: plan.why ?? "" }) };
-  if (plan.machines.length === 0) return { phase: "note", text: translate("runElsewhere.noMachine") };
+  // A machine connected later can take it: the chip stays, beside the line, to ask again.
+  if (plan.machines.length === 0) return { phase: "note", text: translate("runElsewhere.noMachine"), retry: true };
   return { phase: "choosing", plan, machine: firstMachine(plan.machines, last), send: [] };
 }
 
@@ -72,7 +73,10 @@ export function afterPlanError(runs: Runs, error: unknown): RunState {
   // acpmux's refusal (a JSON-RPC code) names why the command stays; anything else (this chat lost
   // its connection) is its own sentence.
   const fromAcpmux = typeof error === "object" && error !== null && "code" in error;
-  return { phase: "note", text: fromAcpmux ? translate("runElsewhere.stays", { why }) : why };
+  // A lost connection passes: the chip stays to ask again once the chat is back.
+  return fromAcpmux
+    ? { phase: "note", text: translate("runElsewhere.stays", { why }) }
+    : { phase: "note", text: why, retry: true };
 }
 
 /** Opens the panel: reads what would go, then shows it. */
@@ -116,7 +120,9 @@ export function RunElsewhereChip({
   const relays = useHostRelays(runs);
   const due = runs && relays ? chipDueAt({ kind, command, startedAt, running, background }) : undefined;
   const past = usePast(due, now);
-  if (!runs || !relays || !past || !command || run) return null;
+  // A note that may pass (no machine yet, a lost connection) keeps the chip to ask again.
+  const shown = run && !(run.phase === "note" && run.retry);
+  if (!runs || !relays || !past || !command || shown) return null;
   const open = (event: MouseEvent | KeyboardEvent) => {
     // The chip sits in the row's toggle: it never opens or closes the row (as PreviewChip.tsx).
     event.preventDefault();
@@ -161,7 +167,7 @@ export function RunElsewhereBelow({ toolCallId, command }: { toolCallId: string;
  * no control: the line is the answer, and the row goes on as it was. */
 function RunElsewhereLine({ text, busy }: { text: string; busy?: boolean }) {
   return (
-    <output className="cv-tool-error cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
+    <output className="cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
       {text}
     </output>
   );

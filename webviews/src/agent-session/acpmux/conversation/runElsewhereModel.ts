@@ -63,7 +63,8 @@ export interface RunElsewhereClient {
  * or choosing (the panel is open), then running and ended. */
 export type RunState =
   | { phase: "loading" }
-  | { phase: "note"; text: string }
+  /** `retry`: the answer may change (no machine yet, a lost connection), so the chip stays. */
+  | { phase: "note"; text: string; retry?: boolean }
   | { phase: "choosing"; plan: RunPlan; machine?: string; send: string[]; error?: string; starting?: boolean }
   | {
       phase: "running" | "ended";

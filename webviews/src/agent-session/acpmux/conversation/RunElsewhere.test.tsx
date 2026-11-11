@@ -350,10 +350,31 @@ test("a command acpmux keeps here shows only one line with its reason", async ()
   expectOnlyLine(host, translate("runElsewhere.stays", { why: "vim needs this machine" }));
 });
 
-test("no connected machine shows only one line pointing to Machines", async () => {
-  const { runs } = harness([], async () => ({ ...PLAN, machines: [] }));
+test("no connected machine shows one line pointing to Machines, and the chip stays to ask again", async () => {
+  let machines: RunPlan["machines"] = [];
+  const { runs } = harness([], async () => ({ ...PLAN, machines }));
   const host = await clickChip(runs);
-  expectOnlyLine(host, translate("runElsewhere.noMachine"));
+  const line = host.querySelector(".cv-run-elsewhere-line");
+  expect(line?.textContent).toBe(translate("runElsewhere.noMachine"));
+  expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
+  expect(host.querySelector("kbd")).toBeNull();
+  // A machine connects: the chip asks again and the panel opens.
+  machines = PLAN.machines;
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere-line")).toBeNull();
+  expect(host.querySelector(".cv-run-elsewhere__run")).not.toBeNull();
+});
+
+test("the stays-here line has its own rule, never a failed call's hidden cause line", async () => {
+  const { runs } = harness([], async () => ({ eligible: false, why: "vim needs this machine", machines: [] }));
+  const host = await clickChip(runs);
+  const line = host.querySelector(".cv-run-elsewhere-line")!;
+  expect(line.classList.contains("cv-tool-error")).toBe(false);
+  const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
+  const rule = css.slice(css.indexOf(".cv-run-elsewhere-line {"));
+  const body = rule.slice(0, rule.indexOf("}"));
+  for (const hidden of ["position: absolute", "clip-path", "display: none"]) expect(body).not.toContain(hidden);
 });
 
 test("the host refusing to relay the run says so plainly, and no row offers it again", async () => {
