@@ -859,6 +859,135 @@ mkdir -p node_modules/.bin
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1, result.stderr)
 
+    # A script `sh` runs when the hook's first `git rev-parse` reaches a shell named git.
+    def plant_rev_parse(self):
+        marker = self.root / "checkout-rev-parse-ran"
+        (self.repo / "rev-parse").write_text(f": > {shlex.quote(str(marker))}\n")
+        return marker
+
+    def test_a_checkout_link_named_git_to_an_outside_shell_never_runs(self):
+        """Codex review of #41001 (F1): only the final target was checked, so a tracked
+        tools/bin/git -> /bin/sh passed, and the hook's `git rev-parse` ran the checkout's rev-parse."""
+        self.assertEqual(self.install().returncode, 0)
+        marker = self.plant_rev_parse()
+        tools = self.repo / "tools/bin"
+        tools.mkdir(parents=True)
+        (tools / "git").symlink_to("/bin/sh")
+        self.git("add", "tools/bin/git")
+        env = self.formatter_env(with_rustfmt=False)
+        env["PATH"] = f"{tools}{os.pathsep}{env['PATH']}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(marker.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertEqual(result.returncode, 0, "PATH's real git runs instead\n" + result.stderr)
+
+    # A webviews package with a package-lock.json and no vp: the hook installs it with the
+    # PATH npm, an outside script whose `#!/usr/bin/env <interpreter>` looks its interpreter up.
+    def npm_bootstrap_env(self, interpreter="node"):
+        env = self.bootstrap_env()
+        web = self.repo / "webviews"
+        (web / "bun.lock").unlink()
+        (web / "package-lock.json").write_text('{"packages": {}}\n')
+        npm = self.root / "npm-bin/npm"
+        npm.parent.mkdir(exist_ok=True)
+        npm.write_text(f"#!/usr/bin/env {interpreter}\nexit 1\n")
+        npm.chmod(0o755)
+        env["PATH"] = f"{npm.parent}{os.pathsep}{env['PATH']}"
+        return env
+
+    def checkout_interpreter(self, name):
+        """A program in the checkout that leaves its marker when it runs."""
+        marker = self.root / f"checkout-{name}-ran"
+        payload = self.repo / "payload-bin" / name
+        payload.parent.mkdir(exist_ok=True)
+        real = shutil.which(name, path=str(self.root / "bin-plain"))
+        payload.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n"
+                           + (f'exec {shlex.quote(real)} "$@"\n' if real else "exit 1\n"))
+        payload.chmod(0o755)
+        return payload, marker
+
+    def test_an_outside_node_linking_into_the_checkout_never_runs_for_npm(self):
+        """Codex review of #41001 (F2): the children's PATH dropped checkout directories but kept an
+        outside directory holding node -> <checkout>/payload, so npm's `#!/usr/bin/env node` ran it."""
+        self.assertEqual(self.install().returncode, 0)
+        payload, marker = self.checkout_interpreter("node")
+        outside = self.root / "outside-bin"
+        outside.mkdir()
+        (outside / "node").symlink_to(payload)
+        env = self.npm_bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{outside}"
+        result = self.run_pre_commit(env)
+        self.assertFalse(marker.exists(), result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+
+    def symlink_layouts(self, name, payload):
+        """(label, PATH entry) for each layout that steers a lookup of name at payload in the checkout."""
+        layouts = []
+
+        def place(label, directory):
+            layouts.append((label, str(directory)))
+            return directory
+
+        d = place("a file in a checkout directory", self.repo / f"lay-file-{name}")
+        d.mkdir()
+        shutil.copy2(payload, d / name)
+        d = place("an outside link to a checkout file", self.root / f"lay-link-{name}")
+        d.mkdir()
+        (d / name).symlink_to(payload)
+        d = place("a relative outside link into the checkout", self.root / f"lay-relative-{name}")
+        d.mkdir()
+        (d / name).symlink_to(os.path.relpath(payload, d))
+        place("an outside directory linking to a checkout directory",
+              self.root / f"lay-dirlink-{name}").symlink_to(payload.parent, target_is_directory=True)
+        hop = self.root / f"lay-dirhop-{name}"
+        hop.symlink_to(payload.parent, target_is_directory=True)
+        place("chained outside directory links into the checkout",
+              self.root / f"lay-dirchain-{name}").symlink_to(hop, target_is_directory=True)
+        d = place("chained file links through the checkout", self.root / f"lay-chain-{name}")
+        d.mkdir()
+        outside_hop = self.root / f"lay-chain-hop2-{name}"
+        outside_hop.symlink_to(payload)
+        checkout_hop = self.repo / f"lay-chain-hop1-{name}"
+        checkout_hop.symlink_to(outside_hop)
+        (d / name).symlink_to(checkout_hop)
+        d = place("an outside directory linking to checkout links",
+                  self.root / f"lay-mixed-{name}")
+        d.symlink_to(self.repo / f"lay-mixed-target-{name}", target_is_directory=True)
+        (self.repo / f"lay-mixed-target-{name}").mkdir()
+        (self.repo / f"lay-mixed-target-{name}" / name).symlink_to(payload)
+        if name == "git":
+            # The F1 class: a link the checkout controls, whose final target is an outside program.
+            d = place("a checkout link to an outside shell", self.repo / "lay-shell")
+            d.mkdir()
+            (d / "git").symlink_to("/bin/sh")
+            d = place("an outside link through a checkout link to an outside shell", self.root / "lay-shell-chain")
+            d.mkdir()
+            (self.repo / "lay-shell-hop").symlink_to("/bin/sh")
+            (d / "git").symlink_to(self.repo / "lay-shell-hop")
+        return layouts
+
+    def test_no_symlink_layout_runs_anything_under_the_checkout(self):
+        """The class behind F1 and F2: every name the hook or its children run goes through one
+        checked resolver that rejects any hop inside the checkout. For git (run by the hook), node
+        and sh (run by an npm's shebang), every layout of links and directories that would steer the
+        name into the checkout runs nothing there."""
+        self.assertEqual(self.install().returncode, 0)
+        self.formatter_env(with_rustfmt=False)  # makes bin-plain for the payloads' real tools
+        rev_parse = self.plant_rev_parse()
+        for name in ("git", "node", "sh"):
+            payload, marker = self.checkout_interpreter(name)
+            for label, entry in self.symlink_layouts(name, payload):
+                with self.subTest(name=name, layout=label):
+                    marker.unlink(missing_ok=True)
+                    rev_parse.unlink(missing_ok=True)
+                    env = self.npm_bootstrap_env(name) if name != "git" else self.formatter_env(with_rustfmt=False)
+                    env["PATH"] = f"{entry}{os.pathsep}{env['PATH']}"
+                    result = self.run_pre_commit(env)
+                    self.assertEqual([m.name for m in (marker, rev_parse) if m.exists()], [], result.stderr)
+                    self.assertIn("inside this checkout", result.stderr)
+                    if name == "git":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
