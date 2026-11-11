@@ -24,7 +24,7 @@ calls=$(wc -l < "$FAKE_ZIG_LOG")
 """
 
 
-def run(failures: int, attempts: int) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
+def run(failures: int, attempts: int, extra: dict[str, str] | None = None) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
     tmp = Path(tempfile.mkdtemp())
     bin_dir, project, log = tmp / "bin", tmp / "project", tmp / "zig.log"
     bin_dir.mkdir()
@@ -34,7 +34,8 @@ def run(failures: int, attempts: int) -> tuple[subprocess.CompletedProcess[str],
     zig.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_ZIG_LOG": str(log),
            "FAKE_ZIG_FAILURES": str(failures), "CMUX_ZIG_FETCH_ATTEMPTS": str(attempts),
-           "CMUX_ZIG_FETCH_BACKOFF_S": "0", "CMUX_ZIG_FETCH_TIMEOUT_S": "30"}
+           "CMUX_ZIG_FETCH_BACKOFF_S": "0", "CMUX_ZIG_FETCH_TIMEOUT_S": "30", "CMUX_ZIG_SEED": "0",
+           **(extra or {})}
     result = subprocess.run(["bash", str(SCRIPT), str(project)], env=env, capture_output=True, text=True, timeout=60)
     calls = log.read_text().splitlines() if log.exists() else []
     return result, calls, project
@@ -60,6 +61,23 @@ def test_a_fetch_that_keeps_failing_stops_after_the_last_attempt() -> None:
     assert result.returncode == 1
     assert len(calls) == 3
     assert "failed 3 times" in result.stderr
+
+
+def test_mirror_only_gives_zig_no_route_out() -> None:
+    # No build fetches from a third-party host (codeberg.org, 2026-11-11): in CI,
+    # Zig reads only the packages the mirror seeded.
+    global FAKE_ZIG
+    proxy_log = Path(tempfile.mkdtemp()) / "proxy.log"
+    fake = FAKE_ZIG.replace('echo "$PWD $*"', f'echo "${{https_proxy:-none}}" >> {proxy_log}; echo "$PWD $*"')
+    saved, FAKE_ZIG = FAKE_ZIG, fake
+    try:
+        result, _, _ = run(failures=0, attempts=1, extra={"CI": "true", "CMUX_ZIG_MIRROR_ONLY": ""})
+        assert result.returncode == 0, result.stderr
+        assert proxy_log.read_text().split() == ["http://127.0.0.1:9"]
+        result, _, _ = run(failures=0, attempts=1, extra={"CI": "true", "CMUX_ZIG_MIRROR_ONLY": "0"})
+        assert proxy_log.read_text().split() == ["http://127.0.0.1:9", "none"]
+    finally:
+        FAKE_ZIG = saved
 
 
 def main() -> int:
