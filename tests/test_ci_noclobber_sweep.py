@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -143,7 +144,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "7e1057a751fad50f874faa113cd43789e3223195c7e6093cf97d3bf0e086dc82"
+SHELL_TREE_PIN = Path(__file__).resolve().parent / "shell_tree.pin"
 
 
 def without_templates(line: str) -> str:
@@ -425,11 +426,62 @@ class NoclobberSweep(unittest.TestCase):
                  ("scripts/qq", '#!/usr/bin/env -S "bash" -e' + body, True)]
         self.assertEqual(scratch_hits(files), {"scripts/q", "scripts/qq"})
 
-    def test_shell_tree_is_the_shared_copy(self):
-        """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
+    def test_an_assignment_word_is_read_where_bash_reads_it(self):
+        """Review of #4382 at 311cf8e9, F1, and of manaflow-ai/cmuxterm-hq#9393 at 52412c22, F1 and F2: a NAME=value
+        word sets NAME or names the command by where it sits. Each row of shell_tree.ASSIGNMENT_WORDS is what the tree
+        reads and what bash does: `cmd` prints the X names in its environment."""
+        bindir = tempfile.mkdtemp(prefix="assign-")
+        try:
+            with open(os.path.join(bindir, "cmd"), "w") as f:
+                f.write("#!/bin/sh\nexec env\n")
+            os.chmod(os.path.join(bindir, "cmd"), 0o700)
+            for text, want in shell_tree.ASSIGNMENT_WORDS:
+                with self.subTest(text=text):
+                    self.assertEqual(shell_tree.assigned_names(text), want, "the tree")
+                    run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text],
+                                         env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                                         capture_output=True, text=True, timeout=30)
+                    got = sorted(re.findall(r"(?m)^(X\w*)=", run.stdout))
+                    named = sorted(n for n in want if n != "?")
+                    self.assertEqual(len(got), len(want), f"bash set {got}")
+                    self.assertTrue(set(named) <= set(got), f"bash set {got}")
+        finally:
+            shutil.rmtree(bindir, ignore_errors=True)
+
+    def test_a_setsid_child_is_killed_at_the_deadline(self):
+        """Review of manaflow-ai/cmuxterm-hq#9393 at 52412c22, F3: a setsid child left bash's process group, so the
+        group kill missed it and the run waited for it. Every process the run leaves is killed at the deadline."""
+        started = time.monotonic()
+        with self.assertRaises(shell_tree.BashTimeout):
+            shell_tree.bash_writes("setsid /bin/sleep 2", timeout=0.2)
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_a_mktemp_by_its_path_never_reaches_the_real_temp_folder(self):
+        """Review of manaflow-ai/cmuxterm-hq#9393 at 52412c22, F4: /usr/bin/mktemp ran the real mktemp, which made
+        its name in the real /tmp. Each mktemp is the fake, and TMPDIR is the run's own folder besides."""
+        before = mktemp_names()
+        for text in ("/usr/bin/mktemp", "d=$(env -i /usr/bin/mktemp -d)", "m=/usr/bin/mktemp; $m"):
+            with self.subTest(text=text):
+                self.assertIs(shell_tree.bash_writes(text), False)
+        # Another process of this user may make a name there meanwhile; a name is never removed here, since which
+        # process made it cannot be told.
+        self.assertEqual(mktemp_names() - before, set())
+
+    def test_a_shell_inside_a_shell_runs(self):
+        """Review of manaflow-ai/cmux-platform#1274, F1: the scratch PATH had no bash and no sh, so a shell inside a
+        shell failed before it ran, and bash could not check the tree there."""
+        for text in ("env -S \"bash -c 'printf x > /tmp/out.$$'\"", "sh -c 'printf x > /tmp/out.$$'"):
+            with self.subTest(text=text):
+                self.assertIs(shell_tree.bash_writes(text), True)
+
+    def test_shell_tree_is_the_pinned_copy(self):
+        """shell_tree.py is vendored from teamleaderleo/leo-workspace tools/shell_tree.py, byte for byte, at the commit
+        shell_tree.pin names; leo-workspace's VendoredCopies test checks it against that commit."""
+        pin = dict(kv.split("=", 1) for kv in SHELL_TREE_PIN.read_text().split())
+        self.assertRegex(pin.get("leo-workspace", ""), r"^[0-9a-f]{40}$")
         digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
-        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py is not the shared copy: change it in manaflow-ai/"
-                         "cmux, cmux-platform, cmuxterm-hq and teamleaderleo/leo-workspace together, and each pin")
+        self.assertEqual(digest, pin.get("sha256"), "shell_tree.py was edited here: change leo-workspace "
+                         "tools/shell_tree.py, then copy it here and its commit and sha256 into shell_tree.pin")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))

@@ -887,6 +887,19 @@ def resolve(text: str, cmd: Command) -> Resolved:
     return Resolved([at(i, spans) for i, spans in where], run, got)
 
 
+def assigned_names(text: str) -> list[str]:
+    """The names TEXT's commands set with NAME=value words (resolve()), in order: "?" for one whose name only a run
+    can tell, or a declaration builtin's word that may be NAME=value (export "$V")."""
+    out = []
+    for cmd in commands(parse(text)):
+        run = resolve(text, cmd)
+        for _, raw in run.assigned:
+            name = re.sub(r"\[.*$", "", raw.split("=", 1)[0].rstrip("+"))
+            out.append("?" if "\0" in name else name)
+        out += ["?"] * len(getattr(run, "unknown", []))
+    return out
+
+
 def words_run(text: str, cmd: Command) -> list[Word] | None:
     """CMD's words from the command it runs on (resolve()), its name first: None when that cannot be told."""
     return resolve(text, cmd).words or None
@@ -1209,11 +1222,20 @@ WRAPPERS_SAFE = ("time -p", "env", "env -i", "env -i PATH=/usr/bin:/bin", "env -
                  # teamleaderleo/leo-workspace#4382 review at cc43afa6, F3: GNU env's whole option table.
                  "env --default-signal=PIPE", "env --default-signal", "env --ignore-signal=INT", "env --block-signal",
                  "env -a name", "env -aname", "env --argv0=name", "env --list-signal-handling", "env -v", "env -0i",
-                 "timeout -v 5", "timeout --signal=KILL 5", "timeout --foreground -k 1 5")
+                 "timeout -v 5", "timeout --signal=KILL 5", "timeout --foreground -k 1 5",
+                 # env reads its NAME=value words after quote removal (ASSIGNMENT_WORDS; teamleaderleo/leo-workspace#4382
+                 # review at 311cf8e9, F1).
+                 'env -i "X"=1', 'env X_"Y"=1', "env X\\_Y=1", "env $'X'=1", 'env -- "X"=1', 'env "$V"=1')
 WRAPPERS_UNSAFE = ("env -u mktemp", "env -C mktemp", "timeout mktemp", "nice -n mktemp", "exec -a mktemp",
                    "command -v mktemp", "env --bogus mktemp", "stdbuf -o mktemp", "timeout -s mktemp 5",
                    "env -a mktemp", "nice --bogus mktemp", "timeout --bogus 5 mktemp",
-                   "setsid --bogus mktemp", "time --bogus mktemp", "exec -z mktemp")
+                   "setsid --bogus mktemp", "time --bogus mktemp", "exec -z mktemp",
+                   # NAME=value where bash runs it as the command's name (ASSIGNMENT_WORDS): after exec
+                   # (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F1), after a long option (F2), and quoted before
+                   # the command (teamleaderleo/leo-workspace#4382 review at 311cf8e9, F1). And env "$V", which may be
+                   # NAME=value or the command.
+                   "exec X=1 mktemp", 'time --portability "X"=1 mktemp', '"X"=1 mktemp', 'X_"Y"=1 mktemp',
+                   "X\\_Y=1 mktemp", "$'X'=1 mktemp", 'env "$V" mktemp')
 # A command inside env's -S string (teamleaderleo/leo-workspace#4368 review at cfd7897e, F3): env splits it into words
 # as it splits any -S string, ${NAME} expanded; a $ without braces, or a $( ), makes env refuse it. The template words
 # inside it are exempt where they sit in the -S argument, and nothing else is.
@@ -1237,6 +1259,72 @@ ENV_SPLIT = (
     ("d=$(env -i mktemp -d)", False),
     ("env -i mktemp", False),
     ("command -p mktemp -d", False),
+    # manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F4: mktemp by its path runs the fake too.
+    ("/usr/bin/mktemp", False),
+    ("d=$(env -i /usr/bin/mktemp -d)", False),
+    # manaflow-ai/cmux-platform#1274 review, F1: a shell inside a shell runs, so bash checks it too.
+    ("env -S \"bash -c 'printf x > /tmp/out.$$'\"", True),
+    ("sh -c 'printf x > /tmp/out.$$'", True),
+)
+
+# Where a NAME=value word sets NAME, as bash reads it: (text, the names it sets, "?" for one whose name only a run can
+# tell). Each row is what bash did with it (teamleaderleo/leo-workspace#4382 review at 311cf8e9, F1), and the
+# sweep's test runs bash on each to keep it so: before the command, bash takes NAME=value only with its name
+# unquoted, so "X"_Y=0 cmd runs a command named X_Y=0; env and the declaration builtins (DECLARES) read their
+# words after quote removal, so env "X"_Y=0 cmd and export X_"Y"=0 set X_Y. After exec, NAME=value is the command.
+ASSIGNMENT_WORDS = (
+    ("X_TIMEOUT=0 cmd", ["X_TIMEOUT"]),
+    ('"X_TIMEOUT"=0 cmd', []),
+    ('X_"TIMEOUT"=0 cmd', []),
+    ('"X"_Y=0 cmd', []),
+    ("X\\_Y=0 cmd", []),
+    ("$'X'=0 cmd", []),
+    ('env "X_TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
+    ('env X_"TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
+    ('env "X"_Y=0 cmd', ["X_Y"]),
+    ("env X\\_Y=0 cmd", ["X_Y"]),
+    ("env $'X'=0 cmd", ["?"]),
+    ('env -u HOME -- "X_T"=0 cmd', ["X_T"]),
+    ('export "X_TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
+    ('export X_"TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
+    ('export "X"_Y=0; cmd', ["X_Y"]),
+    ("export X\\_Y=0; cmd", ["X_Y"]),
+    ("export $'X'=0; cmd", ["?"]),
+    ('declare -x "X_T"=0; cmd', ["X_T"]),
+    ('f() { local -x "X_T"=0; cmd; }; f', ["X_T"]),
+    ('readonly "X_T"=0; export X_T; cmd', ["X_T"]),
+    ("exec X_T=0 cmd", []),
+    ("time -p X_T=0 cmd", ["X_T"]),
+)
+
+# Where a NAME=value word sets NAME, as bash reads it: (text, the names it sets, "?" for one whose name only a run can
+# tell). Each row is what bash did with it (teamleaderleo/leo-workspace#4382 review at 311cf8e9, F1), and the
+# sweep's test runs bash on each to keep it so: before the command, bash takes NAME=value only with its name
+# unquoted, so "X"_Y=0 cmd runs a command named X_Y=0; env and the declaration builtins (DECLARES) read their
+# words after quote removal, so env "X"_Y=0 cmd and export X_"Y"=0 set X_Y. After exec, NAME=value is the command.
+ASSIGNMENT_WORDS = (
+    ("X_TIMEOUT=0 cmd", ["X_TIMEOUT"]),
+    ('"X_TIMEOUT"=0 cmd', []),
+    ('X_"TIMEOUT"=0 cmd', []),
+    ('"X"_Y=0 cmd', []),
+    ("X\\_Y=0 cmd", []),
+    ("$'X'=0 cmd", []),
+    ('env "X_TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
+    ('env X_"TIMEOUT"=0 cmd', ["X_TIMEOUT"]),
+    ('env "X"_Y=0 cmd', ["X_Y"]),
+    ("env X\\_Y=0 cmd", ["X_Y"]),
+    ("env $'X'=0 cmd", ["?"]),
+    ('env -u HOME -- "X_T"=0 cmd', ["X_T"]),
+    ('export "X_TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
+    ('export X_"TIMEOUT"=0; cmd', ["X_TIMEOUT"]),
+    ('export "X"_Y=0; cmd', ["X_Y"]),
+    ("export X\\_Y=0; cmd", ["X_Y"]),
+    ("export $'X'=0; cmd", ["?"]),
+    ('declare -x "X_T"=0; cmd', ["X_T"]),
+    ('f() { local -x "X_T"=0; cmd; }; f', ["X_T"]),
+    ('readonly "X_T"=0; export X_T; cmd', ["X_T"]),
+    ("exec X_T=0 cmd", []),
+    ("time -p X_T=0 cmd", ["X_T"]),
 )
 
 
