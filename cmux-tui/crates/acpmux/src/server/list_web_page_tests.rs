@@ -1,9 +1,11 @@
-//! A whole session list goes to a Web or peer connection in pages of at most
-//! [`WEB_LIST_PAGE_BYTES`] (`list_reply.rs`'s bound), each with the `nextCursor` of
-//! the rest. On 2026-11-06 one Mac (about 500 chats) sent a 24.8 MB `_acpmux/watch` list to a
-//! local Web connection (the mobile host's push watcher, whose socket takes frames up to 16 MiB)
-//! about once a minute for hours: the client dropped each one and asked again, and the Mac's
-//! own chat panes waited behind those lists. The app's own connections still read it whole.
+//! A whole session list goes to every connection (Web, peer, and the app's own) in pages of at
+//! most [`PAGE_BYTES`] (`list_reply.rs`'s bound), each with the `nextCursor` of the rest. On
+//! 2026-11-06 one Mac (about 500 chats) sent a 24.8 MB `_acpmux/watch` list to a local Web
+//! connection (the mobile host's push watcher, whose socket takes frames up to 16 MiB) about
+//! once a minute for hours: the client dropped each one and asked again, and the Mac's own chat
+//! panes waited behind those lists. On 2026-11-11 the app's own connections, which still read it
+//! whole, got a 31 MB list near the frame cap again and again, and a prompt's acknowledgement
+//! waited behind it.
 
 use crate::config::{Config, StoreMode};
 use crate::peer::{Peer, PeerNotice};
@@ -16,17 +18,14 @@ use tokio::sync::mpsc;
 
 use super::Origin;
 
-/// `list_reply.rs`'s bound on one list reply to a Web or peer connection.
-const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
+/// `list_reply.rs`'s bound on one list reply, on every connection.
+const PAGE_BYTES: usize = crate::rpc::REPLY_PAGE_BYTES;
 
 /// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
 const OWN: usize = 3_000;
 const TITLE_BYTES: usize = 10_000;
 /// A chat mirrored from the peer `box`.
 const MIRRORED: &str = "box-chat";
-
-/// The most a reply line adds to its result: the frame's id and envelope.
-const FRAME: usize = 256;
 
 async fn hub() -> Arc<crate::hub::Hub> {
     hub_of(OWN, TITLE_BYTES, "idle").await
@@ -143,7 +142,7 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
     let mut web = Client::on(&hub, Origin::Web).await;
     let (ids, sizes) = web.whole_watch().await;
     assert!(sizes.len() > 1, "a list past one page goes in pages: {sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= PAGE_BYTES), "{sizes:?}");
     // Every row once: the pages neither skip nor repeat one.
     assert_eq!(sorted(ids), every_id());
 }
@@ -154,7 +153,7 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole_watch().await;
     assert!(sizes.len() > 1, "{sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= PAGE_BYTES), "{sizes:?}");
     // Every row once, the mirrored one too: each page has the same rows as the first
     // (the link drops the mirrored ones on each page itself, `watch_sessions`).
     assert_eq!(sorted(ids), every_id());
@@ -166,24 +165,25 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
     assert!(sizes.len() > 1, "{sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= PAGE_BYTES), "{sizes:?}");
     assert_eq!(sorted(ids), every_id());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_apps_own_connection_still_reads_the_list_in_one_reply() {
+async fn the_apps_own_connection_reads_a_large_whole_list_in_bounded_pages() {
     let hub = hub().await;
-    // The app's watch feeds read their list in one reply (AgentTurnStateFeed).
+    // The app's watch feeds follow the cursor (AgentTurnStateFeed `pageRequest`, the pane's
+    // `SessionPager.whole`), so its own connection pages too.
     let mut local = Client::on(&hub, Origin::Local).await;
-    let (page, size, _) = local.call(method::MUX_WATCH, json!({"enabled": true})).await;
-    assert!(page.get("nextCursor").is_none_or(Value::is_null), "no cursor");
-    assert_eq!(page["sessions"].as_array().unwrap().len(), OWN + 1);
-    assert!(size > WEB_LIST_PAGE_BYTES);
+    let (ids, sizes) = local.whole_watch().await;
+    assert!(sizes.len() > 1, "a list past one page goes in pages: {sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= PAGE_BYTES), "{sizes:?}");
+    assert_eq!(sorted(ids), every_id());
 }
 
 /// Bench: bytes and time of the first watch reply, and of the whole list read in pages, on a Web
-/// connection against the app's own one (the reply every connection got before), on about 9,000
-/// closed chats (a whole list of about 15 MB; summaries cap their titles).
+/// connection against the app's own one, on about 9,000 closed chats (a whole list of about
+/// 15 MB; summaries cap their titles).
 /// `cargo test -p acpmux list_web_page_bench -- --nocapture`.
 #[tokio::test(flavor = "multi_thread")]
 async fn list_web_page_bench() {
