@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+from collections import Counter
 import zipfile
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -3600,6 +3601,50 @@ sys.exit(1)
 """
 
 
+class OneReadPerJudgement(unittest.TestCase):
+    """The real gh client at its wire (subprocess.Popen of gh, under main_fix_evidence.GitHub.run): in one judgement
+    each read (`gh api` REST and GraphQL, a job's log) goes out once, however often it is asked, and a write every
+    time. StaleFfiPinOfAStepARustChange's wire() counts the other entry points (git, the release downloads, the
+    compile receipts) through a whole judgement."""
+
+    def test_the_gh_client_reads_each_call_once_per_judgement(self):
+        calls: Counter = Counter()
+
+        class Gh:
+            def __init__(self, argv, stdout, stderr, **kwargs):
+                calls[tuple(argv)] += 1
+                blob = {"text": "t", "isBinary": False, "isTruncated": False}
+                stdout.write(json.dumps({"data": {"repository": {"object": blob}}} if "graphql" in argv
+                                        else {"workflow_run_id": 5}).encode())
+                self.returncode = 0
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        github = excuse.GitHub()
+
+        def reads():
+            for _ in range(2):
+                github.json(f"repos/{REPO}/commits/{HEAD}")
+                github.blob(REPO, HEAD, "Package.swift")
+                github.log(REPO, {"id": 7, "run_id": 10})
+                github.dispatch(REPO, "w.yml", "feat-cmux-next")
+        with unittest.mock.patch.object(subprocess, "Popen", Gh):
+            excuse.one_judgement(reads)()
+            once = dict(calls)
+            calls.clear()
+            reads()
+        writes = {argv: n for argv, n in once.items() if "POST" in argv}
+        self.assertEqual(set(writes.values()), {2}, once)
+        self.assertEqual({argv: n for argv, n in once.items() if argv not in writes and n != 1}, {})
+        self.assertEqual(len(once), 4, once)
+        # Outside a judgement every read goes out, as before.
+        self.assertEqual(set(calls.values()), {2}, calls)
+
+
 class SourceReads(unittest.TestCase):
     """Another repo's files (HQ's workflows, OTHER_REPO_ROLLUPS) are read with git or GraphQL, never the REST contents
     API, which an agent host's gh shim refuses as a source read. Nothing sets the shim's one-call override."""
@@ -4207,6 +4252,7 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         for line in ("cmux-next/compile is not a pass for {} (pending)", "cmux-next/compile is not a pass for {} (pass)",
                      "cmux-next/compile is not a pass for {} (last: queued)",
                      "cmux-next/compile is not a pass for {} (unavailable)", "could not post the pending status",
+                     "could not post the handoff status", "could not post the overflow handoff status",
                      "bad head sha '{}'"):
             with self.subTest(line=line):
                 self.gh.logs[1] = log(self.FLEET, self.STEP, "##[error]" + line.format(HEAD))
@@ -6132,6 +6178,11 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
         published.start()
         self.addCleanup(published.stop)
+        # Package.swift and app-ffi-pin.json are read as the classifier reads them, git first (git_answers), never
+        # with git stubbed out (review of cmux#41266 at 8fafe451, F1).
+        self.reads: Counter = Counter()
+        self.fail_second = False
+        self.git_answers()
 
     CHECKSUM = "2" * 64
 
@@ -6334,6 +6385,126 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def unplaced_rollup_head(self):
+        """cmux#40552's unplaced checks job (RollupJobReadsItsNamedReds' fixture) as this case's head: its whole log
+        sets the pin aside (a passing step's next-batch lines), so the rollup reading asks the pin rule again."""
+        fixtures = ROOT / "tests/fixtures/test_reds"
+        job = json.loads((fixtures / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh.jobs[1] = dict(job, id=1, run_id=10, head_sha=HEAD)
+        self.gh.logs[1] = (fixtures / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8")
+
+    def git_answers(self):
+        """This case's files from the real excuse.git_text, with git itself faked at subprocess.run: a fetch of any
+        ref, then `git show` of Package.swift or app-ffi-pin.json at it, the same text GitHub.blob serves (none when
+        the head has no such file). Each fetch and show counts in self.reads; after self.wire(fail_second=True) a
+        second fetch of a ref fails, as an unreachable remote does."""
+        real_run = subprocess.run
+
+        def run(argv, *args, **kwargs):
+            if not argv or argv[0] != "git":
+                return real_run(argv, *args, **kwargs)
+            answer = subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
+            if "fetch" in argv:
+                key = ("git fetch", argv[-1].lstrip("+").split(":")[0])
+                self.reads[key] += 1
+                answer.returncode = int(self.fail_second and self.reads[key] > 1)
+            elif "rev-parse" in argv:
+                answer.stdout = b"f" * 40 + b"\n"
+            elif "show" in argv:
+                path = argv[-1].split(":", 1)[1]
+                self.reads[("git show", path)] += 1
+                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
+            return answer
+        cache = tempfile.TemporaryDirectory(prefix="bre-git-")
+        self.addCleanup(cache.cleanup)
+        for patch in (unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT),
+                      unittest.mock.patch.object(subprocess, "run", run),
+                      unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: cache.name})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def wire(self, fail_second=False):
+        """Every network entry point of one judgement counted by key in self.reads: gh (this suite's fake client is
+        the gh transport: its json, run, blob and log), git (git_answers), the release downloads
+        (release_download.fetch under the real ffi_release_file) and the compile receipts (urlopen under the real
+        compile_receipt; the fleet has none). FAIL_SECOND: a second read of any key fails, as a 503 does."""
+        import urllib.error
+        self.fail_second = fail_second
+
+        def second(key):
+            self.reads[key] += 1
+            return fail_second and self.reads[key] > 1
+
+        def through(key, read):
+            if second(key):
+                raise excuse.Refused(f"GitHub evidence request failed: HTTP 503 Service Unavailable ({key})")
+            return read()
+        inner_json, inner_run, inner_blob, inner_log = self.gh.json, self.gh.run, self.gh.blob, self.gh.log
+        self.gh.json = lambda route, *, paginate=False: through(("gh api", route, paginate),
+                                                                lambda: inner_json(route, paginate=paginate))
+        self.gh.run = lambda args: through(("gh", *args), lambda: inner_run(args))
+        self.gh.blob = lambda repo, ref, path: through(("graphql blob", ref, path), lambda: inner_blob(repo, ref, path))
+        self.gh.log = lambda repo, job: through(("gh log", job["id"]), lambda: inner_log(repo, job))
+
+        def fetch(url, out, accept=None, timeout=120):
+            if second(("release", url)):
+                raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+            if url.startswith("https://api.github.com/"):  # the release-assets API: no such asset
+                Path(out).write_text('{"assets": []}')
+                return
+            tag, name = url.rsplit("/", 2)[1:]
+            text = self.release_file(REPO, tag, name)
+            if text is None:
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            Path(out).write_text(text)
+
+        def urlopen(request, timeout=None):
+            url = getattr(request, "full_url", request)
+            raise urllib.error.HTTPError(url, 503 if second(("urlopen", url)) else 404, "receipt", {}, None)
+        for patch in (unittest.mock.patch.object(excuse, "ffi_release_file", REAL_FFI_RELEASE_FILE),
+                      unittest.mock.patch.object(excuse.release_download, "fetch", fetch),
+                      unittest.mock.patch.object(excuse, "compile_receipt", REAL_COMPILE_RECEIPT),
+                      unittest.mock.patch.object(urllib.request, "urlopen", urlopen)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return self.reads
+
+    def release_url(self, name):
+        return f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/{name}"
+
+    def test_review_f1_a_second_read_of_a_proven_published_pin_never_overturns_it(self):
+        # Review of cmux#41151 at bfa0db5f (F1): a Swift change's pin is a published base release it compiled against.
+        # The whole-log reading proves it and sets the pin aside; the rollup reading asks the pin rule again, and its
+        # second read of the release files got a 503, refusing what the first proof had excused. Review of cmux#41266
+        # at 8fafe451 (F1): the same through git, whose second fetch failed, then GraphQL's 503.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.wire(fail_second=True)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}", said[0])
+        self.assertEqual(reads[("release", self.release_url("SOURCE_SHA"))], 1)
+        self.assertEqual(reads[("git show", excuse.FFI_PIN_MANIFEST)], 1, "Package.swift is read through git")
+
+    def test_one_judgement_reads_each_source_once(self):
+        # The class: every network entry point an excuse path reads (gh api, GraphQL, a job's log, git, the release
+        # downloads, the compile receipts) is read once per judgement, however many paths ask. A reader added
+        # outside the memo fails here on its own.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.wire()
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}'"))
+        self.assertEqual({key: n for key, n in reads.items() if n > 1}, {})
+        self.assertTrue({"gh api", "gh", "gh log", "git fetch", "git show", "release"}
+                        <= {key[0] for key in reads}, sorted(reads))
+        # A new judgement reads afresh: nothing is kept past the judgement that read it.
+        self.judge()
+        self.assertEqual(reads[("release", self.release_url("SOURCE_SHA"))], 2)
 
     def test_review_f1_a_failed_compile_job_read_falls_back_to_the_status(self):
         # Review of cmux#41151 at fd50c9b7 (F1), the same class: compile_pass_at's first source (the head's check runs)
@@ -8518,7 +8689,8 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
+    "unnamed_tests", "step_unnamed"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -8842,7 +9014,8 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
 
     def test_a_head_log_that_says_tests_failed_unnamed_is_the_prs_own(self):
         # #41253's review: a runner line saying tests failed with none named could hide a red no test ID matches.
-        with self.assertRaisesRegex(excuse.Refused, "names none"):
+        # #41222's count check (reported against named) refuses it first, before the PR-only step reading is reached.
+        with self.assertRaisesRegex(excuse.Refused, "names none|reports more failed tests than it names"):
             self.judge(PrOnlyStepGitHub(menu=PrOnlyStepGitHub.MENU + (" 1 fail",)))
 
     def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
@@ -9041,7 +9214,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
                        "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
             with self.subTest(marker=marker):
                 said = ["error: expect(received).toBe(expected)", marker]
-                with self.assertRaisesRegex(excuse.Refused, "says tests failed and names none of them"):
+                with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names"):
                     self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
@@ -9506,6 +9679,68 @@ class FailedStepIdentity(unittest.TestCase):
         github.jobs[1]["steps"].append(dict(github.jobs[1]["steps"][2]))
         with self.assertRaisesRegex(excuse.Refused, r"Run package tests \(failure\) x2"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class OneVerdictCoversTheHeadsIdentity(unittest.TestCase):
+    """#41166's review F1 (found again by tests/test_base_red_excuse_property.py, seed 37): compare_window merged the
+    failed-step keys of the whole window (Counter |), so a head whose "Run package tests" failed and a second one was
+    cancelled matched the newest base verdict's failure and an older one's cancel: an identity no base run had. Each
+    verdict is compared alone."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        steps = self.gh.jobs[1]["steps"]
+        steps.append(dict(steps[2], conclusion="cancelled"))
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE)
+        self.gh.base_runs = []
+
+    def base(self, run_id, hour, conclusions):
+        self.gh.base_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                  "created_at": f"2026-11-11T{hour:02d}:00:00Z"})
+        job = failed_job(run_id, run_id, BASE_SHA)
+        job["steps"] = job["steps"][:2] + [dict(job["steps"][2], conclusion=c) for c in conclusions]
+        self.gh.jobs[run_id] = job
+        self.gh.logs[run_id] = log(SWIFT, TEST_STEP, ISSUE)
+
+    def test_a_failure_and_a_cancel_split_over_two_verdicts_is_not_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["cancelled"])
+        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next any of runs 30, 29 with the "
+                                                    r"same conclusion, as often, each verdict alone"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_one_verdict_with_both_is_still_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["failure", "cancelled"])
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+class EveryReportedFailureIsNamed(unittest.TestCase):
+    """#41166's review F2 (found again by tests/test_base_red_excuse_property.py, seeds 7 and 12): an unnamed failure
+    was recorded only when no failing test was named at all, and the placed comparison never asked, so a log with one
+    parsed name and one failure no parser reads (a cargo doc test) was excused as if fully identified. Whenever a
+    runner reports more failures than it names, the red is refused, placed or whole."""
+
+    CARGO = ["running 2 tests", "test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+             "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_placed(self):
+        github = FakeGitHub()
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *self.CARGO)
+        with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        # Every failure named, the same on the base: excused as before.
+        named = [line for line in self.CARGO if "src/lib.rs" not in line]
+        named[-1] = named[-1].replace("2 failed", "1 failed")
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *named)
+        self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0].startswith("excused "))
+
+    def test_whole_log(self):
+        with self.assertRaisesRegex(excuse.Refused, "reports more failed tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                         UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):
