@@ -501,3 +501,43 @@ fn the_parked_trim_runs_once_a_day_with_any_pass() {
     assert!(take_trim(&mut state), "a day later any pass runs it");
     assert!(!take_trim(&mut state));
 }
+
+/// A terminal's history grew by a step while a write pass is due: the turn that takes the write pass also
+/// measures. The write pass runs the budget at most once per snapshot interval (`OutputStore::enforce_due`), and
+/// the terminal does not ask again while its request is open (`LogState::measure_due`), so a request that the
+/// write pass takes and does not run leaves the total budget to the interval (30 s; one hour in
+/// `the_total_memory_budget_holds_while_terminals_print_not_one_interval_later`, which a loaded host made red:
+/// "four full terminals kept 9074 and 9074 rows over the 16 MiB budget"). No clock: the writer's choice is a
+/// function of its state and one instant.
+#[test]
+fn the_total_memory_budget_request_is_not_lost_to_a_write_pass_that_is_due_first() {
+    use super::{Turn, WriterState, take_turn};
+    let now = std::time::Instant::now();
+    let mut state = WriterState { last_trim: Some(now), ..WriterState::default() };
+
+    // Only a request: the turn measures and writes nothing.
+    state.memory_due = true;
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
+    assert_eq!(take_turn(&mut state, now), None, "one request is one measurement");
+
+    // Only a write pass that is due: the turn writes and measures nothing more.
+    state.due = Some(now);
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: false, write: true, trim: false }));
+    assert_eq!(take_turn(&mut state, now), None);
+
+    // A write pass that is not due yet does not hold the request back.
+    state.due = Some(now + std::time::Duration::from_secs(3600));
+    state.memory_due = true;
+    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
+
+    // Both at the same instant: the write pass runs, and the request is not lost.
+    state.due = Some(now);
+    state.memory_due = true;
+    let turn = take_turn(&mut state, now).expect("a write pass is due");
+    assert!(turn.write, "a due write pass runs in the turn that takes it: {turn:?}");
+    assert!(
+        turn.memory || state.memory_due,
+        "the request for a measurement is gone and no turn measures: the terminal's `measure_due` stays set, \
+         so it never asks again, and the total memory budget waits for the snapshot interval: {turn:?}"
+    );
+}

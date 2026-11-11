@@ -356,9 +356,12 @@ const LANE_STEP_CHARS: usize = 240;
 const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
+/// A summary that is not an object (a peer's bad row) is left as it is.
 pub fn decide(summary: &mut Value) {
-    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
-    summary["lane"] = lane(summary);
+    let indicator = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary.set("indicator", indicator);
+    let lane = lane(summary);
+    summary.set("lane", lane);
 }
 
 /// The summary's `lastMessage`, one sidebar line: the last line of words in

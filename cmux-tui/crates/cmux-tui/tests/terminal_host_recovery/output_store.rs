@@ -10,9 +10,8 @@
 //! 41.6 GB registry. These tests run the real daemon and check, at its files
 //! and its socket:
 //! - idle redrawing terminals change no file in the state folder in any mode
-//!   but the registry, and the registry only by the terminal's `last_output`
-//!   time (`terminal.progress`, at most once per 5 s per printing terminal,
-//!   terminal_activity.rs); the journal holds no output;
+//!   and add no journal row: the terminal's `last_output` time is a live
+//!   fact for the open streams, not a commit (`mux/terminal_live.rs`);
 //! - after the daemon and its terminal hosts are killed (a reboot), the
 //!   respawned terminal shows its earlier screen in `snapshot` and `full`,
 //!   and nothing of it in `memory`, which leaves no output file on disk.
@@ -176,8 +175,7 @@ fn idle_terminals_write_nothing(mode: &str) {
             (cpu_after - cpu_before).as_secs_f64() * 100.0 / window.as_secs_f64(),
         );
     }
-    // The registry may take the terminals' last_output time (1f4437e6f08, #24084: a printing
-    // terminal pushes it at most once per 5 s): those commits, and nothing else.
+    // The terminals' last_output time is a live fact: it adds no journal row.
     let journal_after = journal_kinds(&harness.state);
     let grown = journal_after
         .iter()
@@ -186,13 +184,9 @@ fn idle_terminals_write_nothing(mode: &str) {
             (added != 0).then(|| (kind.clone(), added))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
-    let progress = grown.get("terminal.progress").copied().unwrap_or(0);
-    let allowed =
-        i64::try_from(IDLE_TERMINALS).unwrap() * (i64::try_from(window.as_secs()).unwrap() / 5 + 1);
     assert!(
-        grown.keys().all(|kind| kind == "terminal.progress") && progress <= allowed,
-        "idle redrawing terminals committed more than their last_output time in {mode} mode \
-         ({allowed} terminal.progress rows at most): {grown:?}"
+        grown.is_empty(),
+        "idle redrawing terminals added journal rows in {mode} mode: {grown:?}"
     );
     let changed = after
         .iter()

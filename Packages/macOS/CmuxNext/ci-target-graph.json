@@ -430,6 +430,7 @@
         "CmuxNextAppHealth",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
         "CmuxNextChecklist",
@@ -2253,6 +2254,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
