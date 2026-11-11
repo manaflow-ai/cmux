@@ -1,0 +1,95 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "footer-row-before-1-slow",
+   "entry": "ui.app-health.footer-row",
+   "variant": "before-1-slow",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-before-2-not-responding",
+   "entry": "ui.app-health.footer-row",
+   "variant": "before-2-not-responding",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-overlay-1-slow",
+   "entry": "ui.app-health.footer-row",
+   "variant": "overlay-1-slow",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-overlay-2-not-responding",
+   "entry": "ui.app-health.footer-row",
+   "variant": "overlay-2-not-responding",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-overlay-3-repairing",
+   "entry": "ui.app-health.footer-row",
+   "variant": "overlay-3-repairing",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-overlay-4-needs-repair",
+   "entry": "ui.app-health.footer-row",
+   "variant": "overlay-4-needs-repair",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-overlay-5-queued-close",
+   "entry": "ui.app-health.footer-row",
+   "variant": "overlay-5-queued-close",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-badge-2-not-responding",
+   "entry": "ui.app-health.footer-row",
+   "variant": "badge-2-not-responding",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  },
+  {
+   "name": "footer-row-hidden-2-not-responding",
+   "entry": "ui.app-health.footer-row",
+   "variant": "hidden-2-not-responding",
+   "width": 300,
+   "height": 260,
+   "deviceScaleFactor": 2,
+   "clip": ".ahf-gallery"
+  }
+ ]
+}
