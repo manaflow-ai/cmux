@@ -1,0 +1,4 @@
+{"envs":[["dark","none"],["light","none"]],
+ "shots":[
+  {"name":"prompt-delivery","entry":"agent-pane.transcript","variant":"prompt-delivery","width":760,"height":520,"deviceScaleFactor":2,"arms":{"now":""}}
+ ]}

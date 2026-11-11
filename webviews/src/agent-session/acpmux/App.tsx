@@ -711,7 +711,7 @@ import { designSelectionChips, designSelectionRemovals } from "./designSelection
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
-import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
+import { clientWaiter, keepLostPrompt, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
@@ -11722,14 +11722,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
                     const giveBack = () => (composerHandle.current ?? holder)?.restore(text, attachments);
                     if (!lostPrompt(error)) return giveBack();
-                    // The connection went before acpmux took it (an acpmux restart or update): the host
-                    // sends it again on the next connection, where the chat shows it. Only one that never
-                    // shows comes back, saying why (lostPrompt.ts).
-                    void resentAfterLoss(error, connectedClients, sentOn).then((shown) => {
-                      if (shown) return promptLanded.current();
-                      giveBack();
-                      directClient.current?.notice(failedSendText(error, false, attachments));
-                    });
+                    // The connection went before the pane heard acpmux take it (a reset, an acpmux
+                    // restart, the pane's own stall recovery): acpmux may have it, and the host's
+                    // journal sends it again if not. It stays in the chat as its own row on its way,
+                    // which acpmux's record turns into the sent row, or which fails with Retry if
+                    // that never comes (lostPrompt.ts keepLostPrompt). Only when no connection could
+                    // hold it does it come back to the composer, saying why.
+                    void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
+                      (outcome) => {
+                        if (outcome === "shown") return promptLanded.current();
+                        if (outcome === "failed") return;
+                        giveBack();
+                        directClient.current?.notice(failedSendText(error, false, attachments));
+                      },
+                    );
                   },
                 );
                 return true;
