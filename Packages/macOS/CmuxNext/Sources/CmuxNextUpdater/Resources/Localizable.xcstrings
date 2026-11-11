@@ -3014,6 +3014,137 @@
         }
       }
     },
+    "updater.rollback.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another build switch is already running. Wait for it to finish."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري تبديل إصدار آخر بالفعل. انتظر حتى ينتهي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Već je u toku druga promjena verzije. Sačekajte da se završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et andet buildskift kører allerede. Vent, til det er færdigt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderer Build-Wechsel läuft bereits. Warte, bis er fertig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya hay otro cambio de compilación en curso. Espera a que termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre changement de build est déjà en cours. Attendez qu’il se termine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È già in corso un altro cambio di build. Attendi che finisca."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のビルド切り替えが実行中です。完了するまでお待ちください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្ដូរកំណែមួយទៀតកំពុងដំណើរការហើយ។ សូមរង់ចាំឱ្យវាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 빌드 전환이 이미 진행 중입니다. 끝날 때까지 기다리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et annet byggbytte kjører allerede. Vent til det er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trwa już inna zmiana kompilacji. Poczekaj, aż się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outra troca de build já está em andamento. Aguarde até terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уже идёт другое переключение сборки. Дождитесь его завершения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการสลับบิลด์อื่นกำลังทำงานอยู่ โปรดรอให้เสร็จก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir derleme geçişi zaten sürüyor. Bitmesini bekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уже триває інше перемикання збірки. Дочекайтеся його завершення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một lần chuyển bản dựng khác đang chạy. Hãy chờ nó hoàn tất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个版本切换正在进行。请等待其完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個版本切換正在進行。請等待其完成。"
+          }
+        }
+      }
+    },
     "updater.rollback.storesUnknown": {
       "extractionState": "manual",
       "localizations": {

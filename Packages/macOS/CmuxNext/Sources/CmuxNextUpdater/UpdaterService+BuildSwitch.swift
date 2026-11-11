@@ -21,6 +21,9 @@ extension UpdaterService {
     public func switchToBuild(_ build: String) async -> String? {
         guard switchesBuilds else { return UpdaterStrings.channelsSwitchUnavailable }
         guard build != identity.build else { return UpdaterStrings.channelsSwitchAlreadyHere }
+        guard !switchRunning else { return RollbackRefusal.busy.message }
+        switchRunning = true
+        defer { switchRunning = false }
         // A pulled build is never switched to, kept or not: the Channels card offers it no Switch, and
         // `updates.switch_build` (the CLI) asks for it by number.
         let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
@@ -36,7 +39,7 @@ extension UpdaterService {
             }
         }
         log.append("switch: \(identity.build) -> \(build)")
-        return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories())
+        return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories(), claimed: true)
     }
 
     /// Downloads, checks and keeps `build` for ``switchToBuild(_:)``, moving

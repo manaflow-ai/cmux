@@ -67,9 +67,10 @@ extension UpdaterService {
                     return false
                 }
             }) ?? false
-            // The running build's own CLI is warm now; a rollback to this build later reads its answer
-            // from the store instead of starting a cold copy of it.
-            if kept, let schemas = await StoreSchemaProbe(bundle: bundle).readable() {
+            // The clone just kept is this build (the running path may hold another one by now, after a
+            // switch); a rollback to it later reads this answer instead of starting a cold copy.
+            let clone = store.root.appending(path: build, directoryHint: .isDirectory).appending(path: bundle.lastPathComponent)
+            if kept, let schemas = await StoreSchemaProbe(bundle: clone).readable() {
                 _ = try? await work.run(.bestEffort, mayBlock: .files) { store.recordSchemas(schemas, for: build) }
             }
             self?.keptRunningBuild = kept ? .kept : nil
@@ -91,8 +92,9 @@ extension UpdaterService {
     }
 
     /// Reads what a rollback to `build` (nil: the newest kept) compares, off the main actor. Only
-    /// that build is checked: its signature (one full check of every nested binary) and, without recorded schemas, its own CLI; the stored
-    /// schemas and the running app's team are read at the same time. `stateDirectories` are the
+    /// that build is checked: its signature (one full check of every nested binary), then, without
+    /// recorded schemas and only when that check passed, its own CLI; the stored schemas and the
+    /// running app's team are read beside it. `stateDirectories` are the
     /// daemons' state roots (nil: cmux-tui's default). `checkOnly` (the card's "would it run")
     /// takes an earlier signature answer for the target; a rollback that runs checks it afresh.
     public func rollbackInputs(to build: String?, checkOnly: Bool = false, stateDirectories: [URL?]) async -> RollbackInputs {
@@ -107,18 +109,19 @@ extension UpdaterService {
             store.teams.team(of: bundle, read: UpdateDropBack.signingTeam(of:))
         }
         let index = build == nil ? kept.indices.first : kept.firstIndex { $0.build == build }
+        let running = await team ?? nil
         if let index {
             let target = kept[index]
-            async let verified = try? work.run(.userVisible, mayBlock: .files) { store.verified(target, reusing: checkOnly) }
-            var schemas = target.storeSchemas
-            if schemas == nil, let probed = await StoreSchemaProbe(bundle: target.bundle, timeout: .seconds(30)).readable() {
-                schemas = probed
+            kept[index] = (try? await work.run(.userVisible, mayBlock: .files) { store.verified(target, reusing: checkOnly) }) ?? target
+            // Its CLI runs only once its signature is this app's team: a kept bundle changed on disk never
+            // runs code as the app (``RollbackDecision`` refuses it on the team before any schema).
+            if kept[index].storeSchemas == nil, let running, kept[index].teamID == running,
+               let probed = await StoreSchemaProbe(bundle: target.bundle, timeout: .seconds(30)).readable() {
+                kept[index].storeSchemas = probed
                 _ = try? await work.run(.bestEffort, mayBlock: .files) { store.recordSchemas(probed, for: target.build) }
             }
-            kept[index] = await verified ?? target
-            kept[index].storeSchemas = schemas
         }
-        return RollbackInputs(kept: kept, stored: await stored, teamID: await team ?? nil)
+        return RollbackInputs(kept: kept, stored: await stored, teamID: running)
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.

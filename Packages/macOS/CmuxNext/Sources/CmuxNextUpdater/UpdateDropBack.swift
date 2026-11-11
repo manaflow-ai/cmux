@@ -26,6 +26,16 @@ public struct UpdateDropBack {
             let inputs = await updater.rollbackInputs(to: build, checkOnly: true, stateDirectories: stateDirectories)
             return try updater.rollbackDecision(to: build, inputs: inputs).get()
         }
+        // One switch at a time, from any entry point (the card, the palette, the CLI).
+        guard !updater.switchRunning else { throw RollbackRefusal.busy }
+        updater.switchRunning = true
+        defer { updater.switchRunning = false }
+        return try await runClaimed(to: build, stateDirectories: stateDirectories)
+    }
+
+    /// ``run(to:checkOnly:stateDirectories:)`` once the caller holds ``UpdaterService/switchRunning``
+    /// (``UpdaterService/switchToBuild(_:)`` holds it from before its download).
+    func runClaimed(to build: String?, stateDirectories: [URL?]) async throws -> KeptVersion {
         // The person's click: the Channels card shows each step on the button they pressed.
         let started = ContinuousClock.now
         updater.buildSwitchProgress = BuildSwitchProgress(build: build ?? "", stage: .stores)
@@ -43,9 +53,9 @@ public struct UpdateDropBack {
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
     /// user reads (a refusal's message, or the swap's error).
-    public func failure(to build: String?, stateDirectories: [URL?]) async -> String? {
+    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false) async -> String? {
         do {
-            try await run(to: build, stateDirectories: stateDirectories)
+            if claimed { try await runClaimed(to: build, stateDirectories: stateDirectories) } else { try await run(to: build, stateDirectories: stateDirectories) }
             return nil
         } catch let refusal as RollbackRefusal {
             return refusal.message
