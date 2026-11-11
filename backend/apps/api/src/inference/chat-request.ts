@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
 import type { Env } from "../env.ts"
-import { MODELS, modelById, type ModelEntry } from "./catalog.ts"
+import { imageLimit, MODELS, modelById, routeImageLimit, type ModelEntry, type ProviderRoute } from "./catalog.ts"
 
 /**
  * The checks of one chat/completions request before any money moves, as one Effect program with
@@ -12,11 +12,10 @@ import { MODELS, modelById, type ModelEntry } from "./catalog.ts"
  *
  * Content: text parts always; `image_url` parts only for a vision model, each billed at
  * `tokensPerImage` before usage is known, so the reservation stays an upper bound. A chat is never
- * locked out by its own history: past the model's per-request `maxImages` (its providers' limit;
- * none when they have no count limit),
- * the newest images go and each older one is replaced by a placeholder the model reads
- * (`omittedImages`, which route.ts returns in `x-cmux-images-omitted`). Only a new message (the
- * last one) that alone carries more images than the limit is refused.
+ * locked out by its own history (`fitImages`): past the highest image limit of the routes that can
+ * serve the request, the newest images go and each older one is replaced by a placeholder the model
+ * reads (`omittedImages`, which route.ts returns in `x-cmux-images-omitted`). Only a new message (the
+ * last one) that alone carries more images than every route takes is refused.
  */
 
 export class ChatRefused extends Schema.TaggedError<ChatRefused>()("ChatRefused", {
@@ -27,9 +26,15 @@ export class ChatRefused extends Schema.TaggedError<ChatRefused>()("ChatRefused"
 
 export interface ValidChat {
   readonly model: ModelEntry
+  /** Where each image part of the request is, oldest first. */
+  readonly images: ReadonlyArray<ImagePart>
+}
+
+/** The images of one request that fit its routes (`fitImages`). */
+export interface FittedImages {
   /** Images sent to the provider (each adds `vision.tokensPerImage` to the prompt bound). */
   readonly images: number
-  /** Older images replaced by `omittedImagePlaceholder` to fit the model's per-request limit. */
+  /** Older images replaced by `omittedImagePlaceholder` to fit the routes' per-request limit. */
   readonly omittedImages: number
   /** The messages to send: the request's own, or a copy with the omitted images replaced. */
   readonly messages: ReadonlyArray<unknown>
@@ -46,7 +51,8 @@ export const allowedModels = (env: Pick<Env, "INFERENCE_MODEL_ALLOWLIST">): Read
   return new Set(list.length > 0 ? list : MODELS.map((m) => m.id))
 }
 
-interface ImagePart {
+/** One image part: its message's index and its index in that message's content. */
+export interface ImagePart {
   readonly message: number
   readonly part: number
 }
@@ -73,13 +79,12 @@ const findImages = (messages: ReadonlyArray<unknown>, model: ModelEntry): Effect
   })
 
 /**
- * The images that fit the model's per-request limit: all of them, or the newest up to the limit with
- * each older one replaced by a placeholder. Refuses only a new (last) message that alone is past the limit.
+ * The images of `messages` (found by `validateChat`) that fit `limit`, the highest image limit of the
+ * routes that can serve the request: all of them, or the newest up to the limit with each older one
+ * replaced by a placeholder. Refuses only a new (last) message that alone is past the limit.
  */
-const fitImages = (messages: ReadonlyArray<unknown>, model: ModelEntry): Effect.Effect<Omit<ValidChat, "model">, ChatRefused> =>
+export const fitImages = (messages: ReadonlyArray<unknown>, found: ReadonlyArray<ImagePart>, model: ModelEntry, limit: number): Effect.Effect<FittedImages, ChatRefused> =>
   Effect.gen(function* () {
-    const found = yield* findImages(messages, model)
-    const limit = model.vision ? (model.vision.maxImages ?? Infinity) : 0
     if (found.length <= limit) return { images: found.length, omittedImages: 0, messages }
     const last = messages.length - 1
     if (found.filter((image) => image.message === last).length > limit) {
@@ -96,6 +101,25 @@ const fitImages = (messages: ReadonlyArray<unknown>, model: ModelEntry): Effect.
     return { images: limit, omittedImages: omitted.length, messages: replaced }
   })
 
+/** The images of one request fitted to its routes, and the routes that take them. */
+export interface RoutedImages<R extends ProviderRoute> extends FittedImages {
+  /** The highest image limit of the serving routes (what `fitImages` fitted to). */
+  readonly limit: number
+  /** The serving routes that take `images`, in their order; a route with a lower limit is skipped. */
+  readonly routes: ReadonlyArray<R>
+}
+
+/**
+ * Fits a request's images to the highest limit of `serving` (the routes that can serve it) and keeps
+ * the routes that take that many: a route with a lower limit is skipped, never the cause of a refusal.
+ */
+export const fitToRoutes = <R extends ProviderRoute>(messages: ReadonlyArray<unknown>, found: ReadonlyArray<ImagePart>, model: ModelEntry, serving: ReadonlyArray<R>): Effect.Effect<RoutedImages<R>, ChatRefused> =>
+  Effect.gen(function* () {
+    const limit = imageLimit(model, serving)
+    const fitted = yield* fitImages(messages, found, model, limit)
+    return { ...fitted, limit, routes: serving.filter((route) => routeImageLimit(model, route) >= fitted.images) }
+  })
+
 /** The allowlist, model, messages, tools and content checks of one request. */
 export const validateChat = (env: Pick<Env, "INFERENCE_MODEL_ALLOWLIST">, body: Record<string, unknown>): Effect.Effect<ValidChat, ChatRefused> =>
   Effect.gen(function* () {
@@ -108,6 +132,6 @@ export const validateChat = (env: Pick<Env, "INFERENCE_MODEL_ALLOWLIST">, body: 
     if (body.tools !== undefined && !model.tools) return yield* refuse(400, "validation.invalid", "this model does not take tools")
     if (body.tools !== undefined && (!Array.isArray(body.tools) || (body.tools as Array<{ type?: unknown }>).some((t) => t?.type !== "function"))) return yield* refuse(400, "validation.invalid", "tools must be an array of function tools")
     if (body.n !== undefined && body.n !== 1) return yield* refuse(400, "validation.invalid", "n must be 1")
-    const fitted = yield* fitImages(body.messages as ReadonlyArray<unknown>, model)
-    return { model, ...fitted }
+    const images = yield* findImages(body.messages as ReadonlyArray<unknown>, model)
+    return { model, images }
   })

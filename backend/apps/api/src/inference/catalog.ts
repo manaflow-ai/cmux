@@ -28,6 +28,12 @@ export interface ProviderRoute {
    * without one keeps its catalog place after the priced ones. Metering never uses it.
    */
   readonly list?: { readonly input: number; readonly output: number }
+  /**
+   * The most images one request may carry at this provider, when the provider publishes a limit
+   * below the model's own (`ModelEntry.vision.maxImages`). Unset: the model's limit holds here.
+   * A request with more images than a route takes skips that route (route.ts), never fails on it.
+   */
+  readonly maxImages?: number
 }
 
 /** Blended list price of a route: agent turns read about three input tokens per output token. */
@@ -55,13 +61,22 @@ export interface ModelEntry {
   readonly freeProviders?: ReadonlyArray<ProviderId>
   /**
    * Image input (OpenAI `image_url` parts). Set: the token ceiling we bill each image at before
-   * usage is known, and `maxImages`, the most images one request may carry at every route of the
-   * model (the lowest published provider limit; unset when no route has a count limit). Unset:
-   * text only. Past `maxImages`, chat-request.ts sends the newest images and a placeholder for each
-   * older one; it never refuses a chat for its history.
+   * usage is known, and `maxImages`, the model maker's published per-request image limit, which
+   * holds at every route that serves the model (unset when the maker publishes none). A route may
+   * publish a lower one (`ProviderRoute.maxImages`). Unset: text only. chat-request.ts never
+   * refuses a chat for its history: past the highest limit of the routes that can serve a request,
+   * the newest images go and each older one becomes a placeholder.
    */
   readonly vision?: { readonly maxImages?: number; readonly tokensPerImage: number }
 }
+
+/** The most images one request may carry at `route` of `model`: the lower of the two limits; 0 for a text model. */
+export const routeImageLimit = (model: ModelEntry, route: ProviderRoute): number =>
+  model.vision ? Math.min(model.vision.maxImages ?? Infinity, route.maxImages ?? Infinity) : 0
+
+/** The most images one request may carry at any of `routes` (the highest route limit; 0 with no route). */
+export const imageLimit = (model: ModelEntry, routes: ReadonlyArray<ProviderRoute>): number =>
+  Math.max(0, ...routes.map((route) => routeImageLimit(model, route)))
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
   {
@@ -76,9 +91,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
-    // DeepSeek's own API takes 600 images per request (api-docs.deepseek.com vision guide, 2026-11);
-    // Azure AI Foundry, the last fallback, enforces 50 on its vision models: the lowest route wins.
-    vision: { maxImages: 50, tokensPerImage: 4_096 },
+    // DeepSeek publishes 600 images per request for this model (https://api-docs.deepseek.com/guides/vision,
+    // 2026-11). No route publishes a lower limit for it (Azure's 50 is for its GPT models only).
+    vision: { maxImages: 600, tokensPerImage: 4_096 },
     routes: [
       { provider: "vercel", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.075, output: 0.3 } },
       { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.15, output: 0.6 } },
@@ -102,7 +117,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 16_384,
     tools: true,
     // Particle has no image-count limit, only bytes (16 MiB per image, 100 MiB in all;
-    // docs.particle.ai/models, 2026-11): the 8 MiB request body is below both.
+    // https://docs.particle.ai/models, 2026-11).
     vision: { tokensPerImage: 4_096 },
     routes: [{ provider: "particle", id: "particle-ai/particle-1", list: { input: 0.25, output: 1 } }]
   },
@@ -116,9 +131,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 128_000,
     defaultMaxTokens: 16_384,
     tools: true,
-    // OpenAI takes 1,500 images per request now and documented 500 before (images-vision guide,
-    // 2026-11); Vercel AI Gateway passes to OpenAI: 500 holds at both routes.
-    vision: { maxImages: 500, tokensPerImage: 4_096 },
+    // OpenAI takes 1,500 images per request (https://developers.openai.com/api/docs/guides/images-vision,
+    // 2026-11); Vercel AI Gateway passes the request to OpenAI and publishes no lower limit.
+    vision: { maxImages: 1_500, tokensPerImage: 4_096 },
     routes: [
       { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
       { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }
