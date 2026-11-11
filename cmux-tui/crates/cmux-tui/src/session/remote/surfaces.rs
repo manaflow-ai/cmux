@@ -332,7 +332,7 @@ impl RemoteSession {
                     // The server registers the stream before it queues the attach
                     // response. Closing the connection is the only protocol-level
                     // cancellation that guarantees a timed-out stream is released.
-                    self.disconnect_transport();
+                    self.fail_transport("a terminal attach got no answer in time");
                 }
                 return Err(error);
             }
@@ -341,7 +341,7 @@ impl RemoteSession {
             let Some(lease) = response.get("lease").and_then(Value::as_str) else {
                 let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
                 self.surfaces.lock().unwrap().remove(&id);
-                self.disconnect_transport();
+                self.fail_transport("a terminal attach returned no view lease");
                 anyhow::bail!(
                     "server advertised {VIEW_ATTACHMENT_LEASE_CAPABILITY} but attach returned no lease"
                 );
@@ -400,14 +400,14 @@ impl RemoteSession {
                     // If the targeted release cannot be confirmed, closing the
                     // transport is the remaining cleanup fence for every
                     // server-side attachment owned by this connection.
-                    self.disconnect_transport();
+                    self.fail_transport("a superseded view attachment could not be released");
                     return Err(anyhow::anyhow!(
                         "could not release superseded view attachment {id}: {error:#}"
                     ));
                 }
             } else {
                 // Older peers have no lease-addressed detach operation.
-                self.disconnect_transport();
+                self.fail_transport("the daemon cannot release a superseded view attachment");
             }
             return Ok(outcome);
         }
