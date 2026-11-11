@@ -310,9 +310,13 @@ public final class AppHealth: Sendable {
 
     static let quietSnapshot: JSONValue = ["worst": "healthy", "parts": [], "receipts": [], "pending": [], "pendingMore": 0]
 
-    /// The worst part (worst state, the longest in it first), else the newest pending action.
+    /// The worst part (worst state, the longest in it first), else the newest pending action. A part that is
+    /// only slow is left out: it still answers, and if it stops the model makes it stuck and repairs it, so
+    /// a line for it named nothing the person could do (Leo, 2026-11-11: "slow indicator on the bottom left
+    /// is uselsss"; a busy Mac late on a page's heartbeat showed "Agent pane: Slow" for seconds at a time).
+    /// The popover still lists it.
     public static func headline(of snapshot: JSONValue) -> Headline? {
-        let parts = (snapshot["parts"]?.arrayValue ?? []).filter { State(rawValue: $0["state"]?.stringValue ?? "") ?? .healthy > .healthy }
+        let parts = (snapshot["parts"]?.arrayValue ?? []).filter { State(rawValue: $0["state"]?.stringValue ?? "") ?? .healthy > .slow }
         let pending = snapshot["pending"]?.arrayValue ?? []
         let pendingCount = pending.count + (snapshot["pendingMore"]?.intValue ?? 0)
         let worst = parts.max { a, b in

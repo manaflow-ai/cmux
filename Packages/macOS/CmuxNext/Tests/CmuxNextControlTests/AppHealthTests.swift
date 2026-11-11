@@ -177,4 +177,20 @@ final class AppHealthTestBox<Value: Sendable>: Sendable {
         get { state.withLock { $0 } }
         set { state.withLock { $0 = newValue } }
     }
+
+    /// A part that is only slow (a busy Mac late on a page's heartbeat) gives the indicator no line: it still
+    /// answers, and if it stops it turns stuck and is repaired (Leo, 2026-11-11: "slow indicator on the
+    /// bottom left is uselsss"). Pure: no model needed.
+    @Test func aSlowPartAloneHasNoHeadline() {
+        func part(_ id: String, _ state: String, since: Double = 0) -> JSONValue {
+            ["id": .string(id), "kind": "page", "label": "Agent chat", "state": .string(state), "detail": "", "canRepair": true, "sinceMs": .number(since)]
+        }
+        func snapshot(_ parts: [JSONValue], pending: [JSONValue] = []) -> JSONValue {
+            ["worst": "slow", "parts": .array(parts), "receipts": [], "pending": .array(pending), "pendingMore": 0]
+        }
+        #expect(AppHealth.headline(of: snapshot([part("page:1", "slow")])) == nil)
+        #expect(AppHealth.headline(of: snapshot([part("page:1", "slow"), part("page:2", "stuck", since: 5)]))?.partID == "page:2")
+        let queued = AppHealth.headline(of: snapshot([part("page:1", "slow")], pending: [["id": "i", "label": "close Background task", "sinceMs": 1]]))
+        #expect(queued?.partID == nil && queued?.pending == "close Background task")
+    }
 }
