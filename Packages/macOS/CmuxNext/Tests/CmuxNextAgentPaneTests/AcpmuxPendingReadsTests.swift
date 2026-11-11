@@ -61,4 +61,80 @@ struct AcpmuxPendingReadsTests {
         #expect(prompts.map(\.permission) == ["perm-own"])
         #expect(took < .seconds(5), "this Mac's prompt waited \(took) on a peer's stalled _acpmux/info")
     }
+
+    /// Reads that answer when the test says so, and what each read was asked for, in order.
+    @MainActor final class Reads {
+        private(set) var asked: [String] = []
+        private var stalled: [String: CheckedContinuation<[String: Any]?, Never>] = [:]
+        let stalls: Set<String>
+        init(stalls: Set<String>) { self.stalls = stalls }
+
+        func read(_ session: String) async -> [String: Any]? {
+            asked.append(session)
+            guard stalls.contains(session) else {
+                return ["pending": [["permissionId": "perm-\(session)", "request": [String: Any]()]]]
+            }
+            return await withCheckedContinuation { stalled[session] = $0 }
+        }
+
+        var isStalled: Bool { !stalled.isEmpty }
+
+        func release() {
+            let waiters = stalled
+            stalled = [:]
+            for (_, waiter) in waiters { waiter.resume(returning: nil) }
+        }
+    }
+
+    @MainActor final class Posted {
+        var all: [(session: String, whileStalled: Bool)] = []
+    }
+
+    /// The feed bridge's shape: a peer listed first whose read stalls and a ready peer after it.
+    /// The second posts while the first is still stalled, not after its deadline.
+    @Test func aReadyPeerPostsWhileAnEarlierPeerStalls() async {
+        let reads = Reads(stalls: ["acp_peer_stalled"])
+        let rows: [[String: Any]] = [
+            ["sessionId": "acp_peer_stalled", "peer": "peer-a"],
+            ["sessionId": "acp_peer_ready", "peer": "peer-b"],
+        ]
+        let posted = Posted()
+        // A deadline far past the test: only independence lets the second post in time.
+        await AcpmuxPendingReads(width: 4, deadline: .seconds(600)).forEach(rows, read: { await reads.read($0) }) { _, row, entries in
+            let session = row["sessionId"] as? String ?? ""
+            posted.all.append((session, reads.isStalled))
+            if !entries.isEmpty { reads.release() }
+        }
+        #expect(posted.all.map(\.session) == ["acp_peer_ready", "acp_peer_stalled"])
+        #expect(posted.all.first?.whileStalled == true, "the ready peer waited for the stalled one")
+    }
+
+    /// One slot: this Mac's own sessions are read before any peer's, whatever the list order.
+    @Test func thisMacsSessionsAreReadFirst() async {
+        let reads = Reads(stalls: [])
+        let rows: [[String: Any]] = [
+            ["sessionId": "peer-1", "peer": "peer-a"],
+            ["sessionId": "own-1"],
+            ["sessionId": "peer-2", "peer": "peer-b"],
+            ["sessionId": "own-2", "peer": ""],
+        ]
+        let found = await AcpmuxPendingReads(width: 1, deadline: .seconds(600)).pending(of: rows) { await reads.read($0) }
+        #expect(reads.asked == ["own-1", "own-2", "peer-1", "peer-2"])
+        #expect(found.map { $0.row["sessionId"] as? String ?? "" } == ["own-1", "own-2", "peer-1", "peer-2"])
+        #expect(found.allSatisfy { $0.pending.count == 1 })
+    }
+
+    /// One slot and a read that never answers: its own deadline frees the slot, it counts as no
+    /// prompts, and the next session is still read.
+    @Test func aStalledReadEndsAtItsOwnDeadline() async {
+        let reads = Reads(stalls: ["peer-stalled"])
+        let rows: [[String: Any]] = [
+            ["sessionId": "peer-stalled", "peer": "peer-a"],
+            ["sessionId": "peer-ready", "peer": "peer-b"],
+        ]
+        let found = await AcpmuxPendingReads(width: 1, deadline: .milliseconds(100)).pending(of: rows) { await reads.read($0) }
+        reads.release()
+        #expect(reads.asked == ["peer-stalled", "peer-ready"])
+        #expect(found.map(\.pending.count) == [0, 1])
+    }
 }

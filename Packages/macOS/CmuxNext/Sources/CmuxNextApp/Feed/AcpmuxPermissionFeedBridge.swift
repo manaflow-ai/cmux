@@ -185,8 +185,7 @@ final class AcpmuxPermissionFeedBridge {
                 logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused")
             } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                // Prompts pending before this connection (`pendingOnly` only from an acpmux that serves it).
-                Task { for session in await self.listGate.pendingSessionIDs(call: { await self.call($0, $1) }) { await self.postPending(of: session) } }
+                Task { await self.recoverPending() }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
                     ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
@@ -216,10 +215,11 @@ final class AcpmuxPermissionFeedBridge {
         (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
     }
 
-    private func postPending(of session: String) async {
-        for entry in await pending(of: session) {
-            guard let permission = entry["permissionId"] as? String, let request = entry["request"] as? [String: Any] else { continue }
-            await post(session: session, permission: permission, request: request)
+    /// Prompts pending before this connection, each session read on its own (``AcpmuxPendingReads/feed``).
+    private func recoverPending() async {
+        guard let rows = await listGate.pendingSessions(call: { await self.call($0, $1) }) else { return }
+        await AcpmuxPendingReads.feed.forEachPrompt(rows, read: { [weak self] in await self?.call("_acpmux/info", ["sessionId": $0]) }) { [weak self] session, permission, request in
+            await self?.post(session: session, permission: permission, request: request)
         }
     }
 

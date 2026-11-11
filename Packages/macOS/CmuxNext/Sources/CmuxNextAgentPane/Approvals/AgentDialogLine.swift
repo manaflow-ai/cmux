@@ -44,17 +44,21 @@ public extension AgentDialogLine {
         return await prompts(of: sessions)
     }
 
-    /// The pending prompts of each listed session that reports one (`_acpmux/info`).
+    /// The pending prompts of each listed session that reports one (`_acpmux/info`), each read on
+    /// its own (``AcpmuxPendingReads``: this Mac's sessions first, four at once, each within 2 s of
+    /// the connection's 5 s), in that order. Read one after another, one peer's stalled read held
+    /// every later session until the connection closed, and they answered nothing.
     private func prompts(of sessions: [[String: Any]]) async -> [AgentDialogPrompt] {
-        var out: [AgentDialogPrompt] = []
-        for summary in sessions where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-            guard let session = summary["sessionId"] as? String else { continue }
-            let entries = (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
-            for entry in entries {
-                guard let permission = entry["permissionId"] as? String, let request = entry["request"] as? [String: Any] else { continue }
-                out.append(AgentDialogPrompt(session: session, sessionName: summary["name"] as? String, permission: permission, request: request))
+        let rows = sessions.filter { ($0["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 }
+        let read = await AcpmuxPendingReads.dialog.pending(of: rows) { session in
+            await self.call("_acpmux/info", ["sessionId": session])
+        }
+        return read.flatMap { found -> [AgentDialogPrompt] in
+            let summary = found.row
+            guard let session = summary["sessionId"] as? String else { return [] }
+            return AcpmuxPendingReads.prompts(found.pending).map {
+                AgentDialogPrompt(session: session, sessionName: summary["name"] as? String, permission: $0.permission, request: $0.request)
             }
         }
-        return out
     }
 }

@@ -111,7 +111,9 @@ import Testing
         let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
         #expect(list.params["status"] == nil)
         #expect(list.params["limit"] as? Int == 64)
-        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "offline", "s-ask"])
+        // Each session's info once; their order is AcpmuxPendingReadsTests' (local first, at once).
+        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String }.sorted()
+            == ["offline", "s-ask", "s-tool"])
     }
 
     /// An acpmux that serves `pendingOnly` is asked once for the chats with an ask, never paged:

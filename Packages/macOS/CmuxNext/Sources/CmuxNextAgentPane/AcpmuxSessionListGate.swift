@@ -54,12 +54,6 @@ public nonisolated struct AcpmuxSessionListGate: Sendable, Equatable {
             .filter { ($0["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 }
     }
 
-    /// The ids of ``pendingSessions(call:)``; none when the read failed.
-    @MainActor
-    public func pendingSessionIDs(call: @MainActor (String, [String: Any]) async -> [String: Any]?) async -> [String] {
-        (await pendingSessions(call: call) ?? []).compactMap { $0["sessionId"] as? String }
-    }
-
     /// Every session, page by page; nil on a failed page or a repeated cursor.
     @MainActor
     static func allSessions(call: @MainActor (String, [String: Any]) async -> [String: Any]?) async -> [[String: Any]]? {
