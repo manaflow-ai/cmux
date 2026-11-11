@@ -18,7 +18,7 @@ beforeAll(() => {
   globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
 });
 afterAll(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete globalThis.cmuxExperiments;
 });
 
 let at = 0;

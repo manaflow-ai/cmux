@@ -85,12 +85,10 @@ extension HomeStore {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
-        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
-        // Closed chats' transcripts too, so they draw at once after a relaunch (the cache bounds them).
-        for (id, messages) in mirror.keptTranscripts where state.windows[id] == nil && !messages.isEmpty {
-            state.windows[id] = messages
-            state.kept.append(id)
-        }
+        state.windows = mirror.cachedWindows
+        // Closed chats' transcripts are among them: naming them lets the cache bound them and a
+        // relaunch seed them as kept transcripts, not live windows.
+        state.kept = mirror.keptTranscripts.compactMap { mirror.windows[$0.id] == nil && !$0.messages.isEmpty ? $0.id : nil }
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }

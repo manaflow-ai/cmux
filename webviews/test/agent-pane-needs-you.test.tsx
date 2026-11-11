@@ -915,11 +915,14 @@ test("an expanded question shows every option and takes a typed answer, sent in 
   expect(host.querySelectorAll(".acpmux-needs-you-item")).toHaveLength(0);
 });
 
-test("an expanded answer for another chat's question opens that chat; this chat's goes out as its card's", async () => {
+// Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is bad ui".
+test("an expanded answer for another chat's question goes to the host, else opens that chat; this chat's goes out as its card's", async () => {
   const host = installDom();
   const calls: string[] = [];
+  let unsupportedAnswer = false;
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
     calls.push(`${method}:${String(params?.sessionId ?? "")}:${String(params?.where ?? "")}`);
+    if (method === "chat.asks.answer" && unsupportedAnswer) throw new NativeError({ code: "unsupported" });
     return undefined;
   }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   let actions: NeedsYouActions | undefined;
@@ -957,8 +960,14 @@ test("an expanded answer for another chat's question opens that chat; this chat'
   await actions!.reply!(here!, reply);
   expect(calls).toEqual(["chat.permission:here:"]);
   calls.length = 0;
+  // Another chat's on this Mac: the host answers it in place, with the card's reply.
+  await actions!.reply!(other!, { ...reply, session: "other" });
+  expect(calls).toEqual(["chat.asks.answer:other:"]);
+  // A host that can't opens that chat on the right, and the row stays.
+  calls.length = 0;
+  unsupportedAnswer = true;
   await expect(actions!.reply!(other!, { ...reply, session: "other" })).rejects.toThrow();
-  expect(calls).toEqual(["chat.asks.open:other:"]);
+  expect(calls).toEqual(["chat.asks.answer:other:", "chat.asks.open:other:"]);
   // The places: the right is sent with no `where`, so an older host reads it the same.
   calls.length = 0;
   actions!.open!(other!, "right");

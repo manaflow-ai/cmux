@@ -13,6 +13,15 @@ script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
+# the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
+# "Directory not empty" (cmux-next run 42965233728). GIT_CONFIG_* reaches every git below, the
+# script's own included.
+export GIT_CONFIG_COUNT=4 \
+  GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
+  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false \
+  GIT_CONFIG_KEY_2=receive.autogc GIT_CONFIG_VALUE_2=false \
+  GIT_CONFIG_KEY_3=gc.autoDetach GIT_CONFIG_VALUE_3=false
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # A generated file whose inputs (the action exports) the edits below never touch.
 gen=web/data/cmux-shortcuts.generated.json

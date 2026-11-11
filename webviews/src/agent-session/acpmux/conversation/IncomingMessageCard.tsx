@@ -95,8 +95,9 @@ const SENDER_LOGO_SIZE = 12;
 /// its harness's mark, else the neutral agent glyph in its own stable tone.
 export function SenderMark({ message }: { message: IncomingMessage }) {
   const chief = useChiefFace(message.chief);
+  // cmux's own notice (agentNotice.ts `system`) is no chat: a chat named `cmux` never stands in for it.
   const sender = useSenderChat(
-    message.chief || message.program ? "" : (message.lookup ?? message.name),
+    message.chief || message.program || message.notice?.system ? "" : (message.lookup ?? message.name),
     message.sessionId,
   );
   const avatar = useAgentAvatar(sender.sessionId);
@@ -135,7 +136,10 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
 /// A received message's mark in the one message row's icon column (AgentMessageRow.tsx): its
 /// tooltip is what the sender runs on, as the mark's beside a name always said.
 export function ReceivedMark({ message }: { message: IncomingMessage }) {
-  const sender = useSenderChat(message.chief || message.program ? "" : message.name, message.sessionId);
+  const sender = useSenderChat(
+    message.chief || message.program || message.notice?.system ? "" : message.name,
+    message.sessionId,
+  );
   const about = message.chief
     ? undefined
     : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
@@ -210,7 +214,7 @@ export function SenderChip({
   // tool, never a lane that shares its name.
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(
-    message.chief || message.program ? "" : (message.lookup ?? message.name),
+    message.chief || message.program || message.notice?.system ? "" : (message.lookup ?? message.name),
     message.sessionId,
   );
   const recorded = useSenderSessionName(message, false);
@@ -310,7 +314,7 @@ export function SenderChip({
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}
-      {withMark && message.unverified && <UnverifiedMark program={message.program} />}
+      {withMark && message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
@@ -476,7 +480,7 @@ export function IncomingMessageLine({
   const chief = useChiefFace(message.chief);
   // A person is never a chat: their name never finds one (a guest names themselves).
   const sender = useSenderChat(
-    person || message.chief || message.program ? "" : message.name,
+    person || message.chief || message.program || message.notice?.system ? "" : message.name,
     person ? undefined : message.sessionId,
   );
   // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
@@ -676,6 +680,7 @@ export function IncomingMessageLine({
         nameSlot={<SenderChip message={message} onOpen={onOpen} />}
         unverified={message.unverified === true}
         program={message.program}
+        claimed={message.name}
         preview={preview || t("message.noText")}
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}

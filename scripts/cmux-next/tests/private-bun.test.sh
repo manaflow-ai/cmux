@@ -13,6 +13,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next" "$src/webviews"
 cp "$ROOT/scripts/cmux-next/private-bun.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/webviews_bun_version.py" "$src/scripts/"
 printf '{"devEngines":{"packageManager":{"name":"bun","version":"9.9.9","onFail":"error"}}}\n' > "$src/webviews/package.json"
 
 shim() { printf '#!/bin/sh\necho %s\n' "$2" > "$1"; chmod +x "$1"; }

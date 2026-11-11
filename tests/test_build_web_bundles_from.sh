@@ -18,6 +18,8 @@ trap 'rm -rf "$WORK"' EXIT
 REPO="$WORK/repo"
 mkdir -p "$REPO/scripts/cmux-next"
 cp "$ROOT/scripts/cmux-next/build-web-bundles.sh" "$ROOT/scripts/cmux-next/web-bundle-key.py" "$REPO/scripts/cmux-next/"
+# The key reads the pin through the one shared reader, one folder up.
+cp "$ROOT/scripts/webviews_bun_version.py" "$REPO/scripts/"
 SCRIPT="$REPO/scripts/cmux-next/build-web-bundles.sh"
 # The source key reads the declared bun version from webviews/package.json (#27680).
 mkdir -p "$REPO/webviews"
