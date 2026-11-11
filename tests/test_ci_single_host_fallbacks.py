@@ -189,6 +189,33 @@ class SingleHostFallbacks(unittest.TestCase):
         caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      big: ${{ vars.NEW_Y }}\n"
         self.assert_names(self.scan({"callee.yml": callee, "caller.yml": caller}), "NEW_Y")
 
+    DEFAULTED = ("on:\n  workflow_call:\n    inputs:\n%s"
+                 "jobs:\n  a:\n    runs-on: ${{ inputs.runner }}\n")
+
+    def test_codex_repro_an_input_default_is_traced_to_the_callers(self) -> None:
+        """Codex on #40979: `runner` defaults to `${{ inputs.fallback_runner }}` and a caller passes only
+        `fallback_runner: ${{ vars.NEW_X }}`. The default was scanned as text, never traced, so no finding."""
+        callee = self.DEFAULTED % ("      runner: {type: string, default: '${{ inputs.fallback_runner }}'}\n"
+                                   "      fallback_runner: {type: string}\n")
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      fallback_runner: ${{ vars.NEW_X }}\n")
+        self.assert_names(self.scan({"callee.yml": callee, "caller.yml": caller}), "NEW_X")
+
+    def test_a_two_hop_default_chain_is_traced(self) -> None:
+        callee = self.DEFAULTED % ("      runner: {type: string, default: '${{ inputs.middle }}'}\n"
+                                   "      middle: {type: string, default: \"${{ inputs['base'] }}\"}\n"
+                                   "      base: {type: string}\n")
+        caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n      base: ${{ vars.NEW_Y }}\n"
+        self.assert_names(self.scan({"callee.yml": callee, "caller.yml": caller}), "NEW_Y")
+
+    def test_a_default_that_refers_to_itself_refuses(self) -> None:
+        """A default that loops (directly or through callers) has no end to trace to: the scan cannot verify what the
+        runs-on reads, so it is a finding, never a silent pass."""
+        callee = self.DEFAULTED % "      runner: {type: string, default: '${{ inputs.runner }}'}\n"
+        caller = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n"
+        findings = self.scan({"callee.yml": callee, "caller.yml": caller})
+        self.assertTrue([f for f in findings if "cannot be verified" in f], findings)
+
     def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
         """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
         resolving a field: the file, the job and the key path it sits at, and the field that consumed it."""
@@ -344,6 +371,142 @@ class SingleHostFallbacks(unittest.TestCase):
 
     def test_a_missing_workflow_directory_is_reported(self) -> None:
         self.assertTrue(undeclared([ROOT / "no-such-dir" / "workflows"], load_declaration()))
+
+
+class VarsReadOracle(unittest.TestCase):
+    """Differential oracle: random small workflow graphs (callers, inputs, defaults, matrices, vars), each evaluated
+    by a reference evaluator that walks the generator's own model, never the YAML. Resolved.vars_read (field
+    runs-on) must equal the reference set, and the resolver must say unverifiable exactly when the reference
+    meets a loop."""
+
+    CASES = 1200
+    LITERALS = ("blacksmith-4vcpu-ubuntu-2404", "ubuntu-24.04", "macos-26")
+
+    def term(self, rng, inputs, matrix, depth=0):
+        """A value: (kind, ...). Kinds: lit, var, cond (vars.V == ... && lit || lit), input, cond_input, matrix."""
+        kinds = ["lit", "var", "cond"] + (["input", "cond_input"] if inputs else []) + (["matrix"] if matrix else [])
+        kind = rng.choice(kinds)
+        if kind == "lit":
+            return ("lit", rng.choice(self.LITERALS))
+        if kind in ("var", "cond"):
+            return (kind, rng.choice("ABCD"), rng.random() < 0.5)  # the flag: bracket form
+        if kind in ("input", "cond_input"):
+            return (kind, rng.choice(inputs))
+        return ("matrix",)
+
+    def text(self, term):
+        kind = term[0]
+        if kind == "lit":
+            return term[1]
+        if kind in ("var", "cond"):
+            ref = f"vars['V_{term[1]}']" if term[2] else f"vars.V_{term[1]}"
+            return f"${{{{ {ref} }}}}" if kind == "var" else f"${{{{ {ref} == 'x' && 'macos-26' || 'ubuntu-24.04' }}}}"
+        if kind == "input":
+            return f"${{{{ inputs.{term[1]} }}}}"
+        if kind == "cond_input":
+            return f"${{{{ inputs.{term[1]} == 'x' && 'macos-26' || 'ubuntu-24.04' }}}}"
+        return "${{ matrix.runner }}"
+
+    def matrix(self, rng, inputs):
+        if rng.random() < 0.5:
+            return None
+        if rng.random() < 0.25:
+            return ("fromjson", rng.choice("ABCD"))
+        return ("cells", [self.term(rng, inputs, None) for _ in range(rng.randint(1, 3))])
+
+    def graph(self, rng):
+        names = [f"w{i}.yml" for i in range(rng.randint(1, 4))]
+        model = {}
+        for name in names:
+            inputs = rng.sample(["p", "q", "r"], rng.randint(0, 3))
+            defaults = {i: self.term(rng, inputs, None) for i in inputs if rng.random() < 0.6}
+            matrix = self.matrix(rng, inputs)
+            calls = []
+            for _ in range(rng.randint(0, 2)):
+                target = rng.choice(names)
+                cmatrix = self.matrix(rng, inputs)
+                calls.append((target, cmatrix, {}))  # with: filled once every target's inputs are known
+            model[name] = {"inputs": inputs, "defaults": defaults, "matrix": matrix,
+                           "runs_on": self.term(rng, inputs, matrix), "calls": calls}
+        for name, flow in model.items():
+            for target, cmatrix, passed in flow["calls"]:
+                for i in model[target]["inputs"]:
+                    if rng.random() < 0.6:
+                        passed[i] = self.term(rng, flow["inputs"], cmatrix)
+        return model
+
+    def render(self, flow):
+        lines = []
+        if flow["inputs"]:
+            lines += ["on:", "  workflow_call:", "    inputs:"]
+            for i in flow["inputs"]:
+                default = f", default: {json.dumps(self.text(flow['defaults'][i]))}" if i in flow["defaults"] else ""
+                lines.append(f"      {i}: {{type: string{default}}}")
+        lines.append("jobs:")
+
+        def matrix_lines(matrix):
+            if matrix is None:
+                return []
+            if matrix[0] == "fromjson":
+                return ["    strategy:", f"      matrix: ${{{{ fromJSON(vars.V_{matrix[1]}) }}}}"]
+            return ["    strategy:", "      matrix:", "        runner:"] + [
+                f"          - {json.dumps(self.text(t))}" for t in matrix[1]]
+        lines += ["  run:", *matrix_lines(flow["matrix"]), f"    runs-on: {json.dumps(self.text(flow['runs_on']))}"]
+        for index, (target, cmatrix, passed) in enumerate(flow["calls"]):
+            lines += [f"  call{index}:", *matrix_lines(cmatrix), f"    uses: ./.github/workflows/{target}"]
+            if passed:
+                lines.append("    with:")
+                lines += [f"      {k}: {json.dumps(self.text(v))}" for k, v in passed.items()]
+        return "\n".join(lines) + "\n"
+
+    def reference(self, model, name, term, matrix, seen):
+        """The variables TERM, written in workflow NAME under MATRIX, reads; raises LookupError on a loop."""
+        kind = term[0]
+        if kind in ("var", "cond"):
+            return {f"V_{term[1]}"}
+        if kind in ("input", "cond_input"):
+            return self.input_reference(model, name, term[1], seen)
+        if kind == "matrix":
+            if matrix[0] == "fromjson":
+                return {f"V_{matrix[1]}"}
+            return set().union(*(self.reference(model, name, t, None, seen) for t in matrix[1]))
+        return set()
+
+    def input_reference(self, model, name, key, seen):
+        if (name, key) in seen:
+            raise LookupError((name, key))
+        callers = [(caller, call) for caller, flow in model.items() for call in flow["calls"] if call[0] == name]
+        found = set()
+        for caller, (_, cmatrix, passed) in callers:
+            here = seen | {(name, key)}
+            if key in passed:
+                found |= self.reference(model, caller, passed[key], cmatrix, here)
+            elif key in model[name]["defaults"]:
+                found |= self.reference(model, name, model[name]["defaults"][key], None, here)
+        return found
+
+    def test_vars_read_matches_the_reference_on_random_graphs(self) -> None:
+        import random
+        wj = checker.load_workflow_jobs()
+        for seed in range(self.CASES):
+            rng = random.Random(seed)
+            model = self.graph(rng)
+            texts = {name: self.render(flow) for name, flow in model.items()}
+            workflows = wj.Workflows({name: wj.document(text) for name, text in texts.items()})
+            for name, flow in model.items():
+                job = workflows.documents[name]["jobs"]["run"]
+                resolved = wj.resolve(job, "run", name, workflows)
+                got = {r.name for r in resolved.vars_read if r.field == "runs-on"}
+                unverifiable = any(u.field == "runs-on" for u in resolved.unverifiable)
+                try:
+                    want, looped = self.reference(model, name, flow["runs_on"], flow["matrix"], frozenset()), False
+                except LookupError:
+                    want, looped = None, True
+                with self.subTest(seed=seed, workflow=name):
+                    detail = f"seed {seed} {name}:\n" + "\n".join(f"--- {n}\n{t}" for n, t in texts.items())
+                    self.assertEqual(unverifiable, looped, detail)
+                    if not looped:
+                        self.assertEqual(got, want, detail)
 
 
 def load_gate():
