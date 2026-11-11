@@ -378,7 +378,8 @@ fn masked(result: Value) -> String {
 }
 
 /// The reply line for `id` whose result is `result`, serialized: the bytes
-/// `Message::ok(id, result).to_line()` writes.
+/// `Message::ok(id, result).to_line()` writes. The daemon makes it with [`reply_line_in`].
+#[cfg(test)]
 pub(super) fn reply_line(id: &Value, result: &str) -> String {
     let id = id.to_string();
     let mut line = String::with_capacity(id.len() + result.len() + 32);
@@ -394,7 +395,15 @@ pub(super) fn reply_line(id: &Value, result: &str) -> String {
 pub(super) fn reply_line_in(id: &Value, result: Arc<String>) -> String {
     let id = id.to_string();
     let head = ["{\"id\":", &id, ",\"jsonrpc\":\"2.0\",\"result\":"].concat();
-    reply_line_parts(&head, &result)
+    match Arc::try_unwrap(result) {
+        Ok(mut text) if text.capacity() - text.len() >= head.len() + 2 => {
+            text.insert_str(0, &head);
+            text.push_str("}\n");
+            text
+        }
+        Ok(text) => reply_line_parts(&head, &text),
+        Err(shared) => reply_line_parts(&head, &shared),
+    }
 }
 
 fn reply_line_parts(head: &str, result: &str) -> String {

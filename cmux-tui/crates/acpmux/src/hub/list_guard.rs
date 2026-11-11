@@ -444,7 +444,7 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
 
 /// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
 /// "result":` and `}\n`), so the line is made in place for any id up to about 200 bytes.
-pub(crate) const LINE_ROOM: usize = 0;
+pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
 /// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
