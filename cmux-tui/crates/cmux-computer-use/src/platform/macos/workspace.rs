@@ -323,22 +323,24 @@ impl NamesIndex {
             let folders = folder_times();
             if st.built.is_none() || folders != st.folders {
                 st.building = true;
-                let spawned = std::thread::Builder::new().name("cu-app-names".into()).spawn(move || {
-                    // Reset `building` however the build ends (a panic too).
-                    struct Done(&'static NamesIndex);
-                    impl Drop for Done {
-                        fn drop(&mut self) {
-                            self.0.state.lock().unwrap_or_else(|e| e.into_inner()).building = false;
+                let spawned =
+                    std::thread::Builder::new().name("cu-app-names".into()).spawn(move || {
+                        // Reset `building` however the build ends (a panic too).
+                        struct Done(&'static NamesIndex);
+                        impl Drop for Done {
+                            fn drop(&mut self) {
+                                self.0.state.lock().unwrap_or_else(|e| e.into_inner()).building =
+                                    false;
+                            }
                         }
-                    }
-                    let _done = Done(self);
-                    let map = std::sync::Arc::new(build_name_index());
-                    let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    st.generation += 1;
-                    st.built = Some(map);
-                    st.folders = folders;
-                    st.answers.clear();
-                });
+                        let _done = Done(self);
+                        let map = std::sync::Arc::new(build_name_index());
+                        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.generation += 1;
+                        st.built = Some(map);
+                        st.folders = folders;
+                        st.answers.clear();
+                    });
                 if spawned.is_err() {
                     st.building = false;
                 }
@@ -350,7 +352,9 @@ impl NamesIndex {
     fn answer(&self, key: &str, generation: u64) -> Option<Vec<String>> {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match st.answers.get(key) {
-            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => Some(ids.clone()),
+            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => {
+                Some(ids.clone())
+            }
             Some(_) => {
                 st.answers.remove(key);
                 None
@@ -428,7 +432,10 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
                 {
                     // One level of subfolders (Setapp, Adobe, Chrome Apps).
                     paths.extend(
-                        inner.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
+                        inner
+                            .flatten()
+                            .map(|e| e.path())
+                            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
                     );
                 }
             }
@@ -438,11 +445,16 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
                 let Some(p) = path.to_str().and_then(Cf::string) else { continue };
                 let p_obj: *const AnyObject = p.ptr().cast();
                 // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
-                let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let bundle: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
                 let Some(bundle) = bundle else { continue };
-                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else { continue };
+                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else {
+                    continue;
+                };
                 // The localized display name, without .app (-displayNameAtPath:).
-                if let Some(display) = ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] }) {
+                if let Some(display) =
+                    ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] })
+                {
                     add(display.strip_suffix(".app").unwrap_or(&display), &id);
                 }
                 for key in [c"CFBundleDisplayName", c"CFBundleName"] {
@@ -472,11 +484,13 @@ fn launch_services_id(name: &str) -> Option<String> {
         let n_obj: *const AnyObject = n.ptr().cast();
         // SAFETY: -fullPathForApplication: takes an NSString and returns nil
         // or an NSString path.
-        let path: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
+        let path: Option<Retained<AnyObject>> =
+            unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
         let path = path?;
         let bundle_cls = class(c"NSBundle").ok()?;
         // SAFETY: +bundleWithPath: takes an NSString; -bundleIdentifier returns nil or an NSString.
-        let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
+        let bundle: Option<Retained<AnyObject>> =
+            unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
         let bundle = bundle?;
         ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
     })
@@ -499,7 +513,9 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
     // it once refreshed).
     let usable = |st: &ServicesState| {
         let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
-        let failed_since = st.failed_at.is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+        let failed_since = st
+            .failed_at
+            .is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
         let stale = old && (st.refreshing || failed_since);
         if stale { None } else { st.last.as_ref().map(|(_, list)| list.clone()) }
     };
@@ -535,7 +551,10 @@ fn services_state() -> &'static (std::sync::Mutex<ServicesState>, std::sync::Con
     use std::sync::{Condvar, Mutex, OnceLock};
     static STATE: OnceLock<(Mutex<ServicesState>, Condvar)> = OnceLock::new();
     STATE.get_or_init(|| {
-        (Mutex::new(ServicesState { last: None, refreshing: false, failed_at: None }), Condvar::new())
+        (
+            Mutex::new(ServicesState { last: None, refreshing: false, failed_at: None }),
+            Condvar::new(),
+        )
     })
 }
 
@@ -586,7 +605,18 @@ pub fn keyboard_layout() -> super::roles::Layout {
     Cf::synchronize_preferences("com.apple.HIToolbox");
     let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
         .and_then(|v| v.as_string());
-    let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some();
+    // CFPreferences gives no read error: a missing key and a failed read are
+    // both NULL. Nothing recorded counts as a default (U.S.) install only
+    // when HIToolbox has no preferences file at all; one that exists but
+    // gave nothing, or cannot be checked, fails closed.
+    let recorded = || {
+        let Some(home) = std::env::var_os("HOME") else { return true };
+        let file =
+            std::path::Path::new(&home).join("Library/Preferences/com.apple.HIToolbox.plist");
+        !matches!(std::fs::symlink_metadata(file), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    };
+    let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some()
+        || (id.is_none() && recorded());
     super::roles::layout_of(id.as_deref(), enabled)
 }
 
@@ -676,7 +706,9 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
     Cf::synchronize_preferences("pbs");
     if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
         for entry in status.dict_values() {
-            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else { continue };
+            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else {
+                continue;
+            };
             if !value.is_empty() {
                 list.push(super::keymap::service_shortcut(&value, false)?);
             }

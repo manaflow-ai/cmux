@@ -76,14 +76,17 @@ impl MacDesktop {
             return Ok(());
         }
         let role = el.string("AXRole").unwrap_or_default();
-        let has_submenu =
-            el.elements("AXChildren").iter().any(|c| c.string("AXRole").as_deref() == Some("AXMenu"));
+        let has_submenu = el
+            .elements("AXChildren")
+            .iter()
+            .any(|c| c.string("AXRole").as_deref() == Some("AXMenu"));
         if let Some(why) = roles::submenu_refusal(&role, has_submenu) {
             return Err(DesktopError::Unsupported(why.into()));
         }
         if self.menu_item_blocked(el) {
             return Err(DesktopError::Unsupported(
-                "this menu item would open or hand data to an app on the Computer Use deny list".into(),
+                "this menu item would open or hand data to an app on the Computer Use deny list"
+                    .into(),
             ));
         }
         // Menu commands act on the app's key window: the same rule as keys.
@@ -431,31 +434,49 @@ pub(super) fn press_keys(
     // menu opens or hides from AX.
     let route = d.key_route(&t, delivery)?;
     use crate::keys::{Key, Modifier};
-    let menu_chord = combo.modifiers.iter().any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
+    let menu_chord = combo
+        .modifiers
+        .iter()
+        .any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
         || matches!(combo.key, Key::F(_));
     let denies_any = d.denies_any();
     if menu_chord {
-        // The walk stops at the first enabled match: it is pressed or refused.
-        let (items, complete) = shortcut_matches(d, t.window.pid, combo, true);
+        // In the background the walk stops at the first enabled match (it is
+        // pressed or refused); a foreground chord may be posted, which needs
+        // every match.
+        let background = delivery == Delivery::Background;
+        let (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-        // The layout and Services are read only when the key would be posted
-        // while something is denied.
-        let checks = roles::needs_key_checks(&matches, denies_any) && complete;
+        // The layout and Services are read only when the rule needs them.
+        let checks = roles::needs_key_checks(&matches, denies_any, background) && complete;
         let shift = flags & keymap::FLAG_SHIFT != 0;
-        let layout_known = !checks || roles::layout_places(&combo.key, shift, workspace::keyboard_layout());
+        let layout_known =
+            !checks || roles::layout_places(&combo.key, shift, workspace::keyboard_layout());
         let is_service = if checks && layout_known {
             match workspace::service_shortcuts() {
                 None => roles::ServiceCheck::Unread,
-                Some(list) if keymap::is_service_shortcut(code, flags, &list) => roles::ServiceCheck::Match,
+                Some(list) if keymap::is_service_shortcut(code, flags, &list) => {
+                    roles::ServiceCheck::Match
+                }
                 Some(_) => roles::ServiceCheck::NoMatch,
             }
         } else {
             roles::ServiceCheck::NoMatch
         };
-        let facts = roles::ChordFacts { matches: &matches, complete, denies_any, layout_known, is_service };
+        let facts = roles::ChordFacts {
+            matches: &matches,
+            complete,
+            background,
+            denies_any,
+            layout_known,
+            is_service,
+        };
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
-                items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
+                items[i]
+                    .0
+                    .perform("AXPress")
+                    .map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
             roles::ChordAction::Refuse(why) => {
@@ -464,8 +485,8 @@ pub(super) fn press_keys(
                     .then(|| matches.iter().find(|m| m.blocked))
                     .flatten()
                     .filter(|m| !m.title.is_empty())
-                .map(|m| format!(" (menu item {:?})", m.title))
-                .unwrap_or_default();
+                    .map(|m| format!(" (menu item {:?})", m.title))
+                    .unwrap_or_default();
                 return Err(DesktopError::Unsupported(format!("{why}{item}")));
             }
             roles::ChordAction::Post => {}
@@ -707,9 +728,10 @@ pub(super) fn perform_action(
 
 /// The menu items of `pid`'s menu bar whose key equivalent is `combo`, in
 /// AppKit's order (depth-first, menu order), with whether each is enabled
-/// and blocked. With `stop_at_enabled` (a background AX press) the walk ends
-/// at the first enabled match; otherwise it collects every match within the
-/// bounds, since posted keys are routed by AppKit at key time. The bool is
+/// and blocked. With `stop_at_enabled` (a background chord, pressed or
+/// refused at its first enabled match) the walk ends there; otherwise (a
+/// foreground chord, which may be posted and is then routed by AppKit at key
+/// time) it collects every match within the bounds. The bool is
 /// false when the walk did not see everything: its bounds (6 levels, 2000
 /// items) or any read error; a match whose title or place cannot be read
 /// counts as blocked. Every submenu is walked, Services included: a Services
@@ -752,7 +774,8 @@ fn shortcut_matches(
     let number = |node: &Ax, name: &str| -> Result<Option<i64>, ()> {
         node.attr(name).map(|v| v.and_then(|v| v.as_f64()).map(|v| v as i64)).map_err(|_| ())
     };
-    let mut stack: Vec<(Ax, usize)> = children(&bar, &mut complete).into_iter().rev().map(|c| (c, 0)).collect();
+    let mut stack: Vec<(Ax, usize)> =
+        children(&bar, &mut complete).into_iter().rev().map(|c| (c, 0)).collect();
     while let Some((node, depth)) = stack.pop() {
         seen += 1;
         if seen > 2000 {
@@ -763,16 +786,19 @@ fn shortcut_matches(
             continue;
         };
         if role.as_deref() == Some("AXMenuItem") {
-            let (Ok(cmd_char), Ok(virtual_key), Ok(mods)) = (
+            let (Ok(cmd_char), Ok(virtual_key), Ok(glyph), Ok(mods)) = (
                 text(&node, "AXMenuItemCmdChar"),
                 number(&node, "AXMenuItemCmdVirtualKey"),
+                number(&node, "AXMenuItemCmdGlyph"),
                 number(&node, "AXMenuItemCmdModifiers"),
             ) else {
                 complete = false;
                 continue;
             };
-            if (cmd_char.as_deref().is_some_and(|c| !c.is_empty()) || virtual_key.is_some())
-                && keymap::menu_item_matches(combo, cmd_char.as_deref(), virtual_key, mods.unwrap_or(0))
+            let (cmd_char, virtual_key) =
+                keymap::menu_item_key(cmd_char.as_deref(), virtual_key, glyph);
+            if (cmd_char.is_some() || virtual_key.is_some())
+                && keymap::menu_item_matches(combo, cmd_char, virtual_key, mods.unwrap_or(0))
             {
                 let enabled = match node.attr("AXEnabled") {
                     Ok(v) => v.and_then(|v| v.as_bool()) != Some(false),
@@ -787,10 +813,11 @@ fn shortcut_matches(
                         let t = t.unwrap_or_default();
                         (t, d.menu_item_blocked(&node))
                     }
-                    // A title that cannot be read cannot be checked: blocked.
+                    // A title that cannot be read cannot be checked: blocked
+                    // while something is denied (as menu_item_blocked does).
                     Err(()) => {
                         complete = false;
-                        (String::new(), true)
+                        (String::new(), d.denies_any())
                     }
                 };
                 found.push((node.clone(), roles::ShortcutMatch { title, enabled, blocked }));
@@ -811,7 +838,6 @@ fn shortcut_matches(
     }
     (found, complete)
 }
-
 
 /// Whether `row` is its table's only selected row (true when the table does
 /// not say).
@@ -845,7 +871,9 @@ fn selectable(el: &Ax) -> Option<Ax> {
     for _ in 0..5 {
         let node = current?;
         let role = node.string("AXRole").unwrap_or_default();
-        if matches!(role.as_str(), "AXRow" | "AXCell" | "AXOutlineRow") && node.settable("AXSelected") {
+        if matches!(role.as_str(), "AXRow" | "AXCell" | "AXOutlineRow")
+            && node.settable("AXSelected")
+        {
             return Some(node);
         }
         if matches!(role.as_str(), "AXWindow" | "AXTable" | "AXOutline" | "AXList") {
@@ -867,7 +895,8 @@ fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
         return Ok(None);
     }
     let number = |name: &str| el.attr(name).ok().flatten().and_then(|v| v.as_f64());
-    let (Some(min), Some(max), Some(start)) = (number("AXMinValue"), number("AXMaxValue"), number("AXValue"))
+    let (Some(min), Some(max), Some(start)) =
+        (number("AXMinValue"), number("AXMaxValue"), number("AXValue"))
     else {
         return Ok(None);
     };
@@ -910,7 +939,9 @@ fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
     } else {
         ActionOutcome::delivered("ax_step")
     };
-    out.note = format!("stepped from {start} to {read} (asked {target}); the element moves in fixed steps");
+    out.note = format!(
+        "stepped from {start} to {read} (asked {target}); the element moves in fixed steps"
+    );
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
     }

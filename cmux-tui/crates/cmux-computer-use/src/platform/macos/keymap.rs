@@ -187,6 +187,62 @@ pub const MENU_OPTION: i64 = 2;
 pub const MENU_CONTROL: i64 = 4;
 pub const MENU_NO_COMMAND: i64 = 8;
 
+/// A menu item's key equivalent as AX reports it, made comparable: a
+/// non-character key (Return, Delete, the arrows, F-keys) comes as a control
+/// character in AXMenuItemCmdChar ("\u{8}" for Delete), as
+/// AXMenuItemCmdVirtualKey, or only as AXMenuItemCmdGlyph. Returns the
+/// printable character, if it is one, and the key code otherwise.
+pub fn menu_item_key(
+    cmd_char: Option<&str>,
+    virtual_key: Option<i64>,
+    glyph: Option<i64>,
+) -> (Option<&str>, Option<i64>) {
+    let printable = cmd_char.filter(|c| !c.is_empty() && !c.chars().any(|ch| ch.is_control()));
+    if printable.is_some() {
+        return (printable, None);
+    }
+    let from_char = cmd_char.and_then(|c| {
+        let mut it = c.chars();
+        let ch = it.next()?;
+        if it.next().is_some() {
+            return None;
+        }
+        Some(match ch {
+            '\u{8}' | '\u{7f}' => 51,
+            '\r' | '\u{3}' => i64::from(KEY_RETURN),
+            '\t' => i64::from(KEY_TAB),
+            '\u{1b}' => 53,
+            _ => return None,
+        })
+    });
+    (None, virtual_key.or_else(|| glyph.and_then(glyph_key_code)).or(from_char))
+}
+
+/// The key code of an `AXMenuItemCmdGlyph` (HIToolbox Menus.h `kMenu*Glyph`).
+fn glyph_key_code(glyph: i64) -> Option<i64> {
+    Some(match glyph {
+        0x02 => i64::from(KEY_TAB),
+        0x04 => 76,
+        0x09 => 49,
+        0x0A => 117,
+        0x0B..=0x0D => i64::from(KEY_RETURN),
+        0x17 => 51,
+        0x1B => 53,
+        0x1C => 71,
+        0x62 => 116,
+        0x64 => 123,
+        0x65 => 124,
+        0x66 => 115,
+        0x68 => 126,
+        0x69 => 119,
+        0x6A => 125,
+        0x6B => 121,
+        0x6F..=0x7A => i64::from(function_key((glyph - 0x6F + 1) as u8)?),
+        0x87..=0x89 => i64::from(function_key((glyph - 0x87 + 13) as u8)?),
+        _ => return None,
+    })
+}
+
 /// Whether a menu item's key equivalent is `combo`. `cmd_char` is
 /// `AXMenuItemCmdChar` (AppKit reports it upper-case, with Shift in the
 /// modifiers), `virtual_key` is `AXMenuItemCmdVirtualKey` for items whose
@@ -217,7 +273,8 @@ pub fn menu_item_matches(
             // with Command only: the character carries the Shift ("+" is
             // shift+=), and letters are reported upper-case without meaning
             // Shift (Shift is then the MENU_SHIFT bit).
-            let (Some((item_code, item_char_shift)), Some((key_code_, key_char_shift))) = (char_key(i), char_key(*c))
+            let (Some((item_code, item_char_shift)), Some((key_code_, key_char_shift))) =
+                (char_key(i), char_key(*c))
             else {
                 return i.to_lowercase().eq(c.to_lowercase()) && menu_shift == has(Modifier::Shift);
             };
@@ -228,7 +285,9 @@ pub fn menu_item_matches(
             item_code == key_code_ && item_shift == key_shift
         }
         (key, None) => match (key_code(key), virtual_key) {
-            (Some((code, _)), Some(v)) => i64::from(code) == v && menu_shift == has(Modifier::Shift),
+            (Some((code, _)), Some(v)) => {
+                i64::from(code) == v && menu_shift == has(Modifier::Shift)
+            }
             _ => false,
         },
         _ => false,
@@ -274,7 +333,7 @@ pub fn service_shortcut(equivalent: &str, implied_command: bool) -> Option<(u16,
         0x03 => Some(76),         // Enter (keypad)
         0x0D => Some(KEY_RETURN), // Return
         0x09 => Some(KEY_TAB),
-        0x20 => Some(49), // Space
+        0x20 => Some(49),    // Space
         0xF700 => Some(126), // Up
         0xF701 => Some(125), // Down
         0xF702 => Some(123), // Left

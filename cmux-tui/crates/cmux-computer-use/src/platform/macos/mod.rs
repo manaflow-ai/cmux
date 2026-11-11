@@ -56,8 +56,10 @@ impl MacDesktop {
         // (protected apps count with nothing denied); while something is
         // denied, an item that cannot be placed is blocked.
         let Some((top_index, depth, siblings)) = ax::menu_context(item) else {
-            let ctx = roles::MenuItemContext { title: &title, top_index: None, depth: 0, siblings: &[] };
-            return guard.denies_any() || roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named);
+            let ctx =
+                roles::MenuItemContext { title: &title, top_index: None, depth: 0, siblings: &[] };
+            return guard.denies_any()
+                || roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named);
         };
         let ctx = roles::MenuItemContext { title: &title, top_index, depth, siblings: &siblings };
         roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
@@ -346,7 +348,9 @@ impl Desktop for MacDesktop {
         let (_, window) = self.ax_window(&t)?;
         let guard = self.guard();
         let blocked = |ctx: &roles::MenuItemContext| {
-            guard.as_ref().is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
+            guard
+                .as_ref()
+                .is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
         };
         self.elements.tree(&t.id(), window, options, &blocked)
     }
