@@ -9,9 +9,9 @@ import Foundation
 import Testing
 
 /// A split whose daemon does not answer: the new pane shows at once (its stand-in), its terminal
-/// says `starting`, and the person can close it three ways: Close Tab's shortcut with the focus in
-/// it, the close button of its tab, and Close in its label. All three give the same result
-/// (cmux-shared-behavior): the creation is cancelled, the view's wait for its terminal ends, the
+/// says `starting`, and the person can close it four ways: Close Tab's shortcut with the focus in
+/// it, the close button of its tab, Close in its label, and Close Pane with the focus in it. All
+/// four give the same result (cmux-shared-behavior): the creation is cancelled, the view's wait for its terminal ends, the
 /// keys typed in it reach no other terminal, and when the daemon answers at last, exactly ONE close
 /// is sent for the pane it made, which never shows.
 ///
@@ -19,9 +19,9 @@ import Testing
 /// request while a file exists: the daemon is silent for the split and answers everything else.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct StartingPaneCloseTests {
-    /// The three ways to close the pane.
+    /// The ways to close the pane.
     nonisolated enum Way: String, CaseIterable, Sendable {
-        case closeTabShortcut, tabCloseButton, labelClose
+        case closeTabShortcut, tabCloseButton, labelClose, closePaneAction
     }
 
     /// The surfaces a close was sent for (written and read on the main actor only).
@@ -121,7 +121,7 @@ struct StartingPaneCloseTests {
                          "the test needs no focused terminal that could take the keys (a test window is never key)")
             coordinator.giveBack(Data("echo typed-in-the-starting-pane\r".utf8), terminal: terminalID)
 
-            // Close, one of the three ways.
+            // Close, one of the ways.
             switch way {
             case .closeTabShortcut:
                 PaneHandlers.focus(standIn.layoutPaneID, in: content)
@@ -133,6 +133,12 @@ struct StartingPaneCloseTests {
             case .labelClose:
                 let close = try #require(view.onCloseStarting, "the label of the starting pane has no Close")
                 close()
+            case .closePaneAction:
+                // Close Pane after the split's focus arrived (the state at 10 s): the pane is the focused one.
+                PaneHandlers.focus(standIn.layoutPaneID, in: content)
+                try #require(content.focus.state.pane == standIn.paneKey && content.focus.state.expectation == nil,
+                             "the test needs the focus on the starting pane: \(Self.describe(content, services))")
+                #expect(services.registry.perform("closePane", invocation: ActionInvocation(origin: .user)), "Close Pane was refused")
             }
 
             // In the close's turn: the creation is cancelled.
