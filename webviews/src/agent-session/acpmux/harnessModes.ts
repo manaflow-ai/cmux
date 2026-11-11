@@ -32,6 +32,11 @@ export type HarnessModeMenu = {
   /** The mode that skips every approval, the harness's highest permission level (acpmux's
    *  `FULL_ACCESS_MODES`, hub/start_mode.rs): what acpmux starts a chat in when the person chose none. */
   highest: string;
+  /** The mode a chat a Cloud machine (any remote start) begins in: acpmux sets no start mode there
+   *  and holds the remote `ask` policy, so the harness starts in its asking mode (acpmux
+   *  `web_modes.rs`: Claude's `ASKING_MODES` first row, the Codex bridge's `BRIDGE_ASKING_MODES`).
+   *  `name` is the harness's own label for a mode its menu does not list (the bridge's `ask`). */
+  remoteStart: { id: string; name?: string };
 };
 
 /** Claude Code's Mode menu: its five permission modes (`--permission-mode` ids), in its order. */
@@ -46,6 +51,7 @@ const CLAUDE: HarnessModeMenu = {
   ],
   hidden: [],
   highest: "bypassPermissions",
+  remoteStart: { id: "default" },
 };
 
 /** Codex's approval menu. The bridge (cmux-codex-acp `config.rs` `MODES`) runs Codex's default as
@@ -77,6 +83,8 @@ const CODEX: HarnessModeMenu = {
   ],
   hidden: ["ask", "read-only"],
   highest: "agent-full-access",
+  // cmux-codex-acp `config.rs` `MODES` names it "Ask" ("Asks before every command and every edit").
+  remoteStart: { id: "ask", name: "Ask" },
 };
 
 /** The harness family's own menu (by acpmux's family, else by the harness id: a second Claude
@@ -98,6 +106,19 @@ export function harnessModeMenu(
 export function highestMode(family: string | undefined, harness: string | undefined): HarnessModeRow | undefined {
   const menu = familyMenu(family, harness);
   return menu?.rows.find((row) => row.id === menu.highest);
+}
+
+/** The mode a new chat whose first send starts it on a Cloud machine begins in (`remoteStart`), named
+ * as the harness's menu names it. None for a harness this table does not list: the Cloud machine
+ * decides, and the chip says so with its generic label until the chat reports. */
+export function remoteStartMode(
+  family: string | undefined,
+  harness: string | undefined,
+): { id: string; name: string } | undefined {
+  const menu = familyMenu(family, harness);
+  if (!menu) return undefined;
+  const { id, name } = menu.remoteStart;
+  return { id, name: menu.rows.find((row) => row.id === id)?.name ?? name ?? id };
 }
 
 /** The family's own menu whatever the harness reported (none yet: a New Tab before its chat

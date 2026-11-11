@@ -149,7 +149,7 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     assert!(got["summary"].get("retry").is_none(), "{got}");
 
     // No row lists it any more (a lease that ended with its VM): host and id.
-    again.remote_sessions.lock().unwrap().retain(|_, _| false);
+    again.remote_sessions.write().retain(|_, _| false);
     let got = again.peer_snapshot(&json!({"host": "huge-blue", "sessionId": "m1"})).unwrap();
     assert_eq!(seqs(&got), (1..=6).collect::<Vec<_>>());
     assert_eq!(got["summary"]["name"], "huge-blue/lane", "the kept row");

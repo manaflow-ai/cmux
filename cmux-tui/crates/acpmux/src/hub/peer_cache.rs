@@ -133,8 +133,7 @@ impl Hub {
         // The rows' own `Arc`s, not copies: the save writes only those that changed.
         let rows: Vec<(String, Arc<RemoteSession>)> = self
             .remote_sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .settled()
             .of_peer(peer)
             .map(|(key, r)| (key.clone(), r.clone()))
             .collect();
@@ -189,7 +188,7 @@ impl Hub {
         peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
-        let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.remote_sessions.write();
         if map.has_peer(&peer.name) {
             return;
         }
@@ -203,21 +202,21 @@ impl Hub {
         }
     }
 
-    /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
+    /// `forget_peer_files` under the rows writer lock (`remove_peer` holds it itself).
     #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
         let writer = self.peer_cache_writer(peer);
         let _writer = writer.lock().unwrap_or_else(|e| e.into_inner());
-        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let _rows = self.remote_sessions.fence();
         self.forget_peer_files(peer);
     }
 
-    /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
+    /// `forget_peer_cache` with the rows writer lock held by the caller (`remove_peer`).
     pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(dir) = self.store.peer_cache_dir() {
             disk::remove(&dir, peer);
         }
-        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows writer lock once the
         // peer has left the registry (`remove_peer`): a listing or capture of it that found it
         // current (under this lock) has sent its op already and none after it does, so no
         // listing that lets a page start a copy again comes after this.

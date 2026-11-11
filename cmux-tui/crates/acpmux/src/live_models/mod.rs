@@ -141,6 +141,11 @@ impl Probe {
             crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
                 cmd.env_remove(key);
             });
+            // A probe Claude Code joins no peer list, as an agent's does not (`agent/command.rs`,
+            // `hub/native_messaging.rs`); the profile's own value, set below, wins.
+            if matches!(cli, Cli::Claude) {
+                cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
+            }
             cmd.args(rest)
                 .args(match cli {
                     Cli::Claude => claude::args(),

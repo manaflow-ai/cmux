@@ -93,9 +93,11 @@ import Testing
         return (hub, store)
     }
 
-    /// Waits (on the clock: a retry sleeps) until `done`, for at most 10 s.
+    /// Waits (on the clock: a retry sleeps) until `done`, for at most 60 s: with the whole kit
+    /// running in parallel on one runner a catch-up with a retry took 9.7 s, at the old 10 s
+    /// deadline's edge (a met wait returns at once).
     static func waitUntil(_ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + .seconds(60)
         while !done(), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(5))
         }

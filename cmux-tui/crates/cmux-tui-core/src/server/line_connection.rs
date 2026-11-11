@@ -66,7 +66,18 @@ pub(super) fn serve_line_connection(
     // plugin as a client (orphan_shutdown.rs).
     let owner_plugin = orphan_shutdown::is_owner_plugin_peer(&mux, peer_key.as_deref());
     let client = mux.control_clients.register_classified(transport, writer.clone(), owner_plugin);
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    let peer_kind = origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    // The connection is accepted: counted under what the daemon knows of its peer now
+    // (`server-stats` section `commands`); `set-client-info` can say more later.
+    writer.kind.registered(
+        mux.connection_stats().commands(),
+        match transport {
+            _ if owner_plugin => crate::diagnostics::ClientKind::Plugin,
+            ClientTransport::Remote => crate::diagnostics::ClientKind::Remote,
+            ClientTransport::WebSocket => crate::diagnostics::ClientKind::WebSocket,
+            ClientTransport::Unix => peer_kind,
+        },
+    );
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.

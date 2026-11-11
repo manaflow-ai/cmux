@@ -1115,7 +1115,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.</string>
 			<key>pfm_name</key>
 			<string>ssh.linkAllowedHosts</string>
 			<key>pfm_subkeys</key>
@@ -8066,6 +8066,18 @@
 			<string>Middle-Click</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.</string>
+			<key>pfm_name</key>
+			<string>browser.vimKeys</string>
+			<key>pfm_title</key>
+			<string>Vim Keys in Pages</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

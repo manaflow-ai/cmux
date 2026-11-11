@@ -114,15 +114,59 @@
   background: none;
   padding: 0;
 }
-/* Two lines of the question at most; its whole text is the tooltip. */
-.acpmux-hat-questions__prompt {
+/* What a started chat's question is about (its header), after who asks, quieter than the question. */
+.acpmux-hat-questions__about {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-hat-questions__who + .acpmux-hat-questions__about::before {
+  content: "·";
+  margin-right: var(--ds-space-1);
+}
+/* A started chat's question: who and what about on the first line, the question under it, lined up
+   with the answers. */
+.acpmux-hat-questions__question[data-asker] .acpmux-hat-questions__who {
+  max-width: none;
+  flex: 0 1 auto;
+  color: var(--agent-text);
+}
+.acpmux-hat-questions__question[data-asker] > .acpmux-hat-questions__words {
+  padding-left: var(--acpmux-hat-questions-indent);
+}
+.acpmux-hat-questions__words {
   flex: 1 1 auto;
   min-width: 0;
+}
+/* Two lines of the question until More; then the whole of it (the band's height eases to it). */
+.acpmux-hat-questions__prompt {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
+}
+.acpmux-hat-questions__prompt[data-whole] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.acpmux-hat-questions__more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  cursor: default;
+}
+.acpmux-hat-questions__more:hover {
+  color: var(--agent-text);
 }
 .acpmux-hat-questions[data-look="line"] .acpmux-hat-questions__prompt {
   -webkit-line-clamp: 1;
@@ -206,10 +250,70 @@
   background: none;
   color: var(--agent-muted);
 }
+/* The agent's recommended choice: the stronger fill and a quiet word, never a colour of its own. */
+.acpmux-hat-questions__answer[data-recommended] {
+  gap: var(--ds-space-2);
+  background: var(--acpmux-question-highlight);
+}
+.acpmux-hat-questions__recommended {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+/* A started chat's reply field: a compact field and Send, lined up with the answers. Below the
+   answers (shipped) it takes the band's width; inline it takes what the answers leave. */
+.acpmux-hat-questions__reply {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  margin: 0;
+}
+.acpmux-hat-questions__reply:not([data-reply="inline"]) {
+  padding-left: var(--acpmux-hat-questions-indent);
+}
+.acpmux-hat-questions__reply[data-reply="inline"] {
+  flex: 1 1 calc(var(--ds-space-6) * 5);
+}
+.acpmux-hat-questions__field {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: var(--acpmux-question-hover);
+  box-shadow: inset 0 0 0 var(--cmux-hairline) var(--acpmux-question-edge);
+  color: var(--agent-text);
+  font: inherit;
+  outline: none;
+}
+.acpmux-hat-questions__field::placeholder {
+  color: var(--agent-muted);
+}
+.acpmux-hat-questions__field:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-hairline) color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.acpmux-hat-questions__send {
+  flex: none;
+  min-height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: var(--acpmux-question-highlight);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-hat-questions__send:disabled:not([data-sending]) {
+  background: none;
+  color: var(--agent-muted);
+}
 .acpmux-hat-questions__quiet:hover {
   color: var(--agent-text);
 }
-:is(.acpmux-hat-questions__answer, .acpmux-hat-questions__quiet, .acpmux-hat-questions__step, .acpmux-hat-questions__chip):focus-visible {
+:is(.acpmux-hat-questions__answer, .acpmux-hat-questions__quiet, .acpmux-hat-questions__step, .acpmux-hat-questions__chip, .acpmux-hat-questions__more, .acpmux-hat-questions__send):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 1px;
 }
