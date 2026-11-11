@@ -1067,7 +1067,8 @@ impl ProviderClient {
     /// Scales every request bound so tests can model slow providers quickly.
     #[cfg(test)]
     pub(crate) fn set_request_deadlines(&self, deadlines: ProviderRequestDeadlines) {
-        *self.inner.request_deadlines.lock().expect("request deadlines") = deadlines;
+        *self.inner.request_deadlines.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            deadlines;
     }
 
     pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
@@ -2766,53 +2767,57 @@ mod tests {
     fn a_create_slower_than_the_control_bound_is_not_a_timeout() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept control socket");
-            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
-            accept_hello(&mut stream, &mut reader, "provider-secret");
+        // A scoped thread: the scope owns and joins the fake provider.
+        thread::scope(|scope| {
+            let server = scope.spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept control socket");
+                let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+                accept_hello(&mut stream, &mut reader, "provider-secret");
 
-            // The control request is never answered, proving the scaled
-            // control bound is shorter than the create's answer below.
-            let snapshot: RequestEnvelope = read_test_frame(&mut reader);
-            assert!(matches!(snapshot.request, ProviderRequest::Snapshot(_)));
+                // The control request is never answered, proving the scaled
+                // control bound is shorter than the create's answer below.
+                let snapshot: RequestEnvelope = read_test_frame(&mut reader);
+                assert!(matches!(snapshot.request, ProviderRequest::Snapshot(_)));
 
-            // Measured server creates take up to 28 s and the carrier wait can
-            // reach 35 s; answer at 35 scaled seconds.
-            let create: RequestEnvelope = read_test_frame(&mut reader);
-            assert!(matches!(create.request, ProviderRequest::CreateMachine(_)));
-            thread::sleep(scaled(35));
-            write_test_frame(
-                &mut stream,
-                &ResponseEnvelope::success(
-                    create.id,
-                    protocol::CreateMachineResult {
-                        machine_id: id("machine-1"),
-                        revision: 2,
-                        notice: None,
-                    },
-                ),
-            );
+                // Measured server creates take up to 28 s and the carrier wait can
+                // reach 35 s; answer at 35 scaled seconds.
+                let create: RequestEnvelope = read_test_frame(&mut reader);
+                assert!(matches!(create.request, ProviderRequest::CreateMachine(_)));
+                thread::sleep(scaled(35));
+                write_test_frame(
+                    &mut stream,
+                    &ResponseEnvelope::success(
+                        create.id,
+                        protocol::CreateMachineResult {
+                            machine_id: id("machine-1"),
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+            });
+
+            let (provider, _) = ProviderClient::connect_authenticated(
+                &socket.path,
+                token("provider-secret"),
+                client_descriptor(),
+            )
+            .expect("authenticate provider");
+            provider.set_request_deadlines(scaled_deadlines());
+            let error =
+                provider.snapshot(None).expect_err("an unanswered control request times out");
+            assert!(matches!(error, ProviderClientError::Timeout));
+
+            let created: protocol::CreateMachineResult = provider
+                .mutate(ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+                    scope_id: id("personal"),
+                    mutation_id: id("create-1"),
+                }))
+                .expect("a create slower than the control bound must not time out");
+            assert_eq!(created.machine_id, id("machine-1"));
+            drop(provider);
+            server.join().expect("join fake provider");
         });
-
-        let (provider, _) = ProviderClient::connect_authenticated(
-            &socket.path,
-            token("provider-secret"),
-            client_descriptor(),
-        )
-        .expect("authenticate provider");
-        provider.set_request_deadlines(scaled_deadlines());
-        let error = provider.snapshot(None).expect_err("an unanswered control request times out");
-        assert!(matches!(error, ProviderClientError::Timeout));
-
-        let created: protocol::CreateMachineResult = provider
-            .mutate(ProviderRequest::CreateMachine(protocol::CreateMachineParams {
-                scope_id: id("personal"),
-                mutation_id: id("create-1"),
-            }))
-            .expect("a create slower than the control bound must not time out");
-        assert_eq!(created.machine_id, id("machine-1"));
-        drop(provider);
-        server.join().expect("join fake provider");
     }
 
     /// Mutations allowed on the 30 second control bound, each with the reason
