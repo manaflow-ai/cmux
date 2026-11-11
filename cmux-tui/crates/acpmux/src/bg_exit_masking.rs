@@ -8,7 +8,8 @@
 //! [`check`] reads the command string, never runs it, and names one of three shapes:
 //!
 //! - the top level ends on `echo`, `printf`, `true`, `:` or `exit 0` after an earlier `;` or
-//!   newline list ran a real command whose failure nothing handled (no `set -e`, no `|| exit N`);
+//!   newline list ran a real command whose failure nothing handled (no `|| exit N`, and no `set -e`,
+//!   which does not cover a command left of `&&` or `||`);
 //! - the last list ends `|| true` (or `|| :`, `|| echo ...`, `|| exit 0`);
 //! - a pipeline (`a | b`, `a |& b`) in the last list, or anywhere after `set -e`, with a real
 //!   command left of a pipe and no `set -o pipefail` (or `set -euo pipefail`, `bash -o pipefail`)
@@ -18,7 +19,8 @@
 //! command's, with the options before `-c` (`-e`, `-o pipefail`, `-euo pipefail`) as its start.
 //!
 //! It is conservative: it warns only on a string it parsed. Quotes (`'`, `"`, `$'...'`),
-//! backslashes, `$(...)`, backticks, `${...}`, comments and redirections are read; a heredoc's body
+//! backslashes, `$(...)`, backticks, `${...}`, comments and redirections are read (a `$'...'` with
+//! `\x`, `\u`, octal or `\c` escapes is not a literal); a heredoc's body
 //! is skipped up to its delimiter. Anything else it does not follow gives no warning at all: a
 //! subshell or `{ ...; }` group, `if`/`for`/`while`/`case`/functions, `[[ ]]`, `!`, `time`, a
 //! `bash -c` payload that is not a plain literal (it holds `$` or a backtick), an unbalanced quote
@@ -52,7 +54,10 @@ fn check_from(command: &str, mut st: State, depth: usize) -> Option<String> {
         if let Some(why) = st.walk(list, false) {
             return Some(why);
         }
-        if !st.errexit && list.runs_real() && !list.handles_failure() {
+        // Under `set -e` a failure exits the shell, except left of `&&` or `||` (bash's errexit
+        // exceptions): `set -e; false && echo skipped; echo done` exits 0.
+        let exposed = if st.errexit { list.runs_real_left_of_and_or() } else { list.runs_real() };
+        if exposed && !list.handles_failure() {
             hidden_real = true;
         }
     }
@@ -362,6 +367,12 @@ fn lex_word(src: &mut Src) -> Option<Word> {
                 }
                 src.bump(1);
             }
+            '$' if src.at(1) == Some('\'') => {
+                src.bump(2);
+                if !ansi_c(src, &mut lit)? {
+                    expands = true;
+                }
+            }
             '$' | '`' => {
                 expands = true;
                 skip_expansion(src)?;
@@ -373,6 +384,45 @@ fn lex_word(src: &mut Src) -> Option<Word> {
         }
     }
     Some(Word { raw: src.text(from), lit: (!expands).then_some(lit) })
+}
+
+/// An ANSI-C quoted string's body (`$'...'`, the cursor past its `'`), decoded into `lit` up to
+/// and past its closing `'`. False when it holds an escape this does not decode (`\x`, `\u`,
+/// `\U`, octal, `\c`): it is still skipped, and the word is not a literal. `None` when it never
+/// ends.
+fn ansi_c(src: &mut Src, lit: &mut String) -> Option<bool> {
+    let mut decoded = true;
+    loop {
+        match src.peek()? {
+            '\'' => {
+                src.bump(1);
+                return Some(decoded);
+            }
+            '\\' => {
+                let c = match src.at(1)? {
+                    'n' => Some('\n'),
+                    't' => Some('\t'),
+                    'r' => Some('\r'),
+                    'a' => Some('\u{7}'),
+                    'b' => Some('\u{8}'),
+                    'e' | 'E' => Some('\u{1b}'),
+                    'f' => Some('\u{c}'),
+                    'v' => Some('\u{b}'),
+                    c @ ('\\' | '\'' | '"' | '?') => Some(c),
+                    _ => None,
+                };
+                match c {
+                    Some(c) => lit.push(c),
+                    None => decoded = false,
+                }
+                src.bump(2);
+            }
+            c => {
+                lit.push(c);
+                src.bump(1);
+            }
+        }
+    }
 }
 
 /// Past an expansion at the cursor (`$name`, `$?`, `$(...)`, `$((...))`, `${...}`, `$'...'`,
@@ -639,6 +689,11 @@ impl List {
         self.chain.iter().flatten().any(|c| !c.setup())
     }
 
+    /// Real work left of an `&&` or `||`, whose failure `set -e` does not exit on.
+    fn runs_real_left_of_and_or(&self) -> bool {
+        self.chain.split_last().is_some_and(|(_, left)| left.iter().flatten().any(|c| !c.setup()))
+    }
+
     /// It ends `|| exit N` (N not 0) or `|| exit`, which keeps a failure.
     fn handles_failure(&self) -> bool {
         if self.ops.last() != Some(&AndOr::Or) {
@@ -750,6 +805,37 @@ mod tests {
         quiet("bash script.sh");
         quiet("bash -c 'cargo test'");
         assert_eq!(warns("bash -c 'cargo test' || true"), "|| true hides a failure");
+    }
+
+    /// An ANSI-C quoted payload (`$'...'`) is decoded and read like any literal; one with an
+    /// escape it does not decode (`\x`, `\u`, octal, `\c`) is not read.
+    #[test]
+    fn an_ansi_c_payload_is_decoded_and_read() {
+        assert_eq!(warns("bash -c $'false; echo done'"), "last stage is echo");
+        assert_eq!(warns("bash -c $'cargo test\\necho \\'done\\''"), "last stage is echo");
+        assert_eq!(
+            warns("bash -c $'cargo test\\t| tee log'"),
+            "pipeline without pipefail, so the exit is tee's"
+        );
+        quiet("bash -c $'cargo test'");
+        quiet("bash -c $'cargo test \\x7c tee log'");
+        quiet("bash -o pipefail -c $'cargo test | tee log'");
+        quiet("printf $'%s\\n' a; cargo test");
+    }
+
+    /// `set -e` does not exit on a failure left of `&&` or `||` (bash's errexit exceptions), so a
+    /// failing command there is still hidden by a last-stage echo.
+    #[test]
+    fn errexit_does_not_cover_the_left_of_an_and_or() {
+        assert_eq!(warns("set -e; false && echo skipped; echo done"), "last stage is echo");
+        assert_eq!(
+            warns("set -euo pipefail\ncargo build || cargo clean\necho done"),
+            "last stage is echo"
+        );
+        quiet("set -e; false; echo done");
+        quiet("set -e; cargo test || exit 1; echo done");
+        quiet("set -e; cd x && cargo test; echo done");
+        quiet("set -e; echo a && cargo test; echo done");
     }
 
     /// A heredoc's body is skipped: its `|` and `;` are text.
