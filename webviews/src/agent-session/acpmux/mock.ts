@@ -332,6 +332,8 @@ export class MockAcpmuxSocket {
     if (script) this.sessions = [{ ...scriptSession }];
     else this.seed(Date.now());
     MockAcpmuxSocket.live = this;
+    // scripts/agent-pane/session-list-cpu-bench.mjs drives this daemon's notices from the page.
+    (globalThis as { cmuxAcpmuxMockLive?: MockAcpmuxSocket }).cmuxAcpmuxMockLive = this;
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
@@ -348,7 +350,16 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    // session-list-cpu-bench.mjs: listed chats spread over that many peers, as a fleet lists them.
+    const peers = Number((globalThis as { cmuxAcpmuxMockListPeers?: number }).cmuxAcpmuxMockListPeers ?? 0);
+    // and that many more bytes per summary, as a real summary's size (~3.3 KB in Leo's list).
+    const pad = Number((globalThis as { cmuxAcpmuxMockListPad?: number }).cmuxAcpmuxMockListPad ?? 0);
+    for (let index = 0; index < listSize; index += 1)
+      this.sessions.push({
+        ...listedSession(index, now),
+        ...(peers > 0 ? { peer: `peer-${index % peers}` } : {}),
+        ...(pad > 0 ? { preview: `${index} `.padEnd(pad, "lorem ipsum ") } : {}),
+      });
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -586,8 +597,19 @@ export class MockAcpmuxSocket {
         };
       case FORK_OP:
         return this.fork(target, Number(params.throughSeq));
+      // Keyset pages as acpmux answers them (hub/session_pages.rs): `limit` rows and a cursor.
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+      case "_acpmux/sessions": {
+        const limit = Number(params.limit);
+        if (!(limit > 0) && method === "_acpmux/watch") return { sessions: this.sessions };
+        const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+        const size = limit > 0 ? limit : this.sessions.length;
+        const sessions = this.sessions.slice(from, from + size);
+        return {
+          sessions,
+          ...(from + size < this.sessions.length ? { nextCursor: String(from + size) } : {}),
+        };
+      }
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
