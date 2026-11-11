@@ -110,19 +110,26 @@ pub(crate) struct ParsedResourceRequest {
 /// value into the dispatched request, so no check reads the line a second
 /// time and none can read it differently.
 pub(crate) fn parse_resource_line(message: &str) -> Option<Result<RequestEnvelope, ResourceError>> {
+    parse_resource_line_given(message, || serde_json::from_str::<Value>(message).ok())
+}
+
+/// [`parse_resource_line`] for a caller that may hold the line's JSON value
+/// already: `value` gives the line parsed as a `Value` (`None` when it is not
+/// JSON), and is called only when the line is not a typed envelope.
+pub(crate) fn parse_resource_line_given<V: std::borrow::Borrow<Value>>(
+    message: &str,
+    value: impl FnOnce() -> Option<V>,
+) -> Option<Result<RequestEnvelope, ResourceError>> {
     match parse_resource_envelope(message) {
         Ok(envelope) => Some(Ok(envelope)),
         // A typed envelope always has `protocol`; only a line that is not
         // one needs the member probe to choose between v2 and legacy.
-        Err(error) => is_resource_protocol_message(message).then_some(Err(error)),
+        Err(error) => value()
+            .is_some_and(|value| {
+                value.borrow().as_object().is_some_and(|object| object.contains_key("protocol"))
+            })
+            .then_some(Err(error)),
     }
-}
-
-fn is_resource_protocol_message(message: &str) -> bool {
-    serde_json::from_str::<Value>(message)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .is_some_and(|object| object.contains_key("protocol"))
 }
 
 #[cfg(test)]
@@ -141,10 +148,11 @@ pub(crate) fn handle_parsed_resource_request(
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
-    serde_json::to_value(match result {
+    match result {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
-    })
+    }
+    .into_value()
     .map_err(|error| {
         ResourceError::operation_failed(
             "response.encode",
@@ -351,20 +359,27 @@ fn ensure_session_route(
     mux.resolve_resource_path(ResourceTarget::Session, selectors)
 }
 
+/// `terminal.list` and `browser.list`.
 fn list_resources(
     mux: &Mux,
     selectors: &ResourceSelectors,
     collection: &str,
 ) -> Result<Value, ResourceError> {
     let path = resolve_list_scope(mux, selectors)?;
-    // A terminal list inside one workspace reads that workspace's tabs and
-    // their terminals' rows, not the whole session (CLI-1).
-    if collection == "terminals"
-        && let Some(workspace) = path.workspace.clone()
-    {
-        return list_terminals_in_workspace(mux, &path, &workspace);
+    if collection == "terminals" {
+        return match &path.workspace {
+            // A terminal list inside one workspace reads that workspace's
+            // tabs and their terminals' rows, not the whole session (CLI-1).
+            Some(workspace) => list_terminals_in_workspace(mux, &path, workspace),
+            // A path with no workspace is the session (a scope below it
+            // resolves its workspace): every terminal, built alone. The
+            // whole session snapshot held the registry lock and the state
+            // lock for it, and its filter cost the square of the session.
+            None => crate::resource_api::public_terminals(mux).map(Value::Array),
+        };
     }
     let snapshot = public_session_snapshot(mux)?;
+    let path_index = topology::SnapshotPathIndex::new(&snapshot);
     let values = snapshot[collection]
         .as_array()
         .ok_or_else(|| {
@@ -375,7 +390,13 @@ fn list_resources(
             )
         })?
         .iter()
-        .filter(|value| resource_is_in_path(&snapshot, collection, value, &path))
+        .filter(|value| {
+            path_index.contains(collection, value, &path)
+                && path
+                    .browser
+                    .as_ref()
+                    .is_none_or(|target| value["id"].as_str() == Some(target.as_str()))
+        })
         .cloned()
         .collect();
     Ok(Value::Array(values))
@@ -397,62 +418,6 @@ fn resolve_list_scope(
         ResourceTarget::Session
     };
     mux.resolve_resource_path(target, selectors)
-}
-
-fn resource_is_in_path(
-    snapshot: &Value,
-    collection: &str,
-    value: &Value,
-    path: &ResolvedResourcePath,
-) -> bool {
-    let workspaces = snapshot["screens"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|screen| Some((screen["id"].as_str()?, screen["workspace_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let screens = snapshot["panes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|pane| Some((pane["id"].as_str()?, pane["screen_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let panes = snapshot["tabs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|tab| Some((tab["id"].as_str()?, tab["pane_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let id = value["id"].as_str();
-    let (workspace, screen, pane, tab) = match collection {
-        "workspaces" => (id, None, None, None),
-        "screens" => (value["workspace_id"].as_str(), id, None, None),
-        "panes" => {
-            let screen = value["screen_id"].as_str();
-            (screen.and_then(|id| workspaces.get(id).copied()), screen, id, None)
-        }
-        "tabs" => {
-            let pane = value["pane_id"].as_str();
-            let screen = pane.and_then(|id| screens.get(id).copied());
-            (screen.and_then(|id| workspaces.get(id).copied()), screen, pane, id)
-        }
-        "terminals" | "browsers" => {
-            let tab = value["tab_id"].as_str();
-            let pane = tab.and_then(|id| panes.get(id).copied());
-            let screen = pane.and_then(|id| screens.get(id).copied());
-            (screen.and_then(|id| workspaces.get(id).copied()), screen, pane, tab)
-        }
-        _ => return false,
-    };
-    path.workspace.as_ref().is_none_or(|id| workspace == Some(id.as_str()))
-        && path.screen.as_ref().is_none_or(|id| screen == Some(id.as_str()))
-        && path.pane.as_ref().is_none_or(|id| pane == Some(id.as_str()))
-        && path.tab.as_ref().is_none_or(|id| tab == Some(id.as_str()))
-        && match collection {
-            "terminals" => path.terminal.as_ref().is_none_or(|target| id == Some(target.as_str())),
-            "browsers" => path.browser.as_ref().is_none_or(|target| id == Some(target.as_str())),
-            _ => true,
-        }
 }
 
 /// `terminal.get`: the value `session.snapshot` lists for the terminal, read

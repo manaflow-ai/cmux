@@ -32,6 +32,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
@@ -615,7 +622,7 @@ class ScriptBehavior(unittest.TestCase):
         self.pr_head = commit(seed, {"scripts/cmux-next/marker.txt": "head\n", "pr.txt": "pr\n"}, "pr change")
         git(seed, "checkout", "-q", "feat-cmux-next")
         self.tip = commit(seed, {"tip.txt": "tip\n"}, "another merge on the base")
-        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        git_fixture_env.init_repo(self.remote, "--bare")
         git(seed, "push", "-q", str(self.remote), "feat-cmux-next", f"pr:refs/pull/7/head")
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
@@ -1202,9 +1209,11 @@ class WebviewsChecksGate(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q", "-b", "feat-cmux-next")
-        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        # Imported by name: the one module object every test reads (tests/test_script_module_loads.py).
+        if str(WEBVIEWS_CHECKS.parent) not in sys.path:
+            sys.path.insert(0, str(WEBVIEWS_CHECKS.parent))
+        import fast_gate_webviews_checks
+        self.module = fast_gate_webviews_checks
 
     def findings(self, by_check: dict[str, str], message: str) -> str:
         files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}

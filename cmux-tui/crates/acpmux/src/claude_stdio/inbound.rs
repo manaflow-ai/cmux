@@ -329,6 +329,17 @@ impl Translator {
                     }
                 }
             }
+            // Claude Code's queue of the lines it was given: the turn's prompt waits behind a
+            // turn of Claude Code's own (`queued`) until it starts. Only the prompt's own uuid
+            // counts; a steered line's never holds a result.
+            "command_lifecycle" => {
+                let command = line.get("command_uuid").and_then(Value::as_str).unwrap_or("");
+                let prompt = self.prompt_echo.lock().await;
+                if !command.is_empty() && prompt.as_deref() == Some(command) {
+                    let state = line.get("state").and_then(Value::as_str).unwrap_or("");
+                    self.prompt_queued.store(state == "queued", Ordering::SeqCst);
+                }
+            }
             // Claude Code's echo of a user line it read (`--replay-user-messages`):
             // first the turn's prompt, then each steered line in order.
             // Matched by the line's uuid; an echo of anything else is ignored.
@@ -337,6 +348,7 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    self.prompt_queued.store(false, Ordering::SeqCst);
                     // What follows is this prompt's output, not a stopped turn's tail.
                     self.turn_output.store(false, Ordering::SeqCst);
                     return out;
@@ -784,6 +796,20 @@ impl Translator {
                     }
                     return out;
                 }
+                // The result of a turn Claude Code ran while the prompt waited in its queue (a task
+                // notification's, a loop tick's): the prompt has not started, so this is not its
+                // end. The prompt, its steers and the turn stay as they are; the prompt's own
+                // result ends it. A stopped chat's result still ends it (the stop is for the whole
+                // turn), and a local command's (no model turn) cannot be another turn's.
+                if self.prompt_queued.load(Ordering::SeqCst)
+                    && !self.cancelled.load(Ordering::SeqCst)
+                    && !cancelled_compaction
+                    && !local_command
+                    && (line.get("num_turns").and_then(Value::as_u64).unwrap_or(0) > 0
+                        || line.get("duration_api_ms").and_then(Value::as_u64).unwrap_or(0) > 0)
+                {
+                    return out;
+                }
                 // A normal result from the new prompt means the cancelled compaction did not
                 // produce a result. Resolve its abandoned request independently, then continue
                 // settling the new prompt; do not let the stale marker consume this result.
@@ -960,6 +986,22 @@ impl Translator {
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
             "prompt_suggestion" if parent.is_none() => {
                 out.extend(self.suggestion_update(line).map(upd))
+            }
+            // Another session's message Claude Code holds instead of giving it to the model, and
+            // how that hold ends (`hub/native_messaging.rs`). Information only: Claude Code has
+            // no host approval for it.
+            "system" if sub == "peer_message_hold" => {
+                let field = |key: &str| line.get(key).cloned().unwrap_or(Value::Null);
+                out.push(upd(json!({
+                    "sessionUpdate": crate::hub::native_messaging::HOLD_UPDATE,
+                    "state": field("state"),
+                    "messageUuid": field("message_uuid"),
+                    "lane": field("lane"),
+                    "from": field("from"),
+                    "fromName": field("from_name"),
+                    "cause": field("cause"),
+                    "outcome": field("outcome"),
+                })));
             }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {

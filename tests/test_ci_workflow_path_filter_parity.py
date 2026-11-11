@@ -26,6 +26,11 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
+    # A feat-cmux-next push that touches the app walks the reviewer path on a macOS
+    # machine; a pull request walks it only when it changes the gate itself, so an
+    # app pull request does not pay for the walk (its push to feat-cmux-next does).
+    "ios-review-gate.yml": "pull requests run the macOS walk only when they change the gate; "
+    "feat-cmux-next pushes run it for every app change",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -73,6 +78,15 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             ".github/actions/**", ".github/workflows/**", "Assets.xcassets/**", "Native/**",
             "Resources/**", "TunnelExtension/**", "cmuxTests/**", "cmuxUITests/**", "daemon/**",
             "scripts/cmux-next/**", "scripts/whats-new/**", "tests/**",
+            # What the checks tier's tests import, run or read (tests/test_ci_workflow_paths_cover_inputs.py).
+            "scripts/ci/**", ".claude/settings.json", ".gitattributes", ".github/github-token-budget.json",
+            ".github/runners.json", "README.md", "cmux-next-ios/scripts/set-test-notes.sh",
+            "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
+            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
+            "scripts/install-git-hooks.sh", "scripts/launch-tagged-automation.sh", "scripts/lib/reload-shim.test.mjs",
+            "scripts/lib/stop-app-instances.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+            "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/strip-release-bundle.sh",
+            "scripts/write-app-symbol-map.py",
         }),
         "pull requests admit every product and CI input (#21504); the router picks the tier",
     ),

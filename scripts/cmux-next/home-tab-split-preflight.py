@@ -9,7 +9,7 @@ Launches the tagged app (no-activate, scratch config), then:
   3. `home.tab` opens the native Home as a tab in that pane, and a second
      `home.tab` opens one more Home tab (several Home tabs);
   4. both Home tabs show the same conversation; a message typed and sent in
-     one Home tab (home_page.py, the key window's page) shows in the other tab and
+     one Home tab (`debug.home.drive` with `tab`) shows in the other tab and
      in the store at once (`debug.home` page.tabs, conversations.shown_tail);
   5. window screenshots after each step (the channels tab is checked only on
      the screenshot: its React page has no debug read verb).
@@ -27,7 +27,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-import home_page  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -175,11 +174,9 @@ try:
     same = wait(lambda: len({t.get("shown") for t in tabs()}) == 1 and tabs()[0].get("shown"), 30)
     step("both Home tabs show one conversation", same, tabs())
     sender = listed[-1].get("key")
-    # The page in the key window (the newest Home tab, `sender`) takes the send.
-    result = lambda method, params: (rpc(method, params) or {}).get("result") or {}
-    typed = home_page.drive(result, {"action": "type", "text": TEXT})
-    sent = home_page.drive(result, {"action": "send"})
-    step("send in one Home tab", bool(typed.get("ok")) and bool(sent.get("ok")),
+    typed = rpc("debug.home.drive", {"tab": sender, "action": "type", "text": TEXT})
+    sent = rpc("debug.home.drive", {"tab": sender, "action": "send"})
+    step("send in one Home tab", bool((typed.get("result") or {}).get("ok")) and bool((sent.get("result") or {}).get("ok")),
          {"type": typed, "send": sent})
     in_store = wait(lambda: TEXT in shown_texts(conversation), 30)
     step("the store shows the message", in_store, shown_texts(conversation)[-3:])
