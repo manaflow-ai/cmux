@@ -168,13 +168,26 @@ extension SidebarDocProjection {
         return listed
     }
 
+    /// The document's order for the machine section `id` when `arrange` places that section's nodes by it: the order
+    /// has a link row. Nil: `arrange` keeps the mapped order of the section's nodes.
+    @MainActor private func placingOrder(of id: SectionID, drag: SidebarDocDrag) -> [Node]? {
+        guard let docSection = drag.section(id),
+              let session = machineSections.first(where: { $0.value == docSection })?.key,
+              let order = machines[session],
+              order.contains(where: { if case .link = $0 { true } else { false } }) else { return nil }
+        return order
+    }
+
+    /// Whether `arrange` keeps the mapped order of the machine section `id`'s nodes (`placingOrder` is nil): it then
+    /// takes band groups out of the section and moves no other node (`SidebarModel.apply(_:)` maps a node by that).
+    @MainActor func keepsMappedOrder(of id: SectionID, drag: SidebarDocDrag) -> Bool {
+        placingOrder(of: id, drag: drag) == nil
+    }
+
     /// A machine section's nodes in document order with its link rows; a node
     /// the document does not place yet (adopt in flight) keeps its mapped slot.
     @MainActor private static func machineNodes(_ section: SidebarSection, _ projection: SidebarDocProjection, drag: SidebarDocDrag) -> [SidebarNode] {
-        guard let docSection = drag.section(section.id),
-              let session = projection.machineSections.first(where: { $0.value == docSection })?.key,
-              let order = projection.machines[session],
-              order.contains(where: { if case .link = $0 { true } else { false } }) else { return section.nodes }
+        guard let order = projection.placingOrder(of: section.id, drag: drag) else { return section.nodes }
         var byItem: [String: SidebarNode] = [:]
         for node in section.nodes {
             let item: String? = switch node {

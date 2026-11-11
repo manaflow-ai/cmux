@@ -472,7 +472,7 @@ public final class SidebarModel {
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
         let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
-        rowChangeBase.note(given: new, shown: next, hidden: hiddenItemRefs, arranged: docDrag?.document?.shown != nil)
+        noteFullSet(given: new, shown: next)
         if writesRowsInPlace(next) { return rowChangeBase.recount(storedSections, structure: structureRevision) }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
