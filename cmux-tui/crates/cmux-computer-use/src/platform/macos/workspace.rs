@@ -493,11 +493,14 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
     struct State {
         last: Option<(Instant, Vec<(u16, u64)>)>,
         refreshing: bool,
+        /// When the last read failed: the next try waits SERVICES_RETRY.
+        failed_at: Option<Instant>,
     }
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
-    let cell = STATE.get_or_init(|| Mutex::new(State { last: None, refreshing: false }));
+    let cell = STATE.get_or_init(|| Mutex::new(State { last: None, refreshing: false, failed_at: None }));
     let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
-    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH);
+    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH)
+        && st.failed_at.is_none_or(|at| at.elapsed() > SERVICES_RETRY);
     if due && !st.refreshing {
         st.refreshing = true;
         let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
@@ -507,8 +510,12 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
                 fn drop(&mut self) {
                     let mut st = self.0.lock().unwrap_or_else(|e| e.into_inner());
                     st.refreshing = false;
-                    if let Some(list) = self.1.take() {
-                        st.last = Some((Instant::now(), list));
+                    match self.1.take() {
+                        Some(list) => {
+                            st.last = Some((Instant::now(), list));
+                            st.failed_at = None;
+                        }
+                        None => st.failed_at = Some(Instant::now()),
                     }
                 }
             }
@@ -525,6 +532,8 @@ pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
 /// Whether the current keyboard layout is one the key codes here are written
 /// for (U.S. or ABC): the Services check maps characters to ANSI key codes,
 /// so on another layout it cannot tell which physical key a service uses.
+/// This is the person's current layout setting; an app with a per-document
+/// input source can differ (a later TIS/UCKeyTranslate check would cover it).
 pub fn ansi_layout() -> bool {
     // A long-lived process caches another app's preferences until it
     // synchronizes them: re-read HIToolbox's on every check, so a switch
@@ -538,6 +547,8 @@ pub fn ansi_layout() -> bool {
 
 /// How often the Services shortcuts are re-read.
 const SERVICES_REFRESH: Duration = Duration::from_secs(30);
+/// How long to wait after a failed read before trying again.
+const SERVICES_RETRY: Duration = Duration::from_secs(15);
 /// How long `pbs -dump` may take.
 const PBS_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -545,16 +556,25 @@ const PBS_TIMEOUT: Duration = Duration::from_secs(3);
 /// out, non-zero exit, or no services at all).
 fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
     use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    // In its own process group, so a timeout kills pbs and anything it
+    // started (a grandchild holding the pipe would keep the reader alive).
     let mut child = std::process::Command::new("/System/Library/CoreServices/pbs")
         .arg("-dump")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
+        .process_group(0)
         .spawn()
         .ok()?;
-    let Some(mut stdout) = child.stdout.take() else {
-        let _ = child.kill();
+    let group = child.id() as i32;
+    let kill_group = |child: &mut std::process::Child| {
+        // SAFETY: plain syscall; group is the child's own process group.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
         let _ = child.wait();
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        kill_group(&mut child);
         return None;
     };
     // The output is read on a thread and handed over a channel, so the wait
@@ -569,11 +589,26 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
         Ok(_) => rx.recv_timeout(PBS_TIMEOUT).ok().flatten(),
         Err(_) => None,
     };
+    // The output ended: pbs exits at once. Its status is read with a bound
+    // too; past it the group is killed.
     let status = match dump {
-        Some(_) => child.wait().ok(),
+        Some(_) => {
+            let deadline = std::time::Instant::now() + PBS_TIMEOUT;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break Some(status),
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10)); // bounded wait for an exiting child
+                    }
+                    _ => {
+                        kill_group(&mut child);
+                        break None;
+                    }
+                }
+            }
+        }
         None => {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_group(&mut child);
             None
         }
     };
@@ -583,6 +618,7 @@ fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
     }
     let mut equivalents = super::roles::service_equivalents(&dump);
     // The person's own assignments (System Settings > Keyboard > Shortcuts > Services).
+    Cf::synchronize_preferences("pbs");
     if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
         for entry in status.dict_values() {
             if let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string())

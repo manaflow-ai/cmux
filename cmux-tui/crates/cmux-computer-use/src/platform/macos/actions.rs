@@ -424,52 +424,39 @@ pub(super) fn press_keys(
     // window, so it is pressed only when keys would reach the target window.
     let route = d.key_route(&t, delivery)?;
     // The deny-list checks hold for both deliveries: a foreground chord goes
-    // through the same AppKit menus and Services. Only the background presses
-    // the menu item itself (foreground keys reach the raised app as typed).
-    if combo.modifiers.contains(&crate::keys::Modifier::Meta) {
+    // through the same AppKit menus and Services. Any chord a menu item or a
+    // Service can own: with Command, Control or Option, or a function key.
+    use crate::keys::{Key, Modifier};
+    let menu_chord = combo.modifiers.iter().any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
+        || matches!(combo.key, Key::F(_));
+    if menu_chord {
         let (items, complete) = shortcut_matches(d, t.window.pid, combo);
-        let found: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
-        match roles::pick_shortcut(&found) {
-            roles::ShortcutPick::Press(i) if delivery == Delivery::Background => {
+        let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
+        let denies_any = d.denies_any();
+        let background = delivery == Delivery::Background;
+        let posts = !(background && matches!(roles::pick_shortcut(&matches), roles::ShortcutPick::Press(_)));
+        // The layout and Services shortcuts are read only when keys would be
+        // posted while something is denied.
+        let ansi_layout = !(denies_any && posts) || workspace::ansi_layout();
+        let is_service = if denies_any && posts && ansi_layout {
+            workspace::service_shortcuts().map(|list| keymap::is_service_shortcut(code, flags, &list))
+        } else {
+            Some(false)
+        };
+        let facts = roles::ChordFacts { matches: &matches, complete, background, denies_any, ansi_layout, is_service };
+        match roles::decide_chord(&facts) {
+            roles::ChordAction::PressItem(i) => {
                 items[i].0.perform("AXPress").map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
-            roles::ShortcutPick::Press(_) => {}
-            roles::ShortcutPick::Disabled(_) if delivery == Delivery::Foreground => {}
-            roles::ShortcutPick::Disabled(title) => {
-                return Err(DesktopError::Unsupported(format!(
-                    "the menu item for this shortcut ({title:?}) is disabled right now"
-                )));
+            roles::ChordAction::Refuse(why) => {
+                let title = match roles::pick_shortcut(&matches) {
+                    roles::ShortcutPick::Disabled(t) | roles::ShortcutPick::Blocked(t) => format!(" ({t:?})"),
+                    _ => String::new(),
+                };
+                return Err(DesktopError::Unsupported(if title.is_empty() { why.into() } else { format!("{why}{title}") }));
             }
-            roles::ShortcutPick::Blocked(title) => {
-                return Err(DesktopError::Unsupported(format!(
-                    "the menu item for this shortcut ({title:?}) would reach an app on the Computer Use deny list"
-                )));
-            }
-            roles::ShortcutPick::None => {
-                // A cut-off search could have missed a menu item of a denied
-                // app; that matters only while some app is denied.
-                let denies_any = d.denies_any();
-                if denies_any {
-                    // Read the Services shortcuts only while something is denied.
-                    let refusal = if !complete {
-                        Some("this app's menus are too deep to check this shortcut against the Computer Use deny list; use the app's menu items in the tree")
-                    } else if !workspace::ansi_layout() {
-                        Some("the Services shortcuts cannot be checked on this keyboard layout while an app is on the Computer Use deny list; use the app's menu items in the tree")
-                    } else {
-                        match workspace::service_shortcuts() {
-                            None => Some("the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree"),
-                            Some(list) if !roles::unmatched_chord_allowed(keymap::is_service_shortcut(code, flags, &list), true) => {
-                                Some("this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree")
-                            }
-                            Some(_) => None,
-                        }
-                    };
-                    if let Some(why) = refusal {
-                        return Err(DesktopError::Unsupported(why.into()));
-                    }
-                }
-            }
+            roles::ChordAction::Post => {}
         }
     }
     // Space, Return and the arrows open a focused pop-up's menu.
@@ -704,13 +691,30 @@ pub(super) fn perform_action(
 /// and whether the deny list blocks it. The bool is false when the search
 /// stopped at its bounds (6 levels, 2000 items) before the end.
 fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, roles::ShortcutMatch)>, bool) {
-    let Some(bar) = Ax::application(pid).and_then(|a| a.element("AXMenuBar")) else {
-        return (Vec::new(), true);
+    let Some(app) = Ax::application(pid) else { return (Vec::new(), false) };
+    // No menu bar (an agent app, a helper) is an empty search; one that
+    // cannot be read is an incomplete one.
+    let bar = match app.attr("AXMenuBar") {
+        Ok(Some(_)) => match app.element("AXMenuBar") {
+            Some(bar) => bar,
+            None => return (Vec::new(), false),
+        },
+        Ok(None) => return (Vec::new(), true),
+        Err(_) => return (Vec::new(), false),
     };
     let mut found = Vec::new();
     let mut complete = true;
     let mut seen = 0usize;
-    let mut stack: Vec<(Ax, usize)> = bar.elements("AXChildren").into_iter().rev().map(|c| (c, 0)).collect();
+    let children = |node: &Ax, complete: &mut bool| -> Vec<Ax> {
+        match node.attr("AXChildren") {
+            Ok(_) => node.elements("AXChildren"),
+            Err(_) => {
+                *complete = false;
+                Vec::new()
+            }
+        }
+    };
+    let mut stack: Vec<(Ax, usize)> = children(&bar, &mut complete).into_iter().rev().map(|c| (c, 0)).collect();
     while let Some((node, depth)) = stack.pop() {
         seen += 1;
         if seen > 2000 {
@@ -735,20 +739,21 @@ fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, rol
                 };
                 let enabled = m.enabled;
                 found.push((node.clone(), m));
-                // AppKit runs the first enabled match: nothing after it matters.
+                // AppKit runs the first enabled match: nothing after it
+                // matters, but a branch skipped before it might have held an
+                // earlier one, so the flag stands as it is.
                 if enabled {
-                    return (found, true);
+                    return (found, complete);
                 }
             }
         }
-        let children = node.elements("AXChildren");
+        let kids = children(&node, &mut complete);
         if depth >= 6 {
-            // Too deep (a bookmark folder, a nested submenu): skip this
-            // branch, keep searching the rest, and say the search was cut.
-            complete &= children.is_empty();
+            // Too deep (a bookmark folder): skip it, keep going, and say so.
+            complete &= kids.is_empty();
             continue;
         }
-        for child in children.into_iter().rev() {
+        for child in kids.into_iter().rev() {
             stack.push((child, depth + 1));
         }
     }

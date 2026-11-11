@@ -379,11 +379,7 @@ fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
     assert_eq!(roles::pick_shortcut(&[m("Svc", true, true), m("B", true, false)]), P::Blocked("Svc".into()));
     // A blocked disabled item is passed over like any disabled one.
     assert_eq!(roles::pick_shortcut(&[m("Svc", false, true), m("B", true, false)]), P::Press(1));
-    // A chord no menu item has is posted (a web app's cmd+shift+7), unless it
-    // is a registered Services shortcut while some app is denied.
-    assert!(roles::unmatched_chord_allowed(false, true));
-    assert!(!roles::unmatched_chord_allowed(true, true));
-    assert!(roles::unmatched_chord_allowed(true, false));
+    // Unmatched chords: see chords_are_held_to_the_deny_list_in_both_deliveries.
 }
 
 #[test]
@@ -558,4 +554,52 @@ fn the_services_dump_parser_reads_quoted_values_whole() {
     assert!(got.contains(&"$@X".to_string()), "{got:?}");
     let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\101"; };"#);
     assert_eq!(got, vec!["@A".to_string()]);
+}
+
+#[test]
+fn chords_are_held_to_the_deny_list_in_both_deliveries() {
+    use roles::{ChordAction as A, ChordFacts, ShortcutMatch as M};
+    let m = |enabled: bool, blocked: bool| M { title: "X".into(), enabled, blocked };
+    let facts = |matches: &'static [M], background: bool| ChordFacts {
+        matches,
+        complete: true,
+        background,
+        denies_any: true,
+        ansi_layout: true,
+        is_service: Some(false),
+    };
+    static ENABLED: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(|| vec![M { title: "Undo".into(), enabled: true, blocked: false }]);
+    static DISABLED: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(|| vec![M { title: "Undo".into(), enabled: false, blocked: false }]);
+    static NONE: std::sync::LazyLock<Vec<M>> = std::sync::LazyLock::new(Vec::new);
+    let _ = m;
+    // Background: an enabled item is pressed through AX, whatever the layout.
+    assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..facts(&ENABLED, true) }), A::PressItem(0));
+    // H1: a foreground chord whose only match is disabled falls through to Services.
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: Some(true), ..facts(&DISABLED, false) }), A::Refuse(roles::REFUSE_SERVICE));
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: None, ..facts(&DISABLED, false) }), A::Refuse(roles::REFUSE_SERVICES_UNREAD));
+    assert_eq!(roles::decide_chord(&facts(&DISABLED, false)), A::Post);
+    // H2: foreground keys need an ANSI layout and a complete search while something is denied.
+    assert_eq!(roles::decide_chord(&ChordFacts { ansi_layout: false, ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_LAYOUT));
+    assert_eq!(roles::decide_chord(&ChordFacts { complete: false, ..facts(&ENABLED, false) }), A::Refuse(roles::REFUSE_TOO_DEEP));
+    // An enabled item takes the chord before Services.
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: Some(true), ..facts(&ENABLED, false) }), A::Post);
+    // Nothing denied: posted as before, in either delivery.
+    assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ansi_layout: false, complete: false, is_service: None, ..facts(&NONE, false) }), A::Post);
+    // No match in the background is posted only after the same checks.
+    assert_eq!(roles::decide_chord(&ChordFacts { is_service: Some(true), ..facts(&NONE, true) }), A::Refuse(roles::REFUSE_SERVICE));
+    assert_eq!(roles::decide_chord(&facts(&NONE, true)), A::Post);
+}
+
+#[test]
+fn marker_only_and_escaped_services_keys_parse() {
+    assert!(roles::is_key_equivalent("@$"));
+    assert!(!roles::is_key_equivalent("@"));
+    let (four, _) = keymap::char_key('4').unwrap();
+    assert_eq!(keymap::service_shortcut("@$"), Some((four, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
+    // \U0041 decodes to "A"; "@\r" is a key (Return's character) and is kept.
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "@\U0041"; a = "@\r"; };"#);
+    assert!(got.contains(&"@A".to_string()), "{got:?}");
+    // \\U is decoded once: "\\\\U0041" is a backslash then "U0041".
+    let got = roles::service_equivalents(r#"NSKeyEquivalent = { default = "\\U0041"; };"#);
+    assert!(got.is_empty(), "{got:?}");
 }

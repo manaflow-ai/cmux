@@ -238,7 +238,16 @@ pub fn menu_item_matches(
 pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
     let mut flags = FLAG_COMMAND;
     let mut key = None;
-    for c in equivalent.chars() {
+    // Every character a mark ("@$"): the last one is the key.
+    let all_marks = equivalent.chars().all(|c| matches!(c, '$' | '^' | '~' | '@'));
+    let (marks, last) = match (all_marks, equivalent.char_indices().last()) {
+        (true, Some((i, c))) if equivalent.chars().count() >= 2 => (&equivalent[..i], Some(c)),
+        _ => (equivalent, None),
+    };
+    if let Some(c) = last {
+        key = Some(c);
+    }
+    for c in marks.chars() {
         match c {
             '$' => flags |= FLAG_SHIFT,
             '^' => flags |= FLAG_CONTROL,

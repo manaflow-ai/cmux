@@ -417,14 +417,6 @@ pub fn pick_shortcut(matches: &[ShortcutMatch]) -> ShortcutPick {
     }
 }
 
-/// Whether a chord the menu search did not find may still be posted as key
-/// events: yes, unless it is a registered Services shortcut while any app is
-/// denied (AppKit would run that service, which can hand the selection to a
-/// denied app). Page shortcuts (a web app's cmd+shift+7) are posted, as
-/// Codex does.
-pub fn unmatched_chord_allowed(is_service_shortcut: bool, denies_any: bool) -> bool {
-    !(is_service_shortcut && denies_any)
-}
 
 /// Every value of each NSKeyEquivalent dictionary in `pbs -dump` output
 /// (default and localized ones), keeping those that are a key equivalent:
@@ -469,8 +461,23 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
                             Some('\\') => current.push('\\'),
                             Some('n') => current.push('\n'),
                             Some('t') => current.push('\t'),
-                            // \U1234 is decoded by unescape_dump.
-                            Some('U') => current.push_str("\\U"),
+                            Some('a') => current.push('\u{7}'),
+                            Some('b') => current.push('\u{8}'),
+                            Some('f') => current.push('\u{c}'),
+                            Some('r') => current.push('\r'),
+                            Some('v') => current.push('\u{b}'),
+                            Some('U') => {
+                                let hex: String = chars.clone().take(4).map(|(_, h)| h).collect();
+                                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                                    Some(ch) if hex.len() == 4 => {
+                                        current.push(ch);
+                                        for _ in 0..4 {
+                                            chars.next();
+                                        }
+                                    }
+                                    _ => current.push('U'),
+                                }
+                            }
                             Some(d @ '0'..='7') => {
                                 let mut n = d.to_digit(8).unwrap_or(0);
                                 for _ in 0..2 {
@@ -500,7 +507,7 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
             }
             ';' => {
                 if in_value {
-                    values.push(unescape_dump(current.trim()));
+                    values.push(current.trim().to_string());
                 }
                 in_value = false;
                 current.clear();
@@ -508,7 +515,7 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
             '}' => {
                 // A last entry may have no trailing ";".
                 if in_value && !current.trim().is_empty() {
-                    values.push(unescape_dump(current.trim()));
+                    values.push(current.trim().to_string());
                 }
                 return (values, i + 1);
             }
@@ -518,31 +525,12 @@ fn dump_dict_values(body: &str) -> (Vec<String>, usize) {
     (values, body.len())
 }
 
-/// "\Uf704" in a property-list dump is U+F704.
-fn unescape_dump(s: &str) -> String {
-    let mut out = String::new();
-    let mut rest = s;
-    while let Some(i) = rest.find("\\U") {
-        out.push_str(&rest[..i]);
-        let hex = rest.get(i + 2..i + 6).unwrap_or("");
-        match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) {
-            Some(c) if hex.len() == 4 => {
-                out.push(c);
-                rest = &rest[i + 6..];
-            }
-            _ => {
-                out.push_str(&rest[i..i + 2]);
-                rest = &rest[i + 2..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
 
-/// Modifier marks and exactly one key.
+/// Modifier marks and exactly one key. When every character is a mark
+/// ("@$"), the last one is the key ("$" with Command).
 pub fn is_key_equivalent(value: &str) -> bool {
-    value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count() == 1
+    let keys = value.chars().filter(|c| !matches!(c, '$' | '^' | '~' | '@')).count();
+    keys == 1 || (keys == 0 && value.chars().count() >= 2)
 }
 
 /// Whether background keys may go to the target window: it is the key
@@ -649,5 +637,74 @@ pub fn is_ansi_layout(input_source_id: Option<&str>, enabled_sources_recorded: b
                 | "com.apple.keylayout.Australian"
                 | "com.apple.keylayout.Canadian"
         ),
+    }
+}
+
+/// What to do with a key chord (any with Command, Control or Option, or a
+/// function key) after the menu search, for either delivery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChordAction {
+    /// Background: press the matched menu item (its index) through AX.
+    PressItem(usize),
+    /// Post the chord as key events.
+    Post,
+    /// Refuse, with why.
+    Refuse(&'static str),
+}
+
+/// Facts the chord decision needs (the menu search, the deny list, the
+/// keyboard layout and the Services shortcuts), so it is one tested place.
+#[derive(Clone, Debug)]
+pub struct ChordFacts<'a> {
+    pub matches: &'a [ShortcutMatch],
+    /// The menu search saw every item (no AX error, no branch cut).
+    pub complete: bool,
+    pub background: bool,
+    pub denies_any: bool,
+    /// The layout's keys are the ANSI codes posted (checked only when needed).
+    pub ansi_layout: bool,
+    /// Whether the chord is a registered Services shortcut: None when the
+    /// Services shortcuts could not be read.
+    pub is_service: Option<bool>,
+}
+
+pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
+pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
+pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
+pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
+pub const REFUSE_DISABLED: &str = "the menu item for this shortcut is disabled right now";
+pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an app on the Computer Use deny list";
+
+/// AppKit's routing, held to the deny list. In the background an enabled
+/// match is pressed through AX (no key codes, no layout question). Posted
+/// keys (foreground, or no enabled match) are routed by AppKit with the
+/// layout's characters, so while any app is denied they need an ANSI layout,
+/// a complete search, and no Services shortcut on the chord.
+pub fn decide_chord(f: &ChordFacts) -> ChordAction {
+    match pick_shortcut(f.matches) {
+        ShortcutPick::Blocked(_) => return ChordAction::Refuse(REFUSE_BLOCKED),
+        ShortcutPick::Press(i) if f.background => return ChordAction::PressItem(i),
+        ShortcutPick::Disabled(_) if f.background => return ChordAction::Refuse(REFUSE_DISABLED),
+        // Foreground Press, foreground Disabled (AppKit falls through to
+        // Services) and no match: keys are posted.
+        _ => {}
+    }
+    if !f.denies_any {
+        return ChordAction::Post;
+    }
+    if !f.complete {
+        return ChordAction::Refuse(REFUSE_TOO_DEEP);
+    }
+    if !f.ansi_layout {
+        return ChordAction::Refuse(REFUSE_LAYOUT);
+    }
+    // An enabled menu item takes the chord before Services do.
+    if matches!(pick_shortcut(f.matches), ShortcutPick::Press(_)) {
+        return ChordAction::Post;
+    }
+    match f.is_service {
+        None => ChordAction::Refuse(REFUSE_SERVICES_UNREAD),
+        Some(true) => ChordAction::Refuse(REFUSE_SERVICE),
+        Some(false) => ChordAction::Post,
     }
 }
