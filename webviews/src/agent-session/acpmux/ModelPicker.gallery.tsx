@@ -732,12 +732,12 @@ export default componentEntry<GalleryProps>({
       },
       play: openColumns,
     },
-    // OpenCode's provider-prefixed names are the longest of any harness: the menu opens on Claude Code
-    // already as wide as the longest of them, and keeps that width on every tab (Lucas 2026-11-10).
+    // OpenCode's provider-prefixed names are the longest of any harness; the menu fits the rows of the
+    // tab it shows (the gallery's menu-fit rule: no wider than its fullest row needs).
     "quick-menu-widest-name": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: openColumns,
-      note: "Fit width (ships): as wide as the longest name of every tab, up to 40em; each name on one line. At the narrow width the window caps it and a longer name wraps.",
+      note: "Fit width (ships): as wide as the open tab's rows, from 28.5em up to 40em. At the narrow width the window caps it and a longer name wraps.",
     },
     // A width the person dragged to, narrower than OpenCode's longest names: they wrap onto a second
     // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").

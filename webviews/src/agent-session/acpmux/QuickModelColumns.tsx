@@ -5,7 +5,7 @@
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
-import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
@@ -24,7 +24,7 @@ import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import { CHAT_COLUMN } from "./modelPickerLayout";
-import { MODEL_MENU_MIN_WIDTH, naturalMenuWidth, setModelMenuWidth, useModelMenuWidth } from "./modelMenuWidth";
+import { MODEL_MENU_MIN_WIDTH, setModelMenuWidth, useModelMenuWidth } from "./modelMenuWidth";
 import {
   familyTabs,
   heldTab,
@@ -311,7 +311,6 @@ function Columns({
   // observer goes with the frame, which unmounts as the menu closes.
   const sizeHold = useRef<ResizeObserver | null>(null);
   const popupRef = useRef<HTMLElement | null>(null);
-  const [popupNode, setPopupNode] = useState<HTMLElement | null>(null);
   // The columns' fades follow their scroll, their size (the menu grows, the window shrinks) and their
   // rows (a tab or a search changes them). The observers go with the body as the menu closes.
   const fadeWatch = useRef<(() => void) | null>(null);
@@ -338,11 +337,9 @@ function Columns({
     sizeHold.current = null;
     const popup = frame?.parentElement;
     popupRef.current = popup ?? null;
-    // The portal mounts after the open render's effects ran: measure and size it now.
-    setPopupNode(popup ?? null);
     if (!frame || !popup || typeof ResizeObserver === "undefined") return;
-    // The width is set (the longest name of every tab, or the person's own, modelMenuWidth.ts), so
-    // only the height is held here.
+    // The width fits the rows on screen (the stylesheet) or is the person's own (widthOf), so only
+    // the height is held here.
     let height = 0;
     const observer = new ResizeObserver(() => {
       const box = frame.getBoundingClientRect();
@@ -357,10 +354,10 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
-  // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
-  // of every tab, so it never changes width from tab to tab; a narrower menu wraps a longer name.
+  // The menu's width: the person's own (a drag on its edge), else as wide as the rows it shows (the
+  // open tab's, or a search's matches), never wider than its fullest row needs (menu-fit, gallery/invariants.ts); a
+  // menu narrower than a name wraps it.
   const ownWidth = useModelMenuWidth();
-  const [natural, setNatural] = useState<{ key: string; width: number }>();
   // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
   const dragging = useRef(false);
   const widthOf = (popup: HTMLElement | null | undefined) => {
@@ -373,10 +370,10 @@ function Columns({
       popup.style.maxWidth = room;
       return;
     }
-    // The default: the longest name's width in em of the menu's type, so it grows with interface
-    // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
-    // still hold; a name longer than the cap wraps under it.
-    popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
+    // The default is the stylesheet's: max-content of the rows shown, from 28.5em up to 40em, in em
+    // of the menu's type so it follows interface scale and chrome text size; a name longer than the
+    // cap wraps under it.
+    popup.style.width = "";
     popup.style.minWidth = "";
     popup.style.maxWidth = "";
   };
@@ -390,47 +387,6 @@ function Columns({
         : [{ id: STARRED_TAB, name: starredText, starred: true, models: [], more: [] }, ...families.list],
     [families.list, starredText],
   );
-  // Every name the menu can list (each tab's models and their providers): the default width fits
-  // the longest, measured once per list as the menu opens.
-  const names = useMemo(
-    () => [
-      ...new Set(
-        list.flatMap((family) =>
-          [...family.models, ...family.more].flatMap((model) => [
-            // A tag ("New") draws after the name, a gap away: it is measured with it.
-            model.tag ? `${model.name}  ${model.tag}` : model.name,
-            ...(model.offers?.map((offer) => offer.provider ?? offer.name) ?? []),
-          ]),
-        ),
-      ),
-    ],
-    [list],
-  );
-  // A face that loads after the menu opened (the UI font, a fallback first) changes every name's
-  // width: the canvas measured the fallback. Each finished font load measures again, so the default
-  // width never depends on whether the face was ready when the menu opened.
-  const [fontLoads, setFontLoads] = useState(0);
-  useEffect(() => {
-    const fonts = open ? popupNode?.ownerDocument.fonts : undefined;
-    if (!fonts) return;
-    const loaded = () => setFontLoads((count) => count + 1);
-    fonts.addEventListener("loadingdone", loaded);
-    let live = true;
-    if (fonts.status !== "loaded") void fonts.ready.then(() => live && loaded());
-    return () => {
-      live = false;
-      fonts.removeEventListener("loadingdone", loaded);
-    };
-  }, [open, popupNode]);
-  const namesKey = `${names.join("\u0000")}\u0001${fontLoads}`;
-  useLayoutEffect(() => {
-    if (!open || natural?.key === namesKey) return;
-    const width = naturalMenuWidth(names, modelsList.current);
-    const menu = modelsList.current?.closest<HTMLElement>(".acpmux-cols");
-    const em = menu ? Number.parseFloat(getComputedStyle(menu).fontSize) : NaN;
-    // Kept in em of the menu's type (widthOf), not px.
-    if (width && em > 0) setNatural({ key: namesKey, width: width / em });
-  }, [open, names, namesKey, natural?.key, popupNode]);
   useLayoutEffect(() => widthOf(popupRef.current));
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);

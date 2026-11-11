@@ -1,6 +1,5 @@
-// The model menu's width (QuickModelColumns.tsx). By default it is as wide as the longest model
-// name of every harness it lists (OpenCode's, today), so it does not change width from tab to tab.
-// A drag on its outer edge sets a width of the person's own, kept for every composer in the app and
+// The model menu's width (QuickModelColumns.tsx). By default it is as wide as the rows it shows
+// (the open tab's, or a search's matches), from 28.5em up to 40em (quickModelColumns.css). A drag on its outer edge sets a width of the person's own, kept for every composer in the app and
 // followed by every open page (as modelChipIcon.ts is); a double-click on the edge goes back to
 // the default (Lucas 2026-11-10). Narrower than a name, the name wraps (Lawrence 2026-11-05: "cant
 // see full model name").
@@ -60,38 +59,4 @@ function subscribe(listener: () => void) {
 
 export function useModelMenuWidth(): number | undefined {
   return useSyncExternalStore(subscribe, modelMenuWidth, modelMenuWidth);
-}
-
-let canvas: { getContext(kind: "2d"): CanvasRenderingContext2D | null } | undefined;
-
-/// The menu's default width, in px: the rail, then a models column that fits the longest of
-/// `names` on one line, then the settings column at the grid's share of it. `list` is a rendered
-/// models column with a row in it, which gives the row's font and the room a row takes around its
-/// name (padding, check, star). Undefined when there is nothing to measure with (no row, no canvas).
-export function naturalMenuWidth(names: readonly string[], list: HTMLElement | null): number | undefined {
-  const name = list?.querySelector<HTMLElement>(".acpmux-cols-row .acpmux-cols-name");
-  const body = list?.parentElement;
-  if (!list || !name || !body || names.length === 0) return undefined;
-  const doc = list.ownerDocument;
-  canvas ??= doc.createElement("canvas");
-  let context: CanvasRenderingContext2D | null = null;
-  try {
-    context = canvas.getContext("2d");
-  } catch {
-    return undefined;
-  }
-  if (!context) return undefined;
-  const style = doc.defaultView?.getComputedStyle(name);
-  if (!style) return undefined;
-  context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  let longest = 0;
-  for (const each of names) longest = Math.max(longest, context.measureText(each).width);
-  const columns = (doc.defaultView?.getComputedStyle(body).gridTemplateColumns ?? "").split(" ");
-  const listWidth = list.getBoundingClientRect().width;
-  const room = listWidth - name.getBoundingClientRect().width;
-  if (!(longest > 0) || !(listWidth > 0) || columns.length < 3) return undefined;
-  const [rail, models, settings] = columns.map((column) => Number.parseFloat(column));
-  if (!rail || !models || !settings) return undefined;
-  const modelsColumn = Math.ceil(longest + room + 2);
-  return Math.ceil(rail + modelsColumn + (modelsColumn * settings) / models);
 }

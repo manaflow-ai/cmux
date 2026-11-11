@@ -275,6 +275,21 @@ function menuViolations(doc: Document): Violation[] {
         return menuRect.width - drawn.reduce((sum, rect) => sum + rect.width, 0);
       }),
     );
+    if (name.includes("Model")) {
+      const drawnOf = (item: Element) =>
+        [...textRects(item), ...[...item.querySelectorAll("svg, img")].map((icon) => icon.getBoundingClientRect()).filter(visible)].reduce((sum, rect) => sum + rect.width, 0);
+      const top = items
+        .map((item) => ({ label: (item.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 50), w: item.getBoundingClientRect().width, d: drawnOf(item) }))
+        .sort((a, b) => b.d - a.d)
+        .slice(0, 4)
+        .map((row) => `${row.label}=d${fmt(row.d)}/w${fmt(row.w)}`);
+      const cs = getComputedStyle(menu);
+      violations.push({
+        rule: "menu-debug",
+        key: "menu-debug:" + name,
+        detail: `DBG W${fmt(menuRect.width)} vw${doc.documentElement.clientWidth} style[${menu.getAttribute("style") ?? ""}] minW[${cs.minWidth}] maxW[${cs.maxWidth}] fs[${cs.fontSize}] cols[${getComputedStyle(menu.querySelector(".acpmux-cols-body") ?? menu).gridTemplateColumns}] top: ${top.join(" | ")}`,
+      });
+    }
     if (spare > MENU_SPARE_MAX)
       violations.push({
         rule: "menu-fit",
