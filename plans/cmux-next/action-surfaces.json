@@ -36278,6 +36278,16 @@
           "kind" : "string",
           "name" : "model",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "mode",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "team",
+          "required" : false
         }
       ],
       "cli" : "offered",

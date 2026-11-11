@@ -17,6 +17,10 @@ import Foundation
 /// machine's daemon, with this app's key when the machine takes it (``AgentTabRemoteHost/startNow``).
 /// The chat's tab stays in the machine's first workspace, so the person can open it. With `--from-folder`,
 /// it starts in a copy of that folder on this Mac, copied as the composer's Cloud start copies one (``copied(_:to:_:account:)``).
+/// `--mode` is the permission mode the session starts in, sent as the composer's mode pick is (the new tab's seed, then
+/// `agent-session-start`'s `mode`; the machine applies it on the caller's own machine only, cmux-tui agent_session_start.rs).
+/// `--team` (a team id or name, or `personal`) switches to that team first, as the composer's Switch to <team> does
+/// (``CloudStartChat/reply(_:tab:report:)``), so the start runs in that account (Leo, 2026-11-10: "did you guys not test these").
 ///
 /// An agent's run (the cmux MCP server, or a shell naming its chat) starts the machine and the
 /// session as the person's own would, asking nobody (`cloud.agentsStartWithoutAsking`, on by
@@ -41,6 +45,9 @@ struct CloudStartSession {
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of, never with ``cwd``; and `--model`, the agent's model there (nil: its harness default).
         var fromFolder: String?, model: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
+        /// `--mode`: the permission mode the session starts in, passed as the machine takes it (nil: its own start mode).
+        /// `--team`: the team to switch to before the start (an id, a name, or `personal`); nil: the active team.
+        var mode: String?, team: String?
         var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
@@ -51,6 +58,8 @@ struct CloudStartSession {
             if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
+            if let mode { words.append("--mode " + CloudStartCore.shellQuoted(mode)) }
+            if let team { words.append("--team " + CloudStartCore.shellQuoted(team)) }
             return words.joined(separator: " ")
         }
 
@@ -70,9 +79,12 @@ struct CloudStartSession {
                 request.machineID = try CloudHandlers.machine(invocation, context).machineID
             }
             if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-            let key = CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account)
+            let request = request
             CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
+                // `--team` first: the run is keyed and checked in the account it starts in.
+                try await Self.switchTeam(request.team, services)
+                let key = CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account)
+                return try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
                     let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
                     return try await start.run(request, invocation, context, account: key.account,
@@ -109,9 +121,10 @@ struct CloudStartSession {
         asPerson.callerAgentSession = nil
         let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
         guard CloudStartCore().agentAsksFirst(delegated: delegated) else {
-            let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
             return CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
+                try await Self.switchTeam(request.team, services) // as the person's own run: the person delegated agents' starts
+                let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
+                return try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
                     try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: false, askedBy: invocation.callerAgentSession, revealing: false)
                 }
             }
@@ -119,6 +132,8 @@ struct CloudStartSession {
         guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
             throw ActionFailure(message: CloudStartSessionStrings.notInChat(asked))
         }
+        // The card asks in the active team: a switch is the person's to make (Switch Active Team), never an asking agent's.
+        if try Self.teamToSelect(request.team, services) != nil { throw ActionFailure(message: CloudStrings.startRefusal("cloud_team_switching")) }
         let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
         let asks = services.cloud.startSessionAsks
         let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
@@ -212,7 +227,39 @@ struct CloudStartSession {
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
         let login: CloudHarnessLoginAsk
         do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), model: invocation["model"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }, login: login) // the machine checks the model
+        let word = { (key: String) in invocation[key]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 } }
+        // The machine checks the model and the mode (cmux-tui agent_session_start.rs), and Rust's team rule the team (``teamToSelect(_:_:)``).
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), model: word("model"),
+                       mode: word("mode"), team: word("team"), login: login)
+    }
+
+    /// The new chat tab's seed: its folder, and with `--mode` the mode with the harness it is for, the way the
+    /// composer's Cloud send seeds its pick (``AgentTabStore``'s remote start sends a seeded mode only for that harness).
+    static func seed(cwd: String?, agent: String, mode: String?) -> AgentPaneSeed? {
+        guard let mode else { return cwd.map { AgentPaneSeed(cwd: $0) } }
+        return AgentPaneSeed(cwd: cwd, harness: agent, mode: mode)
+    }
+
+    /// The team `--team` names when it is not the active one, by Rust's rule (`cloud_handler_team`: an id, a name, or
+    /// `personal`, the person's own team); nil without `--team` or when it is active. A team the account has not is refused.
+    static func teamToSelect(_ team: String?, _ services: AppServices) throws -> String? {
+        try teamToSelect(team, in: services.cloud.auth.activeTeam)
+    }
+
+    static func teamToSelect(_ team: String?, in active: ActiveTeam) throws -> String? {
+        guard let team else { return nil }
+        let facts: [String: Any] = ["teams": active.teams.map { ["id": $0.id, "name": $0.displayName] }, "active": active.id as Any, "team": team]
+        return try CloudHandlerRules().checked("cloud_handler_team", facts.compacted, valueKey: "select") as? String
+    }
+
+    /// `--team`: the switch the composer's Switch to <team> makes (``ActiveTeam/select(_:)``, as the team picker), then the
+    /// same check that the start runs only in it.
+    static func switchTeam(_ team: String?, _ services: AppServices) async throws {
+        guard let id = try teamToSelect(team, services) else { return }
+        try await services.cloud.auth.activeTeam.select(id)
+        if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: services.cloud.isSignedIn, requestedTeam: id, activeTeam: services.cloud.auth.teamID) {
+            throw ActionFailure(message: CloudStrings.startRefusal(refused))
+        }
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -264,7 +311,7 @@ struct CloudStartSession {
         let started: AgentTabRemoteStart.Started, tabKey: String
         do {
             let tabs = services.agentTabs
-            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
+            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: Self.seed(cwd: cwd, agent: agent, mode: request.mode).map { AgentPaneSeedSource($0) })
             let opened = try await Self.created(pending, name: name, id: id, agent: agent); tabKey = opened.key
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id); a slow link lists it late, so 60 s, not 10 (a working start failed "not connected").

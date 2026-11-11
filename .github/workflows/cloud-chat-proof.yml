@@ -77,7 +77,7 @@ on:
         default: false
         type: boolean
       matrix:
-        description: "Instead of the one proof chat: the Cloud workspace matrix (scripts/cmux-next/cloud-chat-matrix.py), a chat from every kind of folder, each timed and its copy checked by hash"
+        description: "Instead of the one proof chat: the Cloud workspace matrix (scripts/cmux-next/cloud-chat-matrix.py), a chat from every kind of folder, each timed and its copy checked by hash, plus the small repo under Personal and a team, in the default mode and Bypass"
         required: false
         default: false
         type: boolean
@@ -511,6 +511,7 @@ jobs:
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
+            --accounts personal,team --modes default,bypass \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
@@ -725,6 +726,7 @@ jobs:
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
+            --accounts personal,team --modes default,bypass \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"

@@ -256,8 +256,14 @@ pub struct Team {
     pub name: String,
 }
 
-/// Switch Active Team's `team` (an id or a name): the team to select, or none when it is the
-/// active one already.
+/// The word that names the person's own team (the team menu's Personal row) in a `team`
+/// argument, in any case: `cmux cloud start-session --team personal`.
+pub const PERSONAL_WORD: &str = "personal";
+
+/// Switch Active Team's `team`, and `cloud start-session --team`: an id, a name, or
+/// [`PERSONAL_WORD`] for the person's own team (the one named
+/// [`cmux_cloud_config::auth::PERSONAL_TEAM_NAME`], as the team menu marks it). The team to
+/// select, or none when it is the active one already.
 pub fn team(
     teams: &[Team],
     active: Option<&str>,
@@ -266,8 +272,15 @@ pub fn team(
     if teams.is_empty() {
         return Err(Said::key("noTeams"));
     }
+    let personal = |team: &&Team| team.name.trim() == cmux_cloud_config::auth::PERSONAL_TEAM_NAME;
     let team = asked
-        .and_then(|asked| teams.iter().find(|team| team.id == asked || team.name == asked))
+        .map(str::trim)
+        .and_then(|asked| {
+            let named = teams.iter().find(|team| team.id == asked || team.name == asked);
+            named.or_else(|| {
+                teams.iter().find(personal).filter(|_| asked.eq_ignore_ascii_case(PERSONAL_WORD))
+            })
+        })
         .ok_or_else(|| Said::with("noSuchTeam", [asked.unwrap_or("")]).invalid_target())?;
     Ok((Some(team.id.as_str()) != active).then(|| team.id.clone()))
 }

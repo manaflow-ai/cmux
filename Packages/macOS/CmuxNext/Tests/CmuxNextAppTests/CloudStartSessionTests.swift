@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAuthCore
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -81,6 +82,43 @@ struct CloudStartSessionTests {
         #expect(CloudStartRunKey(haiku, caller: nil, account: []) != CloudStartRunKey(sonnet, caller: nil, account: []))
         let none = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "model": .string("")]))
         #expect(none.model == nil)
+    }
+
+    /// Leo, 2026-11-10: "did you guys not test these" (Personal vs team, Bypass). `--mode` and `--team` reach the run as
+    /// given (the machine checks the mode, Rust's team rule the team), are in the command asked again, and a Bypass
+    /// run never joins a default one.
+    @Test func theRequestTakesTheModeAndTeam() throws {
+        let bypass = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "mode": .string(" bypassPermissions "), "team": .string(" personal ")]))
+        #expect((bypass.mode, bypass.team) == ("bypassPermissions", "personal"))
+        #expect(bypass.command.hasSuffix(" --mode bypassPermissions --team personal"))
+        let plain = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "mode": .string(""), "team": .string(" ")]))
+        #expect(plain.mode == nil && plain.team == nil)
+        #expect(!plain.command.contains("--mode") && !plain.command.contains("--team"))
+        #expect(CloudStartRunKey(bypass, caller: nil, account: []) != CloudStartRunKey(plain, caller: nil, account: []))
+    }
+
+    /// The mode goes as the composer's Cloud send seeds its pick: on the new tab's seed with the harness it is for (the remote
+    /// start sends a seeded mode only for that harness). Without one the seed is the folder's alone, as before.
+    @Test func theModeIsSeededWithItsHarness() throws {
+        let seeded = try #require(CloudStartSession.seed(cwd: nil, agent: "claude", mode: "bypassPermissions"))
+        #expect((seeded.harness, seeded.mode, seeded.cwd) == ("claude", "bypassPermissions", nil))
+        #expect(CloudStartSession.seed(cwd: "/home/cmux/work", agent: "codex", mode: "full-access")?.cwd == "/home/cmux/work")
+        #expect(CloudStartSession.seed(cwd: nil, agent: "claude", mode: nil) == nil)
+        let folder = try #require(CloudStartSession.seed(cwd: "/home/cmux/work", agent: "claude", mode: nil))
+        #expect((folder.cwd, folder.harness, folder.mode) == ("/home/cmux/work", nil, nil))
+    }
+
+    /// `--team` names the team the start switches to, as Switch Active Team reads it (Rust's `cloud_handler_team`):
+    /// an id, a name, or `personal` for the person's own team; the active team is no switch; another is refused.
+    @Test func theTeamIsReadByTheTeamRule() throws {
+        let source = ActiveTeamTests.Source(teams: [], selected: "t-cmux")
+        source.availableTeams = [CMUXAuthTeam(id: "t-cmux", displayName: "cmux"), CMUXAuthTeam(id: "t-me", displayName: "Personal")]
+        let active = ActiveTeam(source: source)
+        #expect(try CloudStartSession.teamToSelect(nil, in: active) == nil)
+        #expect(try CloudStartSession.teamToSelect("personal", in: active) == "t-me")
+        #expect(try CloudStartSession.teamToSelect("t-me", in: active) == "t-me")
+        #expect(try CloudStartSession.teamToSelect("cmux", in: active) == nil, "the active team: no switch")
+        #expect(throws: ActionFailure.self) { try CloudStartSession.teamToSelect("someone-else", in: active) }
     }
 
     @Test(arguments: ["", "Claude Code", "-rf", "claude;rm", String(repeating: "a", count: 65)])

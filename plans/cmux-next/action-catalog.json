@@ -81864,6 +81864,28 @@
           "name" : "model",
           "suggestions" : null,
           "title" : "Model"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "mode",
+          "suggestions" : null,
+          "title" : "Permission Mode"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "team",
+          "suggestions" : null,
+          "title" : "Team"
         }
       ],
       "category" : "cloud",
@@ -81881,7 +81903,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux; answers machine_id, session_id, host, workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is a folder there, or --from-folder copies one from this Mac. --login pass|machine|none. --mode MODE (bypassPermissions, ...) on your own machine; --team ID|personal switches to that team first. An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,

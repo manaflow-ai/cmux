@@ -61,6 +61,8 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             cwd: None,
             from_folder: None,
             login: None,
+            mode: None,
+            team: None,
             environment: None,
             machine: Machine::New,
             wait: false,
@@ -264,6 +266,71 @@ fn the_login_goes_to_start_session() {
         panic!()
     };
     assert!(!fake.ran[1].contains(&"--login".to_owned()));
+}
+
+/// Leo, 2026-11-10: "did you guys not test these" (Personal vs team, Bypass). `--mode` and `--team` go to
+/// `cloud start-session` as given (the app switches the team, the machine checks the mode) and into the
+/// command asked again; an empty one, or `--team` beside `--environment` (whose machine is made in the
+/// active team before the switch), is refused here.
+#[test]
+fn the_mode_and_team_go_to_start_session() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let asked = request(&[
+        "--prompt",
+        "x",
+        "--name",
+        "dev",
+        "--mode",
+        " bypassPermissions ",
+        "--team=personal",
+    ]);
+    assert_eq!(
+        (asked.mode.as_deref(), asked.team.as_deref()),
+        (Some("bypassPermissions"), Some("personal"))
+    );
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--name",
+            "dev",
+            "--agent",
+            "claude",
+            "--mode",
+            "bypassPermissions",
+            "--team",
+            "personal",
+            "--json"
+        ])
+    );
+    assert_eq!(
+        again_command(&asked, &Machine::Named("dev".into())),
+        "cmux cloud start-chat --name dev --mode bypassPermissions --team personal --prompt TEXT --json"
+    );
+    assert!(TAKES_VALUE.contains(&"--mode") && TAKES_VALUE.contains(&"--team"));
+    for words in [
+        &["--mode", " ", "-p", "go"][..],
+        &["--team", "", "-p", "go"],
+        &["--team", "t-1", "--environment", "env_1", "-p", "go"],
+    ] {
+        assert!(parse(&strings(words), || Ok(String::new())).is_err(), "{words:?}");
+    }
+    // Neither: start-session gets neither, so the machine's own mode and the active team hold.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
+        panic!()
+    };
+    assert!(!fake.ran[1].iter().any(|word| word == "--mode" || word == "--team"));
 }
 
 /// A fake app: answers each step from a queue and records what ran.
@@ -2389,6 +2456,8 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         cwd: None,
         from_folder: None,
         login: None,
+        mode: None,
+        team: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -2426,6 +2495,8 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         cwd: None,
         from_folder: None,
         login: None,
+        mode: None,
+        team: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,

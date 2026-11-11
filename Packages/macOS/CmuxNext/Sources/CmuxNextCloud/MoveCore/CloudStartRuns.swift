@@ -232,10 +232,14 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var fromFolder: String?
     /// The run's `--model`; nil for none. Runs that differ in it are different runs.
     public var model: String?
+    /// The run's `--mode`; nil for none. Runs that differ in it are different runs. (`--team` is in ``account``: the key is
+    /// made once the run switched to it.)
+    public var mode: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil, model: String? = nil) {
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil, model: String? = nil,
+                mode: String? = nil) {
         (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
-        (self.fromFolder, self.model) = (fromFolder, model)
+        (self.fromFolder, self.model, self.mode) = (fromFolder, model, mode)
     }
 }
 

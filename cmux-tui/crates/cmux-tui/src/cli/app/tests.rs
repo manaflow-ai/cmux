@@ -226,6 +226,34 @@ fn relative_from_folder_of_cloud_start_session_is_made_absolute() {
     }
 }
 
+/// `cmux cloud start-session --mode MODE --team TEAM` (Leo, 2026-11-10: "did you guys not test these"):
+/// the action's `mode` and `team` arguments, as typed; the app switches the team and the machine checks
+/// the mode.
+#[test]
+fn cloud_start_session_sends_its_mode_and_team() {
+    let (method, params) = call(
+        run_action(
+            "cloud start-session",
+            &args(&[
+                "--name",
+                "dev",
+                "--agent",
+                "claude",
+                "--mode",
+                "bypassPermissions",
+                "--team",
+                "personal",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["args"]["mode"], json!("bypassPermissions"));
+    assert_eq!(params["args"]["team"], json!("personal"));
+    assert_eq!(params["args"]["agent"], json!("claude"));
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
