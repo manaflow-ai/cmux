@@ -57,6 +57,13 @@ Detectors (all line/regex heuristics, never an AST):
   (git_fixture_env.init_repo / clone_repo, shell git_fixture_init /
   git_fixture_clone). Git clears GIT_CONFIG_COUNT before receive-pack, so only
   the bare repository's own config turns maintenance off for a local push.
+- predictable-tmp-path: a test (tests/, scripts/**/tests/) or a git hook
+  helper (scripts/git-hooks/) writes to, assigns, or joins a fixed name under
+  /tmp, /var/tmp, $TMPDIR, ${TMPDIR:-/tmp} or tempfile.gettempdir(). Another
+  user on the host can precreate or swap that path: cmux#40871's
+  lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
+  and a file planted there with core.hooksPath ran a hook in every fixture
+  repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
 - isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
   import a module that sits beside it or in tests/ (-I puts no script folder on
   sys.path). Each changed test file, and each that loads git_fixture_env, is
@@ -94,8 +101,12 @@ DEFAULT_ROOTS: tuple[str, ...] = (
     "webviews/test",
 )
 
-# Scanned only for git-temp-repo-maintenance: the other rules were never applied there.
+# Scanned only for GIT_FIXTURE_RULES: the other rules were never applied there.
 GIT_FIXTURE_ONLY_ROOTS: tuple[str, ...] = ("scripts/cmux-next/tests",)
+# Scanned only for predictable-tmp-path, beside tests/ and GIT_FIXTURE_ONLY_ROOTS: every other scripts/**/tests
+# folder (found at run time) and the git hook helpers, whose files have no suffix.
+PREDICTABLE_TMP_EXTRA_GLOB = "scripts/**/tests"
+GIT_HOOKS_ROOT = "scripts/git-hooks"
 
 DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 
@@ -123,6 +134,7 @@ RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
 RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
 RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
+RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -134,8 +146,14 @@ ALL_RULES = (
     RULE_GIT_FIXTURE_ENV_DROPPED,
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_ISOLATED_IMPORT,
+    RULE_PREDICTABLE_TMP_PATH,
 )
-GIT_FIXTURE_RULES = (RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_FIXTURE_ENV_DROPPED, RULE_GIT_BARE_REPO_UNMANAGED)
+GIT_FIXTURE_RULES = (
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_PREDICTABLE_TMP_PATH,
+)
 
 # ---------------------------------------------------------------------------
 # Finding model
@@ -3918,6 +3936,57 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
     return hits
 
 
+
+# A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
+_TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
+_SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
+_SH_TMP_SINK = re.compile(r"""(?:>>?|\b(?:mkdir|touch|cp|mv|ln|tee|install|rm)\b[^|;&]*?)\s*["']?""" + _TMP_BASE_SH)
+_PY_TMP_LITERAL = r"""[rfb]?['"]/(?:var/)?tmp/[\w.{-][^'"]*['"]"""
+_PY_TMP_SINK = re.compile(
+    r"""(?:\bopen\(|\bPath\(|os\.makedirs\(|os\.mkdir\(|shutil\.\w+\(|os\.symlink\(|os\.replace\(|os\.rename\()\s*"""
+    + _PY_TMP_LITERAL
+)
+_PY_GETTEMPDIR_JOIN = re.compile(
+    r"""gettempdir\(\)\s*(?:\)\s*)?(?:,\s*[rf]?['"]|/\s*[rf]?['"]|\+\s*[rf]?['"]/)|\{[\w.]*gettempdir\(\)\}/"""
+)
+
+
+def _predictable_tmp_scope(rel_posix: str) -> Optional[str]:
+    """'.py' or '.sh' when rel_posix is a test or hook helper this rule covers, else None."""
+    suffix = pathlib.PurePosixPath(rel_posix).suffix
+    in_scope = (
+        rel_posix.startswith("tests/")
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+        or rel_posix.startswith(GIT_HOOKS_ROOT + "/")
+    )
+    if not in_scope:
+        return None
+    if suffix == ".py":
+        return ".py"
+    if suffix in (".sh", ".bash") or (suffix == "" and rel_posix.startswith(GIT_HOOKS_ROOT + "/")):
+        return ".sh"
+    return None
+
+
+def detect_predictable_tmp_path(raw_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines that write to, assign or join a fixed name under a shared temp folder (not via mktemp)."""
+    kind = _predictable_tmp_scope(rel_posix)
+    if kind is None:
+        return []
+    hits: list[int] = []
+    for index, raw in enumerate(raw_lines):
+        # A hook helper has no suffix, so strip its comments as shell here rather than trusting code_lines.
+        code = _strip_comment(raw, kind)
+        if not code.strip() or "mktemp" in raw:
+            continue
+        if kind == ".py":
+            found = _PY_TMP_SINK.search(code) or _PY_GETTEMPDIR_JOIN.search(code)
+        else:
+            found = _SH_TMP_ASSIGN.search(code) or _SH_TMP_SINK.search(code)
+        if found:
+            hits.append(index)
+    return hits
+
 _MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'")
 _ISOLATED_LOAD = (
     "import runpy, sys; "
@@ -3976,6 +4045,24 @@ def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
             return [name for name in names.split() if name.endswith(".py")]
     return None
 
+
+
+def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Finding]:
+    """predictable-tmp-path over scripts/**/tests (but GIT_FIXTURE_ONLY_ROOTS, already scanned) and the git hooks."""
+    findings: list[Finding] = []
+    folders = sorted(path for path in repo_root.glob(PREDICTABLE_TMP_EXTRA_GLOB) if path.is_dir())
+    folders.append(repo_root / GIT_HOOKS_ROOT)
+    skip = {repo_root / root for root in GIT_FIXTURE_ONLY_ROOTS}
+    for folder in folders:
+        if folder in skip or any(parent in skip for parent in folder.parents) or not folder.is_dir():
+            continue
+        for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            findings += [f for f in scan_text(rel_posix, text) if f.rule == RULE_PREDICTABLE_TMP_PATH]
+    return findings
 
 def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
     """isolated-import over each changed Python test (when the history allows) and each that loads git_fixture_env."""
@@ -4155,6 +4242,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
     for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix):
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
+    for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
+        findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -4322,6 +4411,27 @@ def _self_test() -> int:
             "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
             "subprocess.run(['git', 'fetch'], cwd=d, env={'PATH': os.environ['PATH'], 'GIT_DIR': d})\n",
             {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A fixed name in the shared temp folder: another user can plant it first (cmux#40871 Codex F1).
+        (
+            "scripts/cmux-next/tests/lib/fixture.sh",
+            '_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig"\nprintf x >"$_global"\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_gettempdir.py",
+            "import os, tempfile\nstate = os.path.join(tempfile.gettempdir(), 'cmux-state.json')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "scripts/git-hooks/pre-push",
+            '#!/bin/bash\n# runs the gate\nrun_gate >/tmp/cmux-pre-push.log 2>&1\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_open_literal.py",
+            "with open('/tmp/cmux-fixture.json', 'w') as handle:\n    handle.write('{}')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
         ),
         # A bare remote made with plain git: receive-pack runs with GIT_CONFIG_COUNT cleared (cmux#40871 F3).
         (
@@ -5417,6 +5527,25 @@ def _self_test() -> int:
             "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
             "run(env={'GH_TOKEN': 'x'})\nSOURCE = \"subprocess.run(['x'], env={'PATH': HERE})\"\n",
         ),
+        # A private folder from mktemp, even one made under ${TMPDIR:-/tmp}.
+        (
+            "scripts/cmux-next/tests/lib/private.sh",
+            'dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX")\nprintf x >"$dir/global.gitconfig"\n',
+        ),
+        # "/tmp/" inside a longer path, and a /tmp path that is only test data in an assertion.
+        (
+            "tests/tmp_data_only.sh",
+            'rm -rf "$TMP/build/tmp/stamp"\nmkdir -p "$TMP/cache/tmp/job"\n[[ "$out" == /tmp/x ]] || fail\n',
+        ),
+        (
+            "tests/tmp_assert_only.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nself.assertIn('/tmp/cmux-x.sock', out)\n# open('/tmp/x')\n",
+        ),
+        # Outside the tests and hook helpers this rule covers.
+        (
+            "scripts/tool.sh",
+            'log=/tmp/tool.log\n',
+        ),
         # Bare remotes through the helper.
         (
             "tests/git_bare_helper.py",
@@ -5699,7 +5828,7 @@ def _self_test() -> int:
         # Redirections do not promote later argv data into command position.
         (
             "tests/n18i_shell_redirected_argument.sh",
-            "printf >/tmp/out curl https://api.openai.com/v1/items\n",
+            "printf >\"$TMP/out\" curl https://api.openai.com/v1/items\n",
         ),
         # Merely passing eval and curl as arguments does not execute either one.
         (
@@ -6192,6 +6321,7 @@ def main(argv: list[str]) -> int:
             for finding in collect_findings(repo_root, GIT_FIXTURE_ONLY_ROOTS)
             if finding.rule in GIT_FIXTURE_RULES
         ]
+        findings += collect_predictable_tmp_extra_findings(repo_root)
         if args.strict:
             findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
