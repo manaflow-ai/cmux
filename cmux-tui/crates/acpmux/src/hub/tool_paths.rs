@@ -4,7 +4,6 @@
 //! retry at another spelling once.
 
 use super::*;
-use crate::path_canon::canonical_path;
 
 /// Sets `_meta.acpmux.canonicalPath` beside each path a `tool_call` or
 /// `tool_call_update` record names: each of its `locations`, each `diff` in
@@ -12,7 +11,10 @@ use crate::path_canon::canonical_path;
 /// read from the session's cwd. A place that already carries one (a fork's copy
 /// of its parent's record) keeps it, and nothing else in `_meta` changes.
 /// Every record that passes here also gets a shell call's exit code and command
-/// where clients read them (`tool_shell::add_shell_fields`).
+/// where clients read them (`tool_shell::add_shell_fields`). Each path is read
+/// from the disk once per chat (`Session::canon_paths`), not on every streamed
+/// update; the record still carries it when it is logged and sent, so a replay
+/// reads the same record.
 pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value) {
     if !matches!(kind.strip_suffix(".replay").unwrap_or(kind), "tool_call" | "tool_call_update") {
         return;
@@ -23,7 +25,7 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
         return;
     };
     let cwd = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cwd.clone();
-    let canonical = |path: Option<&str>| path.and_then(|p| canonical_path(p, Some(&cwd)));
+    let canonical = |path: Option<&str>| path.and_then(|p| session.canon_paths.canonical(p, &cwd));
     if let Some(locations) = update.get_mut("locations").and_then(Value::as_array_mut) {
         for location in locations {
             let path = location.get("path").and_then(Value::as_str).map(str::to_owned);
@@ -42,7 +44,7 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     }
     // A finished read of an image file that returned no image gets the file's image
     // (`tool_read_images.rs`): Codex's View of a PNG drew as its bare path.
-    super::tool_read_images::add_read_image(kind, msg, &cwd);
+    super::tool_read_images::add_read_image(kind, msg, &cwd, &session.canon_paths);
 }
 
 /// `target._meta.acpmux.canonicalPath` = `canonical()`, unless it has one or

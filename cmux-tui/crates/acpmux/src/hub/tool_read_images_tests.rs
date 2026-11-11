@@ -114,7 +114,12 @@ fn each_image_type_is_named_by_its_bytes() {
         let path = dir.join(name);
         std::fs::write(&path, bytes).unwrap();
         let mut msg = codex_view(path.to_str().unwrap());
-        add_read_image("tool_call_update", &mut msg, &dir);
+        add_read_image(
+            "tool_call_update",
+            &mut msg,
+            &dir,
+            &crate::path_canon::CanonCache::default(),
+        );
         assert_eq!(images(&msg).len(), 1, "{name}: {msg}");
         assert_eq!(images(&msg)[0]["mimeType"], mime, "{name}");
     }
@@ -163,7 +168,7 @@ fn anything_else_is_left_as_it_came() {
     ];
     for (why, msg, kind) in cases {
         let mut seen = msg.clone();
-        add_read_image(kind, &mut seen, &dir);
+        add_read_image(kind, &mut seen, &dir, &crate::path_canon::CanonCache::default());
         assert_eq!(seen, msg, "{why}");
     }
 
@@ -171,7 +176,7 @@ fn anything_else_is_left_as_it_came() {
     let mut text = codex_view(&png);
     text["params"]["update"]["content"] =
         json!([{"type": "content", "content": {"type": "text", "text": "ok"}}]);
-    add_read_image("tool_call_update", &mut text, &dir);
+    add_read_image("tool_call_update", &mut text, &dir, &crate::path_canon::CanonCache::default());
     let content = text["params"]["update"]["content"].as_array().unwrap();
     assert_eq!(content.len(), 2, "{text}");
     assert_eq!(content[0]["content"]["text"], "ok");
@@ -193,7 +198,12 @@ fn a_fifo_is_refused_without_waiting() {
     std::thread::spawn(move || {
         let mut msg = codex_view(&path);
         let before = msg.clone();
-        add_read_image("tool_call_update", &mut msg, &dir2);
+        add_read_image(
+            "tool_call_update",
+            &mut msg,
+            &dir2,
+            &crate::path_canon::CanonCache::default(),
+        );
         let _ = done.send(msg == before);
     });
     let unchanged = wait.recv_timeout(std::time::Duration::from_secs(5));

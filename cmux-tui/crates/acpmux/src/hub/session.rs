@@ -457,6 +457,9 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The canonical form of each path its tool calls named, read once
+    /// (`tool_paths.rs`, `touched.rs`).
+    pub(super) canon_paths: crate::path_canon::CanonCache,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// The sessions it was told share its files, once each (`touched.rs`).
