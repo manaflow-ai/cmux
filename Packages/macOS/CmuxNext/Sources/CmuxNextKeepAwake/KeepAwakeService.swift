@@ -22,6 +22,16 @@ public final class KeepAwakeService {
     private let power = PowerSourceMonitor()
     /// The setting and agent-work observation; app lifetime, cancelled never.
     private var observation: Task<Void, Never>?
+    /// Each workspace's agent work and running commands, one observation per workspace: a tab that comes, goes or
+    /// changes re-reads its own workspace only, never the session (a New Tab in a 60-workspace session cancelled
+    /// and re-armed one tracking of every tab of the session in the key's turn, CMD-T BUDGET 2026-11-10).
+    private var work: ObservedItemsFeed<WorkspaceModel, WorkspaceWork>?
+
+    /// What one workspace's tabs add to the hold.
+    nonisolated struct WorkspaceWork: Equatable, Sendable {
+        var agentsWorking: Bool
+        var commands: [KeepAwakeCommands.Command]
+    }
     /// The running commands last seen, planned again when `recheck` fires.
     private var commands = KeepAwakeCommands()
     /// One deadline at a time: a young command comes of age or a counting one goes quiet
@@ -39,17 +49,30 @@ public final class KeepAwakeService {
         policy.onBattery = power.start()
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
-            for await (sessions, working, commands) in ObservationStream({
-                let sessions = settings.snapshot.sessions
-                // The command facts are read only while the setting is on, so off, no tab wakes this.
-                let commands = sessions.keepAwakeForCommands ? KeepAwakeCommands.of(store) : KeepAwakeCommands()
-                return (sessions, KeepAwakeService.agentsWorking(store), commands)
+            let work = ObservedItemsFeed<WorkspaceModel, WorkspaceWork>(
+                list: { [weak store] in store?.workspaces },
+                // By object: a workspace the store replaced is a new model.
+                id: { "\(ObjectIdentifier($0))" },
+                item: { workspace in
+                    let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                    // The command facts are read only while the setting is on, so off, no tab wakes this.
+                    let commands = settings.snapshot.sessions.keepAwakeForCommands ? KeepAwakeCommands.of(tabs) : KeepAwakeCommands()
+                    return WorkspaceWork(agentsWorking: StatusMapping.shared.isWorking(tabs: tabs), commands: commands.commands)
+                })
+            self?.work = work
+            work.start()
+            // Three cells: the settings, the acpmux sessions (a chat with no tab showing it) and the feed's items.
+            for await (sessions, chatWorks, facts) in ObservationStream({
+                (settings.snapshot.sessions, AgentTurnStateStore.shared.hasWorkingSession, work.observedItems ?? [])
             }) {
                 guard let self else { return }
-                self.commands = commands
+                self.commands = KeepAwakeCommands(commands: facts.flatMap(\.commands))
                 // One write, so the hold never drops between the fields.
                 var next = self.policy
-                (next.agents, next.phone, next.agentsWorking) = (sessions.keepAwake, sessions.phoneKeepAwake, working)
+                (next.agents, next.phone) = (sessions.keepAwake, sessions.phoneKeepAwake)
+                // Some local agent runs a turn: an acpmux session works (with or without a tab showing it), or a tab
+                // has agent hooks or an OSC 7501 `working` record. Other machines' agents keep that machine awake.
+                next.agentsWorking = chatWorks || facts.contains(where: \.agentsWorking)
                 next.commands = sessions.keepAwakeForCommands
                 next.commandsRunning = self.planCommands()
                 self.policy = next
@@ -70,15 +93,6 @@ public final class KeepAwakeService {
     /// The Keep Mac Awake action: a second run turns it off.
     public func toggleManual() {
         policy.manual.toggle()
-    }
-
-    /// Some local agent runs a turn: an acpmux session (with or without a tab
-    /// showing it) or a tab's agent hooks or OSC 7501 `working` record.
-    /// Other machines' agents run there and keep that machine awake.
-    static func agentsWorking(_ store: DaemonStore) -> Bool {
-        if AgentTurnStateStore.shared.hasWorkingSession { return true }
-        let tabs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-        return StatusMapping.shared.isWorking(tabs: tabs)
     }
 
     /// The commands that count now, from the Rust rule, and the one deadline it asks for.

@@ -333,5 +333,10 @@ path = "tests/test_nightly_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_warm_checkout_sparse.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next builder's checkout step from nightly.yml in a temp workspace that the signer, the deltas jobs or a full actions/checkout left sparse, and needs the whole build tree after it; run python3 tests/test_nightly_warm_checkout_sparse.py yourself after changing that step or a sparse checkout of a job that can share its runner (about 5 s, git only, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_workflow_size.py"
 lane = "linux-guard"

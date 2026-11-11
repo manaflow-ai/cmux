@@ -109,7 +109,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.on_cloud_host() {
         capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
     }
-    if mux.terminal_reaper_running() {
+    if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
     if daemon_build::installed() {
@@ -414,6 +414,7 @@ pub(super) fn advertised_capabilities(
         crate::state::sidebar_doc_store::CAPABILITY,
         crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
+        SESSION_LIVE_CURSOR_CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
@@ -500,6 +501,29 @@ mod tests {
         reaper.stop();
         assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
         assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+    }
+
+    /// The server answers `identify` from its attach, and the owner started
+    /// its reaper only later: a client that identified in between saw an
+    /// owner without a reaper (main #39586 on macOS). An owner that announced
+    /// its reaper lists the capability from the start; a stopped reaper ends
+    /// the announcement.
+    #[test]
+    fn identify_lists_an_announced_reaper_before_it_starts() {
+        let mux = Mux::new_for_test("reaper-announced", SurfaceOptions::default());
+        mux.announce_terminal_reaper();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "an owner that starts its reaper after its attach answered identify without \
+             terminal-reaper-active-v1 before the reaper thread ran"
+        );
+        let reaper = start_terminal_reaper(&mux).unwrap();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(
+            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "a stopped reaper is still advertised"
+        );
     }
 
     /// `cmux-tui capabilities` names only what `identify` always serves: a

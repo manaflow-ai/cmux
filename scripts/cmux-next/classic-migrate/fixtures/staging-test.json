@@ -46,7 +46,7 @@
         "image_version": "2026-10-30",
         "status": "running",
         "destroyed_at": null,
-        "provider_metadata": {}
+        "provider_metadata": { "cmuxResourceReservation": { "vcpus": 4, "memoryMb": 8192, "diskMb": 32768 } }
       },
       {
         "id": "c0000002-0000-4000-8000-000000000002",

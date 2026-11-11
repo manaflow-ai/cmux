@@ -1,6 +1,798 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "argument.debug.statusIconSet": {
+      "comment": "Argument name of the Status Icons debug action: the icon set to use.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجموعة الأيقونات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skup ikona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikonsæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbolsatz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Set"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conjunto de iconos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeu d’icônes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Set di icone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンセット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណុំរូបតំណាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 세트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikonsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zestaw ikon"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conjunto de ícones"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Набор значков"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชุดไอคอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge seti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Набір значків"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图标集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖像集"
+          }
+        }
+      }
+    },
+    "argument.debug.sidebarToggleIcon": {
+      "comment": "Argument name of the Sidebar Toggle Icon debug action: the icon to use.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأيقونة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icône"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖像"
+          }
+        }
+      }
+    },
+    "action.debug.statusIconSet": {
+      "comment": "Debug-only Command Palette action: chooses the icon set for the status icons. Ends with an ellipsis because it asks for a choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات الحالة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikone statusa…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statusikoner…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statussymbole…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Icons…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos de estado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes d’état…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icone di stato…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスアイコン…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាងស្ថានភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 아이콘…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statusikoner…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikony stanu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícones de status…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значки состояния…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอนสถานะ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durum simgeleri…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значки стану…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng trạng thái…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态图标…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態圖像…"
+          }
+        }
+      }
+    },
+    "action.debug.sidebarToggleIcon": {
+      "comment": "Debug-only Command Palette action: chooses which icon the sidebar toggle button shows. Ends with an ellipsis because it asks for a choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونة زر إظهار الشريط الجانبي…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona prekidača bočne trake…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon for sidepanelknap…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol der Seitenleistentaste…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Toggle Icon…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icono del botón de la barra lateral…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icône du bouton de barre latérale…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Icona del pulsante della barra laterale…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー切り替えアイコン…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាងប៊ូតុងបិទបើករបារចំហៀង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 전환 아이콘…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikon for sidefeltknapp…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikona przełącznika paska bocznego…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ícone do botão da barra lateral…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок кнопки боковой панели…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอนปุ่มสลับแถบด้านข้าง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu düğmesi simgesi…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок кнопки бічної панелі…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng nút bật/tắt thanh bên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏切换图标…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄切換圖像…"
+          }
+        }
+      }
+    },
+    "action.debug.blockingCalls.copy": {
+      "comment": "Debug-only Command Palette action: copies the list of code sites that blocked the main thread, with their counts, to the clipboard.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ مواضع حظر السلسلة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj mjesta blokiranja glavne niti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér steder, der blokerer hovedtråden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hauptthread-Blockierstellen kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Main-Thread Blocking Sites"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar puntos de bloqueo del hilo principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier les points de blocage du thread principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia i punti di blocco del thread principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインスレッドのブロック箇所をコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងទីតាំងដែលរារាំងខ្សែស្រឡាយមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메인 스레드 차단 위치 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier steder som blokkerer hovedtråden"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj miejsca blokad wątku głównego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar pontos de bloqueio da thread principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопировать места блокировок главного потока"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกตำแหน่งที่บล็อกเธรดหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana iş parçacığını engelleyen yerleri kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопіювати місця блокувань головного потоку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép các vị trí chặn luồng chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制主线程阻塞位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝主執行緒阻塞位置"
+          }
+        }
+      }
+    },
+    "action.debug.titleFormat": {
+      "comment": "Command Palette title of a debug-only action, shown only with Internal Developer Mode on. %@ is the action's own title, for example \"Tab Bar Playground\".",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصحيح الأخطاء: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otklanjanje grešaka: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fejlfinding: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlersuche: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depuración: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Débogage : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debug: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグ: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបាត់កំហុស៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디버그: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feilsøking: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Debugowanie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depuração: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отладка: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดีบัก: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata ayıklama: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налагодження: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gỡ lỗi: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调试：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除錯：%@"
+          }
+        }
+      }
+    },
     "action.feed.openItem": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "فتح عنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Otvori stavku feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Åbn feed-element"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Feed-Eintrag öffnen"}}, "en": {"stringUnit": {"state": "translated", "value": "Open Feed Item"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Abrir elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Ouvrir l’élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Apri elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目を開く"}}, "km": {"stringUnit": {"state": "needs_review", "value": "បើក​ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목 열기"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Åpne feedelement"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Otwórz element kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Abrir item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Открыть элемент ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เปิดรายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesini Aç"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкрити елемент стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mở mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开动态项目"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "打開動態項目"}}}},
     "action.feed.githubAction": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل إجراء GitHub لعنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni GitHub radnju stavke feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Kør feed-elementets GitHub-handling"}}, "de": {"stringUnit": {"state": "needs_review", "value": "GitHub-Aktion eines Feed-Eintrags ausführen"}}, "en": {"stringUnit": {"state": "translated", "value": "Run a Feed Item's GitHub Action"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ejecutar la acción de GitHub de un elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Exécuter l’action GitHub d’un élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Esegui l’azione GitHub di un elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目の GitHub 操作を実行"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការ​សកម្មភាព GitHub របស់​ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목의 GitHub 작업 실행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Kjør feedelementets GitHub-handling"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchom akcję GitHub elementu kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Executar a ação do GitHub de um item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Выполнить действие GitHub для элемента ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เรียกใช้การทำงาน GitHub ของรายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesinin GitHub Eylemini Çalıştır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Виконати дію GitHub для елемента стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chạy thao tác GitHub của mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "运行动态项目的 GitHub 操作"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "執行動態項目的 GitHub 操作"}}}},
     "argument.feed.item": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "needs_review", "value": "عنصر الموجز"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Stavka feeda"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Feed-element"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Feed-Eintrag"}}, "en": {"stringUnit": {"state": "translated", "value": "Feed Item"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Elemento del feed"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Élément du flux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Elemento del feed"}}, "ja": {"stringUnit": {"state": "translated", "value": "フィードの項目"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ធាតុ​ព័ត៌មាន"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "피드 항목"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Feedelement"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Element kanału"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Item do feed"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Элемент ленты"}}, "th": {"stringUnit": {"state": "needs_review", "value": "รายการฟีด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Akış Öğesi"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Елемент стрічки"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mục bảng tin"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "动态项目"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "動態項目"}}}},
@@ -73706,6 +74498,530 @@
         }
       }
     },
+    "action.browserScrollDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Down"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير لأسفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri nadolje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul ned"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach unten scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar hacia abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défiler vers le bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri in basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下にスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលចុះក្រោម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아래로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull ned"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń w dół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para Baixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутить вниз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aşağı Kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутити вниз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn xuống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "向下滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "向下捲動"
+          }
+        }
+      }
+    },
+    "action.browserScrollToBottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll to Bottom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير إلى الأسفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri na dno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul til bunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum Ende scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défiler jusqu’en bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri alla fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一番下までスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលទៅខាងក្រោមបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "맨 아래로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull til bunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń na dół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para o Final"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутить в конец"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนไปล่างสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En Alta Kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутити в кінець"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn xuống cuối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动到底部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動到底端"
+          }
+        }
+      }
+    },
+    "action.browserScrollToTop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll to Top"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير إلى الأعلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri na vrh"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul til toppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zum Anfang scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar al principio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défiler jusqu’en haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri all’inizio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一番上までスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលទៅខាងលើបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "맨 위로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull til toppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń na górę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para o Topo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутить в начало"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนไปบนสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En Üste Kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутити на початок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn lên đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动到顶部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動到頂端"
+          }
+        }
+      }
+    },
+    "action.browserScrollUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Up"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير لأعلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri nagore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul op"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach oben scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar hacia arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défiler vers le haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri in alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上にスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលឡើងលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "위로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń w górę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para Cima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутить вверх"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yukarı Kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокрутити вгору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn lên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "向上滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "向上捲動"
+          }
+        }
+      }
+    },
     "action.browserStop": {
       "extractionState": "manual",
       "localizations": {
@@ -90325,125 +91641,125 @@
     "action.agentChat.copyAcpmuxSessionFile": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy acpmux Session File"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Copy cmux Session File"}},
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نسخ ملف جلسة acpmux"
+            "value": "نسخ ملف جلسة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiraj acpmux datoteku sesije"
+            "value": "Kopiraj cmux datoteku sesije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiér acpmux-sessionsfil"
+            "value": "Kopiér cmux-sessionsfil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux-Sitzungsdatei kopieren"
+            "value": "cmux-Sitzungsdatei kopieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copiar archivo de sesión de acpmux"
+            "value": "Copiar archivo de sesión de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copier le fichier de session acpmux"
+            "value": "Copier le fichier de session cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copia file di sessione acpmux"
+            "value": "Copia file di sessione cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmuxセッションファイルをコピー"
+            "value": "cmuxセッションファイルをコピー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចម្លងឯកសារសម័យ acpmux"
+            "value": "ចម្លងឯកសារសម័យ cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 세션 파일 복사"
+            "value": "cmux 세션 파일 복사"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopier acpmux-øktfil"
+            "value": "Kopier cmux-øktfil"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kopiuj plik sesji acpmux"
+            "value": "Kopiuj plik sesji cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Copiar arquivo de sessão do acpmux"
+            "value": "Copiar arquivo de sessão do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Копировать файл сеанса acpmux"
+            "value": "Копировать файл сеанса cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คัดลอกไฟล์เซสชัน acpmux"
+            "value": "คัดลอกไฟล์เซสชัน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux oturum dosyasını kopyala"
+            "value": "cmux oturum dosyasını kopyala"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Копіювати файл сеансу acpmux"
+            "value": "Копіювати файл сеансу cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sao chép tệp phiên acpmux"
+            "value": "Sao chép tệp phiên cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "复制 acpmux 会话文件"
+            "value": "复制 cmux 会话文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "複製 acpmux 工作階段檔案"
+            "value": "複製 cmux 工作階段檔案"
           }
         }
       }

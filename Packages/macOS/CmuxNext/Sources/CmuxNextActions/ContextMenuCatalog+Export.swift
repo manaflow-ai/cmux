@@ -32,7 +32,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "browserDevToolsDivider", "source": "CmuxNextBrowser/CEF/CEFDevToolsDivider.swift"],
         ["name": "browserProfileLink", "source": "CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift"],
         ["name": "browserToolbar", "source": "CmuxNextApp/Handlers/BrowserToolbarHandlers.swift"],
-        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/Page/BookmarksBarPage.swift"],
+        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/UI/BookmarkFolderMenu.swift"],
         ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
@@ -45,8 +45,6 @@ nonisolated extension ContextMenuCatalog {
         ["name": "remoteBrowserPage", "source": "CmuxNextRemoteBrowser/Native/RemoteBrowserNativeUI.swift"],
         ["name": "sidebarNoticeCard", "source": "CmuxNextSidebar/Views/SidebarNoticeCardView.swift"],
         ["name": "sidebarUpdateCard", "source": "CmuxNextSidebar/Views/SidebarUpdateCardView.swift"],
-        ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
-        ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
     ]
 

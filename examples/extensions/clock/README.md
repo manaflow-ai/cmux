@@ -70,10 +70,12 @@ keeps the order for every New Tab page.
 ## What it costs
 
 Nothing while nobody placed it: cmux lists your widget from its manifest and starts no script. Once
-placed, it runs only while a New Tab page is on screen. When the page hides, cmux unmounts the
-widget, and every timer the render function started stops with it (`cmux.timer.every` is floored at
-one second). This clock sends one update per tick that changes the time, and that update is one
-text node.
+placed, it runs on each open New Tab page. A switch to another tab and back keeps the widget: the
+page draws the same one and starts nothing again. When the page closes, cmux unmounts the widget,
+and every timer the render function started stops with it (`cmux.timer.every` is floored at one
+second). The page can be hidden while your widget is mounted, and cmux may pause a hidden page's
+timers, so keep a tick cheap and do not rely on one while nobody looks. This clock sends one update
+per tick that changes the time, and that update is one text node.
 
 ## Settings
 

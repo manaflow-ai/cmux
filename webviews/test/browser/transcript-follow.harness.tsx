@@ -4,10 +4,15 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
+import { acpmuxPerf } from "../../src/agent-session/acpmux/perf";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import type { TurnFile } from "../../src/agent-session/acpmux/diff";
 import { toggleTurnFold, turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import { clearShadowHighlight, prepareShadowHighlight } from "./transcript-shadow-highlight.fixture";
+import {
+  BackgroundTaskOutputContext,
+  type BackgroundTaskOutputReader,
+} from "../../src/agent-session/acpmux/conversation/backgroundTaskOutput";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -57,24 +62,76 @@ let dock: HTMLElement | null = null;
 let working = false;
 const shadowMounts: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = [];
 let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | undefined;
+// acpmux's process registry as the pane reads it for an opened background task note
+// (backgroundTaskOutput.ts): `__backgroundOutputs(outputs, delayMs)` sets what each task printed and
+// how long each reply takes, as a busy daemon answers. A task it does not know is not listed.
+const registry = { outputs: {} as Record<string, string>, delayMs: 0, lists: 0, tails: 0, answered: 0 };
+// fixed-wait: the registry's reply latency is what the test sets; a note must not draw before it answers.
+const later = <T,>(value: T) => new Promise<T>((done) => setTimeout(() => done(value), registry.delayMs));
+const readers = new Map<string, BackgroundTaskOutputReader>();
+const source: BackgroundTaskOutputReader["source"] = {
+  listProcesses: () => {
+    registry.lists += 1;
+    // fixed-wait: a reply after the set latency (above).
+    return later({
+      processes: Object.keys(registry.outputs).map((toolCallId) => ({
+        id: `p-${toolCallId}`,
+        toolCallId,
+        state: "exited",
+        exitCode: 0,
+        harness: "claude",
+      })),
+    });
+  },
+  tailProcess: (processId) => {
+    registry.tails += 1;
+    const bytes = new TextEncoder().encode(registry.outputs[processId.slice(2)] ?? "");
+    // fixed-wait: a reply after the set latency (above).
+    return later({ data: btoa(String.fromCharCode(...bytes)), fromByte: 0, nextByte: bytes.length, eof: true }).then(
+      (reply) => {
+        registry.answered += 1;
+        return reply;
+      },
+    );
+  },
+};
+const readerFor = (id: string) => {
+  let reader = readers.get(id);
+  if (!reader) readers.set(id, (reader = { source, sessionId: id }));
+  return reader;
+};
+(
+  window as unknown as {
+    __backgroundOutputs(outputs: Record<string, string>, delayMs: number): typeof registry;
+  }
+).__backgroundOutputs = (outputs, delayMs) => {
+  Object.assign(registry, { outputs, delayMs });
+  return registry;
+};
+(window as unknown as { __backgroundReads(): typeof registry }).__backgroundReads = () => ({ ...registry });
 const draw = () =>
   view.render(
-    <VirtualTranscript
-      rows={rawRows ? shown : live ? turnView(shown, expanded, { working: true }) : turnView(shown, expanded)}
-      sessionId={sessionId}
-      onToggleActivity={(id) => {
-        expanded = toggleTurnFold(shown, expanded, id);
-        draw();
-      }}
-      expanded={expanded}
-      sends={sends}
-      dock={dock}
-      working={working}
-      openAt={openAt}
-      canLoadOlder={openAt !== undefined}
-      onLoadOlder={() => new Promise<void>(() => {})}
-    />,
+    <BackgroundTaskOutputContext.Provider value={readerFor(sessionId)}>
+      <VirtualTranscript
+        rows={rawRows ? shown : live ? turnView(shown, expanded, { working: true }) : turnView(shown, expanded)}
+        sessionId={sessionId}
+        onToggleActivity={(id) => {
+          expanded = toggleTurnFold(shown, expanded, id);
+          draw();
+        }}
+        expanded={expanded}
+        sends={sends}
+        dock={dock}
+        working={working}
+        openAt={openAt}
+        canLoadOlder={openAt !== undefined}
+        onLoadOlder={() => new Promise<void>(() => {})}
+      />
+    </BackgroundTaskOutputContext.Provider>,
   );
+// The pane's render counters (perf.ts), for a test that counts the rows a toggle draws again
+// (chat-fold-frame-budget-browser.test.ts).
+(window as unknown as { __acpmuxPerf: typeof acpmuxPerf }).__acpmuxPerf = acpmuxPerf;
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   rawRows = false;
   live = false;

@@ -15,14 +15,16 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux::{
-    Client, Config, JournalAppendResult, JournalClass, JournalEventSchema, JournalIngress,
-    JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart, JournalSubject,
-    MutationOptions, ReadScreenOptions, Selector, Session, SessionId, SessionJournalOptions,
-    StreamPoll, Terminal, TerminalId,
+    Client, Config, EventStreamOptions, JournalAppendResult, JournalClass, JournalEventSchema,
+    JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart,
+    JournalSubject, MutationOptions, ReadScreenOptions, ResourceChange, ResourceReference,
+    Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
+    Terminal, TerminalId,
 };
 use serde_json::json;
 
@@ -250,6 +252,153 @@ fn event_schema(kind: &str) -> JournalEventSchema {
     }
 }
 
+/// The `terminal.<family>` journal kinds that wake a scan: every family of
+/// the daemon's terminal operations and terminal facts but `progress` and
+/// `program_status` ([`journal_wake_kinds`]).
+const TERMINAL_WAKE_FAMILIES: [&str; 50] = [
+    "adopt",
+    "adopt_hosts",
+    "attach",
+    "changed",
+    "clear",
+    "close",
+    "closed",
+    "copy",
+    "cwd",
+    "decrease",
+    "exit",
+    "exited",
+    "fill",
+    "focus",
+    "get",
+    "history",
+    "increase",
+    "input",
+    "input_busy",
+    "keep",
+    "launch",
+    "link",
+    "list",
+    "move",
+    "output",
+    "output_read",
+    "persistence",
+    "process",
+    "project",
+    "renderer_grant",
+    "reset",
+    "resized",
+    "respawn",
+    "respawn_lost",
+    "respawned",
+    "run",
+    "runtime",
+    "screen",
+    "scroll",
+    "scrollback",
+    "select",
+    "send",
+    "set",
+    "split",
+    "state",
+    "tail_pin",
+    "viewer",
+    "viewport",
+    "wait",
+    "wait_exit",
+];
+
+/// The journal kinds that wake a scan.
+///
+/// Every change of a terminal's record comes from `session.events`
+/// ([`terminal_wakes`]): a durable edge as a committed delta, a live fact (an
+/// OSC 9;4 report, a moved last output time, a repeated status report) as a
+/// delta that moves no revision. So no kind here matches `terminal.progress`
+/// or `terminal.program_status`: the daemon writes a journal row for a live
+/// fact only while a journal stream follows those kinds, and this plugin must
+/// not be the reason for one commit per printing terminal each 5 s. The
+/// journal has no "all but" filter, so the terminal kinds are named by family.
+pub fn journal_wake_kinds() -> Vec<String> {
+    let terminal = TERMINAL_WAKE_FAMILIES
+        .iter()
+        .flat_map(|family| [format!("terminal.{family}"), format!("terminal.{family}.*")]);
+    let topology = ["workspace.*", "tab.*", "pane.*", "screen.*"].into_iter().map(String::from);
+    terminal.chain(topology).collect()
+}
+
+/// The terminals one `session.events` item changed: each terminal upsert or
+/// delete of a delta. A snapshot wakes nothing: the scanner reads every
+/// terminal after it subscribes.
+pub fn terminal_wakes(event: &SessionEvent) -> Vec<String> {
+    let SessionEvent::Delta(delta) = event else { return Vec::new() };
+    delta
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            ResourceChange::Upsert { id: ResourceReference::Terminal(id), .. }
+            | ResourceChange::Delete { id: ResourceReference::Terminal(id), .. } => {
+                Some(id.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// What one of the two wake streams tells the scan loop.
+enum Wake {
+    /// These terminals changed.
+    Terminals(Vec<String>),
+    /// The stream ended: the connection is over.
+    Ended(String),
+}
+
+/// How many wakes may wait for the scan loop. A full queue blocks the
+/// stream's reader, the daemon then ends the stream with a gap, and the
+/// reconnect reads every terminal again.
+const WAKE_QUEUE: usize = 256;
+
+/// Cancels the wake streams when the connection's scan loop returns, so
+/// their reader threads end with it.
+struct WakeStreams {
+    cancel: Vec<StreamCancellation>,
+}
+
+impl Drop for WakeStreams {
+    fn drop(&mut self) {
+        for stream in &self.cancel {
+            let _ = stream.cancel();
+        }
+    }
+}
+
+/// Reads one wake stream to its end on its own thread. `next` blocks for the
+/// stream's next item and answers the terminals it names.
+fn spawn_wake_stream(
+    name: &str,
+    ended: &'static str,
+    wakes: mpsc::SyncSender<Wake>,
+    mut next: impl FnMut() -> Result<Option<Vec<String>>, String> + Send + 'static,
+) -> Result<(), String> {
+    thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            loop {
+                let wake = match next() {
+                    Ok(Some(terminals)) if terminals.is_empty() => continue,
+                    Ok(Some(terminals)) => Wake::Terminals(terminals),
+                    Ok(None) => Wake::Ended(ended.to_string()),
+                    Err(error) => Wake::Ended(error),
+                };
+                let last = matches!(wake, Wake::Ended(_));
+                if wakes.send(wake).is_err() || last {
+                    return;
+                }
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 fn scan_connection(
     session: &Session,
     plugin_id: &str,
@@ -264,24 +413,43 @@ fn scan_connection(
         }
     };
     // Subscribe before taking the initial inventory. Output/lifecycle changes
-    // that race the read are retained by the stream, so there is no lost wakeup.
+    // that race the read are retained by the streams, so there is no lost wakeup.
     // Agent reports are excluded: the plugin must never wake itself through
     // its own journal-to-resource projection.
-    let mut events = session
+    let mut journal = session
         .journal(SessionJournalOptions {
             start: Some(JournalStart::Tail),
             follow: Some(true),
-            kinds: vec![
-                "terminal.*".into(),
-                "workspace.*".into(),
-                "tab.*".into(),
-                "pane.*".into(),
-                "screen.*".into(),
-            ],
+            kinds: journal_wake_kinds(),
             max_sensitivity: Some(JournalSensitivity::Sensitive),
             ..Default::default()
         })
         .map_err(|error| error.to_string())?;
+    // A terminal's record changes (a live fact needs no journal row).
+    let mut records =
+        session.events(EventStreamOptions::default()).map_err(|error| error.to_string())?;
+    let _streams = WakeStreams { cancel: vec![journal.cancellation(), records.cancellation()] };
+    let (sender, wakes) = mpsc::sync_channel(WAKE_QUEUE);
+    spawn_wake_stream(
+        "journal-wakes",
+        "terminal journal stream ended",
+        sender.clone(),
+        move || {
+            let item = journal.recv().map_err(|error| error.to_string())?;
+            Ok(item.map(|item| {
+                item.value
+                    .subjects
+                    .into_iter()
+                    .filter(|subject| subject.kind == "terminal")
+                    .map(|subject| subject.id)
+                    .collect()
+            }))
+        },
+    )?;
+    spawn_wake_stream("record-wakes", "session event stream ended", sender, move || {
+        let item = records.recv().map_err(|error| error.to_string())?;
+        Ok(item.map(|item| terminal_wakes(&item.value)))
+    })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
     let live_ids = snapshots.iter().map(|item| item.id.to_string()).collect::<HashSet<_>>();
     retry_pending_appends_without_live_terminal(
@@ -331,28 +499,28 @@ fn scan_connection(
                     .or_insert(pending.retry_not_before);
             }
         }
-        let event = match deadlines.values().min() {
-            Some(deadline) => match events
-                .next_timeout(deadline.saturating_duration_since(Instant::now()))
-                .map_err(|error| error.to_string())?
-            {
-                StreamPoll::Item(item) => Some(item),
-                StreamPoll::TimedOut => continue,
-                StreamPoll::End => return Err("terminal journal stream ended".into()),
-            },
-            None => events.recv().map_err(|error| error.to_string())?,
+        let wake = match deadlines.values().min() {
+            Some(deadline) => {
+                match wakes.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(wake) => wake,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("terminal wake streams ended".into());
+                    }
+                }
+            }
+            None => wakes.recv().map_err(|_| "terminal wake streams ended".to_string())?,
         };
-        let Some(event) = event else {
-            return Err("terminal journal stream ended".into());
+        let terminals = match wake {
+            Wake::Terminals(terminals) => terminals,
+            Wake::Ended(error) => return Err(error),
         };
-        for subject in event.value.subjects.iter().filter(|subject| subject.kind == "terminal") {
+        for id in terminals {
             // Coalesce a burst without deferring forever under flowing output.
             // A quiet session blocks on recv and makes zero catalog/process/screen reads.
-            deadlines
-                .entry(subject.id.clone())
-                .or_insert_with(|| Instant::now() + Duration::from_millis(25));
-            state.process_cache.entries.remove(&subject.id);
-            state.process_info_cache.entries.remove(&subject.id);
+            state.process_cache.entries.remove(&id);
+            state.process_info_cache.entries.remove(&id);
+            deadlines.entry(id).or_insert_with(|| Instant::now() + Duration::from_millis(25));
         }
     }
 }

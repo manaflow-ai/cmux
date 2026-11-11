@@ -39,7 +39,6 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  box-sizing: border-box;
   overflow: hidden;
   color: var(--page-text);
   font: var(--text-body);
@@ -178,54 +177,6 @@
   white-space: nowrap;
 }
 
-/* The Chief's face as the app read it (a picture, or its profile's text in the initials tile). */
-.mt-header-picture {
-  width: var(--mt-header-avatar);
-  height: var(--mt-header-avatar);
-  border-radius: 999px;
-  object-fit: cover;
-}
-
-/* The location chip beside a Chief's name (ChiefTeleportChip, plain): caption words, the place's
-   glyph, a chevron; the running move and a failure in their colours. */
-.mt-place-chip {
-  display: inline-flex;
-  max-width: 200px;
-  height: 20px;
-  align-items: center;
-  gap: var(--ds-space-1);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--mt-caption);
-  font: var(--text-caption);
-  cursor: default;
-}
-
-.mt-place-chip:hover {
-  background: color-mix(in srgb, var(--page-text) 6%, transparent);
-}
-
-.mt-place-chip.running {
-  color: var(--page-text);
-}
-
-.mt-place-chip.failed {
-  color: var(--mt-danger);
-}
-
-.mt-place-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mt-place-chevron {
-  flex: none;
-  opacity: 0.6;
-}
-
 .mt-faces {
   display: inline-flex;
 }
@@ -279,28 +230,10 @@
 
 .mt-pinned {
   position: absolute;
-  z-index: var(--layer-raised);
-  top: var(--mt-header-room);
+  top: var(--mt-top-room);
   left: 50%;
   width: min(calc(100% - var(--ds-space-6)), 640px);
   transform: translateX(-50%);
-}
-
-/* Needs you gives way to the card on a short pane (it clips); the Set Up cmux card scrolls in the room
- * left above the message box (pinnedLayout.ts, the native layoutPinnedSection). */
-.mt-pinned-section {
-  overflow: hidden;
-}
-
-.mt-setup-slot {
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.mt-setup-card {
-  display: flex;
-  justify-content: center;
 }
 
 /* Rows. */
@@ -346,8 +279,7 @@
   text-align: right;
 }
 
-.mt-label.notDelivered,
-.mt-label.notKept {
+.mt-label.notDelivered {
   color: var(--mt-danger);
 }
 
@@ -653,188 +585,4 @@
   .mt-header {
     background: var(--cmux-surface-solid, Canvas);
   }
-}
-
-/* What an empty conversation shows under the header (a Chief's first run): it fills the room the
-   rows would, so the composer under it never moves when the first message replaces it. */
-.mt-empty {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  height: calc(100% - var(--mt-top-room));
-  padding: 0 var(--ds-space-3);
-}
-
-/* The message a link or the host opened at. */
-.mt-bubble.highlighted,
-.mt-media.highlighted {
-  box-shadow: 0 0 0 2px var(--cmux-app-accent, var(--mt-imessage-blue));
-}
-
-/* Tapback Details…: who reacted, with what (the native popover's lines). */
-.mt-tapback-details ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.mt-tapback-details p {
-  margin: 0;
-}
-
-/* "N Replies" under a root (and, in a thread, under a reply with replies): it opens them. */
-.mt-replies-row {
-  padding: 0 var(--mt-side);
-}
-
-.mt-replies-row.out {
-  text-align: right;
-}
-
-.mt-replies-row.indent {
-  padding-left: calc(var(--mt-side) + var(--mt-avatar-col));
-}
-
-.mt-replies {
-  border: 0;
-  padding: 0;
-  background: none;
-  color: var(--cmux-app-accent);
-  font: var(--text-caption);
-  font-weight: 600;
-  line-height: 22px;
-}
-
-/* Reply to Selection's card above the message box: a thin neutral bar, who and the words, a remove button. */
-.mt-quote-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 var(--ds-space-2);
-  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: 12px;
-  background: var(--cmux-surface-solid);
-}
-
-.mt-quote-card::before {
-  content: "";
-  align-self: stretch;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--mt-caption);
-}
-
-.mt-quote-text {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-}
-
-.mt-quote-title {
-  color: var(--mt-caption);
-  font: var(--text-caption);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mt-quote-words {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.mt-quote-remove {
-  border: 0;
-  padding: 0;
-  background: none;
-  color: var(--mt-caption);
-  display: grid;
-  place-items: center;
-}
-
-/* A Chief's Stop and Continue take the emoji button's place (ChatController+Stop.swift). */
-.mt-field-button.mt-chief-stop,
-.mt-field-button.mt-chief-continue {
-  color: var(--page-text);
-}
-
-/* A toast rests over the message box, never over the newest message: the transcript ends with a
-   row of its height while it shows (+ToastRoom.swift). */
-.mt-toast-room {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  width: min(calc(100% - var(--ds-space-6)), 420px);
-  transform: translateX(-50%);
-}
-
-.mt-toast-line {
-  display: block;
-}
-
-/* The Chief's status line while its turn runs (HomeTurnProgress): one caption line, a click lists the steps. */
-.mt-chief-status {
-  display: flex;
-  padding: var(--ds-space-1) var(--ds-space-3) 0;
-}
-
-.mt-chief-status-line {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  gap: var(--ds-space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--mt-caption);
-  font: var(--text-caption);
-  text-align: start;
-}
-
-.mt-chief-status-part {
-  overflow: hidden;
-  min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mt-chief-status-part:last-child {
-  flex: none;
-}
-
-.mt-turn-details {
-  display: flex;
-  min-width: 220px;
-  max-width: 420px;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  font: var(--text-caption);
-}
-
-.mt-turn-title,
-.mt-turn-row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--ds-space-3);
-}
-
-.mt-turn-line {
-  overflow: hidden;
-  min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mt-turn-time {
-  flex: none;
-  color: var(--mt-caption);
-  font-variant-numeric: tabular-nums;
-}
-
-.mt-turn-row.running .mt-turn-time {
-  color: var(--page-text);
 }

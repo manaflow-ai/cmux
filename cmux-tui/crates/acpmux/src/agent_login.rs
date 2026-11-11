@@ -34,7 +34,14 @@
 //!   read as `/etc/cmux/agent-auth.sh` reads them, never their values.
 //! - `api_key {agent, key}`: Claude's `settings.json` gets `env.ANTHROPIC_API_KEY`
 //!   (other keys kept, 0600, written whole); Codex runs `codex login
-//!   --with-api-key` with the key on stdin.
+//!   --with-api-key` with the key on stdin; Gemini's `.gemini/.env` gets
+//!   `GEMINI_API_KEY` and its `settings.json` `security.auth.selectedType =
+//!   "gemini-api-key"` ([`merge_gemini_api_key`]).
+//! - Gemini CLI signs in here with an API key only (`start` is
+//!   `unsupported`); the Grok CLI with its device flow only (`grok login
+//!   --device-auth`, finished by itself like Codex's; `api_key` is
+//!   `unsupported`: grok reads `XAI_API_KEY` from its env, which the person's
+//!   vault delivers).
 //! - Cursor (`cursor-agent login`, Leo 2026-11-10: "if somebody has a ChatGPT
 //!   subscription or a Cursor subscription"): like Codex, it prints one
 //!   `https://cursor.com/...` link (only that host, [`parse::CURSOR_HOSTS`]),
@@ -122,11 +129,22 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
 ];
+
+/// The account-home variables pinned on the CLI's command (`Cli::command`), so it
+/// signs in where [`Cli::store`] looks.
+pub const HOME_ENV: &[&str] =
+    &["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GEMINI_CLI_HOME", "GROK_HOME"];
 
 /// `error.data.reason` values.
 pub mod reason {
     pub const UNSUPPORTED_AGENT: &str = "unsupported_agent";
+    /// A known agent that does not sign in this way here (Gemini's `start`,
+    /// Grok's `api_key`).
+    pub const UNSUPPORTED: &str = "unsupported";
     pub const SHARED_MACHINE: &str = "shared_machine";
     pub const BUSY: &str = "busy";
     pub const CLI_MISSING: &str = "cli_missing";
@@ -137,31 +155,112 @@ pub mod reason {
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
     /// A `sessionId` that names no chat here or on a peer.
     pub const UNKNOWN_SESSION: &str = "unknown_session";
+    /// `start {agent: "<agent>@gateway"}` on a machine whose team cmux's gateway does not
+    /// serve for that agent ([`Machine::gateway_access`]).
+    pub const NO_GATEWAY: &str = "no_gateway";
 }
+
+/// `start {agent: "claude@gateway"}` (or `codex@gateway`): the chat's agent uses cmux's
+/// gateway (SR2: the team's CodeRouter account, through the machine's edge) instead of a sign-in
+/// of its own, as `cr use team <agent>` records it. The suffix rides the sign-in card's existing
+/// `start` step, so every host and relay that carries a sign-in carries this too.
+pub const GATEWAY_SUFFIX: &str = "@gateway";
+
+/// The agent a `start` names with [`GATEWAY_SUFFIX`]: only the agents the image's
+/// `/etc/cmux/agent-auth.sh` routes through the gateway (Claude, Codex).
+pub fn gateway_agent(name: &str) -> Option<Agent> {
+    let agent = Agent::parse(name.strip_suffix(GATEWAY_SUFFIX)?)?;
+    matches!(agent, Agent::Claude | Agent::Codex).then_some(agent)
+}
+
+/// The switch for the gateway fallback: with it on, a Cloud chat whose Claude has no credential,
+/// on a machine whose team cmux's gateway serves, uses the gateway without asking (its first send
+/// goes again there, `hub/auto_resume/first_send.rs`). Off by default until the founders turn
+/// billing on; the machine's daemon environment turns it on (`CMUX_GATEWAY_FALLBACK=1`).
+pub const GATEWAY_FALLBACK_ENV: &str = "CMUX_GATEWAY_FALLBACK";
+
+/// Whether `value` (the [`GATEWAY_FALLBACK_ENV`] value) turns the fallback on: only an explicit
+/// `1`, `true`, `yes` or `on`. Unset, empty or anything else is off.
+pub fn gateway_fallback(value: Option<&str>) -> bool {
+    value.is_some_and(|v| {
+        let v = v.trim();
+        ["1", "true", "yes", "on"].iter().any(|on| v.eq_ignore_ascii_case(on))
+    })
+}
+
+/// [`gateway_fallback`] of this daemon's environment.
+pub fn gateway_fallback_on() -> bool {
+    gateway_fallback(std::env::var(GATEWAY_FALLBACK_ENV).ok().as_deref())
+}
+
+/// How long [`Machine::gateway_access`] waits for the image's answer (its own request gives up
+/// after 5 s; an answer is kept 60 s).
+pub const GATEWAY_ACCESS_WAIT: Duration = Duration::from_secs(10);
+
+/// Asks the image's own check (`cmux_agent_team_access`, the one every launcher and `cr use`
+/// run), with the model plane loaded the way `cr` loads it when this daemon's environment lacks
+/// it. Arguments: the agent-auth library, the machine's `model-plane.env`, the agent. Exit 0: the
+/// team has an account for the agent; 1: none; 2: no answer; 3: unreachable.
+const GATEWAY_ACCESS_SH: &str = r#"lib=$1 plane=$2 agent=$3
+if [ -z "${CMUX_CODEROUTER_URL-}" ]; then
+  for f in "${HOME:-/root}/.config/cmux/model-plane.env" "$plane"; do
+    if [ -f "$f" ]; then set -a; . "$f"; set +a; break; fi
+  done
+fi
+. "$lib" || exit 2
+cmux_agent_team_access "$agent"
+"#;
 
 /// An agent whose own sign-in this runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Agent {
     Claude,
     Codex,
+    /// Gemini CLI: an API key only.
+    Gemini,
+    /// The Grok CLI: its device flow only.
+    Grok,
+    /// `cursor-agent`: its browser sign-in only.
     Cursor,
 }
 
 impl Agent {
+    pub const ALL: [Agent; 5] =
+        [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Grok, Agent::Cursor];
+
     pub fn parse(name: &str) -> Option<Agent> {
-        match name {
-            "claude" => Some(Agent::Claude),
-            "codex" => Some(Agent::Codex),
-            "cursor" => Some(Agent::Cursor),
-            _ => None,
-        }
+        Agent::ALL.into_iter().find(|a| a.name() == name)
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
+            Agent::Gemini => "gemini",
+            Agent::Grok => "grok",
             Agent::Cursor => "cursor",
+        }
+    }
+
+    /// `start` runs the CLI's own browser or device sign-in.
+    pub fn signs_in_by_link(self) -> bool {
+        self != Agent::Gemini
+    }
+
+    /// `api_key` saves a key for it.
+    pub fn takes_api_key(self) -> bool {
+        !matches!(self, Agent::Grok | Agent::Cursor)
+    }
+
+    /// Its store under a home with no override: `.claude`, `.codex`, `.gemini`, `.grok`,
+    /// `.config/cursor`.
+    pub fn home_dir_name(self) -> &'static str {
+        match self {
+            Agent::Claude => ".claude",
+            Agent::Codex => ".codex",
+            Agent::Gemini => ".gemini",
+            Agent::Grok => ".grok",
+            Agent::Cursor => ".config/cursor",
         }
     }
 
@@ -214,24 +313,24 @@ impl Cli {
     }
 
     /// Where `agent` keeps its sign-in: `CLAUDE_CONFIG_DIR` or `~/.claude`;
-    /// `CODEX_HOME` or `~/.codex`.
+    /// `CODEX_HOME` or `~/.codex`; `$GEMINI_CLI_HOME/.gemini` or `~/.gemini`
+    /// (Gemini CLI's homedir() is `GEMINI_CLI_HOME || os.homedir()`);
+    /// `GROK_HOME` or `~/.grok`.
     pub fn store(&self, agent: Agent) -> PathBuf {
+        let own = |key: &str| self.var(key).map(PathBuf::from);
         match agent {
-            Agent::Claude => self
-                .var("CLAUDE_CONFIG_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| self.home().join(".claude")),
-            Agent::Codex => self
-                .var("CODEX_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| self.home().join(".codex")),
+            Agent::Claude => own("CLAUDE_CONFIG_DIR"),
+            Agent::Codex => own("CODEX_HOME"),
+            Agent::Gemini => own("GEMINI_CLI_HOME").map(|h| h.join(".gemini")),
+            Agent::Grok => own("GROK_HOME"),
             // `cursor-agent` keeps `auth.json` here on Linux (`harness_health/agent_files.rs`).
-            Agent::Cursor => self
-                .var("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| self.home().join(".config"))
-                .join("cursor"),
+            Agent::Cursor => Some(
+                own("XDG_CONFIG_HOME")
+                    .unwrap_or_else(|| self.home().join(".config"))
+                    .join("cursor"),
+            ),
         }
+        .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
     }
 
     /// The command, its env shaped as the module docs say, in `cwd`; no
@@ -255,7 +354,7 @@ impl Cli {
         cmd.envs(&self.env);
         // Pin the same resolved homes used by store(), including login-shell-only values.
         // The generic child allowlist deliberately excludes these family-specific keys.
-        for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+        for key in HOME_ENV {
             if let Some(value) = self.var(key) {
                 cmd.env(key, value);
             }
@@ -276,7 +375,9 @@ impl Cli {
             .env("TERM", "dumb")
             .env("NO_COLOR", "1")
             .env("CMUX_CLAUDE_AUTH", "own")
-            .env("CMUX_CODEX_AUTH", "own");
+            .env("CMUX_CODEX_AUTH", "own")
+            .env("CMUX_GEMINI_AUTH", "own")
+            .env("CMUX_GROK_AUTH", "own");
         // A Cursor key in this daemon's environment (a Cloud secret) would outrank the sign-in.
         for key in ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] {
             cmd.env_remove(key);
@@ -328,6 +429,52 @@ impl Machine {
         private_dir(&dir)?;
         write_private(&dir.join(agent.name()), b"own\n")?;
         Ok(true)
+    }
+
+    /// Records that `agent` uses cmux's gateway here, as `cr use team <agent>` does
+    /// (`~/.config/cmux/agent-auth/<agent>` = `team`), and drops the image's kept team-access
+    /// answer (`~/.cache/cmux/agent-access`) as `cr use` does, so the next launch asks again.
+    /// Only on a cmux Cloud image.
+    pub fn choose_team(&self, agent: Agent) -> std::io::Result<bool> {
+        if !self.cloud_image() {
+            return Ok(false);
+        }
+        let dir = self.home.join(".config/cmux/agent-auth");
+        private_dir(&dir)?;
+        write_private(&dir.join(agent.name()), b"team\n")?;
+        match std::fs::remove_file(self.home.join(".cache/cmux/agent-access")) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(true),
+        }
+    }
+
+    /// Whether cmux's gateway serves `agent` for this machine's team, answered by the image's
+    /// own `/etc/cmux/agent-auth.sh` (`cmux_agent_team_access`, one `GET
+    /// /api/coderouter/agent-access` through the machine's edge, kept 60 s), never a check of
+    /// its own: `Some(true)` the team has an account for it, `Some(false)` none, `None` not a
+    /// cmux Cloud image, an agent the image does not route, or no answer.
+    pub async fn gateway_access(&self, agent: Agent) -> Option<bool> {
+        if !matches!(agent, Agent::Claude | Agent::Codex) || !self.cloud_image() {
+            return None;
+        }
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg(GATEWAY_ACCESS_SH)
+            .arg("sh")
+            .arg(self.root.join("etc/cmux/agent-auth.sh"))
+            .arg(self.root.join("etc/cmux/model-plane.env"))
+            .arg(agent.name())
+            .env("HOME", &self.home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let status = tokio::time::timeout(GATEWAY_ACCESS_WAIT, cmd.status()).await.ok()?.ok()?;
+        match status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        }
     }
 
     fn refuse_shared(&self) -> Result<(), LoginError> {
@@ -416,10 +563,104 @@ pub fn merge_claude_api_key(store: &Path, key: &str) -> Result<(), String> {
     write_private(&path, &bytes).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
+/// A JSON object file at `path` (missing or blank: empty), or why not.
+fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
+    let doc = match std::fs::read(path) {
+        Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => Value::Object(Default::default()),
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
+            .map_err(|_| format!("{} is not valid JSON; fix it or remove it", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Default::default()),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    match doc {
+        Value::Object(obj) => Ok(obj),
+        _ => Err(format!("{} is not a JSON object", path.display())),
+    }
+}
+
+/// The `KEY` a dotenv line sets (`KEY=...` or `export KEY=...`), if any.
+fn dotenv_key(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    let line = line.strip_prefix("export ").map(str::trim_start).unwrap_or(line);
+    let (key, _) = line.split_once('=')?;
+    let key = key.trim();
+    (!key.is_empty() && !key.starts_with('#')).then_some(key)
+}
+
+/// The value of `key` in the dotenv text, unquoted.
+fn dotenv_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().rev().find(|l| dotenv_key(l) == Some(key)).and_then(|l| {
+        let value = l.split_once('=')?.1.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+            .unwrap_or(value);
+        Some(value)
+    })
+}
+
+/// A Gemini API key's characters: letters, digits, `-`, `_`, `.` (no quote,
+/// space or `#` a dotenv reader could take for something else).
+pub fn gemini_key_shape(key: &str) -> bool {
+    one_line(key, 512) && key.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+}
+
+/// Saves `key` where Gemini CLI reads it with no shell env: `<store>/.env`
+/// gets `GEMINI_API_KEY=<key>` (its other lines kept, an earlier
+/// `GEMINI_API_KEY` line replaced), and `<store>/settings.json` gets
+/// `security.auth.selectedType = "gemini-api-key"` (other settings kept). Both
+/// 0600, written whole. A settings file that is not a JSON object, or whose
+/// `security` or `security.auth` is not one, is left alone (an error), and
+/// then the `.env` is not touched either.
+pub fn merge_gemini_api_key(store: &Path, key: &str) -> Result<(), String> {
+    if !gemini_key_shape(key) {
+        return Err("that is not a Gemini API key".into());
+    }
+    let settings_path = store.join("settings.json");
+    let mut settings = read_json_object(&settings_path)?;
+    let security = settings.entry("security").or_insert_with(|| Value::Object(Default::default()));
+    let Some(security) = security.as_object_mut() else {
+        return Err(format!("`security` in {} is not an object", settings_path.display()));
+    };
+    let auth = security.entry("auth").or_insert_with(|| Value::Object(Default::default()));
+    let Some(auth) = auth.as_object_mut() else {
+        return Err(format!("`security.auth` in {} is not an object", settings_path.display()));
+    };
+    auth.insert("selectedType".into(), Value::String("gemini-api-key".into()));
+    let env_path = store.join(".env");
+    let old = match std::fs::read(&env_path) {
+        Ok(bytes) => Zeroizing::new(
+            String::from_utf8(bytes)
+                .map_err(|_| format!("{} is not text; fix it or remove it", env_path.display()))?,
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Zeroizing::new(String::new()),
+        Err(e) => return Err(format!("read {}: {e}", env_path.display())),
+    };
+    let mut env = Zeroizing::new(String::with_capacity(old.len() + key.len() + 16));
+    for line in old.lines() {
+        if dotenv_key(line) != Some("GEMINI_API_KEY") {
+            env.push_str(line);
+            env.push('\n');
+        }
+    }
+    env.push_str("GEMINI_API_KEY=");
+    env.push_str(key);
+    env.push('\n');
+    let settings = serde_json::to_vec_pretty(&Value::Object(settings))
+        .map_err(|e| format!("encode settings: {e}"))?;
+    private_dir(store).map_err(|e| format!("make {}: {e}", store.display()))?;
+    write_private(&settings_path, &settings)
+        .map_err(|e| format!("write {}: {e}", settings_path.display()))?;
+    write_private(&env_path, env.as_bytes())
+        .map_err(|e| format!("write {}: {e}", env_path.display()))
+}
+
 /// Whether `agent`'s own sign-in is in `store`, read as `agent-auth.sh`
 /// reads it (`cmux_agent_has_own_login`), never the values: Claude's
 /// `.credentials.json` with `claudeAiOauth`; Codex's `auth.json` with tokens
-/// or an API key.
+/// or an API key; Gemini's `oauth_creds.json`, or a `.env` with a non-empty
+/// `GEMINI_API_KEY`; Grok's non-empty `auth.json`.
 pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
     let read = |name: &str| {
         std::fs::read(store.join(name)).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -432,6 +673,15 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
             v.get("tokens").and_then(Value::as_object).is_some_and(|t| !t.is_empty())
                 || v.get("OPENAI_API_KEY").and_then(Value::as_str).is_some_and(|k| !k.is_empty())
         }),
+        Agent::Gemini => {
+            store.join("oauth_creds.json").is_file()
+                || std::fs::read(store.join(".env")).ok().is_some_and(|b| {
+                    let text = Zeroizing::new(String::from_utf8_lossy(&b).into_owned());
+                    dotenv_value(&text, "GEMINI_API_KEY").is_some_and(|v| !v.is_empty())
+                })
+        }
+        Agent::Grok => std::fs::read(store.join("auth.json"))
+            .is_ok_and(|b| !Zeroizing::new(b).iter().all(u8::is_ascii_whitespace)),
         // Cursor's `auth.json`: a non-empty object with a non-empty string in it (its token
         // fields have moved between releases, so no one name is required).
         Agent::Cursor => read("auth.json").is_some_and(|v| {
@@ -628,6 +878,12 @@ async fn pump<R: AsyncRead + Unpin>(
 
 /// Starts `agent`'s own sign-in with `cli` on `machine` (module docs).
 pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started, LoginError> {
+    if !agent.signs_in_by_link() {
+        return Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!("{} signs in on this machine with an API key", agent.name()),
+        ));
+    }
     machine.refuse_shared()?;
     // One sign-in per agent: the previous one stops, unless its finish is
     // running (it may be writing the sign-in now).
@@ -656,7 +912,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     }
     let store = cli.store(agent);
     if agent != Agent::Claude {
-        // `codex login` needs its home to exist; Cursor's folder is made private first.
+        // `codex login` needs its home to exist; Grok's and Cursor's are made private first.
         private_dir(&store).map_err(|e| {
             LoginError::new(reason::FAILED, format!("make {}: {e}", store.display()))
         })?;
@@ -665,8 +921,10 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         .map_err(|e| LoginError::new(reason::FAILED, format!("make a temp folder: {e}")))?;
     let args: &[&str] = match agent {
         Agent::Claude => &["auth", "login", "--claudeai"],
-        Agent::Codex => &["login", "--device-auth"],
+        Agent::Codex | Agent::Grok => &["login", "--device-auth"],
         Agent::Cursor => &["login"],
+        // Refused above (`signs_in_by_link`).
+        Agent::Gemini => &[],
     };
     let mut cmd = cli.command(args, &folder.0);
     if agent == Agent::Claude {
@@ -733,7 +991,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Cursor => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -817,7 +1075,8 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 ));
             }
         },
-        Agent::Codex | Agent::Cursor => None,
+        // Device flows finish by themselves.
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -891,10 +1150,13 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             (Agent::Claude, false) => {
                 LoginError::new(reason::FAILED, "claude did not finish signing in: start again")
             }
-            (Agent::Codex, _) => LoginError::new(reason::FAILED, "codex did not finish signing in"),
             (Agent::Cursor, _) => {
                 LoginError::new(reason::FAILED, "cursor-agent did not finish signing in")
             }
+            (agent, _) => LoginError::new(
+                reason::FAILED,
+                format!("{} did not finish signing in", agent.name()),
+            ),
         });
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
@@ -916,17 +1178,40 @@ pub async fn save_api_key(
     agent: Agent,
     key: &str,
 ) -> Result<(), LoginError> {
+    if agent == Agent::Cursor {
+        // `cursor-agent` reads a key only from its environment or `--api-key`, never a file of
+        // its own: the key goes in as the Cloud secret `CURSOR_API_KEY`.
+        return Err(LoginError::new(
+            reason::UNSUPPORTED_AGENT,
+            "Cursor takes an API key as the Cloud secret CURSOR_API_KEY",
+        ));
+    }
+    if !agent.takes_api_key() {
+        return Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!(
+                "{} takes no saved key here: it signs in with its own sign-in, or reads its key from your vault",
+                agent.name()
+            ),
+        ));
+    }
     machine.refuse_shared()?;
     let key = key.trim();
     if !one_line(key, 512) {
         return Err(LoginError::new(reason::BAD_CODE, "that is not an API key"));
     }
     match agent {
-        // `cursor-agent` reads a key only from its environment or `--api-key`, never a file of
-        // its own: the key goes in as the Cloud secret `CURSOR_API_KEY`.
-        Agent::Cursor => Err(LoginError::new(
-            reason::UNSUPPORTED_AGENT,
-            "Cursor takes an API key as the Cloud secret CURSOR_API_KEY",
+        Agent::Gemini => {
+            if !gemini_key_shape(key) {
+                return Err(LoginError::new(reason::BAD_CODE, "that is not a Gemini API key"));
+            }
+            merge_gemini_api_key(&cli.store(agent), key)
+                .map_err(|e| LoginError::new(reason::FAILED, e))
+        }
+        // Refused above (`takes_api_key`).
+        Agent::Grok | Agent::Cursor => Err(LoginError::new(
+            reason::UNSUPPORTED,
+            format!("{} takes no saved key here", agent.name()),
         )),
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),

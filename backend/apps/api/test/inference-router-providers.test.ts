@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers"
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import worker from "../src/index.ts"
+import { MODELS } from "../src/inference/catalog.ts"
 import { paidPerson } from "./setup/inference-person.ts"
 
 /**
@@ -19,7 +20,8 @@ const HOSTS: Record<string, string> = {
   "relay.test": "vercel-relay",
   "cmux-test.services.ai.azure.com": "azure",
   "own.test": "custom",
-  "api.openai.com": "openai"
+  "api.openai.com": "openai",
+  "api.particle.ai": "particle"
 }
 
 interface Seen {
@@ -54,6 +56,7 @@ const allKeys = (extra: Record<string, string> = {}) =>
     INFERENCE_CUSTOM_URL: "https://own.test/v1/chat/completions",
     INFERENCE_CUSTOM_KEY: "k-own",
     INFERENCE_OPENAI_KEY: "k-oa",
+    INFERENCE_PARTICLE_KEY: "k-pa",
     ...extra
   }) as any
 
@@ -128,6 +131,35 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     expect(seen[0]!.body.max_tokens).toBeUndefined()
   })
 
+  it("serves Particle-1 through Particle's own API with its key", async () => {
+    const { t } = await paidPerson("router-particle")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys(), "particle-ai/particle-1")
+    expect(r.status).toBe(200)
+    expect(seen.map((s) => s.provider)).toEqual(["particle"])
+    expect(seen[0]!.url).toBe("https://api.particle.ai/v1/chat/completions")
+    expect(seen[0]!.headers.get("authorization")).toBe("Bearer k-pa")
+    expect(seen[0]!.body.model).toBe("particle-ai/particle-1")
+    expect(r.headers.get("x-cmux-provider")).toBe("particle")
+  })
+
+  it("the catalog gives Particle to Particle-1 alone", () => {
+    for (const m of MODELS) {
+      const providers = m.routes.map((r) => r.provider)
+      if (m.id === "particle-ai/particle-1") expect(providers).toEqual(["particle"])
+      else expect(providers, m.id).not.toContain("particle")
+    }
+  })
+
+  it("Particle-1 is unavailable without the Particle key", async () => {
+    const { t } = await paidPerson("router-particle-unkeyed")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys({ INFERENCE_PARTICLE_KEY: "" }), "particle-ai/particle-1")
+    expect(r.status).toBe(503)
+    expect(JSON.parse(r.text).error.code).toBe("provider.unavailable")
+    expect(seen).toEqual([])
+  })
+
   it("the model allowlist refuses every other model with a clear error", async () => {
     const { t } = await paidPerson("router-allowlist")
     record(() => ok())
@@ -161,11 +193,22 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     expect(JSON.parse(r.text).error.message).toContain("image")
   })
 
-  // Last: a failed Vercel attempt puts Vercel in the spend guard's cooldown for the next tests.
+  // Near the end: a failed Vercel attempt puts Vercel in the spend guard's cooldown for the next tests.
   it("fails over from Vercel to OpenRouter before the first byte", async () => {
     const { t } = await paidPerson("router-vercel-failover")
     const seen = record((p) => (p === "vercel" ? new Response("no credit", { status: 402 }) : ok()))
     expect((await call(t, allKeys(), DS)).status).toBe(200)
     expect(seen.map((s) => s.provider)).toEqual(["vercel", "openrouter"])
+  })
+
+  // After the last failover test: every provider answers 503 here, which cools them all down.
+  it("never routes another model to Particle, even when every other provider fails", async () => {
+    // The cmux Particle key's traffic is outside Particle's zero-data-retention terms: only a caller
+    // who picks Particle-1 may reach it, never a DeepSeek or GLM caller through failover.
+    const { t } = await paidPerson("router-particle-only-own")
+    const seen = record(() => new Response("busy", { status: 503 }))
+    for (const model of [DS, "z-ai/glm-5.3-flash"]) await call(t, allKeys(), model)
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.map((s) => s.provider)).not.toContain("particle")
   })
 })

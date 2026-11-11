@@ -1,6 +1,402 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.internalDeveloperMode.help": {
+      "comment": "Help text under the Internal Developer Mode toggle. \"Debug: …\" is the title prefix of the palette rows; translate it the same way as the action.debug.titleFormat string.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض أوامر تصحيح الأخطاء (ساحات التجربة، وإعدادات تصحيح الأخطاء، والتشخيصات) في لوحة الأوامر كصفوف \"تصحيح الأخطاء: …\". لا توجد قائمة تصحيح أخطاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje naredbe za otklanjanje grešaka (igrališta, postavke otklanjanja grešaka, dijagnostiku) u paleti naredbi kao redove \"Otklanjanje grešaka: …\". Nema menija za otklanjanje grešaka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser fejlfindingskommandoerne (legepladser, fejlfindingsindstillinger, diagnostik) i kommandopaletten som rækker med \"Fejlfinding: …\". Der er ingen fejlfindingsmenu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Debug-Befehle (Playgrounds, Debug-Einstellungen, Diagnose) in der Befehlspalette als Zeilen \"Fehlersuche: …\". Es gibt kein Debug-Menü."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los comandos de depuración (entornos de prueba, Ajustes de depuración, diagnósticos) en la paleta de comandos como filas \"Depuración: …\". No hay menú de depuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les commandes de débogage (bacs à sable, réglages de débogage, diagnostics) dans la palette de commandes sous forme de lignes « Débogage : … ». Il n’y a pas de menu de débogage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i comandi di debug (playground, impostazioni di debug, diagnostica) nella palette dei comandi come righe \"Debug: …\". Non c’è un menu Debug."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグコマンド（プレイグラウンド、デバッグ設定、診断）をコマンドパレットに「デバッグ: …」の行として表示します。デバッグメニューはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញពាក្យបញ្ជាបំបាត់កំហុស (កន្លែងសាកល្បង ការកំណត់បំបាត់កំហុស ការធ្វើរោគវិនិច្ឆ័យ) នៅក្នុងផ្ទាំងពាក្យបញ្ជាជាជួរ \"បំបាត់កំហុស៖ …\"។ មិនមានម៉ឺនុយបំបាត់កំហុសទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디버그 명령(플레이그라운드, 디버그 설정, 진단)을 명령 팔레트에 \"디버그: …\" 행으로 표시합니다. 디버그 메뉴는 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser feilsøkingskommandoene (lekeplasser, feilsøkingsinnstillinger, diagnostikk) i kommandopaletten som rader med \"Feilsøking: …\". Det finnes ingen feilsøkingsmeny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje polecenia debugowania (piaskownice, ustawienia debugowania, diagnostykę) w palecie poleceń jako wiersze \"Debugowanie: …\". Nie ma menu debugowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra os comandos de depuração (playgrounds, Ajustes de depuração, diagnósticos) na paleta de comandos como linhas \"Depuração: …\". Não há menu de depuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает команды отладки (песочницы, настройки отладки, диагностику) в палитре команд в виде строк «Отладка: …». Меню отладки нет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงคำสั่งดีบัก (สนามทดลอง การตั้งค่าดีบัก การวินิจฉัย) ในจานคำสั่งเป็นแถว \"ดีบัก: …\" ไม่มีเมนูดีบัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata ayıklama komutlarını (deneme alanları, hata ayıklama ayarları, tanılama) komut paletinde \"Hata ayıklama: …\" satırları olarak gösterir. Hata ayıklama menüsü yoktur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує команди налагодження (пісочниці, налаштування налагодження, діагностику) у палітрі команд як рядки «Налагодження: …». Меню налагодження немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị các lệnh gỡ lỗi (sân thử, cài đặt gỡ lỗi, chẩn đoán) trong bảng lệnh dưới dạng hàng \"Gỡ lỗi: …\". Không có menu gỡ lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在命令面板中以“调试：…”行显示调试命令（试验场、调试设置、诊断）。没有调试菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在指令面板中以「除錯：…」列顯示除錯指令（試驗場、除錯設定、診斷）。沒有除錯選單。"
+          }
+        }
+      }
+    },
+    "settings.internalDeveloperMode": {
+      "comment": "Toggle in Settings > Development: when on, debug commands appear in the Command Palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع المطوّر الداخلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interni razvojni način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern udviklertilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interner Entwicklermodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Developer Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de desarrollador interno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode développeur interne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità sviluppatore interna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部開発者モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបអ្នកអភិវឌ្ឍន៍ផ្ទៃក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 개발자 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern utviklermodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wewnętrzny tryb programisty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo de desenvolvedor interno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутренний режим разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมดนักพัฒนาภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dahili geliştirici modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутрішній режим розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ nhà phát triển nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部开发者模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部開發者模式"
+          }
+        }
+      }
+    },
+    "settings.group.internalDeveloperMode": {
+      "comment": "Group heading in Settings > Development (DEV and NIGHTLY builds only).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع المطوّر الداخلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interni razvojni način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern udviklertilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interner Entwicklermodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Developer Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de desarrollador interno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode développeur interne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità sviluppatore interna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部開発者モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបអ្នកអភិវឌ្ឍន៍ផ្ទៃក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 개발자 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern utviklermodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wewnętrzny tryb programisty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo de desenvolvedor interno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутренний режим разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมดนักพัฒนาภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dahili geliştirici modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутрішній режим розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ nhà phát triển nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部开发者模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部開發者模式"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.unreadBanner": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -16473,27 +16869,27 @@
     "settings.machines.sshLinkHosts.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يتصل رابط ssh:// من تطبيق آخر بهؤلاء المضيفين دون أن يسأل. أزل مضيفًا ليُطلب منك مرة أخرى. لا تسأل الأجهزة المحفوظة ونظراء acpmux أبدًا."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "ssh:// link iz druge aplikacije povezuje se s ovim hostovima bez pitanja. Uklonite host da biste ponovo bili upitani. Sačuvani računari i acpmux peerovi nikad ne pitaju."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Et ssh://-link fra en anden app forbinder til disse værter uden at spørge. Fjern en vært for at blive spurgt igen. Gemte maskiner og acpmux-peers spørger aldrig."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Ein ssh://-Link aus einer anderen App verbindet sich ohne Nachfrage mit diesen Hosts. Entfernen Sie einen Host, um wieder gefragt zu werden. Gespeicherte Rechner und acpmux-Peers fragen nie."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Un enlace ssh:// de otra app se conecta a estos hosts sin preguntar. Quita un host para que se vuelva a preguntar. Las máquinas guardadas y los pares de acpmux nunca preguntan."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Un lien ssh:// provenant d'une autre app se connecte à ces hôtes sans demander. Supprimez un hôte pour être de nouveau sollicité. Les machines enregistrées et les pairs acpmux ne demandent jamais."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Un link ssh:// da un'altra app si connette a questi host senza chiedere. Rimuovi un host per ricevere di nuovo la richiesta. Le macchine salvate e i peer acpmux non chiedono mai."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。再び確認するにはホストを削除してください。保存済みのマシンと acpmux ピアは確認しません。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។ លុបម៉ាស៊ីនមួយចេញដើម្បីឱ្យសួរម្តងទៀត។ ម៉ាស៊ីនដែលបានរក្សាទុក និង peer acpmux មិនដែលសួរទេ។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다. 다시 묻게 하려면 호스트를 제거하세요. 저장된 머신과 acpmux 피어는 묻지 않습니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "En ssh://-lenke fra en annen app kobler til disse vertene uten å spørre. Fjern en vert for å bli spurt igjen. Lagrede maskiner og acpmux-peerer spør aldri."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Link ssh:// z innej aplikacji łączy się z tymi hostami bez pytania. Usuń host, aby znów pojawiało się pytanie. Zapisane maszyny i peery acpmux nigdy nie pytają."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um link ssh:// de outro app se conecta a estes hosts sem perguntar. Remova um host para ser perguntado novamente. Máquinas salvas e peers do acpmux nunca perguntam."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылка ssh:// из другого приложения подключается к этим хостам без вопроса. Удалите хост, чтобы снова получать вопрос. Сохранённые компьютеры и узлы acpmux не спрашивают никогда."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม ลบโฮสต์ออกเพื่อให้ถามอีกครั้ง เครื่องที่บันทึกไว้และ peer ของ acpmux จะไม่ถามเลย"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Başka bir uygulamadan gelen ssh:// bağlantısı bu ana bilgisayarlara sormadan bağlanır. Yeniden sorulması için bir ana bilgisayarı kaldırın. Kayıtlı makineler ve acpmux eşleri hiç sormaz."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання ssh:// з іншої програми підключається до цих хостів без запиту. Вилучіть хост, щоб знову отримувати запит. Збережені комп’ютери та вузли acpmux ніколи не питають."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi. Xóa một máy chủ để được hỏi lại. Máy đã lưu và các peer acpmux không bao giờ hỏi."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。移除主机后将再次询问。已保存的机器和 acpmux 对等端从不询问。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。移除主機後將再次詢問。已儲存的機器和 acpmux 對等端從不詢問。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يتصل رابط ssh:// من تطبيق آخر بهؤلاء المضيفين دون أن يسأل. أزل مضيفًا ليُطلب منك مرة أخرى. لا تسأل الأجهزة المحفوظة ونظراء cmux أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "ssh:// link iz druge aplikacije povezuje se s ovim hostovima bez pitanja. Uklonite host da biste ponovo bili upitani. Sačuvani računari i cmux peerovi nikad ne pitaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Et ssh://-link fra en anden app forbinder til disse værter uden at spørge. Fjern en vært for at blive spurgt igen. Gemte maskiner og cmux-peers spørger aldrig."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein ssh://-Link aus einer anderen App verbindet sich ohne Nachfrage mit diesen Hosts. Entfernen Sie einen Host, um wieder gefragt zu werden. Gespeicherte Rechner und cmux-Peers fragen nie."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un enlace ssh:// de otra app se conecta a estos hosts sin preguntar. Quita un host para que se vuelva a preguntar. Las máquinas guardadas y los pares de cmux nunca preguntan."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un lien ssh:// provenant d'une autre app se connecte à ces hôtes sans demander. Supprimez un hôte pour être de nouveau sollicité. Les machines enregistrées et les pairs cmux ne demandent jamais."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un link ssh:// da un'altra app si connette a questi host senza chiedere. Rimuovi un host per ricevere di nuovo la richiesta. Le macchine salvate e i peer cmux non chiedono mai."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。再び確認するにはホストを削除してください。保存済みのマシンと cmux ピアは確認しません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។ លុបម៉ាស៊ីនមួយចេញដើម្បីឱ្យសួរម្តងទៀត។ ម៉ាស៊ីនដែលបានរក្សាទុក និង peer cmux មិនដែលសួរទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다. 다시 묻게 하려면 호스트를 제거하세요. 저장된 머신과 cmux 피어는 묻지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En ssh://-lenke fra en annen app kobler til disse vertene uten å spørre. Fjern en vert for å bli spurt igjen. Lagrede maskiner og cmux-peerer spør aldri."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Link ssh:// z innej aplikacji łączy się z tymi hostami bez pytania. Usuń host, aby znów pojawiało się pytanie. Zapisane maszyny i peery cmux nigdy nie pytają."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um link ssh:// de outro app se conecta a estes hosts sem perguntar. Remova um host para ser perguntado novamente. Máquinas salvas e peers do cmux nunca perguntam."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ссылка ssh:// из другого приложения подключается к этим хостам без вопроса. Удалите хост, чтобы снова получать вопрос. Сохранённые компьютеры и узлы cmux не спрашивают никогда."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม ลบโฮสต์ออกเพื่อให้ถามอีกครั้ง เครื่องที่บันทึกไว้และ peer ของ cmux จะไม่ถามเลย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Başka bir uygulamadan gelen ssh:// bağlantısı bu ana bilgisayarlara sormadan bağlanır. Yeniden sorulması için bir ana bilgisayarı kaldırın. Kayıtlı makineler ve cmux eşleri hiç sormaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Посилання ssh:// з іншої програми підключається до цих хостів без запиту. Вилучіть хост, щоб знову отримувати запит. Збережені комп’ютери та вузли cmux ніколи не питають."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi. Xóa một máy chủ để được hỏi lại. Máy đã lưu và các peer cmux không bao giờ hỏi."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。移除主机后将再次询问。已保存的机器和 cmux 对等端从不询问。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。移除主機後將再次詢問。已儲存的機器和 cmux 對等端從不詢問。"}}
       }
     },
     "settings.group.import": {
@@ -30392,6 +30788,268 @@
         }
       }
     },
+    "settings.browser.vimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in Pages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح Vim في الصفحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim tipke na stranicama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Tasten auf Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de Vim en páginas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches Vim dans les pages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti Vim nelle pagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページでVimキーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze Vim na stronach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas do Vim nas Páginas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши Vim на страницах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfalarda Vim Tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші Vim на сторінках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím Vim trong trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
+          }
+        }
+      }
+    },
     "settings.browser.wakeTabsOnHover": {
       "comment": "Settings > Browser > Memory toggle: hover preload (browser.wakeTabsOnHover).",
       "extractionState": "manual",
@@ -42965,6 +43623,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "終端機在 cmux-tui 中執行，除非你終止它們，否則結束 cmux 後仍會繼續執行。"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Quitting Ends Agents or Terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السؤال قبل أن ينهي الخروج الوكلاء أو الطرفيات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pitaj prije nego što izlazak prekine agente ili terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørg før afslutning stopper agenter eller terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fragen, bevor das Beenden Agenten oder Terminals beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preguntar antes de que salir detenga agentes o terminales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demander avant que quitter n’arrête des agents ou des terminaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiedi prima che l’uscita termini agenti o terminali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終了でエージェントやターミナルが終わる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរមុនពេលការចាកចេញបញ្ចប់ភ្នាក់ងារ ឬស្ថានីយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종료로 에이전트나 터미널이 끝나기 전에 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spør før avslutning stopper agenter eller terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pytaj, zanim zakończenie zatrzyma agentów lub terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Perguntar antes que encerrar finalize agentes ou terminais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрашивать, прежде чем выход остановит агентов или терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามก่อนที่การออกจะปิดเอเจนต์หรือเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıkış ajanları veya terminalleri sonlandırmadan önce sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Питати, перш ніж вихід зупинить агентів або термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi trước khi thoát làm kết thúc tác nhân hoặc terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出会结束代理或终端前先询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束會終止代理或終端機前先詢問"
+          }
+        }
+      }
+    },
+    "settings.app.confirmQuit.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يسأل Cmd-Q أولاً عندما ينهي الخروج وكلاء عاملين أو طرفيات مفتوحة. الخروج الذي يبقي الجلسات تعمل لا يسأل أبداً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q prvo pita kada bi izlazak prekinuo aktivne agente ili otvorene terminale. Izlazak koji ostavlja sesije da rade nikada ne pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q spørger først, når afslutning ville stoppe arbejdende agenter eller åbne terminaler. En afslutning, der lader sessionerne køre, spørger aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q fragt zuerst, wenn das Beenden arbeitende Agenten oder offene Terminals beenden würde. Ein Beenden, das die Sitzungen weiterlaufen lässt, fragt nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q pregunta primero cuando salir detendría agentes en curso o terminales abiertas. Una salida que mantiene las sesiones en ejecución nunca pregunta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q demande d’abord lorsque quitter arrêterait des agents en cours ou des terminaux ouverts. Quitter en gardant les sessions actives ne demande jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q chiede prima quando l’uscita terminerebbe agenti al lavoro o terminali aperti. Un’uscita che lascia attive le sessioni non chiede mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終了すると作業中のエージェントや開いているターミナルが終わる場合、Cmd-Qは先に確認します。セッションを実行したままにする終了では確認しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q សួរជាមុន នៅពេលការចាកចេញនឹងបញ្ចប់ភ្នាក់ងារកំពុងធ្វើការ ឬស្ថានីយដែលបើក។ ការចាកចេញដែលរក្សាសម័យឱ្យដំណើរការមិនសួរឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종료하면 작업 중인 에이전트나 열린 터미널이 끝나는 경우 Cmd-Q가 먼저 확인합니다. 세션을 계속 실행하는 종료는 확인하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q spør først når avslutning ville stoppe arbeidende agenter eller åpne terminaler. En avslutning som lar øktene kjøre, spør aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q najpierw pyta, gdy zakończenie zatrzymałoby pracujących agentów lub otwarte terminale. Zakończenie, które pozostawia sesje uruchomione, nigdy nie pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q pergunta primeiro quando encerrar finalizaria agentes em execução ou terminais abertos. Um encerramento que mantém as sessões em execução nunca pergunta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q сначала спрашивает, если выход остановит работающих агентов или открытые терминалы. Выход, при котором сеансы продолжают работать, никогда не спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q จะถามก่อนเมื่อการออกจะปิดเอเจนต์ที่กำลังทำงานหรือเทอร์มินัลที่เปิดอยู่ การออกที่ให้เซสชันทำงานต่อจะไม่ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıkış, çalışan ajanları veya açık terminalleri sonlandıracaksa Cmd-Q önce sorar. Oturumları çalışır durumda bırakan bir çıkış asla sormaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q спершу питає, якщо вихід зупинить агентів у роботі або відкриті термінали. Вихід, що залишає сеанси працювати, ніколи не питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cmd-Q hỏi trước khi việc thoát sẽ kết thúc tác nhân đang làm việc hoặc terminal đang mở. Thoát mà vẫn giữ các phiên chạy thì không bao giờ hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "如果退出会结束工作中的代理或已打开的终端，Cmd-Q 会先询问。保持会话运行的退出不会询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "如果結束會終止工作中的代理或已開啟的終端機，Cmd-Q 會先詢問。讓工作階段繼續執行的結束不會詢問。"
           }
         }
       }
@@ -215951,6 +216871,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử, `cmux cloud` trong terminal và script sẽ tạo máy đám mây, chuyển cuộc trò chuyện lên đám mây và khởi động phiên ở đó mà không có thẻ hỏi bạn trước. Giới hạn gói của bạn vẫn áp dụng. Chỉ bạn mới có thể thay đổi tùy chọn này."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体、终端中的 `cmux cloud` 和脚本会创建云端机器、将聊天移到云端并在那里启动会话，不会先显示卡片询问你。你的方案限制仍然适用。只有你可以更改此项。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式、終端機中的 `cmux cloud` 和指令碼會建立雲端機器、將聊天移到雲端並在那裡啟動工作階段，不會先顯示卡片詢問你。你的方案限制仍然適用。只有你可以變更此項。"}}
+      }
+    },
+    "settings.cloud.turnCheckpoints": {
+      "comment": "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Save a Checkpoint Before Each Cloud Chat Turn"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حفظ نقطة استعادة قبل كل دور في دردشة السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sačuvaj kontrolnu tačku prije svakog poteza Cloud chata"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gem et checkpoint før hver tur i en Cloud-chat"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Vor jedem Zug eines Cloud-Chats einen Checkpoint speichern"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guardar un punto de control antes de cada turno del chat en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistrer un point de contrôle avant chaque tour d’un chat Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva un checkpoint prima di ogni turno della chat Cloud"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットの各ターンの前にチェックポイントを保存"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកចំណុចត្រួតពិនិត្យមុនវេននីមួយៗនៃការជជែក Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 각 턴 전에 체크포인트 저장"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagre et sjekkpunkt før hver tur i en Cloud-chat"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuj punkt kontrolny przed każdą turą czatu w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salvar um checkpoint antes de cada turno do chat na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохранять контрольную точку перед каждым ходом облачного чата"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกจุดตรวจสอบก่อนแต่ละรอบของแชต Cloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her Cloud sohbet turundan önce bir kontrol noktası kaydet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігати контрольну точку перед кожним ходом хмарного чату"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu điểm khôi phục trước mỗi lượt trò chuyện Cloud"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在每轮云端聊天之前保存检查点"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在每輪雲端聊天之前儲存檢查點"}}
+      }
+    },
+    "settings.cloud.turnCheckpoints.help": {
+      "comment": "Settings > Machines: help for the Save a Checkpoint Before Each Cloud Chat Turn toggle. Back to Before This Turn is the chat's undo action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يحفظ آلة السحابة بالكامل بين أدوار دردشة السحابة، لتستعيدها «العودة إلى ما قبل هذا الدور» في ثوانٍ. يحتفظ بأحدث بضع نقاط استعادة لكل دردشة. عند الإيقاف: لا تُحفظ أي نقاط استعادة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Čuva cijelu Cloud mašinu između poteza Cloud chata, tako da je Nazad prije ovog poteza vraća za nekoliko sekundi. Zadržava nekoliko najnovijih kontrolnih tačaka svakog chata. Isključeno: kontrolne tačke se ne čuvaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gemmer hele Cloud-maskinen mellem turene i en Cloud-chat, så Tilbage til før denne tur gendanner den på få sekunder. Beholder de nyeste få checkpoints for hver chat. Fra: ingen checkpoints gemmes."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Speichert die ganze Cloud-Maschine zwischen den Zügen eines Cloud-Chats, sodass „Zurück vor diesen Zug“ sie in Sekunden wiederherstellt. Behält die neuesten paar Checkpoints jedes Chats. Aus: Es werden keine Checkpoints gespeichert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Guarda toda la máquina en la nube entre los turnos de un chat en la nube, para que Volver a antes de este turno la restaure en segundos. Conserva los puntos de control más recientes de cada chat. Desactivado: no se guarda ningún punto de control."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Enregistre toute la machine Cloud entre les tours d’un chat Cloud, pour que Revenir avant ce tour la restaure en quelques secondes. Garde les quelques points de contrôle les plus récents de chaque chat. Désactivé : aucun point de contrôle n’est enregistré."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Salva l’intera macchina Cloud tra i turni di una chat Cloud, così Torna a prima di questo turno la ripristina in pochi secondi. Conserva gli ultimi checkpoint di ogni chat. Disattivato: nessun checkpoint viene salvato."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Cloud チャットのターンの間に Cloud マシン全体を保存し、「このターンの前に戻る」で数秒で復元できるようにします。各チャットの最新のいくつかのチェックポイントを保持します。オフ: チェックポイントは保存されません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រក្សាទុកម៉ាស៊ីន Cloud ទាំងមូលរវាងវេននៃការជជែក Cloud ដើម្បីឱ្យ ត្រឡប់ទៅមុនវេននេះ ស្ដារវាក្នុងរយៈពេលប៉ុន្មានវិនាទី។ រក្សាចំណុចត្រួតពិនិត្យថ្មីៗបំផុតមួយចំនួននៃការជជែកនីមួយៗ។ បិទ៖ មិនរក្សាទុកចំណុចត្រួតពិនិត្យទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅의 턴 사이에 Cloud 머신 전체를 저장해, 이 턴 이전으로 되돌리기가 몇 초 만에 복원합니다. 채팅마다 최신 체크포인트 몇 개를 보관합니다. 끔: 체크포인트를 저장하지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagrer hele Cloud-maskinen mellom turene i en Cloud-chat, så Tilbake til før denne turen gjenoppretter den på sekunder. Beholder de nyeste sjekkpunktene for hver chat. Av: ingen sjekkpunkter lagres."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zapisuje całą maszynę w chmurze między turami czatu w chmurze, aby Wróć do stanu sprzed tej tury przywracało ją w kilka sekund. Zachowuje kilka najnowszych punktów kontrolnych każdego czatu. Wyłączone: punkty kontrolne nie są zapisywane."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Salva a máquina na nuvem inteira entre os turnos de um chat na nuvem, para que Voltar para antes deste turno a restaure em segundos. Mantém os checkpoints mais recentes de cada chat. Desativado: nenhum checkpoint é salvo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сохраняет всю облачную машину между ходами облачного чата, чтобы «Вернуться к моменту до этого хода» восстанавливало её за секунды. Хранит несколько последних контрольных точек каждого чата. Выключено: контрольные точки не сохраняются."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "บันทึกเครื่อง Cloud ทั้งเครื่องระหว่างรอบของแชต Cloud เพื่อให้ ย้อนกลับไปก่อนรอบนี้ กู้คืนได้ในไม่กี่วินาที เก็บจุดตรวจสอบล่าสุดไม่กี่จุดของแต่ละแชต ปิด: ไม่บันทึกจุดตรวจสอบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir Cloud sohbetinin turları arasında Cloud makinesinin tamamını kaydeder; böylece Bu Turdan Öncesine Dön onu saniyeler içinde geri yükler. Her sohbetin en yeni birkaç kontrol noktasını saklar. Kapalı: kontrol noktası kaydedilmez."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зберігає всю хмарну машину між ходами хмарного чату, щоб «Повернутися до моменту перед цим ходом» відновлювало її за секунди. Зберігає кілька найновіших контрольних точок кожного чату. Вимкнено: контрольні точки не зберігаються."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu toàn bộ máy Cloud giữa các lượt của cuộc trò chuyện Cloud, để Quay lại trước lượt này khôi phục nó trong vài giây. Giữ vài điểm khôi phục mới nhất của mỗi cuộc trò chuyện. Tắt: không lưu điểm khôi phục nào."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端聊天的各轮之间保存整台云端机器，让“回到这一轮之前”在几秒内恢复它。每个聊天保留最新的几个检查点。关闭：不保存检查点。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端聊天的各輪之間儲存整台雲端機器，讓「回到這一輪之前」在幾秒內還原它。每個聊天保留最新的幾個檢查點。關閉：不儲存檢查點。"}}
       }
     },
     "settings.agentPane.composerRing": {

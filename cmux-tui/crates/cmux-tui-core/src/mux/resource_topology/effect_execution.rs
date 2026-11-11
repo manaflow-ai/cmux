@@ -523,7 +523,7 @@ impl Mux {
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
                     // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
-                    let decorations = self.tree_decorations();
+                    let decorations = self.tab_tree_decorations(&[surface.id]);
                     let renamed = self.with_state(|state| {
                         presentation::tab_changed_delta(state, &decorations, surface.id)
                     });
@@ -838,6 +838,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     })
                 }
                 None => None,
@@ -1123,6 +1124,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction,
+                    mutation: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },

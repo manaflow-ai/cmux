@@ -4,7 +4,8 @@
 // where a row turns one on; Done or Escape ends it. Every edit is saved as
 // Settings would save it (`tabs.newTabWidgets.*`, pageWidgets.ts editNewTabWidgets). The wiggle is
 // motion: Reduce Motion and the animation switches (`data-agent-motion="off"`) keep the widgets still.
-import { type DragEvent, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { type DragEvent, type KeyboardEvent, type ReactNode, useState } from "react";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Icon } from "../icons/Icon";
 import { droppedWidget, movedWidget, type MovableWidget, type PageWidget, type WidgetEdit } from "./pageWidgets";
 import { useNt } from "./strings";
@@ -231,6 +232,21 @@ export function GridWidgetFrame({
   );
 }
 
+/// The built-in widgets Add Widgets lists, in the menu's order.
+const ADDABLE_WIDGETS: readonly PageWidget[] = [
+  "greeting",
+  "clock",
+  "timer",
+  "warmGreeting",
+  "quote",
+  "projects",
+  "actions",
+  "chats",
+  "styleDots",
+  "weather",
+  "machines",
+];
+
 /// An app's widget Add Widgets offers (ExtensionWidgets.tsx): placing it adds it to the row's end.
 export type AddableWidget = { id: string; title: string };
 
@@ -249,83 +265,41 @@ export function WidgetEditBar({
 }) {
   const nt = useNt();
   const widgetName = useWidgetName();
-  // The widget menu exists only while it is open: the page's Escape stands down for any open menu
-  // (useWidgetEditing), so a closed one left in the DOM kept Escape from ever ending edit mode.
-  const [adding, setAdding] = useState(false);
-  useEffect(() => {
-    if (!adding) return;
-    const listener = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      setAdding(false);
-    };
-    // ui-allow: Escape closes the open widget menu first, wherever focus is; the next ends edit mode.
-    document.addEventListener("keydown", listener);
-    return () => document.removeEventListener("keydown", listener);
-  }, [adding]);
   if (!editing.editing) return null;
   return (
     <div className="nt-edit-bar">
-      <details className="nt-edit-add" open={adding}>
-        <summary
-          className="nt-edit-button"
-          data-edit="add"
-          // The page owns the disclosure (the native toggle event comes a task late).
-          onClick={(event) => {
-            event.preventDefault();
-            setAdding((open) => !open);
-          }}
-        >
+      {/* ui/Menu owns the roles, the arrow keys, typeahead, Escape and where focus goes back. Its popup is
+          in the page only while it is open, so the page's Escape (useWidgetEditing) stands down for it
+          and the next Escape ends edit mode. */}
+      <Menu>
+        <MenuButton className="nt-edit-button" data-menu="newtab-add-widget" aria-haspopup="menu">
           <Icon name="action.add" size={12} />
           <span>{nt("edit.add")}</span>
-        </summary>
-        {adding && (
-          <div className="nt-edit-add-menu" role="menu">
-            {(
-              [
-                "greeting",
-                "clock",
-                "timer",
-                "warmGreeting",
-                "quote",
-                "projects",
-                "actions",
-                "chats",
-                "styleDots",
-                "weather",
-                "machines",
-              ] as PageWidget[]
-            ).map((widget) => (
-              <button
-                key={widget}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setAdding(false);
-                  onEdit({ edit: "show", widget });
-                }}
+        </MenuButton>
+        <MenuPopup label={nt("edit.add")} className="acpmux-quick-menu nt-edit-add-menu" align="end">
+          {ADDABLE_WIDGETS.map((widget) => (
+            <MenuItem
+              key={widget}
+              className="acpmux-quick-item"
+              data-value={widget}
+              onSelect={() => onEdit({ edit: "show", widget })}
+            >
+              {widgetName(widget)}
+            </MenuItem>
+          ))}
+          {onAddApp &&
+            apps.map((app) => (
+              <MenuItem
+                key={app.id}
+                className="acpmux-quick-item"
+                data-value={app.id}
+                onSelect={() => onAddApp(app.id)}
               >
-                {widgetName(widget)}
-              </button>
+                {app.title}
+              </MenuItem>
             ))}
-            {onAddApp &&
-              apps.map((app) => (
-                <button
-                  key={app.id}
-                  type="button"
-                  role="menuitem"
-                  data-app-widget={app.id}
-                  onClick={() => {
-                    setAdding(false);
-                    onAddApp(app.id);
-                  }}
-                >
-                  {app.title}
-                </button>
-              ))}
-          </div>
-        )}
-      </details>
+        </MenuPopup>
+      </Menu>
       <button
         type="button"
         className="nt-edit-button"

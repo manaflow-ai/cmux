@@ -124,8 +124,10 @@ export default componentEntry<Props>({
         await ctx.contextMenu({ selector: ".nt-screen" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-grid-frame .nt-widget-remove").length === 3);
-        await ctx.click({ selector: '.nt-edit-button[data-edit="add"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('[data-app-widget="' + TOO_BIG + '"]') !== null);
+        await ctx.click({ selector: '.nt-edit-button[data-menu="newtab-add-widget"]' });
+        await ctx.waitFor(
+          () => ctx.document.querySelector('.nt-edit-add-menu [data-value="' + TOO_BIG + '"]') !== null,
+        );
       },
     },
   },

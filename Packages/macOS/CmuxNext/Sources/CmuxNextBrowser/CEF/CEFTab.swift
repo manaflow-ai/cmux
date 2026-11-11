@@ -673,8 +673,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
         if !visible, linkStatus != nil { linkStatus = nil }
-        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
-        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility). A page whose view
+        // appeared earlier in this turn (a tab switch binds it, then reveals it) takes its first-frame hold here.
+        if host.visibleTab === self {
+            if visible { host.hostView.isHidden = false; host.holdFirstFrameIfAppeared(self) } else { host.setNeedsHostVisibility() }
+        }
         // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
         devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }

@@ -30,6 +30,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
+import { newestPage } from "./daemonPage";
 import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 
@@ -75,12 +76,10 @@ let arrivals = new Map<string, number>();
 let socketOpenedAt = 0;
 /// Every call of this load, with when it came (ms after the socket opened), for TRACE=1.
 let calls: string[] = [];
-/// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
-/// daemon answers an attach or an older-history read with.
-const newest = (limit: number, beforeSeq = Infinity) => {
-  const older = events.filter((event) => event.seq < beforeSeq);
-  return { page: older.slice(-limit), hasMore: older.length > limit };
-};
+/// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
+/// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
+  newestPage(events, { limit, beforeSeq, maxBytes });
 const peerSnapshot = () => ({
   sessionId: PAPERCUT_CHAT,
   qualifiedSessionId: `bench-vm/${PAPERCUT_CHAT}`,
@@ -90,7 +89,7 @@ const peerSnapshot = () => ({
   stale: true,
   summary: session,
   events: REMOTE_TAIL === "present" ? newest(400).page : [],
-  hasMore: REMOTE_TAIL === "present" && events.length > 400,
+  hasMore: REMOTE_TAIL === "present" && newest(400).hasMore,
   lastSeq: REMOTE_TAIL === "present" ? (events.at(-1)?.seq ?? 0) : 0,
 });
 const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
@@ -105,8 +104,8 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/watch":
       return { sessions: [session] };
     case "_acpmux/attach": {
-      // As the daemon does: the newest `limit` events, and hasMore while older ones remain.
-      const { page, hasMore } = newest(Number(params.limit ?? 400));
+      // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
+      const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
       const result = { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
       attachBytes = JSON.stringify(result).length;
       attachEvents = page.length;
@@ -126,7 +125,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq));
+        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };

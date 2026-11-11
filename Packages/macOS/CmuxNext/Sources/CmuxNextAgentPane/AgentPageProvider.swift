@@ -51,10 +51,13 @@ public nonisolated struct AgentPageOps {
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
             "account.add",
+            // The page's flicker detector (``AgentPageFlickerLog``): answered by ``onFlicker`` before
+            // the model, never logged. Without it the page host's pages wrote no line of their own.
+            AgentPageFlickerLog.method,
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneCloudReservationRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
@@ -142,6 +145,9 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
+    /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
+    public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -376,6 +382,12 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        // Short words and numbers for the flicker ring file: written off the main thread, answered
+        // at once, and never parsed as a pane request nor logged (it comes once a second while the page draws).
+        if method == AgentPageFlickerLog.method {
+            onFlicker(params)
+            return .null
+        }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         if method == "pane.setScrollToBottomOnSend" || method == "pane.setRemoteControl", !context.userGesture {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "This setting can only be changed by a person")

@@ -25,7 +25,7 @@ pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
-pub use kind_index::INDEXED_KINDS;
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -916,10 +916,47 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    #[cfg(test)]
+    let now = now + test_clock::ahead_ms();
+    now
+}
+
+/// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
+/// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+#[cfg(test)]
+pub(crate) mod test_clock {
+    use std::cell::Cell;
+
+    thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
+    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+
+    pub(crate) fn ahead_ms() -> u64 {
+        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
+        AHEAD_MS.with(Cell::get) + followed as u64
+    }
+
+    /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
+    /// sleeping: the wall clock runs ahead of the monotonic one (`peer_link::SleepWatch`).
+    pub(crate) fn advance(ms: u64) {
+        AHEAD_MS.with(|a| a.set(a.get() + ms));
+    }
+
+    /// From now on this thread's wall clock moves with tokio's, so a test under
+    /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
+    /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
+    pub(crate) fn follow_tokio() {
+        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+    }
+
+    /// Back to the real wall clock.
+    pub(crate) fn reset() {
+        AHEAD_MS.with(|a| a.set(0));
+        FOLLOW.with(|f| f.set(None));
+    }
 }
 
 pub trait Store: Send + Sync {
@@ -985,6 +1022,21 @@ pub trait Store: Send + Sync {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan(id, after, visit)
+    }
+    /// [`Store::scan_back`] for a read whose `skip` passes only kinds in [`INDEXED_KINDS`] (a
+    /// page of prompts, the queue, turn results): a file store reads a segment's copy of those
+    /// kinds where the copy is good (`store/kind_index.rs`), and the segment itself back from its
+    /// end where it is not, so the read never costs more than `scan_back`'s and stops where it
+    /// does. Every other store reads as `scan_back`.
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
     }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
@@ -1216,8 +1268,8 @@ pub use log_line::RecordHead;
 pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
-    first_seq, for_each_line_rev, for_each_line_rev_from, offset_of_seq, parse_record, record_dir,
-    record_kind, record_seq,
+    first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
+    parse_record, record_dir, record_kind, record_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1250,6 +1302,7 @@ mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+pub mod open_logs;
 #[cfg(test)]
 pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
@@ -1265,6 +1318,8 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// The most logs held open ([`open_logs`]).
+    open_logs: usize,
     /// Read-held by every write, true once `seal` ran: a write either lands before the seal
     /// returns or not at all.
     sealed: std::sync::RwLock<bool>,
@@ -1282,18 +1337,14 @@ pub struct LocalStore {
     parts: meta_parts::PartsMemo,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
-/// is closed for a new one. A daemon held one descriptor per session it wrote
-/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
-/// its 256, every agent start failing with "Too many open files").
+/// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
+/// recently written one is closed for a new one.
 #[derive(Default)]
 struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
 }
-
-const OPEN_LOGS: usize = 64;
 
 struct SegmentWriter {
     index: u32,
@@ -1304,7 +1355,7 @@ struct SegmentWriter {
 
 impl SegmentWriter {
     /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// writers' lock, so the cache never holds more than `open_logs` and a session's
     /// records stay in order. A failed sync is logged and noted in `failed`: its records were
     /// written (an append is never synced on its own), so only a machine crash before the kernel
     /// writes them back loses them, as it would any append since the last `flush`.
@@ -1326,6 +1377,7 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            open_logs: open_logs::now(),
             sealed: Default::default(),
             sync_failed: Default::default(),
             unlisted: Default::default(),
@@ -1482,7 +1534,7 @@ impl LocalStore {
             None => (1, dir.join("000001.ndjson")),
         };
         let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let written = cut_torn_tail(&file, &path)?;
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
@@ -1525,13 +1577,13 @@ impl LocalStore {
     /// (`store/journal_store.rs`). Refused once the store is sealed.
     pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // closed before this one opens, so no more than `open_logs` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        // once per eviction: only while more than `open_logs` sessions are written.
         let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
+            && writers.open.len() >= self.open_logs
             && let Some(oldest) =
                 writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
             && let Some(w) = writers.open.remove(&oldest)
@@ -1559,9 +1611,115 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        w.file.write_all(line)?;
+        #[cfg(test)]
+        let wrote = match test_write_fault::take() {
+            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
+                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
+            )),
+            None => w.file.write_all(line),
+        };
+        #[cfg(not(test))]
+        let wrote = w.file.write_all(line);
+        if let Err(e) = wrote {
+            // A full disk (or a signal) can write part of the line before the error. Cut it back
+            // to the last whole record, or the next append is glued onto the torn bytes: the
+            // merged line reads as no record, so that record is lost and a strict read fails.
+            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
+            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
+            // as synced), and the next open cuts the tail.
+            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
+            if cut_back(&segment, w.written).is_err()
+                && let Some(w) = writers.open.remove(id)
+            {
+                w.close(id, &self.sync_failed);
+            }
+            return Err(e.into());
+        }
         w.written += line.len() as u64;
         Ok(())
+    }
+}
+
+/// Cuts the log segment at `path` to `len` bytes, through its own handle opened to write: the
+/// writer's handle may only append (Windows grants it `FILE_APPEND_DATA` alone, and a truncate
+/// needs `FILE_WRITE_DATA`). The handle gets the same owner-only, no-link checks as every other
+/// open of a segment (`journal_store::repair::open_segment_to_write`).
+fn cut_back(path: &Path, len: u64) -> Result<()> {
+    #[cfg(test)]
+    if test_write_fault::take_cut_failure() {
+        anyhow::bail!("a failed cut (a test)");
+    }
+    let file = journal_store::repair::open_segment_to_write(path)?;
+    file.set_len(len)?;
+    #[cfg(all(test, unix))]
+    sync_model::cut(&file, len);
+    Ok(())
+}
+
+/// Cuts a segment opened for appending back to its last whole line and returns its length
+/// after. Every record is written with its newline, so bytes after the last one are a torn
+/// append (a process killed mid-write, a full disk): left there, the next record would be glued
+/// onto them and lost. They never were a record, so nothing kept is cut.
+fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(0);
+    }
+    let mut reader = crate::config::private_state_file(path)?;
+    let mut end = len;
+    let mut chunk = vec![0u8; 64 * 1024];
+    while end > 0 {
+        let start = end.saturating_sub(chunk.len() as u64);
+        // `end - start` is at most the chunk length, so `get_mut` always finds the part.
+        let want = usize::try_from(end - start)?;
+        let Some(part) = chunk.get_mut(..want) else {
+            anyhow::bail!("torn-tail read of {want} bytes is past its {} byte chunk", chunk.len());
+        };
+        reader.seek(SeekFrom::Start(start))?;
+        reader.read_exact(part)?;
+        if let Some(at) = part.iter().rposition(|b| *b == b'\n') {
+            end = start + at as u64 + 1;
+            break;
+        }
+        end = start;
+    }
+    if end < len {
+        tracing::warn!(
+            path = %path.display(),
+            torn = len - end,
+            "cutting a torn append from the end of an event log"
+        );
+        cut_back(path, end)?;
+    }
+    Ok(end)
+}
+
+/// The next log append on this thread writes only its first `kept` bytes and then fails as a
+/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(test)]
+pub(crate) mod test_write_fault {
+    use std::cell::Cell;
+
+    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
+    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
+
+    pub(crate) fn partial(kept: usize) {
+        NEXT.with(|n| n.set(Some(kept)));
+    }
+
+    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
+    pub(crate) fn partial_and_failed_cut(kept: usize) {
+        partial(kept);
+        FAIL_CUT.with(|f| f.set(true));
+    }
+
+    pub(super) fn take() -> Option<usize> {
+        NEXT.with(Cell::take)
+    }
+
+    pub(super) fn take_cut_failure() -> bool {
+        FAIL_CUT.with(|f| f.replace(false))
     }
 }
 
@@ -1606,8 +1764,16 @@ impl Drop for SegmentZero {
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
-            return Ok(Vec::new());
+        // No sessions folder yet: no chat. One that is there and does not read is a failed list,
+        // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
+        let rd = match std::fs::read_dir(&self.root) {
+            Ok(rd) => rd,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(
+                    anyhow::Error::new(error).context(format!("list {}", self.root.display()))
+                );
+            }
         };
         let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
         if entries.is_empty() {
@@ -1623,8 +1789,16 @@ impl Store for LocalStore {
                     scope.spawn(move || {
                         let mut metas = Vec::new();
                         for entry in chunk {
-                            if let Some(meta) = self.list_entry(entry)? {
-                                metas.push(meta);
+                            // One chat that is refused or does not read is left out (and
+                            // counted unread), never the reason no chat is listed.
+                            match self.list_entry(entry) {
+                                Ok(Some(meta)) => metas.push(meta),
+                                Ok(None) => {}
+                                Err(e) => {
+                                    tracing::warn!("skip {}: {e:#}", entry.path().display());
+                                    let id = entry.file_name().to_string_lossy().into_owned();
+                                    self.mark_unlisted(&id, true);
+                                }
                             }
                         }
                         Ok::<_, anyhow::Error>(metas)
@@ -1847,42 +2021,18 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        for (_, path) in self.segments(id)?.into_iter().rev() {
-            if first_seq(&path)?.is_some_and(|first| first >= before) {
-                continue;
-            }
-            let mut done = false;
-            let mut file = crate::config::private_state_file(&path)?;
-            let end = offset_of_seq(&mut file, before)?;
-            for_each_line_rev_from(&mut file, end, &mut |line| {
-                match record_seq(line) {
-                    Some(seq) if seq >= before => return true,
-                    Some(seq) if seq <= after => {
-                        done = true;
-                        return false;
-                    }
-                    _ => {}
-                }
-                if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
-                    && skip(dir, kind)
-                {
-                    return true;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-                if rec.seq >= before {
-                    return true;
-                }
-                if rec.seq <= after || !visit(rec) {
-                    done = true;
-                    return false;
-                }
-                true
-            })?;
-            if done {
-                return Ok(());
-            }
-        }
-        Ok(())
+        self.scan_back_in(id, after, before, skip, visit, false)
+    }
+
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
@@ -2024,7 +2174,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// Open one event segment for append, owner-only from creation and after an
 /// older build left it with wider permissions.
 #[cfg(unix)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     crate::config::refuse_lost_home(path)?;
 
@@ -2041,12 +2191,19 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_append(path)?)
 }
 
 #[cfg(all(test, unix))]
 mod permission_tests;
+
+#[cfg(test)]
+mod torn_tail_tests;
+
+#[cfg(all(test, unix))]
+mod list_entry_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
@@ -2071,6 +2228,9 @@ mod journal_store_tests;
 mod journal_sync_tests;
 #[cfg(all(test, unix))]
 mod journal_write_back_tests;
+
+#[cfg(test)]
+mod torn_append_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

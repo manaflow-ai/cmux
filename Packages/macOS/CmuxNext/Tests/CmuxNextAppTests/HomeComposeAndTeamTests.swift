@@ -8,9 +8,9 @@ import Testing
 
 /// The user, 2026-10-21: "for compose button default should make it look like imessage, so the
 /// compose button is always in the body area not the sidebar, even on big screen sizes. and by
-/// default i should be able to see everyone in my team as people i can chat to". Compose and the
-/// list are drawn by the React Messages page now; the list's model stays native.
+/// default i should be able to see everyone in my team as people i can chat to".
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeComposeAndTeamTests {
     static let me = HomeNewMessageTests.me
     static let ada = HomeNewMessageTests.ada
@@ -18,6 +18,46 @@ struct HomeComposeAndTeamTests {
     static let grace = HomeNewMessageTests.grace
     static let chief = HomeNewMessageTests.chief
     static let contacts = HomeNewMessageTests.contacts
+
+    // MARK: Compose sits in the chat at every width
+
+    /// The list's header never holds compose, with names or avatars only, at any list width.
+    @Test(arguments: [76, 140, 180, 260, 320, 480, 800] as [CGFloat])
+    func theListHeaderHasNoCompose(_ width: CGFloat) {
+        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
+        #expect(h.compose == .zero, "the list holds compose at \(width)")
+    }
+
+    /// The chat's round compose button shows at its top-left beside every list width, in a small
+    /// and a very large window; the list's own compose stays hidden.
+    @Test(arguments: [(1000, 76), (1000, 320), (2560, 320), (2560, 480)] as [(CGFloat, CGFloat)])
+    func theChatHoldsComposeAtEveryWidth(_ window: CGFloat, _ list: CGFloat) throws {
+        _ = NSApplication.shared
+        let suite = "cmux.tests.composeTeam.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
+        let content = NSView()
+        let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        split.windowKey = { "w" }
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: window, height: 800), styleMask: [.borderless],
+                           backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        defer { win.close() }
+        win.contentView = split
+        split.layoutSubtreeIfNeeded()
+        split.setWidth(list)
+        split.layoutSubtreeIfNeeded()
+        home.list.headerView.needsLayout = true
+        home.list.headerView.layoutSubtreeIfNeeded()
+        #expect(home.compose.isHidden, "the list shows compose at \(list) pt in a \(window) pt window")
+        let button = try #require(HomeNarrowSidebarTests.chatCompose(in: split))
+        #expect(!button.isHidden, "the chat has no compose at \(list) pt in a \(window) pt window")
+        let frame = button.convert(button.bounds, to: content)
+        #expect(frame.minX >= 4 && frame.minX <= 24)
+        split.composing = true
+        #expect(button.isHidden)
+    }
 
     // MARK: The team in the list
 
@@ -47,5 +87,38 @@ struct HomeComposeAndTeamTests {
         #expect(noDM.teammates == [work, Self.ada])
         let searched = HomeSidebarModel(rows: [dm], pins: HomePins(), me: Self.me, query: "austin", contacts: [work, personal])
         #expect(searched.people == [personal], "the search reaches the other account")
+    }
+
+    /// The list draws each teammate as a row after the conversations; choosing it starts the DM
+    /// and never reports a conversation selection.
+    @Test func aTeammateRowStartsTheDM() throws {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        let rows = [HomeNewMessageTests.row("dm-grace", [Self.grace.id])]
+        home.update(HomeSidebarModel(rows: rows, pins: HomePins(), me: Self.me, contacts: Self.contacts))
+        let ids = home.list.entries.map(\.id)
+        let teammate = HomeSidebarView.teammateRowID(Self.ada)
+        #expect(ids == ["dm-grace", teammate])
+        let entry = try #require(home.list.entries.last)
+        #expect(entry.title == "Ada Lovelace")
+        var selected: [CmuxHomeCore.ConversationID] = []
+        var started: [HomeContact] = []
+        home.onSelect = { selected.append($0) }
+        home.onOpen = { selected.append($0) }
+        home.onStartTeammate = { started.append($0) }
+        home.list.onSelect(teammate)
+        home.list.onOpen(teammate)
+        #expect(started == [Self.ada])
+        #expect(selected.isEmpty)
+    }
+
+    // MARK: The team in New Message's To: field
+
+    /// Before anything is typed, To: offers the Chiefs, then every team member not chosen yet.
+    @Test func theToFieldOffersTheTeamBeforeTyping() {
+        var draft = HomeNewMessageDraft()
+        #expect(draft.idleSuggestions(contacts: Self.contacts) == [Self.chief, Self.ada, Self.grace])
+        draft.query = "Ada Lovelace"
+        draft.commit(contacts: Self.contacts)
+        #expect(draft.idleSuggestions(contacts: Self.contacts) == [Self.chief, Self.grace])
     }
 }

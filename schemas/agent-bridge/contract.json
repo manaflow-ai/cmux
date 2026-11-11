@@ -35,6 +35,7 @@
     "chat.offer.open": "chat.offer.open",
     "chat.openTab": "chat.openTab",
     "chat.processTerminal": "chat.processTerminal",
+    "chat.rewindTurn": "chat.rewindTurn",
     "chat.scrollAnchor": "chat.scrollAnchor",
     "chat.scrollAnchor.get": "chat.scrollAnchor.get",
     "chat.sideChat": "chat.sideChat",
@@ -46,6 +47,7 @@
     "chat.tail.get": "chat.tail.get",
     "chat.toolCard.respond": "chat.toolCard.respond",
     "chat.tryAnotherApproach": "chat.tryAnotherApproach",
+    "chat.turnCheckpoint": "chat.turnCheckpoint",
     "chat.unsentDraft": "chat.unsentDraft",
     "chat.upload": "chat.upload",
     "chat.upload.begin": "chat.upload.begin",
@@ -88,6 +90,7 @@
     "cloudMachine.resume": "cloudMachine.resume",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
     "dictation.cancel": "dictation.cancel",
     "dictation.handoff": "dictation.handoff",
@@ -311,7 +314,6 @@
   "unserved": {
     "git.capabilities": "checkpoints/controller.tsx asks whether the app takes checkpoints; no app serves it yet, so the request is refused and the checkpoint review stays off. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
     "chat.subagentBack": "subagentPanes.ts backToOpeningChat asks the app to close a subagent split and focus the chat tab that opened it; until the app serves it, the page shows the chat in place. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
-    "chat.rewindTurn": "App.tsx's TurnActions rewind (Back to before this turn, MessageActions.tsx RewindButton) asks the app to restore a Cloud chat's machine to the checkpoint taken before prompt rowId's turn, answered with {seconds}. The page offers it only when the handshake's cloudTurnRewind names ready prompts, which no app sends yet. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
     "models.catalog": "modelCatalogHost.ts asks for the app's model catalog; no app serves it yet, so the page keeps the bundled snapshot. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it)."
   },
   "handlers": {

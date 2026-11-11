@@ -60,6 +60,9 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerHandoffBeginTurn
             | Op::CloudOwnerHarnessLoginCopy
             | Op::CloudOwnerGithubApp
+            | Op::CloudOwnerTurnCheckpoint
+            | Op::CloudOwnerTurnRewind
+            | Op::CloudOwnerTurns
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink

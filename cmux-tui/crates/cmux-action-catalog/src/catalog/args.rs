@@ -696,3 +696,7 @@ pub const FEED_ITEM: Argument = Argument { name: "item", title: t("ActionCatalog
 pub const FEED_GITHUB_ACTION: Argument = Argument { name: "action", title: t("ActionCatalog", "argument.feed.githubAction", "GitHub Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionCatalog", "argument.feed.comment", "Comment"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

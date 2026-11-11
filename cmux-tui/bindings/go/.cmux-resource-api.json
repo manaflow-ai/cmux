@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b5dcbeb4f0ce37525f0bb57ec2b883f8d3ac940070f3802e5db8320b029dd1bb",
+  "catalog_sha256": "8a85f44920f9e48db988ec9828d804432b634a85d2453bb98375654fe6cd47e0",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -203,6 +203,15 @@
       "class": "read"
     },
     "cloud.owner.harness_login_copy": {
+      "class": "read"
+    },
+    "cloud.owner.turn_checkpoint": {
+      "class": "mutation"
+    },
+    "cloud.owner.turn_rewind": {
+      "class": "mutation"
+    },
+    "cloud.owner.turns": {
       "class": "read"
     },
     "cloud.previews.create_link": {

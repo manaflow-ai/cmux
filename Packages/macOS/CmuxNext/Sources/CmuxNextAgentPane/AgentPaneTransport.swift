@@ -69,6 +69,9 @@ import CmuxNextCompat
     var pendingTrustFolders: [AgentPanePromptJournal.PendingTrust] = []
     var trustDaemon: String?
     var draining = false
+    /// Batches the send line has handed over so far: ``lineDrained(quiet:limit:)`` reads a change
+    /// as the line moving.
+    var drainedBatches = 0
     /// Waiting on the send line to drain (``lineDrained(within:)``).
     var drainWaiters: [CheckedContinuation<Void, Never>] = []
     /// The user's gestures in this pane; a granting frame consumes one.
