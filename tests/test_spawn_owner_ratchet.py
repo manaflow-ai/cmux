@@ -3,12 +3,21 @@
 in a file with no row fails, a file at its row passes, one below it passes and --update lowers the
 row, and a baseline raised above the base's copy fails."""
 
+import importlib.util
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path. It turns
+# git's auto maintenance off in the fixture repository (scripts/check-test-determinism.py).
+_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(git_fixture_env)
 
 SOURCE = Path(__file__).resolve().parents[1]
 CHECK = SOURCE / "scripts/cmux-next/check-spawn-owner.py"
@@ -36,9 +45,13 @@ class SpawnOwnerRatchet(unittest.TestCase):
         return result.returncode, result.stdout + result.stderr
 
     def git(self, *args):
-        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
-                       env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                            "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin"})
+        env = git_fixture_env.fixture_env({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                           "PATH": "/usr/bin:/bin"})
+        if args[0] == "init":
+            git_fixture_env.init_repo(self.root, *args[1:], env=env)
+            return
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, env=env)
 
     def test_a_new_file_with_one_bare_spawn_fails_and_names_scope_spawn(self):
         self.baseline({})
@@ -88,6 +101,33 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 0, out)
         self.assertIn("check-spawn-owner: ok (0 baselined line(s) in 0 file(s))", out)
+
+    def test_a_module_declared_cfg_test_is_test_code_whatever_its_name(self):
+        # cmux#41040's hub/remote_table_bench.rs, a `#[cfg(test)] mod remote_table_bench;` with a
+        # thread::spawn, turned feat-cmux-next red once #41081 landed beside it.
+        self.baseline({})
+        self.write("cmux-tui/crates/acpmux/src/hub/mod.rs", "\n".join([
+            "mod fresh;",
+            "#[cfg(test)]",
+            "mod remote_table_bench;",
+            "#[cfg(test)]",
+            "#[allow(dead_code)]",
+            "pub(crate) mod soak;",
+            "",
+        ]))
+        self.write("cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs", "fn t() { std::thread::spawn(|| {}); }\n")
+        self.write("cmux-tui/crates/acpmux/src/hub/soak/mod.rs", "fn t() { tokio::spawn(async {}); }\n")
+        self.write("cmux-tui/crates/acpmux/src/hub/soak/deep.rs", "fn t() { tokio::spawn(async {}); }\n")
+        self.write("cmux-tui/crates/acpmux/src/lib.rs", "#[cfg(test)]\nmod probe;\nmod hub;\n")
+        self.write("cmux-tui/crates/acpmux/src/probe.rs", "fn t() { tokio::spawn(async {}); }\n")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        # A product module beside them still counts.
+        self.write(HUB, "fn f() { tokio::spawn(async {}); }\n")
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("fresh.rs:1", out)
+        self.assertNotIn("remote_table_bench", out)
 
     def test_a_file_at_its_row_passes(self):
         self.baseline({HUB: 2})
