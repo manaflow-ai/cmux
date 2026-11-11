@@ -1,4 +1,4 @@
-// WebRTC signaling for the cmux VNC demo (experiments/cmux-vnc-ios/README.md).
+// WebRTC signaling for CmuxVNCWebRTC screen sharing (experiments/cmux-vnc-ios/README.md).
 // Secrets (optional, enable TURN relay): CLOUDFLARE_TURN_KEY_ID, CLOUDFLARE_TURN_KEY_API_TOKEN.
 {
   "name": "cmux-vnc-signal",
