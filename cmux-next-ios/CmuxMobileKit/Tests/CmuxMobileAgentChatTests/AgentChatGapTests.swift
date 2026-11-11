@@ -157,6 +157,22 @@ import Testing
         #expect(drawnIn == ["t0"])
     }
 
+    /// A prompt waiting before the link dropped, edited on the Mac in the gap: it shows the
+    /// edit (taking it back must not bring the old text into the composer), and a prompt the gap
+    /// queued goes after it, not ahead.
+    @Test func aPromptQueuedBeforeTheGapTakesTheGapsEditAndStaysFirst() {
+        let store = AgentChatStore(source: Source())
+        store.nextFrame = nil
+        store.apply(.batch(Self.turn("t0") + [.queued(text: "old", promptId: "q-1", position: 0)]))
+        #expect(store.queue.map(\.text) == ["old"])
+        store.apply(.batch([.gapOpened(beforeTurnID: "t5")] + Self.turn("t5")))
+        store.apply(.gapPage([.queueUpdated(promptId: "q-1", text: "edited"),
+                              .queued(text: "later", promptId: "q-2", position: 1)], done: true))
+
+        #expect(store.queue.map(\.id) == ["q-1", "q-2"])
+        #expect(store.queue.map(\.text) == ["edited", "later"])
+    }
+
     /// A live edit of a prompt the gap put back in the queue stays: a later gap page's older
     /// edit of it does not undo it.
     @Test func aLiveQueueEditOutlastsALaterGapPage() {

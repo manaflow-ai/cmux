@@ -1263,6 +1263,9 @@ public final class AgentChatStore {
     @ObservationIgnored private var gapLeftQueue: Set<String> = []
     @ObservationIgnored private var gapLaterQueueText: [String: String] = [:]
     @ObservationIgnored private var gapQueued: Set<String> = []
+    /// The prompts waiting when the gap opened: they waited longest, so a prompt the gap puts
+    /// back goes after them.
+    @ObservationIgnored private var gapPriorQueued: Set<String> = []
     /// Every subagent the chat had when the gap opened, as it was then: the gap's records may
     /// go on with one started in any earlier turn (a background agent outlives its turn), so
     /// the filler starts from all of them, and only those the gap changed are taken back.
@@ -1295,6 +1298,7 @@ public final class AgentChatStore {
         }
         filler.subagents = subagents
         gapSeedAgents = Dictionary(subagents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        gapPriorQueued = Set(queue.map(\.id))
         // What this phone sent with a prompt that ran in the gap.
         filler.sentAttachments = sentAttachments
         gapFiller = filler
@@ -1322,15 +1326,17 @@ public final class AgentChatStore {
                     // ahead of what the newest records queued (it waited longer), with the
                     // newest text the chat has for it.
                     if !gapLeftQueue.contains(promptId), !queue.contains(where: { $0.id == promptId }) {
-                        let place = min(gapQueued.count, queue.count)
+                        let older = gapPriorQueued.union(gapQueued)
+                        let place = queue.filter { older.contains($0.id) }.count
                         queue.insert(QueuedPrompt(id: promptId, text: gapLaterQueueText[promptId] ?? text), at: place)
                         gapQueued.insert(promptId)
                     }
                 case .dequeued(let promptId):
                     leaveQueueFromGap(promptId)
                 case .queueUpdated(let promptId, let text):
-                    // Only an entry the gap put in, and no newer edit of it.
-                    if gapQueued.contains(promptId), gapLaterQueueText[promptId] == nil,
+                    // An entry waiting before the gap or put in by it (the newest records cannot
+                    // queue a prompt the gap edits), unless a newer edit of it came.
+                    if gapLaterQueueText[promptId] == nil,
                        let index = queue.firstIndex(where: { $0.id == promptId }) {
                         queue[index].text = text
                     }
@@ -1442,6 +1448,7 @@ public final class AgentChatStore {
         gapLaterQueueText = [:]
         gapQueued = []
         gapSeedAgents = [:]
+        gapPriorQueued = []
         gapBeforeTurnID = nil
         isFillingGap = false
     }
