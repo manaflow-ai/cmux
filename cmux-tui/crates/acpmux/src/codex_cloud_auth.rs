@@ -174,11 +174,18 @@ where
 /// Whether `host` resolves within two seconds (`agent-auth.sh` treats curl's exit 6 as unreachable).
 pub async fn host_resolves(host: String) -> bool {
     let target = if host.contains(':') { host } else { format!("{host}:443") };
-    // The same reachability bound as the image's agent-auth.sh (curl exit 6).
     // timeout: a miss falls back to the person's own sign-in; it refuses no launch
     let resolve_bound = std::time::Duration::from_secs(2);
-    let lookup = tokio::time::timeout(resolve_bound, tokio::net::lookup_host(target));
-    match lookup.await {
+    lookup_reaches(tokio::net::lookup_host(target), resolve_bound).await
+}
+
+/// What one lookup of the CodeRouter host says about team mode, given `bound` to answer in.
+async fn lookup_reaches<I, F>(lookup: F, bound: std::time::Duration) -> bool
+where
+    I: Iterator<Item = std::net::SocketAddr>,
+    F: std::future::Future<Output = std::io::Result<I>>,
+{
+    match tokio::time::timeout(bound, lookup).await {
         Ok(Ok(mut addrs)) => addrs.next().is_some(),
         _ => false,
     }
@@ -400,6 +407,26 @@ mod tests {
             vars(&[("OPENAI_BASE_URL", "https://edge/v1"), ("OPENAI_API_KEY", PLACEHOLDER_KEY)]);
         apply(&mut argv, &mut env, &var, true);
         assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");
+    }
+
+    /// A slow resolver is not an unreachable plane: agent-auth.sh's curl exits 28 there, which the
+    /// script counts as team (team-unknown). Only a failed lookup or an empty answer (curl's exit 6)
+    /// is unreachable. Time is paused, so the hanging lookup costs no real wait.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_lookup_is_team_and_only_a_failed_one_is_unreachable() {
+        use std::net::{Ipv4Addr, SocketAddr};
+        use std::time::Duration;
+        let bound = Duration::from_secs(2);
+        let hang = std::future::pending::<std::io::Result<std::vec::IntoIter<SocketAddr>>>();
+        assert!(lookup_reaches(hang, bound).await, "a lookup slower than the bound must be team");
+        let found = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
+        assert!(lookup_reaches(async { Ok(vec![found].into_iter()) }, bound).await);
+        let empty = async { Ok(Vec::<SocketAddr>::new().into_iter()) };
+        assert!(!lookup_reaches(empty, bound).await);
+        let failed = async {
+            Err::<std::vec::IntoIter<SocketAddr>, _>(std::io::Error::other("no such host"))
+        };
+        assert!(!lookup_reaches(failed, bound).await);
     }
 
     #[test]
