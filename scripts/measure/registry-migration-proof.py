@@ -22,7 +22,14 @@ Arms, each on its own APFS clone of the generated state, with real owner process
   kill-swap   kill -9 while start 2 runs the swap (the staging file changes); then start, stop.
   kill-renamed  kill -9 as soon as the backup file exists (after the rename, before the start
          is complete); then start, stop.
-  space  a debug owner with a free-space margin no disk has: the rebuild is refused.
+  space  a debug owner with a free-space margin no disk has: the rebuild is refused. With
+         --space-dwell it runs on: the retention pass then deletes in place (a debug build's
+         lock times).
+  in-place  a RELEASE owner on a clone from before start 1 that starts no rebuild (this script
+         puts an empty file with the kept name beside the registry): its retention passes
+         delete sealed segments in place for --in-place-dwell seconds. The row: the registry
+         lock by site (server-stats `locks`: acquisitions and hold times) and the times of an
+         identify request each 0.5 s and a rename-workspace request each second.
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
@@ -34,8 +41,11 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          it (a list of each file with its size and SHA-256, before and after).
 After each arm: the counts of the registry (synth_registry --counts) against the counts before.
 Equal = workspaces, tabs, terminals, roster agents, History sessions; the journal head never
-goes back. Output: RMP {json} per step and a Markdown table. The report holds counts, sizes and
-times only: no paths and no row contents. A time from a loaded host is not a perf number.
+goes back. The owner's answers over the socket (history.entries.list, agent.list) are compared
+too: the count and a one-way mark (SHA-256, 16 hex digits) of the sorted ids. Output: RMP
+{json} per step and a Markdown table. The report holds counts, sizes, times, those marks and
+the source file names of lock sites only: no paths and no row contents. A time from a loaded
+host is not a perf number.
 """
 
 import argparse
@@ -196,6 +206,37 @@ def cleanup_stats(owner):
     return section
 
 
+# The lock sites of the retention pass, the cleanup and the History fold (source file names).
+LOCK_SITE_WORDS = ("journal_segment_retention", "journal_retention", "output_cleanup",
+                   "journal_maintenance", "history_ops")
+
+
+def lock_sites(owner):
+    """The registry lock of this owner since its start (server-stats `locks`): the hold
+    histogram, and by site (a source file and line, no data) the acquisitions and the hold
+    times in microseconds, for the sites of LOCK_SITE_WORDS and the 3 longest holds."""
+    request = {"id": 3, "cmd": "server-stats", "include": ["locks"]}
+    reply, _ = request_line(owner, request, 60)
+    registry = (((reply or {}).get("data") or {}).get("locks") or {}).get("registry")
+    if not isinstance(registry, dict):
+        return None
+    sites = {}
+    for name, value in registry.items():
+        if isinstance(value, list):
+            for row in value:
+                if isinstance(row, dict) and "site" in row:
+                    # The source file under src/ and the line: no path of the build host.
+                    row = {**row, "site": str(row["site"]).rsplit("/src/", 1)[-1]}
+                    sites[row["site"]] = row
+    longest = sorted(sites.values(), key=lambda row: -int(row.get("hold_max_us") or 0))[:3]
+    ours = [row for row in sites.values()
+            if any(word in str(row["site"]) for word in LOCK_SITE_WORDS)]
+    ours.sort(key=lambda row: -int(row.get("hold_max_us") or 0))
+    return {"hold_us": registry.get("hold_us"), "stalls": registry.get("stalls"),
+            "sites_seen": registry.get("sites"), "longest_holds": longest,
+            "retention_sites": ours}
+
+
 def cpu_seconds(text):
     """ps cputime: M:SS.ss (macOS), HH:MM:SS or D-HH:MM:SS (Linux)."""
     days, _, rest = text.rpartition("-")
@@ -287,51 +328,109 @@ class Sampler(threading.Thread):
 
 # history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
 HISTORY_LIST_LIMIT = 5000
+# How many times `served` asks while the History fold is not at the head (3 s apart).
+SERVED_TRIES = 100
+
+
+def ask(owner, operation, params):
+    """One request to the owner's socket: its reply. Raises OSError or ValueError."""
+    request = {"protocol": "cmux.protocol/2", "type": "request", "id": "rmp-" + operation,
+               "operation": operation, "params": params}
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(120)
+        conn.connect(owner.socket)
+        conn.sendall(json.dumps(request).encode() + b"\n")
+        data = b""
+        while b"\n" not in data:
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            data += chunk
+    return json.loads(data.split(b"\n", 1)[0])
+
+
+def digest(names):
+    """A one-way mark of a list of ids of GENERATED data: one row lost and one gained changes
+    it while the count stays. It is no content."""
+    return hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()[:16]
+
+
+def served_roster(owner):
+    """The agent roster the owner SERVES (agent.list): a count and a mark, or the error."""
+    try:
+        reply = ask(owner, "agent.list", {})
+    except (OSError, ValueError) as error:
+        return {"error": type(error).__name__}
+    if reply.get("ok") is not True:
+        return {"error": str((reply.get("error") or {}).get("code"))}
+    agents = (reply.get("result") or {}).get("agents") or []
+    names = [f"{agent.get('agent')}/{agent.get('agent_session_id')}/{agent.get('terminal_id')}"
+             for agent in agents if isinstance(agent, dict)]
+    return {"agents": len(agents), "ids_sha256": digest(names)}
 
 
 def served(owner):
     """What the owner SERVES: the agent sessions of history.entries.list (the list of the app's
-    History, vault and resume), asked over the socket. `pending` = the fold was not at the head."""
-    request = {"protocol": "cmux.protocol/2", "type": "request", "id": "rmp-history",
-               "operation": "history.entries.list",
-               "params": {"machine": "current", "session": "current", "kinds": ["agent"],
-                          "limit": HISTORY_LIST_LIMIT}}
-    for attempt in range(40):
+    History, vault and resume) and the agent roster of agent.list, asked over the socket.
+    `pending` = the History fold was not at the head after the last try."""
+    params = {"machine": "current", "session": "current", "kinds": ["agent"],
+              "limit": HISTORY_LIST_LIMIT}
+    for attempt in range(SERVED_TRIES):
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-                conn.settimeout(120)
-                conn.connect(owner.socket)
-                conn.sendall(json.dumps(request).encode() + b"\n")
-                data = b""
-                while b"\n" not in data:
-                    chunk = conn.recv(1 << 20)
-                    if not chunk:
-                        break
-                    data += chunk
-            reply = json.loads(data.split(b"\n", 1)[0])
+            reply = ask(owner, "history.entries.list", params)
         except (OSError, ValueError) as error:
             return {"error": type(error).__name__}
         if reply.get("ok") is not True:
             return {"error": str((reply.get("error") or {}).get("code"))}
         result = reply.get("result") or {}
         pending = bool(result.get("pending_kinds"))
-        if not pending or attempt == 39:
-            listed = len(result.get("entries") or [])
+        if not pending or attempt == SERVED_TRIES - 1:
+            entries = [entry for entry in result.get("entries") or [] if isinstance(entry, dict)]
+            listed = len(entries)
             # At the limit the list is one page: the count then proves only "at least".
             return {"agent_sessions": listed, "pending": pending,
-                    "one_page_only": listed >= HISTORY_LIST_LIMIT}
+                    "one_page_only": listed >= HISTORY_LIST_LIMIT,
+                    "ids_sha256": digest(str(entry.get("id")) for entry in entries),
+                    "roster": served_roster(owner)}
         time.sleep(3)
     return {"error": "no answer"}
 
 
+def served_mark(value):
+    """What must be equal between two answers of history.entries.list."""
+    return [value.get("agent_sessions"), value.get("ids_sha256")]
+
+
 def served_lost(steps):
-    """The steps whose served agent session count differs from the first step's."""
-    counts = [(step["arm"], (step.get("served") or {}).get("agent_sessions")) for step in steps
-              if "served" in step]
-    if not counts:
+    """The starts of the main arm whose served agent sessions (the count and the mark of the
+    ids) differ from start 1's. A control step before them is an older build's answer."""
+    marks = [(step["arm"], served_mark(step.get("served") or {})) for step in steps
+             if "served" in step and step["arm"].startswith("main-")]
+    if not marks:
         return {}
-    first = counts[0][1]
-    return {arm: [first, count] for arm, count in counts[1:] if count != first}
+    first = marks[0][1]
+    return {arm: [first, mark] for arm, mark in marks[1:] if mark != first}
+
+
+def head_served(steps):
+    """Each answer of the HEAD build to `served`, by a name. In a step of an older build
+    (`after_old`, or `untouched` in the raised arm) `served` and `served_after_dwell` are that
+    build's answers: only the head build's start after it counts here."""
+    found = {}
+    for step in steps:
+        arm = step["arm"]
+        if "after_old" in step:
+            if isinstance(step.get("new_after_old_served"), dict):
+                found[arm + "-then-new"] = step["new_after_old_served"]
+            continue
+        if "untouched" in step:
+            continue
+        if isinstance(step.get("served"), dict):
+            found[arm] = step["served"]
+        for key, value in step.items():
+            if isinstance(value, dict) and isinstance(value.get("served"), dict):
+                found[f"{arm}.{key}"] = value["served"]
+    return found
 
 
 def registry_of(state):
@@ -453,6 +552,7 @@ def build(args, state, label, timeout=None):
         "after_the_build": sampler.phase(result["built_s"], end),
     }
     result["cleanup_stats"] = cleanup_stats(owner)
+    result["locks"] = lock_sites(owner)
     result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
@@ -624,6 +724,14 @@ def space_arm(args, state, before, report):
     step = {"arm": "space", "ready_s": ready,
             "refused": seen is not None and seen[1] is not None,
             "staging_file": staging.exists()}
+    if step["refused"] and args.space_dwell > 0:
+        # After the refusal no rebuild can run: the retention pass deletes in place. A DEBUG
+        # owner with a pass each 0.5 s: the lock times are a debug build's, not the product's.
+        deadline = time.monotonic() + args.space_dwell
+        while time.monotonic() < deadline and owner.child.poll() is None:
+            time.sleep(1)
+        step["dwell_s"] = args.space_dwell
+        step["locks_debug_build"] = lock_sites(owner)
     step["exit"] = owner.stop()
     # This folder is a copy from before start 1. Its History fold is where the generator left
     # it, or at the head when this start folded: each of the two counts is "nothing lost".
@@ -632,6 +740,64 @@ def space_arm(args, state, before, report):
     if lost and not compare(report["before_start_1"], after):
         lost = {}
     step["lost"] = lost
+    say("RMP", step)
+    report["steps"].append(step)
+
+
+IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "records", "segments", "pruned_ranges",
+                 "retention_floor", "journal_head", "history_cursor", "roster_cursor")
+NO_REBUILD = "output cleanup: no rebuild in this start"
+
+
+def in_place_arm(args, state, before, report):
+    """The delete in place at this size, by a RELEASE owner that starts no rebuild. THIS SCRIPT
+    writes an empty file with the kept name beside the registry of a clone from before start 1:
+    the product then starts no cleanup worker (`backup_held`), and each retention pass (30 s
+    apart) deletes 8 sealed segments in place, from the oldest: the packed sparse segments and
+    the pruned ranges inside them. A person gets the same deletes when a rebuild is refused
+    (no free space: only a debug owner has that seam, the space arm). The numbers: the registry
+    lock by site, and the times of the sampler's requests (one rename-workspace each second:
+    a request that commits to the registry) from ready to the end of the dwell."""
+    sdir = registry_of(state).parent
+    (sdir / KEPT).touch()
+    start = counts(args, state)
+    owner = Owner(args, state, "in-place")
+    ready = owner.wait_ready()
+    step = {"arm": "in-place", "ready_s": ready, "load_1m": os.getloadavg()[0],
+            "dwell_s": args.in_place_dwell,
+            "before": {key: start.get(key) for key in IN_PLACE_KEYS}}
+    if ready is None:
+        step["error"] = "not ready"
+        step["exit"] = owner.stop()
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    sampler = Sampler(owner, write_every=2)
+    sampler.start()
+    deadline = time.monotonic() + args.in_place_dwell
+    while time.monotonic() < deadline and owner.child.poll() is None:
+        time.sleep(1)
+    sampler.stop()
+    step["samples"] = sampler.phase(ready, owner.elapsed())
+    step["locks"] = lock_sites(owner)
+    step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
+    # Not under the name `served`: this folder's History fold can be behind the head (the
+    # generator leaves it there), so the answer is shown and is not part of the verdict.
+    step["served_after"] = served(owner)
+    step["exit"] = owner.stop()
+    after = counts(args, state)
+    step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
+    step["segments_deleted"] = int(start.get("segments") or 0) - int(after.get("segments") or 0)
+    step["kept_name_bytes"] = after["kept_bytes"]
+    # As in the space arm: this folder is a copy from before start 1.
+    lost = compare(before, after)
+    if lost and not compare(report["before_start_1"], after):
+        lost = {}
+    step["lost"] = lost
+    if not step["no_rebuild_line"]:
+        step["error"] = "the owner did not say that it starts no rebuild"
+    elif step["segments_deleted"] <= 0:
+        step["error"] = "no segment was deleted in place in the dwell"
     say("RMP", step)
     report["steps"].append(step)
 
@@ -849,11 +1015,13 @@ def table(report):
     for key in EQUAL_KEYS:
         rows.append((f"{key} before / after the swap / final",
                      f"{before.get(key)} / {(after or {}).get(key)} / {(final or {}).get(key)}"))
+    rows.append(("start 1: the registry lock by site while it waits and builds",
+                 json.dumps(steps.get("main-start1", {}).get("locks"))))
     rows.append(("agent sessions the owner serves (history.entries.list): start 1 / 2 / 3 / 4",
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "second-swap"]
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -873,7 +1041,9 @@ def table(report):
                                "bases_equal_after_new", "roster_of_the_old_build",
                                "same_as_control", "removed_by_this_script", "before", "after",
                                "advanced", "lost_by_the_advance", "lost_after_third",
-                               "bases_after", "error")}
+                               "bases_after", "error", "dwell_s", "locks", "samples",
+                               "locks_debug_build", "no_rebuild_line", "segments_deleted",
+                               "served_after", "kept_name_bytes")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -893,7 +1063,7 @@ def main():
     parser.add_argument("--debug-bin", default="")
     parser.add_argument("--old-bin", default="")
     parser.add_argument("--arms",
-                        default="control,main,kill-stage,kill-swap,kill-renamed,space,"
+                        default="control,main,kill-stage,kill-swap,kill-renamed,space,in-place,"
                                 "second-swap,old,old-raised")
     # The longest wait for an older owner to save its own roster.
     parser.add_argument("--old-dwell", type=float, default=45)
@@ -902,6 +1072,10 @@ def main():
     parser.add_argument("--second-records", type=int, default=200000)
     parser.add_argument("--seal-age-minutes", type=int, default=120)
     parser.add_argument("--refusal-timeout", type=float, default=90)
+    # Seconds the space arm's debug owner runs on after the refusal (0: it stops at once).
+    parser.add_argument("--space-dwell", type=float, default=0)
+    # Seconds the in-place arm's owner runs after it is ready (a retention pass each 30 s).
+    parser.add_argument("--in-place-dwell", type=float, default=150)
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--build-timeout", type=float, default=7200)
     args = parser.parse_args()
@@ -940,7 +1114,7 @@ def main():
             old_arm(args, clone(args.state, scratch / name), before, report, name, binary,
                     migrated=False)
             shutil.rmtree(scratch / name)
-    for name in ("kill-stage", "space"):
+    for name in ("kill-stage", "space", "in-place"):
         if name in args.arms:
             clone(args.state, scratch / name)
     ok = main_arm(args, args.state, before, report)
@@ -951,6 +1125,9 @@ def main():
             kill_at_file_arm(args, scratch / name, before, report, name)
     if "space" in args.arms:
         space_arm(args, scratch / "space", before, report)
+    if "in-place" in args.arms:
+        in_place_arm(args, scratch / "in-place", before, report)
+        shutil.rmtree(scratch / "in-place")
     if "second-swap" in args.arms and ok:
         second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
         shutil.rmtree(scratch / "second-swap")
@@ -992,13 +1169,39 @@ def main():
     if report.get("served_lost"):
         lost.append("served")
     unread = [step["arm"] for step in report["steps"] if "error" in (step.get("served") or {})]
+    # The answers of the head build over the socket, in every arm. One that was not read, or
+    # that was read while the History fold was not at the head, proves nothing: it fails the
+    # run. One that differs from start 1 of the main arm is a loss, but for the control arms
+    # (the state before the migration) and the second-swap arm (the generator added records),
+    # which are named apart. A full page (5,000 rows) proves only "at least": it is named.
+    answers = head_served(report["steps"])
+    head_unread = sorted(arm for arm, value in answers.items() if "error" in value)
+    head_pending = sorted(arm for arm, value in answers.items() if value.get("pending"))
+    one_page = sorted(arm for arm, value in answers.items() if value.get("one_page_only"))
+    first = answers.get("main-start1") or {}
+    differs = {}
+    if first and "error" not in first:
+        differs = {arm: [served_mark(first), served_mark(value)]
+                   for arm, value in answers.items()
+                   if "error" not in value and not value.get("pending")
+                   and served_mark(value) != served_mark(first)}
+    apart = {arm: pair for arm, pair in differs.items()
+             if arm.startswith(("control-", "second-swap"))}
+    served_differs = {arm: pair for arm, pair in differs.items() if arm not in apart}
+    rosters = {arm: value.get("roster") for arm, value in answers.items() if "roster" in value}
     say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread,
+                        "head_served_not_read_in": head_unread,
+                        "head_served_with_the_fold_not_at_the_head_in": head_pending,
+                        "head_served_differs_from_start_1_in": served_differs,
+                        "head_served_differs_named_apart": apart,
+                        "head_served_one_page_only_in": one_page,
+                        "head_served_roster": rosters,
                         "raised_not_clean_in": not_clean, "control": control,
                         "an_older_build_as_the_last_writer_shows_less": shows_less,
                         "bases_changed_by_an_older_build_in": bases_changed,
                         "older_build_not_as_its_control_in": not_as_control})
-    return 1 if lost or failed or bases_changed or not ok else 0
-
+    bad = lost or failed or bases_changed or head_unread or head_pending or served_differs
+    return 1 if bad or not ok else 0
 
 if __name__ == "__main__":
     sys.exit(main())

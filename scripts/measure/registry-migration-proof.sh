@@ -3,7 +3,8 @@
 # the long-lived shape (many workspaces, agent and progress records, almost no stored output).
 #   scripts/measure/registry-migration-proof.sh [size_gb=1] [workspaces=826] [seal_age_minutes=120]
 #     [young_segments=N]
-#     [arms=control,main,kill-stage,kill-swap,kill-renamed,space,second-swap,old,old-raised]
+#     [arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,second-swap,old,old-raised]
+#     [space_dwell=0] [in_place_dwell=150]
 #     [debug=1] [old_bin=label=/abs/older/cmux-tui[,label=/abs/other/cmux-tui]] [old_dwell=45]
 #     [ready_timeout=3600] [build_timeout=7200]
 #     [state=/abs/path/of/a/generated/state/dir]
@@ -20,6 +21,11 @@
 # binaries that another host built from the same commit: this script then compiles nothing
 # (debug_bin= for the free-space arm; without it that arm is left out). session= is the session
 # name of the registry; a state= dir must hold a registry of that session.
+# The in-place arm: a release owner that starts no rebuild (this script puts an empty file with
+# the kept name beside the registry) deletes sealed segments in place for in_place_dwell=
+# seconds; the row is the registry lock by site (server-stats `locks`) and the request times.
+# space_dwell= keeps the debug owner of the space arm that long after the refusal: the same
+# deletes through the product's own no-space path, with a debug build's times.
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
 # the registry (synth_registry --shape lawrence), then runs registry-migration-proof.py: real owner
@@ -36,7 +42,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=rmp
 size_gb=1 workspaces=826 seal_age_minutes=120 young_segments= debug=1 old_bin= state=
-arms=control,main,kill-stage,kill-swap,kill-renamed,space,second-swap,old,old-raised old_dwell=45
+arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,second-swap,old,old-raised
+old_dwell=45 space_dwell=0 in_place_dwell=150
 ready_timeout=3600 build_timeout=7200
 records= sparse_head= sparse_records= rested_agents= live_rows= bin= synth= debug_bin=
 second_records=200000 second_build_timeout=1800
@@ -50,6 +57,8 @@ for kv in "$@"; do
     debug=*) debug="${kv#*=}" ;;
     old_bin=*) old_bin="${kv#*=}" ;;
     old_dwell=*) old_dwell="${kv#*=}" ;;
+    space_dwell=*) space_dwell="${kv#*=}" ;;
+    in_place_dwell=*) in_place_dwell="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
     build_timeout=*) build_timeout="${kv#*=}" ;;
     state=*) state="${kv#*=}" ;;
@@ -142,4 +151,5 @@ python3 "$root/scripts/measure/registry-migration-proof.py" \
   --ready-timeout "$ready_timeout" --build-timeout "$build_timeout" \
   --seal-age-minutes "$seal_age_minutes" --second-records "$second_records" \
   --second-build-timeout "$second_build_timeout" \
+  --space-dwell "$space_dwell" --in-place-dwell "$in_place_dwell" \
   --report "$out/report.json"
