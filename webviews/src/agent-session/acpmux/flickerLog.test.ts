@@ -90,7 +90,9 @@ test("the old host's WebKit handler still takes them, and the gallery's stand-in
   resetFlickerLogForTests();
   const gallery = page();
   (gallery as unknown as { webkit: unknown }).webkit = {
-    messageHandlers: { agentSession: { standIn: true, postMessage: async (body: { method: string }) => posted.push(body) } },
+    messageHandlers: {
+      agentSession: { standIn: true, postMessage: async (body: { method: string }) => posted.push(body) },
+    },
   };
   startFlickerLog(gallery);
   leave(gallery);
