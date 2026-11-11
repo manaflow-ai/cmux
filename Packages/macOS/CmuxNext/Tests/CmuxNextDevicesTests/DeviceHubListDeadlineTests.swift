@@ -72,7 +72,7 @@ private struct NeverConnects: DeviceHubSocketConnector {
         await hub.retryDevices()
         #expect(hub.devicesListError != nil)
         // The retry armed a fresh deadline (it cleared the timeout while its read was out).
-        #expect(clock.sleeperCount == 1)
+        try await clock.waitForSleeper()
         changes = nextChange { _ = hub.devicesListTimedOut }
         clock.advance(by: DeviceHub.devicesListDeadline)
         for await _ in changes { break }
