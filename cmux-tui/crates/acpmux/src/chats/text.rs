@@ -461,24 +461,23 @@ impl ChatText {
 
 /// Not under a lost home (`config::mark_home_lost`), as the chat index saves its own cache: the
 /// home there may be another daemon's now, and the text is user data. Under a held home the
-/// write goes through the folder this daemon locked (`config::held_home_dir`), not its path, so a
-/// home replaced after the check passed never gets the text: it lands in the folder that was
-/// moved away, or nowhere.
+/// write goes through the folder this daemon locked (`home_fs`), not its path, so a home replaced
+/// after the check passed never gets the text: it lands in the folder that was moved away, or
+/// nowhere. Whole or not at all: a synced temporary copy renamed over the file.
 fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
     let checked = crate::config::refuse_lost_home(path);
     if let Some(hook) = SAVE_CHECKED.get() {
         hook(checked.is_ok());
     }
     checked?;
-    match crate::config::held_home_dir(path) {
-        Some((home, relative)) => Ok(home.write(&relative, &serde_json::to_vec(saved)?)?),
-        None => Ok(cmux_chat_index::write_json_private(path, saved)?),
-    }
+    Ok(crate::home_fs::write_index_file(path, &serde_json::to_vec(saved)?)?)
 }
 
 /// Test seam: called on the saving thread between a save's home check and its write, with
 /// whether the check passed. `tests/lost_home_writes.rs` holds the text thread's save there
 /// while it replaces the home, so the order its race depends on is the test's, not the clock's.
+// test-hook-allow: one process per test: only tests/lost_home_writes.rs sets it, once, and its
+// isolated() runs each test in a process of its own
 #[doc(hidden)]
 pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 

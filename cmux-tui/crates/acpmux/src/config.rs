@@ -114,7 +114,13 @@ fn folder_identity(path: &Path) -> Option<(u64, u64)> {
     std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
-#[cfg(not(unix))]
+/// Windows: the folder's file id, its volume serial and file index (never a link's target).
+#[cfg(windows)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    crate::owner_only::file_id(path).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
     None
 }
@@ -165,13 +171,35 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     if !home_path_lost() && held_home_replaced(&home) {
         mark_home_lost();
     }
-    anyhow::ensure!(
-        !home_lost(),
-        "the acpmux home {} is gone; {} is not written",
-        home.display(),
-        path.display()
-    );
-    Ok(())
+    let checked = if home_lost() {
+        Err(anyhow::anyhow!(
+            "the acpmux home {} is gone; {} is not written",
+            home.display(),
+            path.display()
+        ))
+    } else {
+        Ok(())
+    };
+    #[cfg(test)]
+    if let Some(hook) = seams::CHECKED.get() {
+        hook(path, checked.is_ok());
+    }
+    checked
+}
+
+/// Test seams for the forced lost-home races (`lost_home_race_tests.rs`): each holds a writer at
+/// one point so the order its race depends on is the test's, not the clock's.
+#[cfg(test)]
+pub(crate) mod seams {
+    use std::path::Path;
+
+    /// Called on the writing thread at the end of each home check under the home, with the path
+    /// checked and whether the check passed: after the check, before the write it guards.
+    pub(crate) static CHECKED: std::sync::OnceLock<fn(&Path, bool)> = std::sync::OnceLock::new();
+
+    /// Called with a file's path once its temporary copy is written and synced, before that copy
+    /// is renamed over the file.
+    pub(crate) static BEFORE_RENAME: std::sync::OnceLock<fn(&Path)> = std::sync::OnceLock::new();
 }
 
 /// Make one acpmux state directory owner-only, including an existing directory
@@ -179,13 +207,15 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
 /// directory owned by another user before changing its permissions.
 #[cfg(unix)]
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    // Made and opened through the folder this daemon holds (`home_fs`): a home replaced after
+    // the check never gets the folder.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
     validate_private_state_ancestors(dir)?;
-    let opened = std::fs::OpenOptions::new()
+    let opened = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
@@ -209,7 +239,7 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
     }
-    let reopened = std::fs::OpenOptions::new()
+    let reopened = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
@@ -334,10 +364,9 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
 /// following a pre-positioned final symlink (daemon.lock).
 #[cfg(unix)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -354,10 +383,9 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
 /// `AlreadyExists` error, so this deliberately does not open existing files.
 #[cfg(unix)]
 pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -372,10 +400,9 @@ pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
 pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .append(true)
         .create(true)
         .mode(0o600)
@@ -2026,18 +2053,19 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     // A failed write (a full disk) leaves no partial temporary file to hold
     // the space it ran out of; every retry uses a new name.
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
 
 fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file; it lands in the folder this daemon locked, wherever it is now.
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new()
+        let mut f = crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -2049,6 +2077,7 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // On disk before the rename: a power loss never leaves an empty
         // session.json (its session id and ACP session id) behind.
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        crate::home_fs::before_rename(path);
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
     #[cfg(windows)]
@@ -2066,13 +2095,10 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    crate::home_fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
-    #[cfg(unix)]
-    if let Some(dir) = path.parent()
-        && let Ok(dir) = std::fs::File::open(dir)
-    {
-        let _ = dir.sync_all();
+    if let Some(dir) = path.parent() {
+        let _ = crate::home_fs::sync_dir(dir);
     }
     Ok(())
 }
