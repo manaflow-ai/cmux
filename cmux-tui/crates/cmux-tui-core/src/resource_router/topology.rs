@@ -267,7 +267,8 @@ fn get_resource(
         _ => None,
     }
     .ok_or_else(|| ResourceError::not_found(collection.trim_end_matches('s'), "<resolved>"))?;
-    find_snapshot(&public_session_snapshot(mux)?, collection, &id)
+    let rows = crate::resource_api::scoped_get::snapshot_holding(mux, &path, collection, &id)?;
+    find_snapshot(&rows, collection, &id)
 }
 
 fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -275,9 +276,8 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
     let neighbor = mux
         .resource_pane_neighbor_selected(&request.selectors, direction)
         .map_err(resource_operation_error)?;
-    let pane = neighbor
-        .map(|id| find_snapshot(&public_session_snapshot(mux)?, "panes", id.as_str()))
-        .transpose()?;
+    let rows = |id: &_| crate::resource_api::scoped_get::snapshot_holding_pane(mux, id);
+    let pane = neighbor.map(|id| find_snapshot(&rows(&id)?, "panes", id.as_str())).transpose()?;
     Ok(json!({"pane":pane}))
 }
 

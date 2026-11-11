@@ -362,6 +362,10 @@ impl Hub {
                 super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
+            // History a load replays says nothing about what Claude Code holds now.
+            super::native_messaging::HOLD_UPDATE if !replayed => {
+                self.note_peer_message_hold(session, update);
+            }
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "plan"
                 if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
