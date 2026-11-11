@@ -69,6 +69,20 @@ final class CEFSpareWindow {
     /// call (`CEFRuntime.browserCreated`). The page's is not a Chromium tab to adopt; any other one is,
     /// once the call returned and the page is known.
     private var createdDuringPage: [(browser: Int32, window: Int32, created: CEFCreatedBy)]?
+    /// A spare page's `tab_add` longer than this stalled the main thread: the page saves a new tab about
+    /// 12 ms (`cef.tab_add` p95 15 ms), so one that took 20 times that cost more than any take can win back.
+    static let stallBudget: Duration = .milliseconds(250)
+    /// How long no page is made ahead after one stalled (`restsUntil`).
+    static let stallRest: Duration = .seconds(30 * 60)
+    /// The clock the stall guard reads (tests move it).
+    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// Set when a spare page's `tab_add` took longer than `stallBudget`: until then no page is made ahead,
+    /// and each new tab makes its own with `tab_add` (as with the switch off). NIGHTLY eb6aad6, 2026-11-09
+    /// 00:14-00:32Z: three spare pages in one process held the main thread 7.1 s, 3.3 s and 2.6 s, each at
+    /// 1-4 % CPU, blocked on page-ins inside Chromium's new-browser setup (`chrome::AddTabAt` ...
+    /// `ColorProviderManager::GetColorProviderFor`, partition_alloc). Work cmux chooses to do ahead must
+    /// stop when the machine makes it slow, not repeat at every idle moment.
+    private(set) var restsUntil: ContinuousClock.Instant?
 
     var state: State {
         guard let host else { return made ? .taken : .none }
@@ -135,11 +149,13 @@ final class CEFSpareWindow {
               let shim = runtime.shim else { return false }
         createdDuringPage = []
         let add = { shim.tabAdd(anchor, "", -1, 0) }
+        let started = now()
         #if DEBUG || CMUX_BENCH_HOOKS
         let browser = runtime.benchMarks.span("cef.spare_page", add)
         #else
         let browser = add()
         #endif
+        let ended = now()
         let created = createdDuringPage ?? []
         createdDuringPage = nil
         // A tab Chromium made itself during the call (an extension's) goes the way of every such tab,
