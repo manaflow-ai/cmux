@@ -708,9 +708,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_testbox_demo_cleanup.sh
 
+      # -x follows each `# shellcheck source=` (repo-root relative), so a test that sources
+      # scripts/cmux-next/tests/lib/git-fixture.sh lints with it instead of failing SC1091.
       - name: Lint the Testbox lane helpers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: shellcheck -x scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1075,13 +1077,22 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
+      - name: Validate the App Store signing ensure step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_appstore_ensure_signing.py
+
       - name: Validate the INTERNAL iOS archive never waits on the dedicated mini
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
 
+      # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
+      # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
+      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_runs_on_values.py
+        run: |
+          python3 tests/test_ci_runs_on_values.py
+          python3 scripts/cmux-next/check-single-host-fallbacks.py --advisory
 
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1416,6 +1427,10 @@ jobs:
       - name: Validate the cmux.app upload marker follows the receipt
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
+
+      - name: Validate the App Review gate's lint and report
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_app_review_gate.py
 
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
@@ -2131,6 +2146,15 @@ jobs:
         run: |
           python3 scripts/lint-short-gates.py --self-test
           python3 scripts/lint-short-gates.py
+
+      # Warn-only for now (exit 0, ::warning annotations): a new connection opened without a deadline or a spawn
+      # nobody frees. --strict turns it red once the baseline is down (cmuxterm-hq docs/handbook/connections-and-lifetimes.md).
+      # In the `ci` group: every feat-cmux-next pull request and push runs it, whatever source the change touches.
+      - name: Warn on connections and lifetimes nobody bounds
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 -m unittest tests/test_lint_connection_lifetimes.py
+          python3 scripts/lint-connection-lifetimes.py
 
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

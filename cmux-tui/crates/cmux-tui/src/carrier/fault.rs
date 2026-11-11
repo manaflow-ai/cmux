@@ -189,20 +189,25 @@ pub(crate) fn parse_spec(text: &str) -> Result<FaultSpec, String> {
     }
 }
 
-/// The test accounts `scripts/ci/cloud_capture_provision.py` provisions
-/// (its `TARGETS`: capture, journey, journey-guest, production,
-/// production-team, journey-production, platform-staging, platform-production). Every one is a
-/// team-made test account on the manaflow.dev mailbox, never a person's, so
-/// any of them may drive a drill; the production probe (cmuxterm-hq
+/// The test accounts `scripts/ci/cloud_capture_provision.py` provisions in no
+/// shared team (its `TARGETS` without a `team_id`: capture, journey,
+/// journey-guest, production, journey-production, platform-staging,
+/// platform-production). Every one is a team-made test account on the
+/// manaflow.dev mailbox, never a person's, in no team a person is in, so any
+/// of them may drive a drill. (`cmux-cloud-capture` is also the only member of
+/// the provisioner's probe teams, `--probe-teams`, which it refuses to grant
+/// once anyone else is in one.) The production probe (cmuxterm-hq
 /// synthetic-probes.yml app-chat-production) signs in as
-/// `cmux-cloud-capture-prod`. A test pins this list to the provisioner's, so
-/// the two can't drift.
+/// `cmux-cloud-capture-prod`. A target with a `team_id`
+/// (`cmux-cloud-capture-prod-team`, a member of the production company team)
+/// is left out: that team's machines are its people's too, and
+/// `cloud start-chat --target vm:ID` could run a drill on one. A test pins
+/// this list to the provisioner's, so the two can't drift.
 pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
     "cmux-cloud-capture@manaflow.dev",
     "cmux-cloud-capture-journey@manaflow.dev",
     "cmux-cloud-capture-guest@manaflow.dev",
     "cmux-cloud-capture-prod@manaflow.dev",
-    "cmux-cloud-capture-prod-team@manaflow.dev",
     "cmux-cloud-capture-journey-prod@manaflow.dev",
     "cmux-cloud-capture-platform@manaflow.dev",
     "cmux-cloud-capture-platform-prod@manaflow.dev",

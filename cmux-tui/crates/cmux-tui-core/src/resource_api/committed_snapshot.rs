@@ -73,6 +73,35 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
     static ROUTE_WAIT_START_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
+    static LIVE_TERMINAL_HOOK: std::cell::RefCell<Option<LiveTerminalHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A test's hook on the live surface that a terminal builder has just taken.
+#[cfg(test)]
+pub(crate) type LiveTerminalHook = Box<dyn FnMut(&crate::Surface)>;
+
+/// `hook` runs on this thread each time the builder of the terminals has taken the live surface of a terminal,
+/// before it builds the value of that terminal (test hook: a test closes the terminal under the read at that
+/// point). `None` removes the hook.
+#[cfg(test)]
+pub(crate) fn set_live_terminal_hook_on_this_thread(hook: Option<LiveTerminalHook>) {
+    LIVE_TERMINAL_HOOK.with(|slot| *slot.borrow_mut() = hook);
+}
+
+/// Runs the hook of [`set_live_terminal_hook_on_this_thread`]. The hook is out of its slot while it runs, because
+/// a mutation that it makes can build a terminal list on this thread.
+#[cfg(test)]
+pub(super) fn run_live_terminal_hook(surface: &crate::Surface) {
+    let hook = LIVE_TERMINAL_HOOK.with(|slot| slot.borrow_mut().take());
+    let Some(mut hook) = hook else { return };
+    hook(surface);
+    LIVE_TERMINAL_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(hook);
+        }
+    });
 }
 
 /// `hook` runs on this thread each time a snapshot read here starts a wait for a mutator, before the wait (test

@@ -2328,6 +2328,10 @@ jobs:
           fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          # Go writes its module cache read-only; a clone whose acpmux build ran before
+          # tailnet-go.sh set -modcacherw still has one, and git clean cannot remove it
+          # (run 42940891027: "failed to remove .build/go-path/pkg/mod/...: Permission denied").
+          chmod -R u+w .build/go-path 2>/dev/null || true
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive

@@ -856,8 +856,10 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-/// Permission policy applied when no attached client answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Permission policy applied when no attached client answers. Read from config.json through
+/// `FromStr`: a value this build does not know (one a newer build added and saved, read after a
+/// rollback) reads as `ask` rather than failing the whole config, which stopped the daemon.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPolicy {
     /// Ask attached clients; wait without limit when none is attached.
@@ -888,6 +890,16 @@ impl std::str::FromStr for PermissionPolicy {
             "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or_else(|_| {
+            tracing::warn!("permission policy {text:?} is not one this build knows; using ask");
+            Self::Ask
+        }))
     }
 }
 
@@ -1489,6 +1501,10 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+    /// What this process last read from or wrote to the file: a save writes only what changed
+    /// since, so another writer's change is kept (`config/save_merge.rs`).
+    #[serde(skip)]
+    pub saved: save_merge::SavedBase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1810,6 +1826,8 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
+        let read = (!cfg.file_missing).then(|| cfg.on_disk_value().ok()).flatten();
+        cfg.saved = save_merge::SavedBase::new(read);
         Ok(cfg)
     }
 
@@ -1933,6 +1951,12 @@ impl Config {
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        save_merge::save_merged(path, &self.saved, self.on_disk_value()?, write)
+    }
+
+    /// The config as a save writes it: without what discovery, profile files and this run
+    /// added, with the config.json entries profile files replaced.
+    fn on_disk_value(&self) -> Result<serde_json::Value> {
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1958,7 +1982,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(serde_json::to_value(&on_disk)?)
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
@@ -2058,6 +2082,7 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod save_merge;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
@@ -2092,5 +2117,7 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+mod save_merge_tests;
 #[cfg(test)]
 mod tests;

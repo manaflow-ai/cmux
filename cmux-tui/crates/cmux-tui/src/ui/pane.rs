@@ -7,6 +7,7 @@
 //! notifications will hook in later.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
 use ghostty_vt::{ProgramStatusState, RenderState};
@@ -15,6 +16,7 @@ use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use super::{ScrollbarState, ScrollbarStyle, copy_buffer_row_cropped, thumb_geometry, truncate};
+use crate::app::synchronized_output::SYNCHRONIZED_OUTPUT_MODE;
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneContentGeneration, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::localization;
@@ -584,7 +586,12 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    let Ok(render) = surface.render_frame(rs) else {
+    // A synchronized update draws as one frame (app/synchronized_output.rs).
+    let synchronized = surface.with_terminal_mode(SYNCHRONIZED_OUTPUT_MODE).unwrap_or(false);
+    let Ok(render) =
+        app.synchronized_output
+            .frame(area.surface, synchronized, Instant::now(), || surface.render_frame(rs))
+    else {
         return DrawCursors::default();
     };
     let source_x = area.content_source_x();

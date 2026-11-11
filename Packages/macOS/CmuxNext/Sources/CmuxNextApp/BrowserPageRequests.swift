@@ -46,9 +46,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // A tab an agent-driven page opens is agent-driven from birth,
             // marked before its page exists (no rebuild on the agent's first
             // touch, no saved password filled), as its adopted pages are.
-            openers.inheritsFromOpener = { [weak self] child, opener in
-                guard let services = self?.services, let tab = services.locateTab(surface: opener),
-                      services.cache.agentDrivenTabs.contains(tab.id) else { return }
+            openers.inheritsFromOpener = { [weak self] child, opener, foreground in
+                guard let services = self?.services, let tab = services.locateTab(surface: opener) else { return }
+                if let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1, services.locateTab(model: tab)?.1.id == pane.id { services.paneController(for: pane)?.state?.selection.closeRule.made(made.id, from: tab.id, in: pane.id, foreground: foreground) } // a link's tab in its opener's pane: a task opener
+                guard services.cache.agentDrivenTabs.contains(tab.id) else { return }
                 services.cache.markAgentDriven(surface: child)
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
                     services.cache.markAgentDriven(key)
@@ -268,15 +269,16 @@ final class BrowserPageRequests: BrowserTabDelegate {
         chrome.onTypedCommit = { [weak self, weak page] in
             guard let self, let page else { return }
             openers.typedNavigation(onNewTabPageAtEnd: isNewTabPageAtEnd(page))
+            if let (key, pane) = home(of: page) { services?.paneController(for: pane)?.state?.selection.closeRule.typedNavigation(in: key, pane: pane.id) }
         }
     }
 
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
-        guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
-              let (_, pane) = services.locateTabOnAnyMachine(key) else { return false }
+        guard BrowserNewTabPage.isNewTabPage(page.state.url), let (key, pane) = home(of: page) else { return false }
         return pane.tabs.last?.id == key
     }
+    private func home(of page: any BrowserTab) -> (String, PaneModel)? { services.flatMap { services in services.cache.key(of: page).flatMap { key in services.locateTabOnAnyMachine(key).map { (key, $0.1) } } } } // `page`'s tab key and the pane that lists it: the one lookup of both typed-navigation rules
 
     /// The omnibar's modified commit (Cmd-Return, Shift-Cmd-Return,
     /// Option-Return, Shift-Return, a modified suggestion click) takes the

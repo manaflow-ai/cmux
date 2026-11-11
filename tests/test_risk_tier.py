@@ -10,6 +10,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("risk_tier", ROOT / "scripts/ci/risk_tier.py")
@@ -811,6 +818,41 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.unowned_takebacks("", None), [])
         self.assertTrue(risk.missing_evidence("high", blocked=True))
         self.assertEqual(risk.unowned_takebacks("", []), [])
+
+    def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
+        """cmux#41154, a revert of #41113: merge_hold quoted only the check's error annotation, which said "the job
+        summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
+        line itself, its PR number filled in."""
+        self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
+                                                     "add a line `Takes back #41113: <why>`")
+        self.assertIn("`Takes back #1: <why>` and `Takes back #2: <why>`", risk.takeback_fix([1, 2]))
+
+        def run(body):
+            saved = risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of
+            risk.gh_json = lambda *args: {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": body,
+                                          "labels": [], "user": {"login": "a"}}
+            risk.gh_items = lambda endpoint: ([{"filename": "scripts/ci/base_red_excuse.py", "patch": "@@ -1 +1 @@\n-a\n+b"}]
+                                              if "/files" in endpoint else [])
+            risk.recent_reverts = lambda *args, **kwargs: {41113: ["scripts/ci/base_red_excuse.py"]}
+            risk.merge_base_of = lambda *args: "c" * 40
+            try:
+                with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                    out = Path(tmp) / "out"
+                    risk.main(["pr", "--repo", "o/r", "--number", "41154", "--github-output", str(out),
+                               "--repo-dir", tmp])
+                    return out.read_text()
+            finally:
+                risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of = saved
+        out = run("Reverts #41113.")
+        self.assertIn("takes_back=true", out)
+        self.assertIn("takes_back_fix=If the base is stale, merge it and push; if it's on purpose, add a line "
+                      "`Takes back #41113: <why>`\n", out)
+        out = run("Takes back #41113: its rule reached base before its purpose split")
+        self.assertIn("takes_back=false", out)
+        self.assertIn("takes_back_fix=\n", out)
+        held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
+        self.assertIn("TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}", held)
+        self.assertIn('echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"', held)
 
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}

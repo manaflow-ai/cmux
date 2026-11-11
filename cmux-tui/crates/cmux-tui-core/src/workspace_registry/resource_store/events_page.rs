@@ -25,29 +25,30 @@ pub(crate) fn query_resource_events_after(
             "cursor.invalid: revision {revision} is ahead of current revision {head_revision}"
         );
     }
-    let oldest_revision = connection
-        .query_row(
-            "SELECT MIN(resource_revision) FROM journal_event_index
-             WHERE resource_revision IS NOT NULL",
-            [],
-            |row| row.get::<_, Option<i64>>(0),
-        )?
-        .map(|revision| {
-            u64::try_from(revision).context("stored resource event revision is negative")
-        })
-        .transpose()?;
-    if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
-        || (oldest_revision.is_none() && revision < head_revision)
-    {
-        anyhow::bail!(
-            "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
-        );
-    }
-    // A wake for a commit with no resource event (terminal output) reads
-    // nothing more.
+    // A wake for a commit with no resource event (an agent hook, a
+    // terminal's journal record) reads nothing more: a cursor at the head
+    // has no gap, because the oldest retained revision is never past it.
     let indexed = if revision == head_revision {
         Vec::new()
     } else {
+        let oldest_revision = connection
+            .query_row(
+                "SELECT MIN(resource_revision) FROM journal_event_index
+                 WHERE resource_revision IS NOT NULL",
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(|revision| {
+                u64::try_from(revision).context("stored resource event revision is negative")
+            })
+            .transpose()?;
+        if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
+            || oldest_revision.is_none()
+        {
+            anyhow::bail!(
+                "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
+            );
+        }
         let mut statement = connection.prepare(
             "SELECT resource_revision, sequence FROM journal_event_index
              WHERE resource_revision > ?1
@@ -107,10 +108,5 @@ pub(crate) fn query_resource_events_after(
         });
         expected_revision = expected_revision.saturating_add(1);
     }
-    Ok(ResourceEventPage {
-        generation: generation.to_owned(),
-        head_revision,
-        oldest_revision,
-        batches,
-    })
+    Ok(ResourceEventPage { generation: generation.to_owned(), head_revision, batches })
 }

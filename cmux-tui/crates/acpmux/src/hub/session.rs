@@ -237,6 +237,9 @@ pub struct Session {
     pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
+    /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
+    pub(super) closed: tokio::sync::watch::Sender<bool>,
     pub(super) steering: AtomicBool,
     /// Ctrl-B moves its work: decided by the harness kind it last started as
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
@@ -436,6 +439,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The other sessions' messages its Claude Code holds now, oldest first
+    /// (`native_messaging.rs`): in memory only.
+    pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
     /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
