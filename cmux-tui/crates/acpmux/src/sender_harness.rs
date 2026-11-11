@@ -591,9 +591,28 @@ fn signer(path: &str) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let out =
-        std::process::Command::new("codesign").args(["-dv", "--verbose=2", path]).output().ok()?;
-    parse_signer(&String::from_utf8_lossy(&out.stderr))
+    static SIGNERS: std::sync::OnceLock<Signers> = std::sync::OnceLock::new();
+    SIGNERS.get_or_init(Signers::default).signer(path, run_codesign)
+}
+
+/// `codesign -dv` on one bundle: what it writes to stderr, empty when it cannot run.
+fn run_codesign(path: &str) -> String {
+    std::process::Command::new("codesign")
+        .args(["-dv", "--verbose=2", path])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stderr).into_owned())
+        .unwrap_or_default()
+}
+
+/// Who signed each app bundle the daemon has looked at.
+#[derive(Default)]
+struct Signers {}
+
+impl Signers {
+    /// Who signed the bundle at `path`, by `run` (`codesign -dv`'s stderr).
+    fn signer(&self, path: &str, run: impl FnOnce(&str) -> String) -> Option<String> {
+        parse_signer(&run(path))
+    }
 }
 
 fn parse_signer(codesign: &str) -> Option<String> {
