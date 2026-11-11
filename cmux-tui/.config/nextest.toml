@@ -125,6 +125,7 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
 success-output = "final"
+slow-timeout = { period = "300s", terminate-after = 4, grace-period = "5s" }
 
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
 # NETDROP lines on stdout; a fleet step shows them only when a passing test's

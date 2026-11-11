@@ -110,6 +110,21 @@ pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
     result
 }
 
+#[cfg(test)]
+thread_local! {
+    static ALL_WORKSPACE_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `body` with each created view stating every workspace on this thread, as it did before
+/// `WorkspaceRows::Added`: the "before" arm of a measure on a branch that does not land.
+#[cfg(test)]
+pub(crate) fn with_all_workspace_rows<R>(body: impl FnOnce() -> R) -> R {
+    ALL_WORKSPACE_ROWS.with(|all| all.set(true));
+    let result = body();
+    ALL_WORKSPACE_ROWS.with(|all| all.set(false));
+    result
+}
+
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
 fn crosscheck_enabled() -> bool {
@@ -408,6 +423,10 @@ pub(super) fn check_scope_containment(
 /// walk states every workspace against the whole frame, as it did before: that writes the row
 /// that is absent and tombstones the one that is lost.
 fn created_view_rows(registry: &WorkspaceRegistry, state: &State) -> anyhow::Result<WorkspaceRows> {
+    #[cfg(test)]
+    if ALL_WORKSPACE_ROWS.with(std::cell::Cell::get) {
+        return Ok(WorkspaceRows::All);
+    }
     let mut first = state.workspaces.len();
     for workspace in state.workspaces.iter().rev() {
         if registry.workspace_row_is_live(&workspace.public_id)? {

@@ -644,3 +644,262 @@ fn the_locks_of_a_persons_request_are_free_while_the_journal_writer_commits_a_cr
         failed.join("\n")
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// THE NUMBER: how long one create holds the registry lock and the state lock. A measure on a
+// branch that does not land. It asserts nothing about a time.
+//
+// The registry is a FILE of more than 1 GB: `synth_registry::generate` writes
+// `BIG_FILE_PUTS` `personal.session.put` journal rows of about 6 KiB first (the shape of the
+// journal of a long-lived owner), then the session of 60 or 826 workspaces is made in it.
+//
+// Two arms in ONE process and ONE session, in the order A B B A: "after" is the code of this
+// branch; "before" runs the same create with `with_all_workspace_rows`, which makes the created
+// view state every workspace, as it did before `WorkspaceRows::Added`. Each round makes one
+// new workspace, then one split and one new tab in the pane of that workspace, so the session
+// grows by one workspace for each round (both arms see the same sizes).
+//
+// The hold of one create = the growth of the total hold time of the lock, over every site,
+// from before the call to after it (`LockStats`, the record that `server-stats` gives). A hold
+// by another thread in that time is in the number too.
+// ---------------------------------------------------------------------------------------------
+
+/// Creates of each kind in each arm at each size.
+const TIMED_CREATES: usize = 32;
+
+/// Journal rows of about 6 KiB that the generator writes before the session is made.
+const BIG_FILE_PUTS: u64 = 180_000;
+
+/// What one create held and took, in microseconds.
+#[derive(Debug, Clone, Default)]
+struct Timed {
+    registry_us: u64,
+    /// The largest growth at one site of the registry lock, and that site.
+    registry_site_us: u64,
+    registry_site: String,
+    state_us: u64,
+    wall_us: u64,
+}
+
+type SiteTotals = HashMap<String, u64>;
+
+fn site_totals(stats: &crate::diagnostics::LockStats) -> SiteTotals {
+    stats.site_holds_for_test().into_iter().map(|(site, _, total)| (site, total)).collect()
+}
+
+/// The growth of the total hold from `before` to `after`, and the site that grew most.
+fn hold_growth(before: &SiteTotals, after: &SiteTotals) -> (u64, u64, String) {
+    let mut sum = 0_u64;
+    let mut top = (0_u64, String::new());
+    for (site, total) in after {
+        let grown = total.saturating_sub(before.get(site).copied().unwrap_or(0));
+        sum += grown;
+        if grown > top.0 {
+            top = (grown, site.clone());
+        }
+    }
+    (sum, top.0, top.1)
+}
+
+fn timed_create(mux: &Arc<Mux>, create: impl FnOnce() -> Arc<Surface>) -> (Timed, Arc<Surface>) {
+    let registry_before = site_totals(mux.workspace_registry.stats());
+    let state_before = site_totals(mux.state.stats());
+    let started = Instant::now();
+    let surface = without_crosscheck(create);
+    let wall = started.elapsed();
+    let registry_after = site_totals(mux.workspace_registry.stats());
+    let state_after = site_totals(mux.state.stats());
+    let (registry_us, registry_site_us, registry_site) =
+        hold_growth(&registry_before, &registry_after);
+    let (state_us, _, _) = hold_growth(&state_before, &state_after);
+    let timed = Timed {
+        registry_us,
+        registry_site_us,
+        registry_site,
+        state_us,
+        wall_us: u64::try_from(wall.as_micros()).unwrap_or(u64::MAX),
+    };
+    (timed, surface)
+}
+
+fn in_arm<R>(before: bool, body: impl FnOnce() -> R) -> R {
+    if before { crate::mux::resource_content::with_all_workspace_rows(body) } else { body() }
+}
+
+/// The value at `percent` of `values` (nearest rank), in milliseconds.
+fn percentile_ms(values: &[u64], percent: usize) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let rank = (sorted.len() * percent).div_ceil(100).clamp(1, sorted.len());
+    sorted[rank - 1] as f64 / 1000.0
+}
+
+fn distribution(values: &[u64]) -> String {
+    format!(
+        "p50 {:.3} p95 {:.3} p99 {:.3} max {:.3} ms",
+        percentile_ms(values, 50),
+        percentile_ms(values, 95),
+        percentile_ms(values, 99),
+        percentile_ms(values, 100)
+    )
+}
+
+fn host_load() -> String {
+    std::process::Command::new("uptime")
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_else(|| "uptime did not run".to_owned())
+}
+
+fn file_bytes(path: &Path) -> u64 {
+    std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
+}
+
+/// [`file_session`] in a registry file that the generator made larger than 1 GB first.
+fn big_file_session(workspaces: usize) -> (FileSession, PathBuf) {
+    let name = "create-commit-time";
+    let root = std::env::var_os("CMUX_CREATE_TIME_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(format!(
+            "cmux-create-commit-time-{workspaces}-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+    let started = Instant::now();
+    let report = crate::synth_registry::generate(
+        &root,
+        &crate::synth_registry::SynthOptions {
+            session: name.into(),
+            session_puts: BIG_FILE_PUTS,
+            agent_events: 400,
+            workspaces: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    eprintln!(
+        "lock hold: generated a registry file of {} bytes ({} journal rows) in {:.1} s",
+        report.registry_bytes,
+        report.session_puts + report.agent_events,
+        started.elapsed().as_secs_f64()
+    );
+    let registry_path = report.registry_path.clone();
+    let mux = open_persistent_test_mux(name, &root);
+    assert!(mux.disk_usage_stats().is_some(), "the registry of this session is not a file");
+    assert!(mux.journal_writer_stats().is_some(), "this session has no journal writer thread");
+    let before = mux.with_state(|state| state.workspaces.len());
+    let (mux, target) = without_crosscheck(|| {
+        let mux = session_in(mux, workspaces - 1 - before.min(workspaces - 1));
+        let target = mux.new_workspace(Some("target".into()), Some((80, 24))).unwrap();
+        (mux, target)
+    });
+    assert!(
+        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
+        "the public fold is not seeded: the creates of this measure would run the full projection"
+    );
+    (FileSession { mux, root, target }, registry_path)
+}
+
+fn time_creates(workspaces: usize) {
+    let (session, registry_path) = big_file_session(workspaces);
+    let mux = session.mux.clone();
+    let wal_path = PathBuf::from(format!("{}-wal", registry_path.display()));
+    let live_at_start = mux.with_state(|state| state.workspaces.len());
+    eprintln!(
+        "lock hold at {workspaces}: {live_at_start} live workspaces at the start, registry file \
+         {} bytes, WAL {} bytes, host: {}",
+        file_bytes(&registry_path),
+        file_bytes(&wal_path),
+        host_load()
+    );
+    let mut rows = BTreeMap::<(&'static str, &'static str), Vec<Timed>>::new();
+    let mut created = Vec::new();
+    // Rounds 0 and 1 are one warm round for each arm and are not kept.
+    for round in 0..(2 * TIMED_CREATES + 2) {
+        let before = !matches!(round % 4, 0 | 3);
+        let arm = if before { "before" } else { "after" };
+        let (workspace, workspace_surface) = timed_create(&mux, || {
+            in_arm(before, || {
+                mux.new_workspace(Some(format!("timed {round}")), Some((80, 24))).unwrap()
+            })
+        });
+        let pane = mux.with_state(|state| state.pane_of(workspace_surface.id).unwrap());
+        let (split, split_surface) = timed_create(&mux, || {
+            in_arm(before, || mux.split(pane, SplitDir::Down, None).unwrap())
+        });
+        let (tab, tab_surface) = timed_create(&mux, || {
+            in_arm(before, || mux.new_tab(Some(pane), None, Some((80, 24))).unwrap())
+        });
+        created.extend([workspace_surface, split_surface, tab_surface]);
+        if round >= 2 {
+            rows.entry(("new workspace", arm)).or_default().push(workspace);
+            rows.entry(("split", arm)).or_default().push(split);
+            rows.entry(("new tab", arm)).or_default().push(tab);
+        }
+    }
+    let live_at_end = mux.with_state(|state| state.workspaces.len());
+    for ((kind, arm), timed) in &rows {
+        let of = |pick: fn(&Timed) -> u64| timed.iter().map(pick).collect::<Vec<_>>();
+        let mut sites = BTreeMap::<&str, usize>::new();
+        for one in timed {
+            *sites.entry(one.registry_site.as_str()).or_default() += 1;
+        }
+        let site = sites.iter().max_by_key(|(_, count)| **count).map(|(site, _)| *site);
+        eprintln!(
+            "lock hold at {workspaces} ({live_at_start} to {live_at_end} workspaces), {kind}, \
+             {arm}, n {}: registry lock, every site: {}; registry lock, the site that held \
+             longest ({}): {}; state lock, every site: {}; the call: {}",
+            timed.len(),
+            distribution(&of(|one| one.registry_us)),
+            site.unwrap_or("none"),
+            distribution(&of(|one| one.registry_site_us)),
+            distribution(&of(|one| one.state_us)),
+            distribution(&of(|one| one.wall_us)),
+        );
+    }
+    for kind in ["new workspace", "split", "new tab"] {
+        let median = |arm: &'static str| {
+            let values = rows
+                .get(&(kind, arm))
+                .map(|timed| timed.iter().map(|one| one.registry_us).collect::<Vec<_>>())
+                .unwrap_or_default();
+            (percentile_ms(&values, 50), percentile_ms(&values, 95))
+        };
+        let (before, after) = (median("before"), median("after"));
+        eprintln!(
+            "lock hold at {workspaces}, {kind}: registry lock hold before / after = {:.2} at \
+             p50 ({:.3} / {:.3} ms), {:.2} at p95 ({:.3} / {:.3} ms)",
+            before.0 / after.0.max(0.001),
+            before.0,
+            after.0,
+            before.1 / after.1.max(0.001),
+            before.1,
+            after.1
+        );
+    }
+    eprintln!(
+        "lock hold at {workspaces}: registry file {} bytes, WAL {} bytes at the end, host: {}",
+        file_bytes(&registry_path),
+        file_bytes(&wal_path),
+        host_load()
+    );
+    drop(mux);
+    session.end(created);
+}
+
+#[test]
+fn the_lock_hold_of_one_create_is_printed() {
+    eprintln!(
+        "lock hold: an in-process create in a test build (debug assertions {}), the debug \
+         cross-check off; not the reply time of a release daemon. {TIMED_CREATES} creates of each \
+         kind in each arm; arms in the order A B B A in one session.",
+        if cfg!(debug_assertions) { "on" } else { "off" }
+    );
+    for workspaces in [60, 826] {
+        time_creates(workspaces);
+    }
+}

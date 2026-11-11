@@ -397,6 +397,17 @@ impl LockStats {
         }
     }
 
+    /// Each site's label, acquisitions and total hold in microseconds (a measure in a test).
+    #[cfg(test)]
+    pub(crate) fn site_holds_for_test(&self) -> Vec<(String, u64, u64)> {
+        self.sites
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (site_label(*site), stats.acquisitions, stats.hold_total_us))
+            .collect()
+    }
+
     pub fn snapshot(&self) -> LockStatsSnapshot {
         let holder = self.holder_snapshot();
         let last_stall = self.last_stall_snapshot();
