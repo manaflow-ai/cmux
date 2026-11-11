@@ -115,6 +115,19 @@ _PROBE = ("config", "--list", "--show-scope", "--show-origin", "--name-only", "-
 _PROBE_GIT = shutil.which("git")
 
 
+_GLOBAL_INPUTS = ("HOME", "XDG_CONFIG_HOME")
+
+
+def _absolute_inputs(env: Mapping[str, str]) -> dict[str, str]:
+    """env's HOME and XDG_CONFIG_HOME (those set and non-empty), each made absolute against this process's cwd.
+
+    Plain git resolves a relative one against the cwd it runs in, but an [include] path in the fixture file
+    resolves against that file's private folder, so a relative path written there names nothing (Codex on
+    cmux#40939 at d4422bca).
+    """
+    return {key: os.path.abspath(env[key]) for key in _GLOBAL_INPUTS if env.get(key)}
+
+
 def global_config_files(env: Mapping[str, str]) -> list[str]:
     """The global config files plain git reads under env, in the order it reads them (the last one wins).
 
@@ -123,10 +136,14 @@ def global_config_files(env: Mapping[str, str]) -> list[str]:
     ones, in order, are $XDG_CONFIG_HOME/git/config (~/.config/git/config when it is unset) and then
     ~/.gitconfig. Their own include and includeIf lines are left to git through the [include] of each file. A
     file that is missing or holds no key adds nothing either way; when git cannot answer, the list is empty.
+    A relative HOME or XDG_CONFIG_HOME counts from this process's cwd, as for plain git run here; every path
+    returned is absolute.
     """
     if _PROBE_GIT is None:
         return []
     probe = {key: value for key, value in env.items() if not key.startswith("GIT_")}
+    # The probe runs in / (outside any repository), so hand it the caller's cwd-relative inputs made absolute.
+    probe.update(_absolute_inputs(env))
     try:
         result = subprocess.run((_PROBE_GIT, *_PROBE), env=probe, cwd=os.sep, capture_output=True,
                                 stdin=subprocess.DEVNULL, timeout=30)
@@ -140,7 +157,7 @@ def global_config_files(env: Mapping[str, str]) -> list[str]:
     for index in range(0, len(fields) - 2, 3):
         scope, origin = fields[index], fields[index + 1]
         if scope == b"global" and origin.startswith(b"file:"):
-            path = os.fsdecode(origin[len(b"file:"):])
+            path = os.path.abspath(os.fsdecode(origin[len(b"file:"):]))
             if path not in files:
                 files.append(path)
     return files
@@ -177,7 +194,7 @@ def _config_file(text: str) -> str:
     return path
 
 
-_LOADED_INPUTS = {key: os.environ.get(key) for key in ("HOME", "XDG_CONFIG_HOME")}
+_LOADED_INPUTS = _absolute_inputs(os.environ)
 GLOBAL_CONFIG = global_config_for(os.environ) if __name__ != "__main__" else ""
 
 
@@ -188,7 +205,7 @@ def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     if "GIT_CONFIG_GLOBAL" not in result:
         # This env's own global files (its HOME and XDG_CONFIG_HOME), as git reads them; the one made at load
         # when those match, so most calls cost no probe.
-        same = all(result.get(key) == value for key, value in _LOADED_INPUTS.items())
+        same = _absolute_inputs(result) == _LOADED_INPUTS
         result["GIT_CONFIG_GLOBAL"] = GLOBAL_CONFIG if same and GLOBAL_CONFIG else global_config_for(result)
     return result
 
