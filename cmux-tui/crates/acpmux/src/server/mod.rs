@@ -1740,6 +1740,9 @@ async fn serve_connection_from(
                         hub.settle_caller(id, token).await;
                     }
                 }
+                // The host's sender token (`sender_token.rs`) leaves the request here, before
+                // anything reads, stores, logs or forwards it; only a send's checks see it.
+                let sender_token = params.as_mut().and_then(crate::sender_token::take);
                 conn.bind_person(&hub, &m, &mut params);
                 if m == method::INITIALIZE {
                     requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
@@ -1770,7 +1773,9 @@ async fn serve_connection_from(
                             return;
                         }
                     };
-                    let route = || chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
+                    let route = || {
+                        chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
+                    };
                     let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
