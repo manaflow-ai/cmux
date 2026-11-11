@@ -113,10 +113,9 @@ public nonisolated final class CloseSelection<ID: Hashable> {
     }
 
     /// The tab a pane selects after `selected` closed. `old` is the strip before the close,
-    /// `surviving` the tabs left, `shown` the surviving tabs that are not hidden. No group map is
-    /// passed (decision 2026-11-10, Chrome 156 as observed: the next tab, whatever its group).
-    /// Call it before `left` for the closed tabs.
-    public func tab(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>) -> ID? {
+    /// `surviving` the tabs left, `shown` the surviving tabs that are not hidden, `groups` each grouped
+    /// tab's group (the closed tab's too). Call it before `left` for the closed tabs.
+    public func tab(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>, groups: [ID: String] = [:]) -> ID? {
         var map = CallNumbers(known: numbers, next: next)
         let selected = selected.map { map.number($0) } ?? UInt32.max
         let old = old.map { map.number($0) }
