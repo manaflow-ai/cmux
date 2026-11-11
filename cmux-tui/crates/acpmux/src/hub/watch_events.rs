@@ -127,7 +127,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             // The page holds only the kinds read below: the records it passed over (a prompt
             // and its images, tool output) are read all the same, so the cursor moves past
             // them and the next page never asks for them again.
-            through = page["pageThrough"].as_u64();
+            through = page.get("pageThrough").and_then(Value::as_u64);
             events
         } else {
             Vec::new()

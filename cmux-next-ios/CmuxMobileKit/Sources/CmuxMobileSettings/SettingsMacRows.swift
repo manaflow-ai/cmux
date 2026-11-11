@@ -1,5 +1,4 @@
 #if os(iOS)
-import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxSpinner
 import OSLog
@@ -82,9 +81,6 @@ enum PhoneLogs {
         } catch {
             lines.append(String(localized: "The log could not be read: \(error.localizedDescription)"))
         }
-        lines += ["", "Connectivity journal (\(ConnectivityTelemetry.shared.audience.rawValue)):"]
-        let journal = ConnectivityJournal.applicationSupport().contents().split(separator: "\n").suffix(limit)
-        lines += journal.isEmpty ? ["(empty)"] : journal.map(String.init)
         return lines.joined(separator: "\n")
     }
 }
