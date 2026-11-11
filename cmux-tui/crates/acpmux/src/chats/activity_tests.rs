@@ -271,7 +271,12 @@ fn activity_cache_follows_live_status_transitions() {
 
 #[test]
 fn activity_batch_does_not_keep_expired_parent_relationship() {
-    let expires = crate::store::now_ms() + 50;
+    // The tag's life is moved past on this thread's test clock, not waited out: a 50 ms life on
+    // the wall clock ran out before the first read on a loaded runner, so the parent the test
+    // checks first was already gone.
+    use crate::store::test_clock;
+    const LIFE_MS: u64 = 60 * 60 * 1_000;
+    let expires = crate::store::now_ms() + LIFE_MS;
     let hub = make_hub(vec![
         row("root", json!({})),
         row("child", json!({"tags": {"spawnedBy": {"value": "root", "expires_at": expires}}})),
@@ -283,12 +288,11 @@ fn activity_batch_does_not_keep_expired_parent_relationship() {
         chat
     };
     assert_eq!(decorate(&hub)["parent"], "claude-code:root");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while crate::store::now_ms() < expires {
-        assert!(std::time::Instant::now() < deadline, "tag expiry did not advance");
-        std::thread::yield_now();
-    }
-    assert_eq!(decorate(&hub)["parent"], Value::Null);
+    test_clock::advance(LIFE_MS);
+    assert!(crate::store::now_ms() >= expires);
+    let parent = decorate(&hub)["parent"].clone();
+    test_clock::reset();
+    assert_eq!(parent, Value::Null);
 }
 
 #[test]
