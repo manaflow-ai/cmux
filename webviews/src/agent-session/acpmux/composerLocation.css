@@ -480,14 +480,25 @@
   width: var(--acpmux-composer-chevron);
   height: var(--acpmux-composer-chevron);
 }
-/* A leading glyph that changed size keeps its old box's center, so the icon column (+, the mode's
-   shield, the folder) stays where it was: the shield drew 18 px, a location icon 14 px. The margins
-   take up the difference on each side (test/newtab-icon-column.test.ts, composer-alignment-centers). */
+/* A leading glyph that changed size stays on the column it stood on. The mode's shield drew 18 px:
+   it keeps that box's center, under + (composer-alignment-centers.test.ts). The margins take up the
+   difference on each side, so its label does not move. */
 :is(.acpmux-composer, .nt-composer) .acpmux-access-trigger > .acpmux-icon:first-child {
-  margin-inline: calc((18px * var(--acpmux-density) - var(--acpmux-composer-glyph)) / 2);
+  margin-inline: var(--acpmux-shield-room);
 }
-:is(.acpmux-composer, .nt-composer) :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
-  margin-inline: calc((14px * var(--acpmux-density) - var(--acpmux-composer-glyph)) / 2);
+/* New Tab's folder icon drew 14 px. On the default strip it centers on + and the shield (the icon
+   column, test/newtab-icon-column.test.ts): it keeps the 14 px box's center, and the project badge
+   centers there too. On a top strip variant its ink starts on the + glyph's edge
+   (composer-top-strip-variants.test.ts), and New Tab's + went from 18 px to 16, so that edge moved
+   1 px in: the icon moves with it. The chat's + kept 16 px, so the chat's folder keeps its place. */
+:root:not([data-top-strip]) .nt-composer :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
+  margin-inline: var(--acpmux-location-room);
+}
+:root:not([data-top-strip]) .nt-composer .acpmux-location-button {
+  --acpmux-location-icon-center: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing) + var(--acpmux-location-box) / 2);
+}
+:root[data-top-strip] .nt-composer :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
+  margin-inline: var(--acpmux-shield-room) calc(-1 * var(--acpmux-shield-room));
 }
 /* The location strip (folder, computer, environment, branch) is the composer's chrome too: the same
    glyph, the chips' text size, and a height on the density. */
@@ -1453,6 +1464,12 @@
      one smaller step. */
   --acpmux-composer-glyph: calc(16px * var(--acpmux-density));
   --acpmux-composer-chevron: calc(12px * var(--acpmux-density));
+  /* The boxes two leading glyphs drew in before the one glyph size, and half of what each differs
+     from it: the shield's 18 px and New Tab's + (18), a location icon's 14 (the column rules below). */
+  --acpmux-shield-box: calc(18px * var(--acpmux-density));
+  --acpmux-location-box: calc(14px * var(--acpmux-density));
+  --acpmux-shield-room: calc((var(--acpmux-shield-box) - var(--acpmux-composer-glyph)) / 2);
+  --acpmux-location-room: calc((var(--acpmux-location-box) - var(--acpmux-composer-glyph)) / 2);
   /* The trailing glyphs (Send's ↵ or ↑, Stop's square, the mic) take the same glyph, with Claude Code
      desktop's 1.5 px line (in the 16 grid's units, so 1.5 at 16 px). */
   --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);

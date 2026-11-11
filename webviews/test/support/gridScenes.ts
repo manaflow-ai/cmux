@@ -205,7 +205,13 @@ export const gridScenes: GridScene[] = [
     ),
     // The context ring stands half a base step before the model button (composerLocation.css
     // --acpmux-ring-gap), so the row ends on the model button's effort.
-    from("ring: before the model", ".acpmux-model .acpmux-picker-button", "left", point(".acpmux-context-ring", "right"), "calc(var(--grid-base) / 2)"),
+    from(
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
+    ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
@@ -222,7 +228,13 @@ export const gridScenes: GridScene[] = [
     ),
     // The context ring stands half a base step before the model button (composerLocation.css
     // --acpmux-ring-gap), so the row ends on the model button's effort.
-    from("ring: before the model", ".acpmux-model .acpmux-picker-button", "left", point(".acpmux-context-ring", "right"), "calc(var(--grid-base) / 2)"),
+    from(
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
+    ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),

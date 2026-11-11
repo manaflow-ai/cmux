@@ -228,7 +228,9 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         // ends on the effort. The chat has its ring; the New Tab page has no chat yet, so no ring.
         expect(Boolean(at.ring), "the chat's quiet row draws the context ring").toBe(stage.plus);
         if (at.ring)
-          expect(at.ring.right, "the ring comes before the model button").toBeLessThanOrEqual(at.modelButton!.left + 0.5);
+          expect(at.ring.right, "the ring comes before the model button").toBeLessThanOrEqual(
+            at.modelButton!.left + 0.5,
+          );
       });
 
     for (const stage of COMPOSERS)
