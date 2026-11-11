@@ -24,6 +24,7 @@ import {
 import type { AcpmuxActivity, AcpmuxSnapshot } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -519,4 +520,6 @@ export default agentPaneEntry({
       snapshot: peerLines(),
     },
   },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: { definition: backgroundTurnLook, script: [] },
 });

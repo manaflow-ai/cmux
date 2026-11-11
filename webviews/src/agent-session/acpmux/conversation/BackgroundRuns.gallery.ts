@@ -7,6 +7,7 @@ import { activity, assistant, chat, row, summary, tool, user } from "../../../ga
 import type { AcpmuxRow } from "../model";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 
 const quiet = (id: string, minutes: number): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
@@ -125,4 +126,6 @@ export default agentPaneEntry({
       snapshot: chat([...opening, quiet("gallery-one", 10), ...dot("gallery-one", 10)]),
     },
   },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: { definition: backgroundTurnLook, script: [] },
 });

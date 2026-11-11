@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 
 /// The turn every variant starts with: a prompt, the reply and its footer row.
 const opening = [
@@ -177,4 +178,6 @@ export default agentPaneEntry({
       ]),
     },
   },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: { definition: backgroundTurnLook, script: [] },
 });

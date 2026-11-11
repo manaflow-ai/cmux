@@ -24,6 +24,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 
 const run = (description: string, command: string): AcpmuxActivity =>
   tool(command, "execute", "completed", { description, command, output: "ok\n", exitCode: 0 });
@@ -117,4 +118,6 @@ export default agentPaneEntry({
       play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
     },
   },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: { definition: backgroundTurnLook, script: [] },
 });
