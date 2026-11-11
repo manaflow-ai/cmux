@@ -33,6 +33,9 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys  # noqa: E402
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
+# A host's own glaeda-gh keeps real job logs: every test reads its fakes only, unless it names a fake glaeda-gh
+# (GlaedaKeptLog).
+os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
@@ -782,6 +785,77 @@ class ListReadsNameTheirFields(unittest.TestCase):
             github, asked = self.reader([])
             self.assertEqual(excuse.base_run_jobs(REPO, run, github)[0]["run_id"], 77)  # from the cache, no read
             self.assertEqual(asked, [])
+
+
+FAKE_GLAEDA_GH = """#!/usr/bin/env python3
+import os, sys
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(sys.argv[1:]) + "\\n")
+mode = os.environ.get("FAKE_GLAEDA", "")
+if mode == "miss":
+    sys.stderr.write("glaeda-gh: no kept log for o/r job 7; --fetch reads it once\\n")
+    sys.exit(7)
+if mode == "old":
+    sys.stderr.write("glaeda-gh: error: argument command: invalid choice: 'log'\\n")
+    sys.exit(2)
+sys.stdout.write("\\ufeff2026-10-30T12:00:00.000Z kept \\x1b[31mred\\x1b[0m log\\n")
+"""
+
+
+class GlaedaKeptLog(unittest.TestCase):
+    """A failed job's log this host's glaeda-gh kept is read there, with no gh call; anything else reads GitHub."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for name, text in (("gh", FAKE_GH), ("glaeda-gh", FAKE_GLAEDA_GH)):
+            path = Path(self.dir.name) / name
+            path.write_text(text)
+            path.chmod(0o755)
+        self.gh_calls = Path(self.dir.name) / "gh-calls"
+        self.glaeda_calls = Path(self.dir.name) / "glaeda-calls"
+        self.gh_calls.write_text("")
+        self.glaeda_calls.write_text("")
+        env = git_fixture_env.fixture_env({"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}",
+                                           "FAKE_GH_CALLS": str(self.gh_calls),
+                                           "FAKE_GLAEDA_CALLS": str(self.glaeda_calls),
+                                           "CMUX_GLAEDA_GH": str(Path(self.dir.name) / "glaeda-gh")})
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GLAEDA"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def test_a_kept_log_is_read_with_no_api_call(self):
+        raw = self.read("")
+        self.assertEqual(self.gh_calls.read_text(), "")
+        self.assertEqual(self.glaeda_calls.read_text().splitlines(), [f"log job {REPO} 7"])
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["kept red log"])
+
+    def test_a_log_glaeda_gh_does_not_keep_is_read_from_github(self):
+        for mode in ("miss", "old"):
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(mode))
+            self.assertEqual(self.gh_calls.read_text().splitlines(),
+                             [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"], mode)
+
+    def test_no_glaeda_gh_on_the_host_reads_github(self):
+        for named in ("", str(Path(self.dir.name) / "absent")):
+            os.environ["CMUX_GLAEDA_GH"] = named
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(""))
+            self.assertEqual(len(self.gh_calls.read_text().splitlines()), 1, named)
+        self.assertEqual(self.glaeda_calls.read_text(), "")
+
+    def test_every_classifier_log_reader_asks_glaeda_gh_first(self):
+        # the class of reader: each GET .../actions/jobs/ID/logs in scripts/ci goes through glaeda_log first
+        ci = ROOT / "scripts/ci"
+        for name in ("base_red_excuse.py", "classify_failures.py", "guard_attribution.py", "main_compile_attribution.py"):
+            text = (ci / name).read_text()
+            self.assertIn("glaeda_log.cached_job_log(", text, name)
 
 
 class PortableGhLog(unittest.TestCase):

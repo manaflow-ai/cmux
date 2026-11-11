@@ -86,6 +86,13 @@ _http_spec = importlib.util.spec_from_file_location("deadline_http", Path(__file
 deadline_http = importlib.util.module_from_spec(_http_spec)
 _http_spec.loader.exec_module(deadline_http)
 
+try:  # a failed job's log as this host's glaeda-gh kept it (no API call); absent, every log is read from GitHub
+    _glaeda_spec = importlib.util.spec_from_file_location("glaeda_log", Path(__file__).with_name("glaeda_log.py"))
+    glaeda_log = importlib.util.module_from_spec(_glaeda_spec)
+    _glaeda_spec.loader.exec_module(glaeda_log)
+except OSError:
+    glaeda_log = None
+
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
@@ -213,6 +220,11 @@ class GitHub(_evidence.GitHub):
         # versions reject coloured output without it. Either way, normalize bytes in Python.
         # A log section can open with a byte-order mark before its timestamp, which hides that line from every
         # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
+        # This host's glaeda-gh keeps the same bytes for every failed job its daemon saw: read there first, with no
+        # API call (a replay of 200 verdicts read each log again: about 150 reads, and it stopped at 51 runs).
+        kept = glaeda_log.cached_job_log(repo, job.get("id")) if glaeda_log is not None else None
+        if kept is not None:
+            return kept.replace("\ufeff", "")
         try:
             return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
         except Refused as error:
