@@ -347,31 +347,9 @@ fn a_page_of_prompts_reads_the_copies_not_the_log() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A chat whose log no load has read yet has no copies (an open's attach asks `waitLogs: false`,
-/// ahead of the restore; a cold archive takes them with the log), and a scan of them would read the
-/// log from its start: its page of prompts reads back from the end, the newest turns only. Once a
-/// load made them, the page reads them (review of #40573).
-#[test]
-fn a_chat_with_no_copies_yet_reads_its_newest_prompts_back_from_the_end() {
-    let root = std::env::temp_dir().join(format!("acpmux-no-copies-{}", uuid::Uuid::now_v7()));
-    let sessions = root.join("sessions");
-    // A long prefix of large turns, then 17 short ones: a page of 16 prompts is all in the tail.
-    let mut log = codex_chat(20, 200, 85, false);
-    log.extend(codex_chat(17, 2, 10, false));
-    for (n, rec) in log.iter_mut().enumerate() {
-        rec.seq = n as u64 + 1;
-    }
-    let writer = LocalStore::new(sessions.clone(), 64 << 10).unwrap();
-    writer.save(&meta("c")).unwrap();
-    for rec in &log {
-        writer.append("c", rec).unwrap();
-    }
-    writer.flush().unwrap();
-    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
-        .unwrap()
-        .map(|e| e.unwrap().metadata().unwrap().len())
-        .sum();
-    // A deferred start, as a daemon's: the chat's log is read later (`hub/log_load.rs`).
+/// A hub started as a daemon starts (`Hub::new_deferred`): no chat's log is read yet, so no log
+/// load has made copies of its prompts.
+fn deferred_hub(sessions: &std::path::Path, segment_bytes: u64) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: crate::config::Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
@@ -379,72 +357,100 @@ fn a_chat_with_no_copies_yet_reads_its_newest_prompts_back_from_the_end() {
     }))
     .unwrap();
     cfg.store.mode = crate::config::StoreMode::Memory;
-    let hub = Hub::new_deferred(
+    Hub::new_deferred(
         cfg,
-        Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()),
+        Box::new(LocalStore::new(sessions.to_path_buf(), segment_bytes).unwrap()),
         crate::mailbox::Mailbox::memory(),
-    );
-    assert!(!hub.store.copies_kinds("c"), "no load has made the copies");
+    )
+}
+
+/// Writes `log` as chat `c` in segments of `segment_bytes`, numbered from 1; its bytes on disk.
+fn write_chat(sessions: &std::path::Path, log: &mut [EventRecord], segment_bytes: u64) -> u64 {
+    for (n, rec) in log.iter_mut().enumerate() {
+        rec.seq = n as u64 + 1;
+    }
+    let writer = LocalStore::new(sessions.to_path_buf(), segment_bytes).unwrap();
+    writer.save(&meta("c")).unwrap();
+    for rec in log.iter() {
+        writer.append("c", rec).unwrap();
+    }
+    writer.flush().unwrap();
+    std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum()
+}
+
+/// A page of a chat's newest prompts costs its newest turns whatever state the chat's copies are
+/// in (review of #40573): none yet (an open's attach asks `waitLogs: false`, ahead of the log load;
+/// a cold archive takes them with the log), good ones (a log load made them), or stale ones (a
+/// compaction replaced their segments, an upgrade changed their kinds, a damaged file). A segment
+/// without a good copy is read back from its end, as before; one with a good copy reads the copy.
+/// Every page is the same.
+#[test]
+fn a_page_of_newest_prompts_costs_the_newest_turns_whatever_its_copies() {
+    let root = std::env::temp_dir().join(format!("acpmux-prompt-copies-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    // A long prefix of large turns, then 17 short ones: a page of 16 prompts is all in the tail.
+    let mut log = codex_chat(20, 200, 85, false);
+    log.extend(codex_chat(17, 2, 10, false));
+    let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
+    let newest = all[all.len() - 16..].to_vec();
+    let hub = deferred_hub(&sessions, 64 << 10);
+    let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
+    let page = |state: &str| {
+        let r0 = read_bytes();
+        let page = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
+        let read = read_bytes() - r0;
+        assert_eq!(page.events, newest, "{state}");
+        assert!(page.has_more, "{state}");
+        if cfg!(target_os = "linux") {
+            assert!(read < log_bytes / 4, "{state}: the page read {read} of {log_bytes} bytes");
+        }
+    };
+    let copies = sessions.join("c").join(crate::store::KIND_INDEX_DIR);
+    assert!(!copies.exists(), "a deferred start reads no log");
+    page("no copies");
+    // A log load makes them (`hub/log_load.rs`).
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    page("good copies");
+    for entry in std::fs::read_dir(&copies).unwrap() {
+        std::fs::write(entry.unwrap().path(), b"{}\n").unwrap();
+    }
+    page("stale copies");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With good copies a page of prompts still stops where its page is full: the copies are read
+/// newest first, so long pasted prompts far back cost nothing (review of #40573, F2).
+#[test]
+fn a_page_of_prompts_reads_its_copies_newest_first() {
+    let root = std::env::temp_dir().join(format!("acpmux-prompt-newest-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    // 40 pasted prompts of 40 KB each, then 17 short turns.
+    let mut log: Vec<EventRecord> = (0..40)
+        .map(|n| EventRecord {
+            seq: 0,
+            at: 0,
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg: json!({"text": format!("paste {n} {}", "p".repeat(40 << 10))}),
+            host_seq: None,
+        })
+        .collect();
+    log.extend(codex_chat(17, 2, 10, false));
+    let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    let hub = deferred_hub(&sessions, 64 << 10);
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
     let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
     let r0 = read_bytes();
     let page = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
     let read = read_bytes() - r0;
-    let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
-    let newest = all[all.len() - 16..].to_vec();
-    assert_eq!(page.events, newest);
-    assert!(page.has_more);
+    assert_eq!(page.events.len(), 16);
+    assert!(page.events.iter().all(|r| !r.msg["text"].as_str().unwrap().starts_with("paste")));
     if cfg!(target_os = "linux") {
         assert!(read < log_bytes / 4, "the page read {read} of {log_bytes} bytes");
-    }
-    // A log load makes the copies (`hub/log_load.rs`); the same page then reads them.
-    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
-    assert!(hub.store.copies_kinds("c") == hub_keeps_copies(&sessions));
-    let again = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
-    assert_eq!(again.events, page.events);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// Whether this test file system names birth times, so a store keeps copies on it.
-fn hub_keeps_copies(dir: &std::path::Path) -> bool {
-    LocalStore::new(dir.to_path_buf(), 64 << 10).unwrap().keeps_kind_copies()
-}
-
-/// On a file system that names no birth time no copy is kept (`store/kind_index.rs`), so a page of
-/// prompts reads back from the log's end as before, not the whole log from its start (review of
-/// #40573).
-#[test]
-fn a_page_of_prompts_reads_back_from_the_end_where_no_copy_is_kept() {
-    let root = std::env::temp_dir().join(format!("acpmux-no-birth-{}", uuid::Uuid::now_v7()));
-    let sessions = root.join("sessions");
-    let mut log = codex_chat(6, 120, 85, false);
-    for (n, rec) in log.iter_mut().enumerate() {
-        rec.seq = n as u64 + 1;
-    }
-    let writer = LocalStore::new(sessions.clone(), 64 << 10).unwrap();
-    writer.save(&meta("c")).unwrap();
-    for rec in &log {
-        writer.append("c", rec).unwrap();
-    }
-    writer.flush().unwrap();
-    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
-        .unwrap()
-        .map(|e| e.unwrap().metadata().unwrap().len())
-        .sum();
-    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
-    crate::store::NO_BIRTH.with(|n| n.set(true));
-    assert!(!hub.store.copies_kinds("c"), "no birth time, no copies");
-    let prompts = EventFilter::parse(Some(&json!(["user_message"]))).unwrap();
-    let r0 = read_bytes();
-    let page = hub.events_page("c", 0, None, 1, Some(OPEN_BYTES), true, &prompts).unwrap();
-    let read = read_bytes() - r0;
-    crate::store::NO_BIRTH.with(|n| n.set(false));
-    let newest = log.iter().rev().find(|r| r.kind == "user_message").unwrap();
-    assert_eq!(page.events, vec![newest.clone()]);
-    assert!(page.has_more);
-    if cfg!(target_os = "linux") {
-        // The read back stops at the prompt before it (`has_more`); a scan from the start reads
-        // every byte of the log.
-        assert!(read < log_bytes, "the newest prompt read {read} of {log_bytes} bytes");
     }
     let _ = std::fs::remove_dir_all(&root);
 }

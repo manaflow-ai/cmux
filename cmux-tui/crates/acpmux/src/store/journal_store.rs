@@ -737,6 +737,17 @@ impl Store for JournalStore {
     ) -> Result<()> {
         self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
     }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner
+            .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
@@ -976,9 +987,6 @@ impl Store for JournalStore {
     /// copied its history again (review of #37020, F2).
     fn writes_history(&self) -> bool {
         Store::writes_history(&self.inner.local)
-    }
-    fn copies_kinds(&self, id: &str) -> bool {
-        Store::copies_kinds(&self.inner.local, id)
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Store::history_writer(&self.inner.local, id)

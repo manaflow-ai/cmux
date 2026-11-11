@@ -129,18 +129,8 @@ impl Stamp {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Reads every birth time on this thread as unknown, as a file system that keeps none does.
-    pub(crate) static NO_BIRTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 /// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
 fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
-    #[cfg(test)]
-    if NO_BIRTH.with(std::cell::Cell::get) {
-        return (0, 0, 0);
-    }
     let born = birth_ns(file).unwrap_or_else(|| {
         meta.created()
             .ok()
@@ -208,36 +198,75 @@ impl Scan<'_> {
 }
 
 impl LocalStore {
-    /// Whether this store's file system names a birth time, so a scan keeps copies
-    /// ([`Self::write_kind_index`] keeps none without one). Read from the store's folder: a log
-    /// lives on the same file system. Without copies a scan of these kinds reads the whole log, so a
-    /// newest-first page reads back from the end instead (`Hub::events_page`).
-    pub(crate) fn keeps_kind_copies(&self) -> bool {
-        std::fs::File::open(&self.root)
-            .and_then(|dir| Ok(file_id(&dir, &dir.metadata()?).2 != 0))
-            .unwrap_or(false)
-    }
-
-    /// Whether chat `id`'s scan for its indexed kinds reads copies, not its log: the file system
-    /// keeps them ([`Self::keeps_kind_copies`]) and every segment but the last has one. A chat whose
-    /// log no load has read yet (an open of `waitLogs: false` ahead of the restore) or that a cold
-    /// archive moved (its copies went with its folder's log) has none, and a scan would read its log
-    /// from the start. The last segment is the one written now: past its copy a scan reads at most
-    /// the segment. One listing of the copies' folder; a copy made for other kinds or of another
-    /// file is read past and made again by that scan.
-    pub(super) fn has_kind_copies(&self, id: &str) -> bool {
-        let Ok(segments) = self.segment_files(id) else { return false };
-        let Some(((_, _), sealed)) = segments.split_last() else { return false };
-        if sealed.is_empty() {
-            return self.keeps_kind_copies();
+    /// `scan_back` (`indexed`: `scan_back_indexed`, whose `skip` passes only [`INDEXED_KINDS`]).
+    /// Segments are read newest first; an indexed read takes a segment's copy where it is of that
+    /// very file and whole ([`Self::read_kind_index`]): the segment's bytes past the copy back from
+    /// the end, then the copy's lines newest first. Anywhere else (no copy yet, a copy a
+    /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
+    /// back from its end, as `scan_back` does. It never writes a copy: the log load does.
+    pub(super) fn scan_back_in(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let done = std::cell::Cell::new(false);
+        // One line, newest first: false once the read is over (`visit` stopped, or `after`).
+        let mut line = |line: &[u8]| {
+            match record_seq(line) {
+                Some(seq) if seq >= before => return true,
+                Some(seq) if seq <= after => {
+                    done.set(true);
+                    return false;
+                }
+                _ => {}
+            }
+            if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                && skip(dir, kind)
+            {
+                return true;
+            }
+            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            if rec.seq >= before {
+                return true;
+            }
+            if rec.seq <= after || !visit(rec) {
+                done.set(true);
+                return false;
+            }
+            true
+        };
+        for (index, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let copy =
+                if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
+            let end = offset_of_seq(&mut file, before)?;
+            match copy {
+                // A copy covers the segment's first `from` bytes, whole lines: what comes after
+                // them is read from the segment, then the copy.
+                Some((lines, from, _)) => {
+                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
+                    if !done.get() {
+                        for copied in lines.split(|b| *b == b'\n').rev() {
+                            if !copied.is_empty() && !line(copied) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                None => for_each_line_rev_from(&mut file, end, &mut line)?,
+            }
+            if done.get() {
+                return Ok(());
+            }
         }
-        let Ok(dir) = std::fs::read_dir(self.dir(id).join(DIR)) else { return false };
-        let copies: std::collections::HashSet<std::ffi::OsString> =
-            dir.filter_map(|e| Some(e.ok()?.file_name())).collect();
-        sealed
-            .iter()
-            .all(|(index, _)| copies.contains(std::ffi::OsStr::new(&format!("{index:06}.ndjson"))))
-            && self.keeps_kind_copies()
+        Ok(())
     }
 
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {

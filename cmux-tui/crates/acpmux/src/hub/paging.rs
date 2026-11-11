@@ -201,17 +201,15 @@ impl EventFilter {
         serde_json::to_vec(self.subagent.as_deref()?).ok()
     }
 
-    /// The kinds a page reads when each is one the log keeps copies of (`store/kind_index.rs`
-    /// `INDEXED_KINDS`), none a group (`transcript`, `mux`, `wire`, `all`), and no subagent is
-    /// named: such a page can be read from the copies (`Hub::events_page`).
-    fn indexed_kinds(&self) -> Option<Vec<&str>> {
-        if self.subagent.is_some() {
-            return None;
-        }
-        let kinds = self.kinds.as_ref()?;
-        let indexed = |k: &String| crate::store::INDEXED_KINDS.contains(&k.as_str());
-        (!kinds.is_empty() && kinds.iter().all(indexed))
-            .then(|| kinds.iter().map(String::as_str).collect())
+    /// Whether a page reads only kinds the log keeps copies of (`store/kind_index.rs`
+    /// `INDEXED_KINDS`): exact kinds, none a group (`transcript`, `mux`, `wire`, `all`), and no
+    /// subagent. Such a page is read with `Store::scan_back_indexed` (`Hub::events_page`).
+    fn reads_indexed_kinds(&self) -> bool {
+        self.subagent.is_none()
+            && self.kinds.as_ref().is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && kinds.iter().all(|k| crate::store::INDEXED_KINDS.contains(&k.as_str()))
+            })
     }
 
     pub fn is_all(&self) -> bool {
@@ -688,23 +686,6 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        // A page of kinds the log keeps copies of reads the copies, not the log: read back from
-        // the end, a page of a chat's last 16 prompts walked its whole log when it had fewer, and
-        // every open asked for one (`turn_opener.rs`), 4 s on a 1 GB chat. No record of these
-        // kinds is ever superseded (`store/superseded.rs` touches tool calls only).
-        if self.store.copies_kinds(id)
-            && let Some(kinds) = filter.indexed_kinds()
-        {
-            return self.newest_of_copies(
-                id,
-                after,
-                before,
-                limit,
-                max_bytes,
-                (&kinds, over, pattern),
-                session.as_deref(),
-            );
-        }
         // Newest first; a slot a later (older) record made moot is empty.
         let mut found: Vec<Option<(EventRecord, usize)>> = Vec::new();
         let mut held = 0usize;
@@ -716,7 +697,21 @@ impl Hub {
             filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
         };
         let mut superseded = omit.then(crate::store::Superseded::default);
-        self.store.scan_back(id, after, before, &skip, &mut |rec| {
+        // A page of prompts, the queue or turn results reads the log's copies of those kinds
+        // where they are good, segment by segment, newest first: read back from the end, a page
+        // of a chat's last 16 prompts walked its whole log when it had fewer, and every open asks
+        // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
+        // calls only, so it changes nothing on such a page.
+        let indexed = filter.reads_indexed_kinds();
+        let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
+                    visit: &mut dyn FnMut(EventRecord) -> bool| {
+            if indexed {
+                self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else {
+                self.store.scan_back(id, after, before, skip, visit)
+            }
+        };
+        back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
             if matches {
@@ -761,50 +756,6 @@ impl Hub {
         })?;
         page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
         Ok(page)
-    }
-}
-
-impl Hub {
-    /// [`Self::events_page`]'s newest `limit` records of `kinds` with `after < seq < before`, read
-    /// from the log's copies of them (`Store::scan_kinds`), which hold them oldest first. The scan
-    /// keeps only what can still be on the page: the newest `limit`, and of those no more than
-    /// `max_bytes` from the newest down, as the read back from the end bounds it.
-    #[allow(clippy::too_many_arguments)]
-    fn newest_of_copies(
-        &self,
-        id: &str,
-        after: u64,
-        before: u64,
-        limit: usize,
-        max_bytes: Option<usize>,
-        (kinds, over, pattern): (&[&str], Option<usize>, Option<&str>),
-        session: Option<&Session>,
-    ) -> Result<EventPage> {
-        let mut newest = std::collections::VecDeque::new();
-        let (mut bytes, mut has_more) = (0usize, false);
-        self.store.scan_kinds(id, kinds, &mut |mut rec| {
-            if rec.seq >= before {
-                return false;
-            }
-            if rec.seq <= after {
-                return true;
-            }
-            self.display_logged(session, &mut rec);
-            let (rec, rec_bytes) = fit(rec, over, pattern);
-            newest.push_back((rec, rec_bytes));
-            bytes += rec_bytes;
-            // The oldest held goes once it is past the count, or past the size with a newer
-            // record held: a page holds at least one record.
-            while newest.len() > limit
-                || (newest.len() > 1 && max_bytes.is_some_and(|max| bytes > max))
-            {
-                let Some((_, gone)) = newest.pop_front() else { break };
-                bytes -= gone;
-                has_more = true;
-            }
-            true
-        })?;
-        Ok(EventPage { events: newest.into_iter().map(|(rec, _)| rec).collect(), has_more })
     }
 }
 

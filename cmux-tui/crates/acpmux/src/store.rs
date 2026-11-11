@@ -25,9 +25,7 @@ pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
-pub use kind_index::INDEXED_KINDS;
-#[cfg(test)]
-pub(crate) use kind_index::NO_BIRTH;
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -1025,6 +1023,21 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan(id, after, visit)
     }
+    /// [`Store::scan_back`] for a read whose `skip` passes only kinds in [`INDEXED_KINDS`] (a
+    /// page of prompts, the queue, turn results): a file store reads a segment's copy of those
+    /// kinds where the copy is good (`store/kind_index.rs`), and the segment itself back from its
+    /// end where it is not, so the read never costs more than `scan_back`'s and stops where it
+    /// does. Every other store reads as `scan_back`.
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -1067,13 +1080,6 @@ pub trait Store: Send + Sync {
             true
         })?;
         Ok((count, last))
-    }
-    /// Whether [`Store::scan_kinds`] for [`INDEXED_KINDS`] reads chat `id`'s copies of them beside
-    /// its log (`store/kind_index.rs`) rather than the log. False: it would read the log from its
-    /// start, so a newest-first page of those kinds reads back from the end instead
-    /// (`Hub::events_page`).
-    fn copies_kinds(&self, _id: &str) -> bool {
-        false
     }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
     /// parses no other line (the queue restore at daemon start reads its few kinds out of
@@ -1262,8 +1268,8 @@ pub use log_line::RecordHead;
 pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
-    first_seq, for_each_line_rev, for_each_line_rev_from, offset_of_seq, parse_record, record_dir,
-    record_kind, record_seq,
+    first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
+    parse_record, record_dir, record_kind, record_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1752,10 +1758,6 @@ impl Store for LocalStore {
         true
     }
 
-    fn copies_kinds(&self, id: &str) -> bool {
-        self.has_kind_copies(id)
-    }
-
     /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         // An archived log comes back before a segment is written beside it.
@@ -1897,42 +1899,18 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        for (_, path) in self.segments(id)?.into_iter().rev() {
-            if first_seq(&path)?.is_some_and(|first| first >= before) {
-                continue;
-            }
-            let mut done = false;
-            let mut file = crate::config::private_state_file(&path)?;
-            let end = offset_of_seq(&mut file, before)?;
-            for_each_line_rev_from(&mut file, end, &mut |line| {
-                match record_seq(line) {
-                    Some(seq) if seq >= before => return true,
-                    Some(seq) if seq <= after => {
-                        done = true;
-                        return false;
-                    }
-                    _ => {}
-                }
-                if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
-                    && skip(dir, kind)
-                {
-                    return true;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-                if rec.seq >= before {
-                    return true;
-                }
-                if rec.seq <= after || !visit(rec) {
-                    done = true;
-                    return false;
-                }
-                true
-            })?;
-            if done {
-                return Ok(());
-            }
-        }
-        Ok(())
+        self.scan_back_in(id, after, before, skip, visit, false)
+    }
+
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
