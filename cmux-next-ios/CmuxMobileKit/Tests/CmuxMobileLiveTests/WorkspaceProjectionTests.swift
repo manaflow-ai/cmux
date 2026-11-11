@@ -331,8 +331,11 @@ private struct ProjectionTruth {
         let large = try await Self.cost(workspaces: 1_000, ops: ops)
         for (label, cost) in [("200", small), ("1000", large)] {
             let micros = Int(Double(cost.wall.components.attoseconds) / 1e12 + Double(cost.wall.components.seconds) * 1e6)
-            print("MATRIX cell=projection_delta_cost workspaces=\(label) deltas=\(cost.deltas) scanned_rows=\(cost.scanned) "
-                + "scanned_per_delta=\(cost.scanned / max(cost.deltas, 1)) wall_us_per_delta=\(micros / max(cost.deltas, 1))")
+            let line = "MATRIX cell=projection_delta_cost workspaces=\(label) deltas=\(cost.deltas) scanned_rows=\(cost.scanned) "
+                + "scanned_per_delta=\(cost.scanned / max(cost.deltas, 1)) wall_us_per_delta=\(micros / max(cost.deltas, 1))"
+            print(line)
+            // The simulator route keeps attachments, not stdout.
+            Attachment.record(line + "\n", named: "MATRIX-projection_delta_cost-\(label).txt")
         }
         #expect(small.applied == ops && large.applied == ops, "every delta changes its own row")
         // Counted, not timed: within 1.2x of the 200-workspace cost.
