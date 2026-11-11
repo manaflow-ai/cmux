@@ -139,10 +139,14 @@ import Testing
 
     /// Runs `body` with #39984's dim (`dim` dark, a eighth of it light, as it shipped: 0.2 and 0.025), put back
     /// after; `nil` runs it with the dim as the tree has it.
-    static func withDim<T>(_ dim: Double?, _ body: @MainActor () async throws -> T) async rethrows -> T {
+    static func withDim<T>(_ dim: Double?, _ body: @MainActor () async throws -> T) async throws -> T {
         guard let dim else { return try await body() }
-        TunableStore.shared.set(dimKeys.dark, .number(dim))
-        TunableStore.shared.set(dimKeys.light, .number(dim / 8))
+        // The store takes only registered keys and refuses the rest silently: register the sidebar's and require the
+        // dim to stick, so a refused write never passes as "the dim paints nothing".
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        try #require(TunableStore.shared.set(dimKeys.dark, .number(dim)) != nil, "the store refused \(dimKeys.dark)")
+        try #require(TunableStore.shared.set(dimKeys.light, .number(dim / 8)) != nil, "the store refused \(dimKeys.light)")
         defer {
             TunableStore.shared.set(dimKeys.dark, nil)
             TunableStore.shared.set(dimKeys.light, nil)

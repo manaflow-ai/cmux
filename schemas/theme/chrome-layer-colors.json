@@ -1,4 +1,11 @@
 {
-"generator": "ChromeLayerColorTests (CmuxNextAppTests); measuring run, not for review",
-"cases": []
+"generator": "ChromeLayerColorTests (CmuxNextAppTests); its failure prints this file's new text. Rewriting it needs a Chrome-Look-OK: trailer quoting Leo (scripts/cmux-next/prepush-gate.py, Chrome layer look)",
+"checkedBy": "CmuxNextAppTests ChromeLayerColorTests (the layers each region paints), AAChromeLayerGalleryTests (the pixels, on a display worker), webviews/test/chrome-layer-colors.test.ts (the gallery's mock app)",
+"regions": "sidebar: the list's leading inset halfway down; footer: the footer band's leading inset; titlebar: the top row over the main column. Over a background picture the picture counts as #808080",
+"cases": [
+{"case":"dark","theme":"Apple System Colors","isDark":true,"background":"none","sidebar":"#1E1E1E","footer":"#1E1E1E","titlebar":"#1E1E1E"},
+{"case":"light","theme":"Apple System Colors Light","isDark":false,"background":"none","sidebar":"#FEFFFF","footer":"#FEFFFF","titlebar":"#FEFFFF"},
+{"case":"dark-image","theme":"Apple System Colors","isDark":true,"background":"van-gogh-starry-night","sidebar":"#454545","footer":"#454545","titlebar":"#454545"},
+{"case":"light-image","theme":"Apple System Colors Light","isDark":false,"background":"van-gogh-starry-night","sidebar":"#D0D1D1","footer":"#D0D1D1","titlebar":"#D0D1D1"}
+]
 }
