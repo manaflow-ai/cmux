@@ -154,6 +154,8 @@ enum InstantPerfReport {
         guard let json = try? encoder.encode(result), let text = String(data: json, encoding: .utf8) else { return }
         let line = "INSTANTPERF \(text)"
         print(line)
+        // Also on the test's result (the fleet's simulator step keeps attachments, not the console).
+        Attachment.record(Array(text.utf8), named: "instantperf-\(result.metric)-\(result.platform).json")
         guard let path = ProcessInfo.processInfo.environment["CMUX_INSTANT_PERF_OUT"], !path.isEmpty else { return }
         lock.withLock {
             let url = URL(fileURLWithPath: path)
