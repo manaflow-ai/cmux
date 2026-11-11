@@ -10714,7 +10714,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml", "swift-packages-linux.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
-            "cmux-skill-contract.yml", "agent-brands.yml"),
+            "cmux-skill-contract.yml", "agent-brands.yml",
+            # React Doctor (da29cd0a): a ratchet over the React projects' own code.
+            "cmux-next-react-doctor.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
