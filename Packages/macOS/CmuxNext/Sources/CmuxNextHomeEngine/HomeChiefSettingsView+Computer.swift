@@ -77,7 +77,8 @@ extension HomeChiefSettingsView {
             menu.addItem(Self.menuItem(row))
         }
         computerPicker.menu = menu
-        let index = computer.flatMap { target in menu.items.firstIndex { ($0.representedObject as? String) == target } } ?? 0
+        // This Mac's row is the computer row with no target, and need not be the first.
+        let index = menu.items.firstIndex { !$0.isSeparatorItem && !$0.isSectionHeader && $0.tag == 0 && ($0.representedObject as? String) == computer } ?? 0
         computerPicker.selectItem(at: index)
         // A Chief that moved off this Mac keeps the computer it took here: its row stays while one is
         // set, so the owner can still detach it.

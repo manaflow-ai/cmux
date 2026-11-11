@@ -89,6 +89,16 @@ import Testing
         #expect(named == [["vm-5", "Ada"]])
     }
 
+    @Test func thisMacStaysPickedUnderTheChiefsOwnComputer() async {
+        let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: ComputerChief(writes: continuation))
+        view.cloudComputers = { [.init(id: "vm-1", title: "Ada’s Computer")] }
+        view.setName("Ada")
+        await view.refresh().value
+        #expect(view.computerPicker.itemArray.first?.title == "Ada’s Computer")
+        #expect(view.computerPicker.titleOfSelectedItem == HomeEngineStrings.computerThisMac)
+    }
+
     @Test func aMachineThePersonNamedKeepsItsName() async {
         let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         let source = ComputerChief(writes: continuation)
