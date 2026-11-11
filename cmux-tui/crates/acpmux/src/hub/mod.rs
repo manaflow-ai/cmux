@@ -65,6 +65,7 @@ mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
@@ -164,6 +165,8 @@ mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+#[cfg(test)]
+mod fork_retarget_tests;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;

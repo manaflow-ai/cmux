@@ -169,7 +169,7 @@
     "_acpmux/race/cancel": {"params": ["parent", "raceId"], "acpmux": []},
     "_acpmux/race/stats": {"params": ["parent"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
-    "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken"], "acpmux": []},
+    "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId", "peer"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId", "peer"], "acpmux": []},
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
