@@ -78,7 +78,7 @@ impl AppIdentity {
     }
 
     /// The app bundle around `exe`, if it is a cmux app.
-    fn from_bundle(exe: Option<&Path>) -> Option<Self> {
+    pub(crate) fn from_bundle(exe: Option<&Path>) -> Option<Self> {
         let bundle = exe.and_then(containing_app_bundle)?;
         let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
         let dictionary = info.as_dictionary()?;
