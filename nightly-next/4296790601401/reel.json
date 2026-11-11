@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4296790601401",
+  "notes": "notes/4296790601401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41097,
+      "title": "Chrome layer colour check: recorded sidebar, footer and titlebar colours, Chrome-Look-OK quoting Leo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41025,
+      "title": "Remove the right sidebar and the Feed entry points from cmux NEXT",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41090,
+      "title": "cmux-next: a standalone fleet script regenerates the Swift catalog dump (action-catalog.json)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41076,
+      "title": "link: a verb's first contact waits for the Cloud link (red 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40973,
+      "title": "Agent chat: a background turn's tool calls draw as normal tool calls, no \"Background update\" line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40685,
+      "title": "cmux-next-ios: tail-first reconnect, the newest messages show first after a long gap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41067,
+      "title": "react-apps-check: the accent-glass parts run alone and gallery-control-surfaces splits in four",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40974,
+      "title": "ci: a venv is not externally managed; the PyYAML install line asks the probed interpreter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40734,
+      "title": "ci(app-ffi-release): the FFI build takes an idle promote runner, else a free Blacksmith slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41063,
+      "title": "gallery health: render a shard's cases concurrently (23 min of serial renders to about 9)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41069,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-71ca4278c60aa803903db0922d1295ceee199dc7",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40986,
+      "title": "test(composer): every combination of folder, agent, mode, Mac or Cloud, and account on New Tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41042,
+      "title": "Composer hat: no line of the pill's own beside the count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40906,
+      "title": "cmux auth token: a team Stack lists you in mints; a refusal names the team",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40966,
+      "title": "ci: every pre-push scanner has verdict exit codes; PyYAML line recommends apt only when it reaches the interpreter",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
