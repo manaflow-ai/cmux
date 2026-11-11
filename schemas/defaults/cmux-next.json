@@ -1531,6 +1531,7 @@
     "tunable.sidebar.updateCard.automaticControl": "switchControl",
     "tunable.sidebar.updateCard.automaticSize": "regular",
     "tunable.sidebar.updateCard.button": "primary",
+    "tunable.sidebar.updateCard.layout": "card",
     "tunable.sidebar.updateCard.simulatePending": false,
     "tunable.sidebar.updatedCard.notesLook": "shipped",
     "tunable.sidebar.updatedCard.preview": "shipped",
