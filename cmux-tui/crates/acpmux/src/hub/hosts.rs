@@ -385,6 +385,18 @@ impl Hub {
             return false;
         }
         let Some(session) = self.session_by_id(&record.session_id) else {
+            if !self.purged_at_start(&record.session_id) {
+                // A chat this start could not read (its list failed, or its metadata did not
+                // parse: a value a newer build wrote). Its agent keeps running, its turn too; a
+                // start that reads the chat adopts it. Held as any host this adoption could not
+                // resolve: it may still write a line the previous daemon handed it.
+                tracing::warn!(
+                    session = %record.session_id,
+                    "agent host of a chat this start could not read: kept running, not adopted"
+                );
+                self.hold_unresolved(Some(&record.session_id)).await;
+                return false;
+            }
             // A host for a session this daemon does not know (purged):
             // nothing can show it, so end it.
             let ended = end_host_blocking(
@@ -458,6 +470,15 @@ impl Hub {
         } else {
             tracing::warn!(session = %session.id, "could not end its unadopted agent host");
         }
+    }
+
+    /// Whether the chat `id`, which this daemon does not know, was purged: the start's list read
+    /// every chat folder (`LoadPlan::listed`) and found none for it, not one whose metadata it
+    /// could not read (`Store::unlisted`). A store this daemon could not read in full proves no
+    /// chat purged, so it ends no agent.
+    fn purged_at_start(&self, id: &str) -> bool {
+        self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).listed
+            && !self.store.unlisted().iter().any(|unread| unread == id)
     }
 
     pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
@@ -580,11 +601,7 @@ impl Hub {
         self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the

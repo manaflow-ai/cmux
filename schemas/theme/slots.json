@@ -85,7 +85,7 @@
           "step": "steps"
         },
         "reducedMotion": "Every loop stops and the variant draws its still frame: the word in the line's muted tone and the mark (if any) at full strength, as the default draws the word with no band. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
-        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops. A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
+        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops (the built-in default keeps its one band mounted through a named step: the live line draws it in place). A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
       },
       "defaultVariant": "default",
       "variants": [

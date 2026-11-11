@@ -22,6 +22,9 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod command_stats;
+pub(crate) use command_stats::{ClientKind, CommandStats, ConnectionKind, line_is_named};
+pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
 mod disk_usage;
 pub use connection_leases::{ConnectionLease, PeerClosed};
@@ -32,6 +35,7 @@ pub use disk_usage::{
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
 mod hook_queue;
+pub(crate) mod request_log;
 mod write_path;
 pub use hook_queue::{
     HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
@@ -246,11 +250,24 @@ pub struct LockStats {
     holder: Mutex<Option<Holder>>,
     last_stall: Mutex<Option<Stall>>,
     sites: Mutex<HashMap<LockSite, SiteStats>>,
+    /// The lock's name and the session's slow request log, which gets a line for
+    /// each hold of [`LOCK_STALL_THRESHOLD`] or more (`report_long_holds`).
+    long_holds: std::sync::OnceLock<(&'static str, std::sync::Arc<request_log::RequestLog>)>,
 }
 
 impl LockStats {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// From now on, a hold of this lock (`name`) of [`LOCK_STALL_THRESHOLD`] or more gets a
+    /// line in `log` with the holder's site.
+    pub(crate) fn report_long_holds(
+        &self,
+        name: &'static str,
+        log: std::sync::Arc<request_log::RequestLog>,
+    ) {
+        let _ = self.long_holds.set((name, log));
     }
 
     /// Call before blocking. Returns the site holding the lock at that moment
@@ -261,6 +278,9 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        if waited >= LOCK_CONTENDED_THRESHOLD {
+            request_log::add_lock_wait(waited);
+        }
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -305,6 +325,12 @@ impl LockStats {
         entry.hold_max_us = entry.hold_max_us.max(held_us);
         entry.hold.record(held_us);
         entry.wait.record(waited_us);
+        drop(sites);
+        if held >= LOCK_STALL_THRESHOLD
+            && let Some((name, log)) = self.long_holds.get()
+        {
+            log.long_hold(name, site, held, waited);
+        }
     }
 
     fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
@@ -542,6 +568,11 @@ impl JournalWriterStats {
         self.queued(lane).fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Events of `lane` that producers queued and the writer has not drained.
+    pub(crate) fn queued_depth(&self, lane: JournalLane) -> usize {
+        self.queued(lane).load(Ordering::Relaxed)
+    }
+
     /// Undo [`Self::enqueued`] when the channel refused the event.
     pub(crate) fn enqueue_failed(&self, lane: JournalLane) {
         self.drained(lane, 1);
@@ -657,6 +688,9 @@ pub struct ConnectionStats {
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
+    /// The requests by command name and client kind, and the connections by client kind
+    /// (`server-stats` section `commands`).
+    commands: std::sync::Arc<CommandStats>,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
     /// Of `active`, the connections from processes inside this session's
@@ -671,9 +705,34 @@ pub struct ConnectionStats {
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
+    /// The session's slow request log (`request_log`), once the session's folder is known.
+    request_log: std::sync::OnceLock<std::sync::Arc<request_log::RequestLog>>,
 }
 
 impl ConnectionStats {
+    /// The request counters of the session (`diagnostics/command_stats.rs`).
+    pub(crate) fn commands(&self) -> &std::sync::Arc<CommandStats> {
+        &self.commands
+    }
+
+    /// Opens the session's slow request log in `directory`, once; the log, if there is one.
+    pub(crate) fn open_request_log(
+        &self,
+        directory: &std::path::Path,
+    ) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        if self.request_log.get().is_none()
+            && let Some(log) = request_log::RequestLog::open(directory)
+        {
+            let _ = self.request_log.set(log);
+        }
+        self.request_log.get()
+    }
+
+    /// The session's slow request log, when it is open.
+    pub(crate) fn request_log(&self) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        self.request_log.get()
+    }
+
     /// Counts one connection that already holds a slot as terminal-bound, if
     /// fewer than `limit` terminal-bound connections are active. A refusal
     /// moves the connection from `accepted` to `refused`; the caller gives
@@ -833,6 +892,12 @@ pub struct ServerStatsSnapshot {
     /// session keeps its registry on disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `commands` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<CommandStatsSnapshot>,
+    /// Present only when the request names `journal_followers` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

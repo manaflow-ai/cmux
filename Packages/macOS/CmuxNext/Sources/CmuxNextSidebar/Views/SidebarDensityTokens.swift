@@ -37,8 +37,13 @@ enum SidebarDensityTokens {
     /// which the sidebar's cards read too).
     private static var extra: CGFloat { SidebarRowTokens.current.extraHeight }
 
-    /// A one-line workspace row, group header or band row.
-    static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
+    /// A one-line workspace row, group header or band row: 30 pt with no gap at Default (``SidebarRowTokens/matchesCodex``).
+    static var rowHeight: CGFloat { SidebarRowTokens.current.listRowHeight }
+    /// The gap between list rows: 0 at Default, as Codex's rows touch; `space1` at every other density.
+    static var rowSpacing: CGFloat { matchesCodex ? 0 : Metrics.space1 }
+    /// ``SidebarRowTokens/matchesCodex`` read from its two inputs: the per-frame reads below (every `columns` and
+    /// `textY` reads ``contentInset``) must not build the whole token set, fonts too, each time.
+    static var matchesCodex: Bool { density == .compact && Metrics.tokens.id == DensityPreset.cozy.rawValue }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
     static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
@@ -48,14 +53,19 @@ enum SidebarDensityTokens {
     /// rule, read from its two inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
     /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
     static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    /// A row's content from its fill's edge: 8 pt at Default (Codex's `--padding-row-x`), else `horizontalInset`.
+    static var contentInset: CGFloat { matchesCodex ? Metrics.space4 : horizontalInset }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
-    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness").
-    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness"), except at
+    /// Default, where it is Codex's row corner (``SidebarRowTokens/codexCornerRadius``, 10 on a 30 pt row; #39956).
+    static var rowCornerRadius: CGFloat {
+        matchesCodex ? (SidebarRowTokens.current.codexCornerRadius ?? Metrics.tabCornerRadius) : Metrics.tabCornerRadius
+    }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

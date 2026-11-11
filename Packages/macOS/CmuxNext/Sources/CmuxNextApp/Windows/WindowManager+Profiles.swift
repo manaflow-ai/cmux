@@ -129,7 +129,7 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        transition(select: preferred) { $0.move(moving, to: state.id) }
+        transition(select: preferred, gesture: true) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
 

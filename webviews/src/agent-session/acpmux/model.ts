@@ -1311,6 +1311,9 @@ export type AcpmuxSnapshot = {
   /// Composer only: this new chat's first send starts it on a Cloud machine (Cloud picked as where
   /// it runs, `cloud.startChat`), not on this Mac. That machine decides the chat's start mode.
   startsOnCloud?: true;
+  /// Composer only, with `startsOnCloud`: the permission mode picked for that Cloud start
+  /// (cloudModePick.ts), which the send carries (`CloudStart.mode`).
+  cloudStartMode?: string;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
@@ -1575,10 +1578,14 @@ export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
 /// Whether `row` is the first drawn row of a turn the agent ran on its own that draws as its own
 /// turn (a reply or a tool run with no background line over it, backgroundTurns.ts
 /// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
+/// Right under "Worked for" it opens nothing: that line is the turn's header and keeps its own room
+/// under its rule (transcriptGrid.ts MARK_WORKED), so a turn gap there doubled it (Leo, 2026-11-10:
+/// "too much space in between here").
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
+  prev.kind !== WORKED &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>

@@ -81,6 +81,18 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
+.github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
+hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
+not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
+
+Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
+changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
+`cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
+reaches other workspaces' locks through path dependencies (2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml, a
+direct push, and cmux-app-ffi's lock failed --locked on every pull request until #40883). It refuses only on cargo's
+own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
+feat-cmux-next (base-autofix.sh --locks).
 
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
@@ -139,10 +151,12 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import urllib.request
@@ -187,6 +201,13 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
+# The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py
+# and check-no-raw-spawn.py (a bad baseline row); any other code, or a signal, is no verdict either. A scanner whose
+# verdicts use other codes names them here.
+SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
+DEFAULT_VERDICT_CODES = (0, 1)
+
 SCANNERS = (
     ("Dialog buttons show their keys (u2647)", ["python3", "-I", "{s}/check-dialog-key-hints.py", "{root}"], (PKG + "/", "webviews/")),
     ("Main-thread concurrency", ["/bin/bash", "{s}/check-concurrency.sh", "{pkg}"], (PKG + "/", "Packages/Shared/")),
@@ -207,6 +228,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
+     ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -249,11 +272,20 @@ rescue Psych::SyntaxError => e
   exit 1
 end
 """
-CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+# A runs-on variable with no declared fallback (cmux#40221 merged two; the build-fleet policy test read this repository
+# live and went red after the merge). Local only: ci-guards.yml runs the same script with --advisory, warnings only.
+FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
+FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
+FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
+                  "`fallback` that takes the job and `after_minutes`), then push. Check with "
+                  "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
+CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
-CARGO_DRIFT = "cannot update the lock file"
-CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
-              "rewrites Cargo.lock with no version changes), commit it, then push.")
+CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
+              "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
+              "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -293,6 +325,7 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
@@ -506,7 +539,13 @@ def release_download():
             return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError:
+            # The helper imports deadline_http.py from beside itself. A hook installed before that has an older
+            # refresh_checks.py, which rewrites the helper from feat-cmux-next but not deadline_http.py: download
+            # directly, as with no helper, until scripts/install-git-hooks.sh runs again.
+            return None
         sys.modules[name] = module
     return sys.modules[name]
 
@@ -787,6 +826,35 @@ class Finding(str):
         finding = super().__new__(cls, text)
         finding.key = key
         return finding
+
+
+class NoVerdict(str):
+    """A check that ran but gave no verdict (it crashed, timed out, or printed output of the wrong shape). It is
+    never subtracted as old debt: not by a base run that gave no verdict alike (both sides crash the same way, so
+    the diff would hide it), and not by gate_own's runs over a merge's upstream ranges. Its key is its own object,
+    so push_range.less never matches it."""
+
+    @property
+    def key(self) -> str:
+        return f"no-verdict:{id(self)}"
+
+
+# Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
+NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: ", re.M)
+
+
+def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
+    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), was killed by a signal
+    (a negative code), crashed (a traceback), or exited with a code outside CODES (the codes its verdicts use)."""
+    if code == 124:
+        return "timed out"
+    if code < 0:
+        return f"was killed by signal {-code}"
+    if NO_VERDICT.search(out):
+        return "crashed"
+    if codes is not None and code not in codes:
+        return f"exited {code}"
+    return None
 
 
 def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
@@ -1286,7 +1354,7 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
 
-        def findings(rev: str, base_list: bytes | None) -> list[str] | None:
+        def findings(rev: str, base_list: bytes | None) -> tuple[list[str], str | None] | None:
             reserved, surfaces = blob(rev, RESERVED_LIST), blob(rev, RESERVED_SURFACES)
             if reserved is None or surfaces is None:
                 return None
@@ -1297,12 +1365,16 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
             if base_list is not None:
                 (work / "base-list.json").write_bytes(base_list)
                 cmd += ["--base-reserved", str(work / "base-list.json")]
-            _, out = run(cmd, work)
-            return [line for line in out.splitlines() if line.strip()]
+            code, out = run(cmd, work)
+            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict.
+            return [line for line in out.splitlines() if line.strip()], no_verdict(code, out, (0, 1))
 
-        head_lines = findings(head, blob(base, RESERVED_LIST)) or []
-        base_lines = findings(base, None) or []
-    fresh = [line for line in head_lines if line not in base_lines]
+        head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
+        base_lines, base_stopped = findings(base, None) or ([], None)
+    if head_stopped:
+        return [NoVerdict(f"{RESERVED_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push is "
+                          f"refused: {' '.join(head_lines[-2:])[:300]}")]
+    fresh = [line for line in head_lines if base_stopped or line not in base_lines]
     if fresh and RESERVED_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
         return []
@@ -1341,74 +1413,66 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
             if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
                 return []
 
-        def findings(*args: str) -> list[str]:
+        def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
-            if code == 124:
-                return [f"check-ui-font.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+            lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict.
+            return lines, no_verdict(code, out, (0, 1))
 
-        head_lines = findings("--rev", head, "--base", base)
+        head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
         # would hide it and pass a push the check never judged (review of #39838): it refuses on its own.
         stopped = [line for line in head_lines if UI_FONT_GUARD in line]
         if stopped:
             return stopped
-        base_lines = set(findings("--rev", base))
-        return [line for line in head_lines if line not in base_lines]
+        # A crash or a timeout is the same class: both passes can print it alike, so it refuses on its own too.
+        if head_stopped:
+            return [NoVerdict(f"{UI_FONT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push "
+                              f"is refused: {' '.join(head_lines[-2:])[:300]}")]
+        base_lines, base_stopped = findings("--rev", base)
+        # A base pass with no verdict never subtracts: every head finding counts.
+        return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
-def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
-    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
-    Cargo.toml or Cargo.lock in it.
+def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
+    Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
 
     2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
     Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
-    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
-    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
-    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    included, until #31717. 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only, and
+    the cmux-app-ffi and cmux-layout-reducer-ffi workspaces (their own locks, cmux-tui's crates by path) went stale;
+    this check then read only the lock of the workspace a changed file sat in, so it passed. Now any Cargo change
+    checks every lock: a manifest reaches other workspaces through path dependencies. It reads the pushing
+    checkout itself (no tree is exported), so it runs only when head is the checked-out HEAD and no Cargo file has
+    uncommitted edits; it refuses only on cargo's own lock error and lets the push through on any other (no cargo,
+    an uncached index, a timeout).
     """
-    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
-    if not changed or shutil.which("cargo") is None:
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
         return []
     # Pathspecs here use git's default matching, where `*` also matches `/`.
-    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
-             if p.rpartition("/")[2] == "Cargo.lock"]
-    roots = sorted({lock.rpartition("/")[0] for lock in locks
-                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
-    if not roots:
-        return []
-    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
-                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
-                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", "*Cargo.toml", "*Cargo.lock"],
                            capture_output=True).returncode != 0
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
-    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
-    found = []
-    for root in roots:
-        manifest = repo.resolve() / root / "Cargo.toml"
-        if not manifest.is_file():
-            continue
-        for network in ("--offline", None):
-            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
-            try:
-                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if run.returncode == 0:
-                break
-            if CARGO_DRIFT in run.stderr:
-                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
-                             f"(cargo metadata --locked: {CARGO_DRIFT})")
-                break
-    return found
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than the shared check
+    with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
+        check = Path(tmp) / "cargo-locks.py"
+        check.write_bytes(script)
+        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
+        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+    if code == 124:
+        log(f"prepush-gate: Cargo.lock check skipped: {out}")
+        return []
+    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1528,6 +1592,185 @@ def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | Non
         log(f"prepush-gate: WARNING: no YAML parser here (PyYAML, ruby or actionlint), so {', '.join(unchecked)} "
             "went unchecked; CI's \"Lint every workflow\" step still checks it. `pip install pyyaml` fixes this.")
     return found
+
+
+# scripts/ci/guards-local.sh's pin, so the hook and the local guard venv read YAML with the same PyYAML.
+PYYAML_PIN = "PyYAML==6.0.3"
+
+
+def has_pyyaml(python: str) -> bool:
+    """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
+    try:
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+# Where Debian and Ubuntu's python3-yaml lands: the one place `apt-get install` can put PyYAML for an interpreter.
+APT_DIST_PACKAGES = "/usr/lib/python3/dist-packages"
+
+
+def interpreter_sys_path(python: str) -> list[str]:
+    """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
+    try:
+        done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
+                              capture_output=True, text=True, timeout=30)
+        listed = json.loads(done.stdout) if done.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+
+
+# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
+# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
+# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
+# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
+#   pip       not externally managed, PURELIB writable: plain pip
+#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
+#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
+#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
+# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
+# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
+PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
+PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
+
+
+def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
+    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
+    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
+    interpreter, with PYTHON's paths taken as this interpreter's."""
+    paths = sysconfig.get_paths()
+    given = [] if stdlib is None and purelib is None else [
+        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
+    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
+        try:
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
+            return done.stdout.strip()
+    return "refuse"
+
+
+def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
+                           apt: bool | None = None, syspath: list[str] | None = None) -> str:
+    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
+    `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
+    PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
+    a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
+    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
+    no pip at all and what to do instead."""
+    apt = shutil.which("apt-get") is not None if apt is None else apt
+    if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
+        return "sudo apt-get install -y python3-yaml"
+    route = pep668_route(python, stdlib, purelib)
+    if route == "refuse":
+        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
+                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
+                "first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
+    return f"sudo {pip}" if route == "sudo-pip" else pip
+
+
+FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_INCOMPLETE = "incomplete"
+
+
+def fallback_output_fault(listed: object) -> str | None:
+    """What is wrong with the checker's --json output LISTED, or None: it must be a list of objects, each with a string
+    key, a string message and a status of FALLBACKS_STATUSES (Codex on #40840: findings were str()-coerced, so
+    `[{"key": [], "message": {}}]` read as one equal finding on both sides and was subtracted)."""
+    if not isinstance(listed, list):
+        return f"a {type(listed).__name__}, not a list"
+    for index, item in enumerate(listed):
+        if not isinstance(item, dict):
+            return f"item {index} is a {type(item).__name__}, not an object"
+        for field in ("key", "message"):
+            if not isinstance(item.get(field), str):
+                return f"item {index}'s {field} is a {type(item.get(field)).__name__}, not a string"
+        if item.get("status") not in FALLBACKS_STATUSES:
+            return f"item {index}'s status is {item.get('status')!r}, not one of {', '.join(FALLBACKS_STATUSES)}"
+    return None
+
+
+def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
+
+    Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. Only two cases pass unchecked: a HEAD without the
+    declaration (a branch older than it), and a hook install older than the checker (a warning). A checker that runs
+    and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
+    the checker and the layer passed), whatever the cause, a missing PyYAML included.
+
+    Codex on #40840. F1: a finding whose status is "incomplete" (the scan did not run: a declaration of the wrong
+    shape, a workflow that does not load) refuses at the head whether or not the base had it too; the base's copy was
+    subtracted as old debt, so a new vars.NAME passed with no scan. F2: the output must be a list of objects, each
+    with a string key, a string message and a known status; anything else (`[{"key": [], "message": {}}]`, which
+    str() made equal on both sides) is a checker failure and refuses. A base that gives no verdict, or an incomplete
+    one, subtracts nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
+    if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
+        return []
+    if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
+        return []  # a branch older than the declaration
+    if trusted_scripts is None:
+        script = blob_at(repo, head, FALLBACKS_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
+            "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
+    if not has_pyyaml(sys.executable):
+        fix = pyyaml_install_command(sys.executable)
+        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
+    with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
+            """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
+            verdict (a crash, an exit, no JSON, output of the wrong shape)."""
+            tree = work / rev[:12]
+            tree.mkdir()
+            paths = [".github/workflows"] + ([FALLBACKS_DECLARATION] if blob_at(repo, rev, FALLBACKS_DECLARATION) else [])
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, *paths],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return f"git archive {rev[:12]} failed: {archive.stderr.decode(errors='replace').strip()[:200]}"
+            subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+            if not (tree / FALLBACKS_DECLARATION).is_file():
+                return {}, []
+            code, out = run([sys.executable, "-I", str(work / "check.py"), "--root", str(tree), "--json"], work)
+            tail = " ".join(out.strip().splitlines()[-3:])[:300]
+            if code != 0:
+                return f"exited {code}: {tail or 'no output'}"
+            try:
+                listed = json.loads(next(line for line in out.splitlines() if line.startswith("[")))
+            except (ValueError, StopIteration) as error:
+                return f"printed no JSON list of findings ({error.__class__.__name__}): {tail or 'no output'}"
+            bad = fallback_output_fault(listed)
+            if bad:
+                return f"printed findings of the wrong shape ({bad}): {tail[:200]}"
+            return ({f["key"]: f["message"] for f in listed},
+                    [f["message"] for f in listed if f["status"] == FALLBACKS_INCOMPLETE])
+
+        now = keyed(head)
+        if isinstance(now, str):
+            return [NoVerdict(f"the single-host fallback checker did not give a verdict at the pushed head, so the "
+                              f"push is refused (fix the declaration or the checker; `python3 {FALLBACKS_SCRIPT}` "
+                              f"shows it): {now}")]
+        found, incomplete = now
+        if incomplete:
+            return [NoVerdict(f"the single-host fallback scan did not run at the pushed head, so the push is refused "
+                              f"whatever the base had (fix the declaration or the workflow): {message}")
+                    for message in incomplete]
+        before = keyed(base)
+        # No verdict at the base, or an incomplete one: subtract nothing, every head finding is new.
+        before = before[0] if isinstance(before, tuple) and not before[1] else {}
+        return [message for key, message in sorted(found.items()) if key not in before]
 
 
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
@@ -1741,10 +1984,15 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): ci-guards.yml runs the checker --advisory.
+    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None:
+        undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
+        if undeclared:
+            reserved.append((FALLBACKS_CHECK, undeclared))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
-        drift = cargo_lock_drift(repo, base, head)
+        drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
     if only is None or "sidebar" in only:
@@ -1873,7 +2121,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         if crash_layer else None)
             for name in jobs:
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
-                _, base_out, base_s = futures[(name, 0)].result()
+                base_code, base_out, base_s = futures[(name, 0)].result()
                 head_code, head_out, head_s = futures[(name, 1)].result()
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
@@ -1882,6 +2130,18 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
+                # One rule for every scanner, before any subtraction (Codex on #40880): a run outside the scanner's
+                # verdict codes, a signal, a crash or a timeout is no verdict. At the head it refuses; at the base it
+                # subtracts nothing, here or in the dependency check's stale-line diff.
+                codes = SCANNER_VERDICT_CODES.get(name, DEFAULT_VERDICT_CODES) if jobs[name][0] == "cmd" else None
+                stopped = no_verdict(head_code, head_out, codes)
+                if stopped:
+                    found.append((name, [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the "
+                                                   f"push is refused: "
+                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}")]))
+                    continue
+                if no_verdict(base_code, base_out, codes):
+                    base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
@@ -1983,8 +2243,13 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
     for name, fresh in found:
-        mine = push_range.less(fresh, [run.get(name, []) for run in before], key=finding_key)
-        if any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine):
+        # A run of the check that gave no verdict over an upstream range takes nothing off: what it printed is not
+        # its findings. A NoVerdict of the push's own range is never taken off (its key matches nothing).
+        sides = [run.get(name, []) for run in before]
+        mine = push_range.less(fresh, [[] if any(isinstance(r, NoVerdict) for r in side) else side for side in sides],
+                               key=finding_key)
+        if (any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine)
+                and not any(isinstance(r, NoVerdict) for r in mine)):
             mine = []
         if mine:
             kept.append((name, mine))
@@ -2204,6 +2469,279 @@ dialogs, translucent theme tints on glass. A reviewed escape comment (`// concur
 Never --no-verify: CI names every commit that adds a violation (step "Pushed commits add no violations")."""
 
 
+# ---------------------------------------------------------------- advisory (CI: named, never a gate)
+
+# The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
+# The four layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
+# plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
+# without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
+# tests" (Lawrence 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"): this is no gate,
+# no job and no step; it is advisory, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
+ADVISORY_ARCH = "arch ratchet"
+ADVISORY_GUARDRAILS = "guardrails line rules"
+ADVISORY_SWIFTFORMAT = "SwiftFormat"
+ADVISORY_PICTURES = "What's New pictures"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
+# The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
+# "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
+ADVISORY_SECONDS = 240.0
+ADVISORY_SECONDS_ENV = "CMUX_PREPUSH_ADVISORY_SECONDS"
+ADVISORY_ANNOTATIONS = 50  # GitHub shows at most this many annotations of a job; the summary has every count
+# A site under an arch ratchet refusal: `  path:line: text` (a count row) or `  path: text` (an escape site).
+ARCH_SITE = re.compile(r"^\s+(?P<path>[\w.+@/-]+\.\w+)(?::(?P<line>\d+))?: (?P<text>.*)$")
+
+
+class AdvisoryFinding:
+    __slots__ = ("layer", "path", "line", "title", "message")
+
+    def __init__(self, layer: str, path: str | None, line: int | None, title: str, message: str) -> None:
+        self.layer, self.path, self.line, self.title, self.message = layer, path, line, title, message
+
+
+def _workflow_data(text: str) -> str:
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _workflow_property(text: str) -> str:
+    return _workflow_data(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def advisory_annotation(finding: AdvisoryFinding) -> str:
+    """The `::warning` workflow command for FINDING: file and line when it has them, the layer in its title."""
+    props = []
+    if finding.path:
+        props.append(f"file={_workflow_property(finding.path)}")
+        if finding.line:
+            props.append(f"line={finding.line}")
+    props.append(f"title={_workflow_property(f'prepush advisory ({finding.layer}) {finding.title}')}")
+    return f"::warning {','.join(props)}::{_workflow_data(finding.message)}"
+
+
+def _repo_path(repo: Path, path: str) -> str:
+    """PATH as a repository path (an annotation's file=): as given, or under the package when it is relative to it."""
+    for prefix in ("", PKG + "/", PKG + "/Sources/"):
+        if (repo / (prefix + path)).exists():
+            return prefix + path
+    return path
+
+
+def _load_script(repo: Path, name: str, filename: str):
+    script = repo / SCRIPTS / filename
+    spec = importlib.util.spec_from_file_location(name, script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+# An arch ratchet note that says part of the push was not judged (a rule module or the ratchet failed, a row's map did
+# not parse): the layer is incomplete, never clean.
+ARCH_DIAGNOSTIC = re.compile(r"^arch-ratchet: (WARNING: |.*\bnot judged\b)")
+
+
+def advisory_arch(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): the arch ratchet's refusals for RANGES, one finding per named site (or one for a
+    refusal that names none), and its notes that say something was not judged."""
+    module = _load_script(repo, "cmux_next_arch_ratchet", "arch-ratchet.py")
+    refusals, notes = module.push_refusals(repo, ranges)
+    diagnostics = [str(note) for note in notes if ARCH_DIAGNOSTIC.match(str(note))]
+    found = []
+    for row, text in refusals:
+        lines = text.splitlines()
+        title = re.sub(r"^arch-ratchet: ", "", lines[0]).strip() if lines else f"[{row}]"
+        sites = [m for m in (ARCH_SITE.match(line) for line in lines[1:]) if m]
+        for m in sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, _repo_path(repo, m.group("path")),
+                                         int(m.group("line")) if m.group("line") else None, f"[{row}]",
+                                         f"{title}: {m.group('text').strip()}"))
+        if not sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, None, None, f"[{row}]", text))
+    return found, diagnostics
+
+
+def advisory_guardrails(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): guardrails.py's line rules (and its Ghostty pin) for RANGES, one finding per refused
+    line, and check_own's own failure warnings (kind "guardrails": a rule that raised and was not applied)."""
+    module = load_guardrails(repo, None)
+    if module is None:
+        raise RuntimeError(f"{SCRIPTS}/guardrails.py is missing")
+    found, diagnostics = [], []
+    for own in module.load_push_range().as_own_ranges(repo, ranges):
+        refusals, warnings = module.check_own(repo, own.base, own.head, own.before)
+        diagnostics += [text for kind, text in warnings if kind == "guardrails" and text not in diagnostics]
+        for rule, hits in refusals:
+            for hit in hits:
+                found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, hit.path, hit.number or None, f"[{rule.id}]",
+                                             f"{rule.title}: {hit.text.strip()[:140]}. Do: {rule.fix}"))
+        try:
+            pin = module.ghostty_pin_problem(repo, own.base, own.head, own.before)
+        except Exception as error:  # noqa: BLE001 - as run_push: the pin check failing is a diagnostic
+            diagnostics.append(module.check_failure("ghostty-pin", error))
+            pin = None
+        if pin:
+            found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, None, None, "[ghostty-pin]", pin))
+    return found, diagnostics
+
+
+def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]]) -> list[AdvisoryFinding]:
+    out = []
+    for name, records_ in found:
+        for record in records_:
+            first = str(record).splitlines()[0] if str(record) else ""
+            at = LOCATION.match(first)
+            if at:
+                path, line = at.group("path"), int(at.group("line"))
+            else:
+                path, line = (first.partition(": ")[0] or None), None
+            out.append(AdvisoryFinding(layer, _repo_path(repo, path) if path else None, line, name, str(record)))
+    return out
+
+
+def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str], str | None]:
+    """(findings, the reason the layer was skipped or None). Skipped, not installed, when the runner has no binary:
+    the rule above forbids an install step."""
+    if not any(p.startswith(SWIFT_SCOPE) and p.endswith(".swift")
+               for own in ranges for p in changed_files(repo, own.base, own.head)):
+        return [], [], "no Swift file changed"
+    lock = repo / SCRIPTS / "lint-tools.lock"
+    try:
+        binary = ensure_tool(lock, "swiftformat")
+        probe = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL)
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
+        return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
+    if probe.returncode != 0:
+        return [], [], f"the pinned SwiftFormat does not run on this runner: {(probe.stderr or probe.stdout).strip()[:200]}"
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"swiftformat"}, False, None, swiftformat_layer=True)
+    return _record_findings(ADVISORY_SWIFTFORMAT, repo, found), [], None
+
+
+def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"pictures"}, False, None)
+    return _record_findings(ADVISORY_PICTURES, repo, found), []
+
+
+def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
+    if not summary:
+        return
+    lines = ["### prepush advisory (hook-only checks, never a gate)", "",
+             "Run on CI only to show what a push that skipped the pre-push hook adds; the step's result is "
+             "unchanged by them.", "", "| check | result |", "| --- | --- |"]
+    lines += [f"| {name} | {result.replace('|', '/')} |" for name, result in rows]
+    try:
+        with open(summary, "a", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n\n")
+    except OSError as error:
+        print(f"prepush-gate: advisory: could not write the step summary ({error})", flush=True)
+
+
+def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
+    """The advisory child (--advisory-only): run the hook-only layers on RANGES one after the other, print each
+    finding as a `::warning`, each internal failure diagnostic as a `::warning` too, and the summary table.
+
+    A layer whose checker reports it did not judge everything (a rule that raised, a ratchet note that says "not
+    judged") or that raised itself is "incomplete", never "clean"."""
+    rows: list[tuple[str, str]] = []
+    findings: list[AdvisoryFinding] = []
+    diagnostics: list[tuple[str, str]] = []
+    layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures))
+    for name, fn in layers:
+        t0 = time.monotonic()
+        try:
+            got = fn(repo, ranges)
+        except (Exception, SystemExit) as error:  # noqa: BLE001 - advisory: report it, never fail the gate
+            text = f"did not run ({type(error).__name__}: {str(error)[:300]})"
+            diagnostics.append((name, text))
+            rows.append((name, f"incomplete: {text}"))
+            continue
+        found, notes, skipped = (got + (None,))[:3]
+        if skipped:
+            rows.append((name, f"skipped: {skipped}"))
+            continue
+        findings.extend(found)
+        diagnostics += [(name, note) for note in notes]
+        took = f" ({time.monotonic() - t0:.1f}s)"
+        if notes:
+            rows.append((name, f"incomplete: {len(found)} finding(s), {len(notes)} check(s) did not run{took}"))
+        else:
+            rows.append((name, (f"{len(found)} finding(s)" if found else "clean") + took))
+    print("prepush-gate: advisory, hook-only checks on this range (they never fail this step): "
+          + "; ".join(f"{name}: {result}" for name, result in rows), flush=True)
+    for name, text in diagnostics:
+        print(f"::warning title={_workflow_property(f'prepush advisory ({name}) incomplete')}::{_workflow_data(text)}",
+              flush=True)
+    for finding in findings[:ADVISORY_ANNOTATIONS]:
+        print(advisory_annotation(finding), flush=True)
+    if len(findings) > ADVISORY_ANNOTATIONS:
+        print(f"prepush-gate: advisory: {len(findings) - ADVISORY_ANNOTATIONS} more finding(s) not annotated", flush=True)
+    _summary(summary, rows)
+
+
+def advisory_seconds() -> float:
+    raw = os.environ.get(ADVISORY_SECONDS_ENV, "").strip()
+    try:
+        return float(raw) if raw else ADVISORY_SECONDS
+    except ValueError:
+        return ADVISORY_SECONDS
+
+
+def advisory_start(repo: Path, base: str | None, head: str):
+    """Start the advisory child (this script, --advisory-only) in its own process group, or None when it cannot
+    start. Its own session, so advisory_finish can kill everything it started (git, the arch checks' workers)."""
+    cmd = [sys.executable, "-I", str(Path(__file__).resolve()), "--advisory-only", "--repo", str(repo), "--head", head]
+    if base:
+        cmd += ["--base", base]
+    sys.stdout.flush()
+    try:
+        return subprocess.Popen(cmd, cwd=repo, start_new_session=True, stdin=subprocess.DEVNULL), time.monotonic()
+    except OSError as error:
+        print(f"::warning title=prepush advisory did not start::{_workflow_data(str(error))}", flush=True)
+        return None
+
+
+def advisory_finish(started, summary: str | None, seconds: float) -> None:
+    """Wait for the advisory child until SECONDS after it started. Past that: SIGTERM then SIGKILL to its whole
+    process group, reap it, and print one "timed out" warning. Returns nothing: the gate's exit code never depends
+    on the child (Codex review of #40811: a stalled child joined at interpreter exit ran into the gate's watchdog)."""
+    if started is None:
+        return
+    process, t0 = started
+    try:
+        code = process.wait(timeout=max(0.0, seconds - (time.monotonic() - t0)))
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                process.wait(timeout=GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # members that outlived the leader
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.wait(timeout=GRACE_SECONDS + 5)
+        except subprocess.TimeoutExpired:
+            pass
+        print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+              "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+              flush=True)
+        _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
+        return
+    if code != 0:
+        print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+              "unchanged.", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
@@ -2218,9 +2756,15 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "single-host-fallbacks")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
+    parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
+    parser.add_argument("--advisory", action="store_true",
+                        help="CI (the fast gates): also run the hook-only layers (arch ratchet, guardrails line rules, "
+                             "SwiftFormat, What's New pictures) and print each finding as a ::warning; never changes "
+                             "the exit code")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
@@ -2293,8 +2837,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"prepush-gate: cannot tell which commits are this push's own: {error}")
         print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
         return 1
+    if args.advisory_only:
+        advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
+        return 0
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
+    # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
+    advised = (advisory_start(repo, args.base, args.head) if args.advisory and only is None and not args.pre_push
+               else None)
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
@@ -2306,6 +2856,7 @@ def main(argv: list[str] | None = None) -> int:
         # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
                               highlights_layer=swiftformat_layer)
+    advisory_finish(advised, os.environ.get("GITHUB_STEP_SUMMARY"), advisory_seconds())
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
@@ -2367,6 +2918,8 @@ def main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == FALLBACKS_CHECK for name, _ in found_any):
+        print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
@@ -2441,7 +2994,8 @@ def start_watchdog(limit: float) -> None:
 
     def fire() -> None:
         sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
-                         "push refused. Where each thread was:\n")
+                         "push refused. A Mac too loaded to finish it pushes through an idle one: "
+                         "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         stop(_descendants(os.getpid()))
@@ -2453,12 +3007,32 @@ def start_watchdog(limit: float) -> None:
     timer.start()
 
 
+GATE_LIMIT_MAX_SECONDS = 3600.0  # the most a loaded Mac's gate gets; past it the push goes through another Mac
+
+
+def loaded_limit(base: float, load: float, cpus: int) -> float:
+    """BASE on a Mac with a free core, and BASE times the runnable processes per core on a loaded one, up to
+    GATE_LIMIT_MAX_SECONDS. The limit is there to refuse a hang, and a check that shares each core with LOAD/CPUS
+    others is slow, not hung: on 2026-11-10 (load average 300-770 on 18 cores) every push's gate ran to 600 s and
+    was refused with nothing wrong in it, while the same push's gate took 8 s on an idle Mac."""
+    if cpus <= 0 or load <= cpus:
+        return base
+    return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
+
+
 def gate_limit() -> float:
+    """CMUX_NEXT_GATE_LIMIT_SECONDS as given (a set limit is never scaled), else GATE_LIMIT_SECONDS for this load."""
     raw = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS", "").strip()
     try:
-        return float(raw) if raw else GATE_LIMIT_SECONDS
+        if raw:
+            return float(raw)
     except ValueError:
+        pass
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
         return GATE_LIMIT_SECONDS
+    return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
 
 
 if __name__ == "__main__":

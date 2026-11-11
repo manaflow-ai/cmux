@@ -55,9 +55,9 @@ struct WorkspaceSpawner {
         let use = daemon.connection == nil ? nil : daemon.store.reservedWorkspaceUse(plain: windowID != nil && spawn.isPlainNewTabPage && windows.services.agentTabs.showsWorkspaceAtOnce(on: daemon), home: windows.services.daemon.store)
         if let span = use?.span { BenchSpans.mark(span) }
         let key = spawn.key ?? use?.key ?? WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        let (row, rule) = spawn.placement(setting: NewWorkspacePlacements.rule(for: windowID, in: windows), opening: key.rawValue, in: windowID, tells: windows.registry.closeSelection) // one read of the rows; the rule hears of a person's create before the window can show it
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
-        let (row, rule) = spawn.placement(setting: NewWorkspacePlacements.rule(for: windowID, in: windows))
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.rowName(inWindow: windowID != nil) {
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
@@ -167,6 +167,8 @@ struct WorkspaceSpawner {
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: start.cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        // A browser workspace: one request, and its window shows it once the tab is there (no terminal, no empty frame).
+        if let tab = spawn.firstBrowser, daemon.supports(DaemonCapability.workspaceFirstTab.rawValue) { return try await FirstTabHold.creating(key.rawValue, windows: windows) { try await spawn.madeFirstBrowser(repair.createBrowserWorkspace(key, name: spawn.name, tab: tab, on: connection), on: connection) } ?? key.rawValue }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).

@@ -292,6 +292,9 @@ class AgainstBash(unittest.TestCase):
             "-X POST": ["x", "-X", "POST"], "--method POST": ["x", "--method", "POST"],
             "--method=post": ["--method=post", "x"], "-iXPOST": ["-iXPOST", "x"], "-X PATCH": ["x", "-X", "PATCH"],
             "-X $M": ["x", "-X", "$M"], "an unknown flag": ["x", "--frobnicate"],
+            # Writes first: a write method anywhere wins over a read one, and a request body makes a GET a write.
+            "-X POST then -X GET": ["x", "-X", "POST", "-X", "GET"], "-XGET then --method=PUT": ["-XGET", "x", "--method=PUT"],
+            "-X GET --input": ["x", "-X", "GET", "--input", "f"], "--method=HEAD --input=": ["x", "--method=HEAD", "--input=f"],
         }
         for label, args in writes.items():
             with self.subTest(write=label):
@@ -305,6 +308,7 @@ class AgainstBash(unittest.TestCase):
         self.assertEqual(gh_api_request(["-H", "Accept: y", "repos/o/r/releases", "-f", "a=1"]).endpoint, "repos/o/r/releases")
         self.assertIsNone(gh_api_request(["-f", "a=1"]).endpoint)  # no endpoint: xargs feeds it
         self.assertIsNone(gh_api_request(["$URL", "-f", "a=1"]).endpoint)  # an endpoint it cannot read
+        self.assertIsNone(gh_api_request(["user", "repos/o/r/releases", "-XPOST"]).endpoint)  # two endpoints: either
 
     def test_may_run_nested_reads_wrapped_commands_and_marks_what_it_cannot_read(self) -> None:
         from shell_invocations import may_run_nested

@@ -208,6 +208,13 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The source is still reading the chat's history from the Mac
+    /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
+    /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
+    /// shows them (kept from before) and says it is updating.
+    public private(set) var isLoadingHistory = false
+    /// The chat is new: it holds no turns and none are on their way (the empty state shows).
+    public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
     /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
@@ -314,6 +321,7 @@ public final class AgentChatStore {
     public init(source: any AgentSessionSource) {
         self.source = source
         self.summary = source.summary
+        self.isLoadingHistory = source.loadsHistory
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -810,6 +818,7 @@ public final class AgentChatStore {
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
+        if gapFiller != nil { noteNewer(event) }
         switch event {
         case .turnRetried(let previousTurnID, let turnID):
             guard let index = turns.indices.last, turns[index].id == previousTurnID,
@@ -824,6 +833,8 @@ public final class AgentChatStore {
             for agentIndex in subagents.indices where subagents[agentIndex].turnID == previousTurnID {
                 subagents[agentIndex].turnID = turnID
             }
+            // The gap goes in before this turn whatever it is called now.
+            if gapBeforeTurnID == previousTurnID { gapBeforeTurnID = turnID }
             retryRequested = false
             currentMessageID = nil
             startsNewAttempt = true
@@ -831,6 +842,7 @@ public final class AgentChatStore {
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
+            if gapFiller != nil { gapLeftQueue.insert(promptId) }
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
             promptedTurnID = nil
             steeredPrompt = nil
@@ -870,7 +882,10 @@ public final class AgentChatStore {
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
+            if gapFiller != nil { gapLeftQueue.insert(promptId) }
         case .queueUpdated(let promptId, let text):
+            // Newer than any edit the gap holds, whether or not the gap showed the prompt yet.
+            if gapFiller != nil { gapLaterQueueText[promptId] = text }
             if let index = queue.firstIndex(where: { $0.id == promptId }) { queue[index].text = text }
         case .queueOrder(let order):
             let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
@@ -1006,11 +1021,17 @@ public final class AgentChatStore {
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
+        case .historyLoading(let loading):
+            if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
             refreshEarlierHistory()
             prependEarlier(events)
+        case .gapOpened(let beforeTurnID):
+            openGap(before: beforeTurnID)
+        case .gapPage(let events, let done):
+            fillGap(events, done: done)
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
@@ -1138,8 +1159,9 @@ public final class AgentChatStore {
     @discardableResult
     public func spillOlder(keeping: Int, protecting: String? = nil) -> Int {
         // A page on its way (from disk or the Mac) goes in front of the turns shown: spilling
-        // now would put newer turns on disk below it, and bring them back above it.
-        guard !isLoadingEarlier else { return 0 }
+        // now would put newer turns on disk below it, and bring them back above it. A gap
+        // being filled goes in among them: the turns around it stay until it is filled.
+        guard !isLoadingEarlier, gapFiller == nil else { return 0 }
         var end = turns.count - keeping
         if let protecting, let index = turns.firstIndex(where: { $0.id == protecting }) { end = min(end, index) }
         if let live = turns.prefix(max(end, 0)).firstIndex(where: { turn in
@@ -1211,6 +1233,224 @@ public final class AgentChatStore {
             for row in turn.rows { replayedIDs.insert(row.id) }
         }
         lastChangeWasReplay = true
+    }
+
+    // MARK: Reconnect gap (tail-first)
+
+    /// A reattach after a long time away showed the newest records first; the records between
+    /// what the chat had and them are being read, and go in just before ``gapBeforeTurnID`` as
+    /// they come (``AgentSessionEvent/gapOpened(beforeTurnID:)``, ``AgentSessionEvent/gapPage(_:done:)``).
+    public private(set) var isFillingGap = false
+    /// The first turn of the newest records while the gap before it fills (nil: no gap).
+    public private(set) var gapBeforeTurnID: String?
+    /// The gap's turns, built on their own from the turn the chat had last (continued by the
+    /// gap's first records) as its pages come: the queue, the asks and the status the chat
+    /// shows are newer than anything in it.
+    @ObservationIgnored private var gapFiller: AgentChatStore?
+    /// How many of the filler's turns are shown now, just before `gapBeforeTurnID`.
+    @ObservationIgnored private var gapShown = 0
+    /// The newer records (the newest page, live ones) that change what the gap also writes, in
+    /// the order they came: subagent records, answers to asks, the queue's order. The gap's
+    /// records are older than all of them, so each page's result is the gap's state with these
+    /// applied again on top, never a merge that guesses which part of an item is whose (a
+    /// message or tool call goes on across the gap's edge).
+    @ObservationIgnored private var gapNewerAgentEvents: [AgentSessionEvent] = []
+    @ObservationIgnored private var gapNewerDecisions: [AgentSessionEvent] = []
+    @ObservationIgnored private var gapLaterQueueOrder: [String]?
+    /// While a gap fills: prompts that newer records took out of the queue (they ran or were
+    /// removed), the newest text a newer edit gave a prompt not shown yet, and the waiting
+    /// prompts the gap put in the queue.
+    @ObservationIgnored private var gapLeftQueue: Set<String> = []
+    @ObservationIgnored private var gapLaterQueueText: [String: String] = [:]
+    @ObservationIgnored private var gapQueued: Set<String> = []
+    /// The prompts waiting when the gap opened: they waited longest, so a prompt the gap puts
+    /// back goes after them.
+    @ObservationIgnored private var gapPriorQueued: Set<String> = []
+    /// Every subagent the chat had when the gap opened, as it was then: the gap's records may
+    /// go on with one started in any earlier turn (a background agent outlives its turn), so
+    /// the filler starts from all of them, and only those the gap changed are taken back.
+    @ObservationIgnored private var gapSeedAgents: [String: AgentSubagent] = [:]
+
+    private func noteNewer(_ event: AgentSessionEvent) {
+        switch event {
+        case .subagent, .subagentUpdate: gapNewerAgentEvents.append(event)
+        case .permissionDecision, .questionAnswered: gapNewerDecisions.append(event)
+        case .queueOrder(let order): gapLaterQueueOrder = order
+        default: break
+        }
+    }
+
+    /// A prompt the gap says left the queue (ran or was removed).
+    private func leaveQueueFromGap(_ promptId: String) {
+        queue.removeAll { $0.id == promptId }
+        gapQueued.remove(promptId)
+        gapLeftQueue.insert(promptId)
+    }
+
+    private func openGap(before turnID: String) {
+        if gapFiller != nil { closeGap() }
+        let filler = AgentChatStore(source: EarlierHistorySource(summary: summary))
+        filler.nextFrame = nil
+        if let last = turns.last {
+            // The gap's first records may continue this turn (its answer, its result).
+            filler.turns = [last]
+            filler.currentMessageID = currentMessageID
+        }
+        filler.subagents = subagents
+        gapSeedAgents = Dictionary(subagents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        gapPriorQueued = Set(queue.map(\.id))
+        // What this phone sent with a prompt that ran in the gap.
+        filler.sentAttachments = sentAttachments
+        gapFiller = filler
+        gapShown = filler.turns.count
+        gapBeforeTurnID = turnID
+        isFillingGap = true
+    }
+
+    private func fillGap(_ events: [AgentSessionEvent], done: Bool) {
+        guard let filler = gapFiller, let before = gapBeforeTurnID else { return }
+        if !events.isEmpty {
+            let previous = filler.turns.count
+            for event in events {
+                // What the gap says about the chat as a whole, where the newer records cannot
+                // have said it again: a prompt this phone sent ran (or waited), one shown waiting
+                // left the queue, a sudo card shown was answered.
+                switch event {
+                case .userMessage(_, let promptId, _, _, _):
+                    reached(promptId)
+                    sentAttachments[promptId] = nil
+                    leaveQueueFromGap(promptId)
+                case .queued(let text, let promptId, _):
+                    reached(promptId)
+                    // Still waiting unless a newer record says it left the queue: it goes in
+                    // ahead of what the newest records queued (it waited longer), with the
+                    // newest text the chat has for it.
+                    if !gapLeftQueue.contains(promptId), !queue.contains(where: { $0.id == promptId }) {
+                        let older = gapPriorQueued.union(gapQueued)
+                        let place = queue.filter { older.contains($0.id) }.count
+                        queue.insert(QueuedPrompt(id: promptId, text: gapLaterQueueText[promptId] ?? text), at: place)
+                        gapQueued.insert(promptId)
+                    }
+                case .dequeued(let promptId):
+                    leaveQueueFromGap(promptId)
+                case .queueUpdated(let promptId, let text):
+                    // An entry waiting before the gap or put in by it (the newest records cannot
+                    // queue a prompt the gap edits), unless a newer edit of it came.
+                    if gapLaterQueueText[promptId] == nil,
+                       let index = queue.firstIndex(where: { $0.id == promptId }) {
+                        queue[index].text = text
+                    }
+                case .permissionDecision(let permissionId, _, _):
+                    // An answer this phone sent reached the Mac (its card is in the gap's turn).
+                    decidedAsks.insert(permissionId)
+                    if sentPermissionAnswer?.permissionID == permissionId {
+                        sentPermissionAnswer = nil
+                        permissionAnswerUncertain = false
+                        awaitsPermissionReply = false
+                        approvingOptionID = nil
+                    }
+                case .questionAnswered(let questionId, _):
+                    decidedAsks.insert(questionId)
+                case .queueOrder(let order) where gapLaterQueueOrder == nil:
+                    // No newer order: the gap's own (what it does not list, the newer
+                    // prompts, stays after).
+                    let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+                    queue.sort { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
+                case .elevationDecision(let id) where pendingElevation?.id == id:
+                    pendingElevation = nil
+                    sendingElevation = false
+                default:
+                    break
+                }
+                filler.applyEvent(event)
+            }
+            // An ask the gap showed that a newer record answered: answered in the gap's turn
+            // too. The filler must still take a later page's record of an ask answered only
+            // newer, so it does not keep these as its own decisions.
+            for decision in gapNewerDecisions {
+                let id: String
+                switch decision {
+                case .permissionDecision(let permissionId, _, _): id = permissionId
+                case .questionAnswered(let questionId, _): id = questionId
+                default: continue
+                }
+                let had = filler.decidedAsks.contains(id)
+                filler.applyEvent(decision)
+                if !had { filler.decidedAsks.remove(id) }
+            }
+            // Prompts the gap put back in the queue take the newer order's places.
+            if let order = gapLaterQueueOrder {
+                let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+                queue.sort { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
+            }
+            if let end = turns.firstIndex(where: { $0.id == before }) {
+                let newer = Set(turns[end...].map(\.id))
+                let gapTurns = filler.turns.filter { !newer.contains($0.id) }
+                let start = max(end - gapShown, 0)
+                turns.replaceSubrange(start..<end, with: gapTurns)
+                gapShown = gapTurns.count
+                turnSeqs.merge(filler.turnSeqs) { _, gap in gap }
+                promptSeqs.merge(filler.promptSeqs) { _, gap in gap }
+                // Each subagent the gap wrote: the gap's state with every newer record of a
+                // subagent applied on top, in order. One the gap started goes before those of
+                // the newest turns; one shown already (a newer record made or changed it) is
+                // replaced in place.
+                let firstNewer = subagents.firstIndex { agent in agent.turnID.map { newer.contains($0) } ?? false } ?? subagents.count
+                var rebuiltAgents = filler.subagents
+                if !gapNewerAgentEvents.isEmpty, !rebuiltAgents.isEmpty {
+                    let rebuilt = AgentChatStore(source: EarlierHistorySource(summary: summary))
+                    rebuilt.nextFrame = nil
+                    rebuilt.subagents = rebuiltAgents
+                    for event in gapNewerAgentEvents { rebuilt.applyEvent(event) }
+                    rebuiltAgents = rebuilt.subagents
+                }
+                // The subagents the gap wrote: those it started, and those of any earlier turn
+                // whose state it changed. One it did not touch keeps what the chat shows (it may
+                // have newer state already). One the chat had keeps its own turn.
+                let gapAgents = Set(filler.subagents.filter { gapSeedAgents[$0.id] != $0 }.map(\.id))
+                let gapStarted = gapAgents.subtracting(gapSeedAgents.keys)
+                var added: [AgentSubagent] = []
+                for agent in rebuiltAgents where gapAgents.contains(agent.id) {
+                    if let index = subagents.firstIndex(where: { $0.id == agent.id }) {
+                        subagents[index] = agent
+                    } else {
+                        added.append(agent)
+                    }
+                }
+                subagents.insert(contentsOf: added, at: firstNewer)
+                // A newer record that made a subagent the gap started drew it under the newest
+                // turn; the gap's turn draws it now.
+                for index in (start + gapTurns.count)..<turns.count {
+                    turns[index].items = turns[index].items.compactMap { item in
+                        guard case .subagents(let group, let ids) = item, ids.contains(where: { gapStarted.contains($0) }) else { return item }
+                        let kept = ids.filter { !gapStarted.contains($0) }
+                        return kept.isEmpty ? nil : .subagents(id: group, ids: kept)
+                    }
+                }
+                // Drawn in place, as history: the turn continued and the new ones.
+                for turn in gapTurns.suffix(max(gapTurns.count - max(previous - 1, 0), 0)) {
+                    replayedIDs.insert(turn.id)
+                    for row in turn.rows { replayedIDs.insert(row.id) }
+                }
+                lastChangeWasReplay = true
+            }
+        }
+        if done { closeGap() }
+    }
+
+    private func closeGap() {
+        gapFiller = nil
+        gapShown = 0
+        gapNewerAgentEvents = []
+        gapNewerDecisions = []
+        gapLaterQueueOrder = nil
+        gapLeftQueue = []
+        gapLaterQueueText = [:]
+        gapQueued = []
+        gapSeedAgents = [:]
+        gapPriorQueued = []
+        gapBeforeTurnID = nil
+        isFillingGap = false
     }
 
     /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,

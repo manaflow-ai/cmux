@@ -8,7 +8,10 @@ it, and the job escapes the guard. The loader also refuses a repeated key, which
 would otherwise resolve by keeping the last job of that name.
 
 Secrets are matched in every form GitHub accepts: `secrets.X`, `secrets['X']`,
-`secrets["X"]`, any case, `toJSON(secrets)` and `secrets: inherit`.
+`secrets["X"]`, any case, `toJSON(secrets)`, `secrets.*`, a computed index and `secrets: inherit`.
+Each `${{ }}` is read by a tokenizer (expressions(), expression_tokens()), not a regex: a string
+literal may hold `}}` (a format() writing JSON braces), and the reference may sit in any function,
+index or operator (Codex review of #40784 at 96e5261c).
 
 PyYAML reads the `on:` key as the boolean True; a guard that needs the triggers reads
 `document.get("on", document.get(True))`.
@@ -27,11 +30,12 @@ import yaml
 
 ALL_SECRETS = "*"
 
-# `secrets.NAME`, `secrets['NAME']` / `secrets["NAME"]`, `secrets[<expression>]`, `toJSON(secrets)`.
+# `secrets.NAME` anywhere in a value, inside `${{ }}` or not (a guard counts more, never less). Every other form
+# is read inside `${{ }}` only, by expression_tokens(): in a run script `secrets[@]` is a shell array.
 # Context names and properties are case-insensitive in GitHub expressions.
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
-_SECRET_INDEX = re.compile(r"\bsecrets\s*\[\s*(?:'([^']*)'|\"([^\"]*)\"|([^\]]*))\s*\]", re.IGNORECASE)
-_SECRET_WHOLE = re.compile(r"\bsecrets\b(?!\s*[.\[])", re.IGNORECASE)
+_TOKEN = re.compile(r"""\s*(?:(?P<string>'(?:[^']|'')*'?)|(?P<string2>"[^"]*"?)|(?P<number>-?\d[\w.+-]*)"""
+                    r"""|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>==|!=|<=|>=|&&|\|\||[.\[\](),!<>*])|(?P<other>\S))""")
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
@@ -159,10 +163,65 @@ def strings(value: Any) -> Iterator[str]:
             yield from strings(item)
 
 
+def expressions(text: str) -> list[str]:
+    """The contents of each `${{ }}` in TEXT, read as GitHub reads them: a `}}` inside a string literal
+    (`'...'`, `''` an escaped quote) does not end the expression. One that never ends runs to the end of TEXT."""
+    found = []
+    start = text.find("${{")
+    while start != -1:
+        i, quoted = start + 3, False
+        while i < len(text):
+            if text[i] == "'":
+                quoted = not quoted  # `''` inside a string toggles twice: still inside
+            elif not quoted and text.startswith("}}", i):
+                break
+            i += 1
+        found.append(text[start + 3:i])
+        start = text.find("${{", i + 2)
+    return found
+
+
+def expression_tokens(expression: str) -> list[tuple[str, str]]:
+    """(kind, text) for each token of one expression's contents: string, number, name, op or other."""
+    tokens = []
+    for match in _TOKEN.finditer(expression):
+        kind = match.lastgroup
+        if kind is None:
+            continue
+        tokens.append(("string" if kind == "string2" else kind, match.group(kind)))
+    return tokens
+
+
+def _string_value(token: str) -> str:
+    body = token[1:-1] if len(token) >= 2 and token[-1] == token[0] else token[1:]
+    return body.replace("''", "'") if token.startswith("'") else body
+
+
+def expression_secrets(expression: str) -> set[str]:
+    """The secrets one expression's contents read, upper-cased: `secrets.X` and `secrets['X']` name X; the object
+    filter `secrets.*`, a computed index and the whole context (`toJSON(secrets)`, `format('{0}', secrets)`, any
+    other use) are ALL_SECRETS. `secrets` counts only as a context, never after a `.` (`needs.a.outputs.secrets`)
+    or inside a string literal."""
+    tokens = expression_tokens(expression)
+    names: set[str] = set()
+    for i, (kind, text) in enumerate(tokens):
+        if kind != "name" or text.lower() != "secrets" or (i and tokens[i - 1] == ("op", ".")):
+            continue
+        after = tokens[i + 1:i + 4]
+        if after[:1] == [("op", ".")] and len(after) > 1 and after[1][0] == "name":
+            names.add(after[1][1].upper())
+        elif (after[:1] == [("op", "[")] and len(after) > 2 and after[1][0] == "string"
+              and after[2] == ("op", "]")):
+            names.add(_string_value(after[1][1]).upper())
+        else:
+            names.add(ALL_SECRETS)
+    return names
+
+
 def secret_names(value: Any) -> set[str]:
     """The secrets a job (or any part of one) reads, upper-cased. ALL_SECRETS stands for every
-    secret: `secrets: inherit`, `toJSON(secrets)` or an index that is not a literal. For a Job this is its
-    effective set: the workflow env it inherits, then its own env, steps, `with:` and `secrets:`."""
+    secret: `secrets: inherit`, `toJSON(secrets)`, `secrets.*` or an index that is not a literal. For a Job this is
+    its effective set: the workflow env it inherits, then its own env, steps, `with:` and `secrets:`."""
     names: set[str] = set()
     if isinstance(value, Job) and value.inherited_env:
         names |= secret_names(value.inherited_env)
@@ -170,13 +229,8 @@ def secret_names(value: Any) -> set[str]:
         names.add(ALL_SECRETS)
     for text in strings(value):
         names.update(match.upper() for match in _SECRET_DOT.findall(text))
-        # The index and whole-context forms only inside `${{ }}`: in a run script `secrets[@]`
-        # is a shell array.
-        for expression in _EXPRESSION.findall(text):
-            for single, double, _ in _SECRET_INDEX.findall(expression):
-                names.add((single or double).upper() if (single or double) else ALL_SECRETS)
-            if _SECRET_WHOLE.search(expression):
-                names.add(ALL_SECRETS)
+        for expression in expressions(text):
+            names |= expression_secrets(expression)
     return names
 
 
@@ -190,12 +244,6 @@ def holds_secret(job: Mapping[str, Any]) -> bool:
     """A job holds secrets if it reads any secret in any form, passes them all on with
     `secrets: inherit`, or runs under a deployment environment, which carries its own secrets."""
     return bool(secret_names(job)) or environment_spec(job) is not None
-
-
-def runs_on(job: Mapping[str, Any]) -> str:
-    """The job's runs-on as written ("" when it has none, as a reusable-workflow call does)."""
-    value = job.get("runs-on", "")
-    return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
 
 
 _FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
@@ -542,6 +590,31 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
         values |= found
         unresolved |= open_terms
     return values, unresolved
+
+
+# GitHub-hosted and Blacksmith labels: a VM that runs one job and is destroyed. Anything else (`self-hosted`, a
+# `-glaeda` suffix, a fleet pool's label) may be a machine whose workspace, HOME and caches outlive the job.
+ONE_SHOT_LABEL = re.compile(
+    r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)|macos-(\d{2}|latest)(-large|-xlarge|-intel)?"
+    r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}|macos-\d{2}))$"
+)
+
+
+def one_shot_label(label: str) -> bool:
+    return bool(ONE_SHOT_LABEL.match(label.strip()))
+
+
+def may_run_self_hosted(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                        one_shot: Callable[[str], bool] = one_shot_label) -> bool:
+    """Whether a job can land on a machine that outlives it: a label its runs-on can resolve to (runs_on_values:
+    every matrix cell, include entries and a fromJSON matrix of a literal too, an expression's literal branches, a
+    reusable workflow's inputs through its callers) that `one_shot` does not accept, or any part nothing here
+    resolves (a repository variable, a picker's output, a matrix value nothing gives, `matrix.X` inside a larger
+    expression), which counts as self-hosted. A job with no runs-on (a reusable-workflow call) is False. Every guard
+    that holds self-hosted jobs to a rule decides which jobs those are here, never from runs-on text: the text of
+    `${{ matrix.runner }}` names no runner, so a text match lets `runner: [self-hosted]` through."""
+    values, unresolved = runs_on_values(job, workflow, workflows)
+    return bool(unresolved) or not all(one_shot(value) for value in values)
 
 
 def environment_spec(job: Mapping[str, Any]) -> dict[str, Any] | None:

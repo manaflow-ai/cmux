@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -21,6 +22,14 @@ import Testing
 /// - `project`: whole-document projections in the Rust mirror (`SidebarMirror.calls["project"]`).
 /// - `row_maps`, `rebuilds`, `section_sets`, `ffi_calls`: printed for each size, not checked here.
 ///
+/// NEW WORKSPACE 800 (2026-11-10): the placement is the last part of the turn that the daemon's event starts
+/// (`WindowManager.reconcileMembership`): at 826 that ONE turn held the main thread 40 ms (5 ms at 60), and each new
+/// workspace had a stall of 50 ms or more in 8 to 11 of 20 runs (0 of 20 at 60). The same fixture counts what the
+/// membership part of that turn did for the one new workspace (`WindowRegistryStore.membershipWork`):
+///
+/// - `answer_writes`: observed per-workspace entries the registry store wrote (window kind, owner).
+/// - `order_builds`: builds of a daemon's workspace order in one membership turn.
+///
 /// It first REQUIRES that the path under test ran: the pending placement is gone, the document places the new
 /// workspace right below its anchor and the window's rows list it there. Sizes: `large` (60) always, and each other
 /// size `CMUX_TEST_SESSION_SIZES` names (826 runs on a mini, never by default: `SessionFixtureSize`). Each checked
@@ -39,6 +48,8 @@ import Testing
     static let rowBound = 128
     /// The most rows one placement may map from their stores: measured 1 (its own row); `resync()` mapped rows + 1.
     static let madeBound = 2
+    /// The most observed registry entries one new workspace may write: measured 2 at 60 and at 826 (its window kind and its owner).
+    static let answerBound = 4
     static let printed = ["rows_made", "slot_rows", "doc_reshows", "row_maps", "rebuilds", "section_sets", "ffi_calls", "list_reloads", "layout_rows"]
 
     /// What one `applyPendingPlacements` call did.
@@ -46,6 +57,11 @@ import Testing
         var sidebar: [String: Int] = [:]
         var projections = 0
         var listed = 0
+        /// Observed registry entries written from the daemon's event to the end of the membership turn.
+        var answerWrites = 0
+        /// Workspace order builds of ONE membership turn, and the daemons it read.
+        var orderBuilds = 0
+        var daemons = 0
 
         subscript(name: String) -> Int { sidebar[name] ?? 0 }
     }
@@ -135,9 +151,13 @@ import Testing
         defer { pendingRows.placing = false }
         NewWorkspacePlacements.expect(newKey, in: controller.state.id, slot: .below(anchor), byDefault: nil, windows: windows)
         let entity = newWorkspace()
+        _ = windows.registry.takeMembershipWork()
         _ = store.apply(.workspaceAdded(WorkspaceDelta(workspace: entity.id, index: size.workspaces, entity: entity,
                                                       workspaceRevision: store.workspaceRevision + 1)))
+        // The event's own turn (the store's workspace-list hook, when a window installed it), then ONE turn alone.
+        let eventWork = windows.registry.takeMembershipWork()
         windows.reconcileMembership()
+        let turnWork = windows.registry.takeMembershipWork()
         pendingRows.placing = false
         try #require(services.machines.workspace(id: newKey) != nil, "fixture: the event added no workspace")
         try #require(windows.registry.value.owner(of: newKey) == controller.state.id, "fixture: the window does not own the new workspace")
@@ -161,11 +181,14 @@ import Testing
         try #require(next(after: anchor, in: rows) == newKey,
                      "the path under test did not run: the window lists \(next(after: anchor, in: rows) ?? "nothing") below the anchor, not the new workspace")
 
-        let counts = Counts(sidebar: sidebar, projections: projections, listed: rows.count)
+        let counts = Counts(sidebar: sidebar, projections: projections, listed: rows.count,
+                            answerWrites: eventWork.answerWrites + turnWork.answerWrites,
+                            orderBuilds: turnWork.orderBuilds, daemons: services.machines.daemons.count)
         measured[size] = counts
         // Every count, also when the test passes.
         print("WorkspacePlacementCost \(size.rawValue) rows \(rows.count): project \(projections), "
-            + printed.map { "\($0) \(counts[$0])" }.joined(separator: ", "))
+            + printed.map { "\($0) \(counts[$0])" }.joined(separator: ", ")
+            + ", answer_writes \(counts.answerWrites), order_builds \(counts.orderBuilds) for \(counts.daemons) daemons")
         return counts
     }
 
@@ -194,6 +217,34 @@ import Testing
             #expect(counts.projections <= 2, "one placed workspace in a session of \(size.workspaces) built \(counts.projections) document projections (bound 2)")
             #expect(counts.projections <= small.projections,
                     "project grows with the session: \(small.projections) at large, \(counts.projections) at \(size.rawValue)")
+        }
+    }
+
+    /// One new workspace changes ONE workspace's window answers (its kind, its owner): the registry store writes those
+    /// observed entries, never one for each workspace a window lists (2 x 827 writes at 826, each one a read through
+    /// the observation registrar: 2.5 ms of the turn).
+    @Test(.timeLimit(.minutes(10)))
+    func oneNewWorkspaceWritesAsManyWindowAnswersInALargerSession() async throws {
+        let small = try await Self.counts(.large)
+        for size in Self.sizes {
+            let counts = try await Self.counts(size)
+            #expect(counts.answerWrites >= 1, "the path under test did not run: no window answer was written for the new workspace")
+            #expect(counts.answerWrites <= Self.answerBound,
+                    "one new workspace in a session of \(size.workspaces) wrote \(counts.answerWrites) observed window answers (answer_writes, bound \(Self.answerBound))")
+            #expect(counts.answerWrites <= small.answerWrites,
+                    "answer_writes grows with the session: \(small.answerWrites) at large, \(counts.answerWrites) at \(size.rawValue)")
+        }
+    }
+
+    /// One membership turn builds each daemon's workspace order ONE time (each build reads every workspace and the
+    /// document's sections: 2.2 ms at 826), never a second time for the registry's own order.
+    @Test(.timeLimit(.minutes(10)))
+    func oneMembershipTurnBuildsEachDaemonsOrderOnce() async throws {
+        for size in Self.sizes {
+            let counts = try await Self.counts(size)
+            try #require(counts.daemons >= 1, "fixture: no daemon")
+            #expect(counts.orderBuilds == counts.daemons,
+                    "one membership turn in a session of \(size.workspaces) built \(counts.orderBuilds) workspace orders for \(counts.daemons) daemons")
         }
     }
 

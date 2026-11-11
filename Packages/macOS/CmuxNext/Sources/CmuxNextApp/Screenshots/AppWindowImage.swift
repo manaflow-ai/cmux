@@ -122,7 +122,7 @@ extension ScreenshotMask {
     /// Activity's screen frames, the Chief's pages) is masked.
     static let shownAppPages: Set<String> = [
         "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",
-        "cmux.files", "cmux.debug-settings", "cmux.home-chat-colors",
+        "cmux.files", "cmux.debug-settings",
     ]
 
     /// The native page tabs (``InternalPageView`` whose content is not a ``PageWebView``) a
@@ -141,7 +141,7 @@ extension ScreenshotMask {
         if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
         // A web page tab is judged by its PageWebView above; a native one by its page id here.
         if let tab = view as? InternalPageView, !(tab.content is PageWebView) { return !shownNativePages.contains(tab.page.rawValue) }
-        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeConversationPage
-            || view is HomeDockSwitchView
+        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
+            || view is HomeNewMessageView || view is HomeDockSwitchView || view is HomeSidebarView || view is HomeNativeTranscriptView
     }
 }

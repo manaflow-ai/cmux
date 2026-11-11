@@ -6,6 +6,8 @@
 # path the pull request does not own: formatting of files it did not change and
 # outputs whose inputs it did not change. No network.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUTPUTS="$ROOT_DIR/scripts/cmux-next/generated_outputs.py"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"

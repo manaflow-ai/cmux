@@ -47,11 +47,13 @@ type Inputs = {
   pendingDrawn: Ref<Heights>;
   changedDrawn: Ref<Set<string>>;
   setDrawn: (update: (current: Drawn) => Drawn) => void;
+  /// The transcript's fold ride (conversation/foldRide.ts), let go before rows are placed; none rides here.
+  foldRide: Ref<{ release(): void } | undefined>;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
-function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn }) {
+function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRide }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
@@ -114,6 +116,7 @@ async function setup() {
       drawnRef,
       pendingDrawn,
       changedDrawn,
+      foldRide: { current: undefined },
       setDrawn: (update) => {
         control.calls += 1;
         setDrawn(update);

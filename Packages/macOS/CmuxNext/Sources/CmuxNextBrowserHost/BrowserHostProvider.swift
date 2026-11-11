@@ -80,6 +80,8 @@ public final class BrowserHostProvider {
 
     // Tab and access state sent on the current connection (`+Tabs`).
     @ObservationIgnored var latestTabs: [ProviderTab] = []
+    /// Where each tab of `latestTabs` is, by id (`readTabs(_:)` reads one tab with no walk of the list).
+    @ObservationIgnored var latestIndex: [String: Int] = [:]
     @ObservationIgnored var latestAccess: [String: ProviderTabAccess] = [:]
     @ObservationIgnored var announced: [String: ProviderTab] = [:]
     @ObservationIgnored var accessSent: [String: AccessKey] = [:]
@@ -178,9 +180,12 @@ public final class BrowserHostProvider {
         }
     }
 
-    /// Re-reads the tab list (for state that is not observable: visibility,
-    /// a page created or released).
+    /// Re-reads the whole tab list: for a change that names no tab. A change that names its tabs uses `refreshTabs(_:)`.
     public func refreshTabs() { observeTabs() }
+
+    /// Re-reads the listed tabs `targetIDs` only (their state that is not observable: shown or hidden, the page
+    /// under the tab, an agent's extension grant). O(changed tabs): the push of every tab show and hide.
+    public func refreshTabs(_ targetIDs: Set<String>) { readTabs(targetIDs) }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event

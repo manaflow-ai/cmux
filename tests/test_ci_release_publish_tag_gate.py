@@ -15,9 +15,12 @@ What counts as publishing is read from the step, not its name:
   xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
   (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
   `npm|pnpm|yarn|bun|cargo publish`, `twine upload` (each subcommand read by position with its tool's option grammar,
-  so an option's value such as `--dir upload` is no subcommand), `codesign` (classified by action first: any --sign or -s signs,
-  whatever else it has; only a verify or display with no sign is read-only), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
-  file), which may publish;
+  so an option's value such as `--dir upload` or `-p publish` is no subcommand), `codesign` (other than a verify or
+  display), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of
+  a variable, a sourced file), which may publish. Every one of these checks writes first: a write marker (codesign's
+  --sign, -s or --remove-signature, gh api's write method or --input, a write subcommand in its position after any
+  options, or an option before it this does not know) wins, and an exemption (a verify or display, a GET, a read
+  subcommand) applies only when no write marker is present;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
   that reads one in its own env/with/secrets, or a workflow-level env that does (it reaches every job).
 A call to a local reusable workflow counts as publishing at the call when anything it reaches publishes, followed
@@ -68,8 +71,15 @@ STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IG
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
-# codesign's short options that take a value (`codesign --help`): in a cluster, the letters after one are its value.
+# codesign's options (`codesign --help`). Short ones that take a value: in a cluster, the letters after one are its
+# value. Those a verify or display may carry are the only ones that are not a write marker.
 CODESIGN_VALUES = frozenset("aDiIoPrRs")
+CODESIGN_READ_SHORT = frozenset("vdfRrah")
+CODESIGN_READ_LONG = frozenset({"--verify", "--display", "--verbose", "--strict", "--no-strict", "--deep", "--force",
+                                "--entitlements", "--requirements", "--xml", "--der", "--check-notarization",
+                                "--test-requirement", "--architecture", "--arch", "--file-list", "--all-architectures",
+                                "--extract-certificates", "--detached"})
+GH_RELEASE_WRITES = frozenset({"create", "upload", "edit", "delete", "delete-asset"})
 
 
 def _strip(expression: Any) -> str:
@@ -123,7 +133,6 @@ def _options(values: str = "", flags: str = "") -> Options:
 # one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing.
 GH_ROOT = _options(flags="-h --help --version")
 GH_RELEASE = _options("-R --repo", "-h --help")
-GH_RELEASE_WRITES = frozenset({"create", "upload", "edit", "delete", "delete-asset"})
 PACKAGE_MANAGERS = {
     "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
                     "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
@@ -242,26 +251,29 @@ def publishing_command(words: list[str]) -> bool:
 
 
 def codesign_signs_or_writes(args: list[str]) -> bool:
-    """codesign classified by its action first. Any --sign or -s (`-s ID`, `-fs ID`, `--sign=ID`) signs, and then -v
-    only means verbose; with no sign, a verify (-v, --verify) or display (-d, --display) is read-only. Anything else
-    (--remove-signature, an action this does not know) counts as a write."""
+    """codesign, writes first. A write marker anywhere makes it a write, whatever else is present: --sign or -s
+    (`-s ID`, `-fs ID`, `--sign=ID`), --remove-signature, or any option a verify or display does not take (-o,
+    -i, --timestamp, an option this does not know). Only then may an exemption apply: read-only needs a read action,
+    --verify, --display, -d in a short cluster (`-dv` displays), or -v standing alone (`-v`, `-vv`). In a cluster
+    with anything else -v is verbosity, so `-fv` is no verify."""
     reads = False
     for word in args:
         if word == "--":
             break
         if word.startswith("--"):
             name = word.split("=", 1)[0]
-            if name == "--sign":
-                return True
+            if name not in CODESIGN_READ_LONG:
+                return True  # --sign, --remove-signature, a signing option or one this does not know
             reads = reads or name in ("--verify", "--display")
             continue
         if word.startswith("-") and len(word) > 1:
-            for letter in word[1:]:
-                if letter == "s":
-                    return True
+            letters = word[1:]
+            for letter in letters:
+                if letter not in CODESIGN_READ_SHORT:
+                    return True  # -s, a signing option (-o, -i ...) or one this does not know
                 if letter in CODESIGN_VALUES:
                     break  # the rest of the word is this option's value
-                reads = reads or letter in "vd"
+            reads = reads or set(letters) == {"v"} or "d" in letters.split("R")[0].split("r")[0].split("a")[0]
     return not reads
 
 
@@ -903,6 +915,74 @@ class CodesignAndNestedCallMutations(RealStepMutation, unittest.TestCase):
         for label, callees in NESTED_CALL_HARMLESS.items():
             with self.subTest(label):
                 self.assertEqual(self.call_mutation(callees, keep_gate=False), [], label)
+
+
+# Write first (cmux#41343 review F1): every classifier here looks for write markers first, and an exemption (a verify
+# or display, a GET, a read subcommand) applies only when none is present.
+WRITE_FIRST_ESCAPES = {
+    "codesign --remove-signature -fv": "codesign --remove-signature -fv bin",
+    "codesign -fv --remove-signature": "codesign -fv --remove-signature bin",
+    "codesign --remove-signature --verify": "codesign --remove-signature --verify bin",
+    "codesign -d with a signing option": "codesign -d -o runtime bin",
+    "gh api -X POST then -X GET": f"gh api {RELEASES} -X POST -X GET",
+    "gh api --method=DELETE then --method=GET": f"gh api {RELEASES}/1 --method=DELETE --method=GET",
+    "gh api -XPATCH then -XGET": f"gh api -XPATCH {RELEASES}/1 -XGET",
+    "gh api -X GET with --input": f"gh api {RELEASES} -X GET --input body.json",
+    "gh release -R before upload": "gh release -R o/r upload v1 dist/x",
+    "gh release --repo= before create": "gh release --repo=o/r create v1 dist/x",
+    "npm -w before publish": "npm -w pkg publish",
+    "python -I -m twine upload": "python3 -I -m twine upload dist/*",
+}
+
+CODESIGN_WRITES = [
+    ["--sign", "ID", "bin"], ["-s", "ID", "bin"], ["-fs", "ID", "bin"], ["--sign=ID", "bin"],
+    ["--force", "--options", "runtime", "--sign", "ID", "bin"], ["--remove-signature", "bin"],
+    ["--remove-signature", "-f", "bin"],
+]
+CODESIGN_READ_MARKERS = [["-v"], ["-vv"], ["-d"], ["-dv"], ["-dvvv"], ["-fv"], ["--verify"], ["--display"],
+                         ["--verbose=4"], ["--strict"], ["--deep"]]
+GH_API_WRITES = [[RELEASES, "-X", "POST"], [RELEASES, "-XPOST"], [RELEASES + "/1", "--method=PATCH"],
+                 [RELEASES + "/1", "--method", "DELETE"], [RELEASES, "--input", "b.json"], [RELEASES, "-f", "tag=v1", "-XPOST"]]
+GH_API_READ_MARKERS = [["-X", "GET"], ["-XGET"], ["--method=GET"], ["--method", "GET"], ["-X", "HEAD"]]
+
+
+def placements(write: list[str], marker: list[str]) -> list[list[str]]:
+    """`marker` before every word of `write` and after the last, so an exemption meets each write marker on both
+    sides."""
+    return [write[:at] + marker + write[at:] for at in range(len(write) + 1)]
+
+
+class WriteFirst(unittest.TestCase):
+    def test_a_read_marker_added_anywhere_to_a_codesign_write_leaves_it_a_write(self) -> None:
+        for write in CODESIGN_WRITES:
+            for marker in CODESIGN_READ_MARKERS:
+                for args in placements(write, marker):
+                    with self.subTest(args=args):
+                        self.assertTrue(publishing_command(["codesign", *args]), f"codesign {' '.join(args)} read as read-only")
+
+    def test_a_read_method_added_anywhere_to_a_gh_api_release_write_leaves_it_a_write(self) -> None:
+        for write in GH_API_WRITES:
+            for marker in GH_API_READ_MARKERS:
+                for args in placements(write, marker):
+                    with self.subTest(args=args):
+                        self.assertTrue(publishing_command(["gh", "api", *args]), f"gh api {' '.join(args)} read as a read")
+
+    def test_reads_with_no_write_marker_stay_reads(self) -> None:
+        for run in CODESIGN_READS.values():
+            with self.subTest(run):
+                self.assertFalse(publishing_command(run.split()), run)
+        for marker in GH_API_READ_MARKERS:
+            with self.subTest(marker=marker):
+                self.assertFalse(publishing_command(["gh", "api", RELEASES, *marker, "-f", "per_page=1"]))
+        for words in (["gh", "release", "view", "v1"], ["gh", "release", "-R", "o/r", "download", "v1"],
+                      ["npm", "-w", "pkg", "run", "build"], ["python3", "-I", "-m", "twine", "check", "dist/x"]):
+            with self.subTest(words=words):
+                self.assertFalse(publishing_command(words), words)
+
+
+class WriteFirstRealMutations(RealStepMutation, unittest.TestCase):
+    def test_a_write_marker_wins_over_an_exemption_on_the_real_step_without_its_gate(self) -> None:
+        self.assert_escape_caught(WRITE_FIRST_ESCAPES)
 
 
 if __name__ == "__main__":

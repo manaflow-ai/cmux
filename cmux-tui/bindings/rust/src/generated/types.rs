@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73.
+// cmux-tui mux protocol 12, IR 3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1831,6 +1831,35 @@ pub struct SendExpectAgent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommandConnections {
+    pub accepted: u64,
+    pub kind: String,
+    pub refused: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommandRow {
+    pub count: u64,
+    pub hist: Vec<u64>,
+    pub kind: String,
+    pub max_ns: u64,
+    pub name: String,
+    pub total_ns: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsCommands {
+    pub connections: Vec<ServerStatsCommandConnections>,
+    pub hist_bounds_ns: Vec<u64>,
+    pub name_limit: u64,
+    pub names: u64,
+    pub rows: Vec<ServerStatsCommandRow>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsConnections {
     pub accepted: u64,
     pub active: u64,
@@ -1933,6 +1962,31 @@ pub struct ServerStatsHookQueue {
     pub queued_events: u64,
     pub reset_dropped_events: u64,
     pub undeliverable_events: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollower {
+    pub client: u64,
+    pub connected_ms: u64,
+    pub keeps_hook_rows: bool,
+    pub keeps_report_rows: bool,
+    pub kinds: Vec<String>,
+    pub left_ms: Nullable<u64>,
+    pub max_sensitivity: Nullable<String>,
+    pub remote: bool,
+    pub stream_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollowers {
+    pub followers: Vec<ServerStatsJournalFollower>,
+    pub grace_ms: u64,
+    pub hook_rows_kept: bool,
+    pub journal_hook_keeps_rows: Nullable<bool>,
+    pub keep_all_ms: u64,
+    pub report_rows_kept: bool,
 }
 
 #[rustfmt::skip]
@@ -2048,11 +2102,15 @@ pub struct ServerStatsResourceProjection {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub commands: Option<ServerStatsCommands>,
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub disk: Option<ServerStatsDisk>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<ServerStatsHookQueue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<ServerStatsJournalFollowers>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub locks: Option<ServerStatsLocks>,
