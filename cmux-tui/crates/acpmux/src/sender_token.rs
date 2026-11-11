@@ -42,8 +42,8 @@ pub const VERIFIED_BY_KEY: &str = "verifiedBy";
 pub const CHECKED_KEY: &str = "senderTokenChecked";
 
 /// The feature a daemon lists at `initialize` when it takes the token out of every request
-/// ([`take`]). A CLI presents the token only to such a daemon ([`withhold_unless`]): an older one
-/// would keep it in its outbox and forward it to peers.
+/// ([`take`]). A CLI presents the token only to such a daemon ([`withhold_unless`], applied to
+/// every request `client.rs` sends): an older one would keep it in its outbox and forward it.
 pub const FEATURE: &str = "senderToken";
 
 /// Random bytes in the token.
