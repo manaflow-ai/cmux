@@ -256,10 +256,12 @@ def check_loader(text: str, checksum: str) -> None:
 # - What cannot be read refuses: a symlink in a crate, a scanned file that names a TEST_ONLY file without being one of
 #   its readers, a manifest the line reader cannot read.
 #
-# What is left: a path outside the crate computed with no literal that names it (concat!("../../", NAME), or a build
-# script that walks up with .parent() and joins single names). A literal that names a directory holding the crate
-# ("..", "../") is ignored: runtime name checks spell it in every crate. No FFI crate computes such a path today; the
-# review of a change that does must catch it.
+# - A build script that walks up with .parent() or .ancestors() refuses (BUILD_SCRIPT_PARENTS below).
+#
+# What is left: a path outside the crate computed with no literal that names it in a library source
+# (concat!("../../", NAME) in an include). A literal that names a directory holding the crate ("..", "../") is
+# ignored: runtime name checks spell it in every crate. No FFI crate computes such a path today; the review of a
+# change that does must catch it.
 EXCLUDED_DIRS = ("tests", "benches", "examples", "target")
 SCANNED_SUFFIXES = {".rs": "rust", ".toml": "toml", ".c": "c", ".h": "c", ".cc": "c", ".cpp": "c", ".hpp": "c",
                     ".m": "c", ".mm": "c"}
@@ -273,6 +275,13 @@ TEST_ONLY = {
     "schemas/remote-tab/client.json": ("cmux-tui/crates/cmux-rd-ffi/src/rb_client_tests.rs",),
 }
 FFI_ROOT_CRATE = "cmux-tui/crates/cmux-app-ffi"
+# A build script that walks up from its crate computes a path outside it that no literal names (lead decision,
+# 2026-11-10), so .parent() and .ancestors() refuse in a crate's build-script files: build.rs (or the file Cargo.toml's
+# `build` names), every .rs file under build-support/, and the modules they reach (`mod NAME;` beside the file, or a
+# #[path] literal). The only exception is a reviewed entry here: the build-script file, the path it reaches and why.
+# No FFI build script walks up today (cmux-action-catalog/build.rs, cmux-motion/build.rs and build-support/json.rs).
+BUILD_SCRIPT_PARENTS: dict[str, tuple[str, str]] = {}
+WALKS_UP = re.compile(r"\.\s*(?:parent|ancestors)\s*\(")
 
 
 class Unresolved(ValueError):
@@ -319,12 +328,14 @@ def _toml_unescape(body: str) -> str:
     return re.sub(r'\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)', one, body)
 
 
-def _rust_literals(text: str) -> list[str]:
+def _rust_literals(text: str, code: list[str] | None = None) -> list[str]:
     """The string literals of Rust TEXT (plain, raw, byte and C strings), escapes decoded; comments, chars and
-    lifetimes skipped."""
+    lifetimes skipped. CODE, when given, receives TEXT's code outside comments and literals, in pieces."""
     found, index, size = [], 0, len(text)
     while index < size:
         char = text[index]
+        if code is not None and not (text.startswith("//", index) or text.startswith("/*", index) or char in "\"'rbc"):
+            code.append(char)
         if text.startswith("//", index):
             index = text.find("\n", index)
             index = size if index < 0 else index
@@ -362,6 +373,8 @@ def _rust_literals(text: str) -> list[str]:
             match = re.match(r"'(?:\\(?:u\{[0-9A-Fa-f]+\}|x[0-9A-Fa-f]{2}|.)|[^\\'\n])'", text[index:])
             index += match.end() if match else 1
         else:
+            if code is not None and char in "rbc":
+                code.append(char)
             index += 1
     return found
 
@@ -458,6 +471,13 @@ def walk(root: Path, start: str = FFI_ROOT_CRATE, workspace: str = "cmux-tui/Car
             raise Unresolved(f"{crate}/Cargo.toml sets package.workspace: the app FFI pin reads only {workspace}")
         for path in _workspace_paths(root / workspace, root / crate / "Cargo.toml"):
             queue.append(Path(os.path.normpath(path)).relative_to(root).as_posix())
+        for file in _build_files(root, crate, manifest, files):
+            code: list[str] = []
+            _rust_literals((root / file).read_text(encoding="utf-8", errors="replace"), code)
+            if WALKS_UP.search("".join(code)) and file not in BUILD_SCRIPT_PARENTS:
+                raise Unresolved(f"{file}, a build script file, walks up with .parent() or .ancestors(): a path it "
+                                 "computes outside the crate names no literal; list it in app_ffi_pin.py "
+                                 "BUILD_SCRIPT_PARENTS with the path it reaches, after review")
         for file in files:
             parts = file[len(crate) + 1:].split("/")
             if parts[0] in EXCLUDED_DIRS:
@@ -502,6 +522,33 @@ def walk(root: Path, start: str = FFI_ROOT_CRATE, workspace: str = "cmux-tui/Car
         if crate_of(path) is not None and (root / path).exists():
             excludes.add(path)
     return sorted(crates), includes + [f":(exclude){p}" for p in sorted(excludes)]
+
+
+def _build_files(root: Path, crate: str, manifest: str, files: list[str]) -> list[str]:
+    """The build-script files of CRATE (relative to ROOT): its build script, every .rs under build-support/, and the
+    modules they reach through `mod NAME;` or a #[path] literal."""
+    build = "build.rs"
+    for full, value in _toml_entries(manifest):
+        if full == ["package", "build"]:
+            literal = _toml_literals(value)
+            build = literal[0] if literal else ("" if value == "false" else "build.rs")
+    queue = [f"{crate}/{build}"] if build else []
+    queue += [f for f in files if f.startswith(f"{crate}/build-support/") and f.endswith(".rs")]
+    seen: list[str] = []
+    while queue:
+        file = os.path.normpath(queue.pop())
+        if file in seen or not (root / file).is_file():
+            continue
+        seen.append(file)
+        text = (root / file).read_text(encoding="utf-8", errors="replace")
+        code: list[str] = []
+        literals = _rust_literals(text, code)
+        folder = Path(file).parent
+        queue += [os.path.normpath(folder / literal) for literal in literals if literal.endswith(".rs")]
+        for name in re.findall(r"\bmod\s+(?:r#)?(\w+)\s*;", "".join(code)):
+            queue += [str(folder / f"{name}.rs"), str(folder / name / "mod.rs"),
+                      str(folder / Path(file).stem / f"{name}.rs"), str(folder / Path(file).stem / name / "mod.rs")]
+    return seen
 
 
 def _resolve(root: Path, literal: str, folder: Path, crate: Path) -> list[Path]:
