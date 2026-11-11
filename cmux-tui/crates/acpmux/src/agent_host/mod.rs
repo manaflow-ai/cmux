@@ -675,7 +675,7 @@ pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) {
         let _ = crate::home_fs::remove_file(&path);
-        let _ = std::fs::remove_file(&record.socket);
+        let _ = crate::home_fs::remove_file(&record.socket);
     }
     let _ = crate::home_fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
@@ -701,7 +701,7 @@ pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) && path.exists() {
         let _ = crate::home_fs::remove_file(&path);
-        let _ = std::fs::remove_file(&record.socket);
+        let _ = crate::home_fs::remove_file(&record.socket);
     }
     let _ = crate::home_fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }

@@ -104,14 +104,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     // session's start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = crate::home_fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
-    }
+    crate::home_fs::set_mode(&spec.socket, 0o600)?;
     let mut child = cmd.spawn().map_err(|e| {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {

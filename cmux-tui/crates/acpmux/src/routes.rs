@@ -686,7 +686,7 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     if id.starts_with(ONE_RUN_PREFIX) {
         // A one-run route (cmux-hand's gateway route) leaves no backup: it
         // names only a token file that is removed with it.
-        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
         crate::home_fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
