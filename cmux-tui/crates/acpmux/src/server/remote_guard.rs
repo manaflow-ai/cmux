@@ -897,16 +897,16 @@ async fn web_starts_asking(
         }
     }
     // A fork onto another harness (`hub/fork.rs` `Retarget`) starts that harness as a new
-    // chat would: the same preflight, and a family with no reviewed asking mode is refused.
+    // chat would: the same remote start rule, so a family with no reviewed asking mode is refused.
     if m == method::SESSION_FORK
         && web
         && let Some(harness) = params.pointer("/_meta/acpmux/harness").and_then(Value::as_str)
     {
         let model = params.pointer("/_meta/acpmux/model").and_then(Value::as_str);
-        let (family, any_mode) = hub
+        let start = hub
             .preflight_remote_new(Some(harness.to_owned()), None, model.map(str::to_owned), None)
             .await?;
-        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+        if start.is_err() {
             return Err(no_reviewed_asking_mode());
         }
     }
