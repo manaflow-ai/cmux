@@ -12406,6 +12406,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               harness,
                               ...cloudStartFolder(cwd),
                               ...(model ? { model } : {}),
+                              // The Mode chip's pick for this harness goes with New Tab's send too.
+                              ...takeCloudModePick(harness),
                             },
                             true,
                           ),

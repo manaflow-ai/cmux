@@ -187,6 +187,9 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
+  // person's own machine (AgentPaneCloudStart `mode`).
+  if (start.mode) params.mode = start.mode;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
@@ -256,6 +259,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.environment ?? null,
     // Only a send that switches team names it, so every other start keeps the key it had.
     ...(start.team ? [start.team] : []),
+    // A start in another mode is another start; one with no pick keeps the key it had.
+    ...(start.mode ? [`mode:${start.mode}`] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;

@@ -197,3 +197,20 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
   expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
   expect(rows.some((row) => row.includes("Auto"))).toBe(false);
 });
+
+test("the Cloud start request carries the picked mode to the host, and only a pick", async () => {
+  const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const calls: Record<string, unknown>[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => void calls.push(params);
+  await startCloudChat(call, { task: "go", harness: "claude", mode: "bypassPermissions" }, "k");
+  expect(calls[0]).toMatchObject({ harness: "claude", mode: "bypassPermissions" });
+  await startCloudChat(call, { task: "go", harness: "claude" }, "k");
+  expect("mode" in calls[1]!).toBe(false);
+});
+
+test("a start in another mode is another start; one with no pick keeps its key", async () => {
+  const { cloudStartFingerprint } = await import("../src/agent-session/acpmux/cloudRun");
+  const plain = cloudStartFingerprint({ task: "go", harness: "claude" });
+  expect(cloudStartFingerprint({ task: "go", harness: "claude", mode: "bypassPermissions" })).not.toBe(plain);
+  expect(cloudStartFingerprint({ task: "go", harness: "claude" })).toBe(plain);
+});
