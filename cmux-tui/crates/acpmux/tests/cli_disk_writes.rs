@@ -120,9 +120,10 @@ fn bytes_written_per_1000_cli_invocations() {
         "wchar_per_1000": per(wchar) * 1000, "home_growth_per_1000": per(home) * 1000,
     });
     println!("acpmux-cli-disk-writes: {report}");
-    // Each call's prompt is in its log once (`user_message`), with the records of its turn; the
-    // ACP request and the stdin line keep no copy of a long body (`logged_bodies.rs`).
-    let budget = 2 * prompt_bytes as u64 + 64 * 1024;
+    // Each call's prompt is in its log once (`user_message`) and in the log's kind index once,
+    // with the records of its turn; the ACP request and the stdin line keep no copy of a long body
+    // (`logged_bodies.rs`). On cmux-ci, 16 KiB prompts: 81,755 bytes a call before, 50,523 after.
+    let budget = 3 * prompt_bytes as u64 + 16 * 1024;
     assert!(
         per(home) <= budget,
         "the home grew {} bytes per call (budget {budget}): {report}",
