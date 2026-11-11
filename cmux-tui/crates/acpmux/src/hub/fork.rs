@@ -258,7 +258,6 @@ impl Hub {
                     RpcError::internal("no agent session")
                 }
             })?;
-        let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
         let git = {
             let cwd = cwd.clone();
