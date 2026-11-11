@@ -192,8 +192,31 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
             }
-            // The Cloud Chief could not take the pin: say why.
-            if !unreadOnly, !searching, let status = sources.cloudStatus {
+            // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
+            // never answers would otherwise sit silent on a phone with no Mac).
+            if !unreadOnly, !searching, let card = sources.offCard {
+                VStack(spacing: 8) {
+                    ChiefOffCardView(card, name: primaryName) {
+                        guard case let .turnOn(chief)? = sources.cloudAction else { return }
+                        Task { await sources.turnOn(chief) }
+                    }
+                    if sources.cloudChiefs.count > 1 {
+                        ChiefPickerMenu(sources: sources, newChief: newChiefAction) {
+                            Text("Other Chiefs")
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(sources.isChanging)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+                .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
+            } else if !unreadOnly, !searching, let status = sources.cloudStatus {
+                // The Cloud Chief could not take the pin: say why.
                 VStack(spacing: 6) {
                     Text(status)
                         .font(.footnote)
@@ -575,10 +598,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             case .create:
                 Button("Create Cloud Chief", action: startNewChief)
                     .accessibilityIdentifier("home.chief.create")
-            case let .turnOn(chief):
-                Button("Turn On Cloud Chief") { Task { await sources.turnOn(chief) } }
-                    .accessibilityIdentifier("home.chief.turnOn")
-            case nil:
+            case .turnOn, nil:
+                // Turn On is the off card's (``ChiefOffCardView``), above.
                 EmptyView()
             }
             if sources.cloudChiefs.count > 1 {

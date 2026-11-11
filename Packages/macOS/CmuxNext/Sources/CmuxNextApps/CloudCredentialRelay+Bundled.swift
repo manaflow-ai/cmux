@@ -1,8 +1,7 @@
-import CmuxNextApps
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
-nonisolated extension CloudCredentialRelay {
+public nonisolated extension CloudCredentialRelay {
     /// The allow list is `cmux/cloud`'s only because only `cmux/cloud` may
     /// call this relay (``answer(_:)`` refuses every other app); a second
     /// app that may call it needs its own allow list here.

@@ -506,7 +506,13 @@ def release_download():
             return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError:
+            # The helper imports deadline_http.py from beside itself. A hook installed before that has an older
+            # refresh_checks.py, which rewrites the helper from feat-cmux-next but not deadline_http.py: download
+            # directly, as with no helper, until scripts/install-git-hooks.sh runs again.
+            return None
         sys.modules[name] = module
     return sys.modules[name]
 
@@ -2441,7 +2447,8 @@ def start_watchdog(limit: float) -> None:
 
     def fire() -> None:
         sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
-                         "push refused. Where each thread was:\n")
+                         "push refused. A Mac too loaded to finish it pushes through an idle one: "
+                         "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         stop(_descendants(os.getpid()))
@@ -2453,12 +2460,32 @@ def start_watchdog(limit: float) -> None:
     timer.start()
 
 
+GATE_LIMIT_MAX_SECONDS = 3600.0  # the most a loaded Mac's gate gets; past it the push goes through another Mac
+
+
+def loaded_limit(base: float, load: float, cpus: int) -> float:
+    """BASE on a Mac with a free core, and BASE times the runnable processes per core on a loaded one, up to
+    GATE_LIMIT_MAX_SECONDS. The limit is there to refuse a hang, and a check that shares each core with LOAD/CPUS
+    others is slow, not hung: on 2026-11-10 (load average 300-770 on 18 cores) every push's gate ran to 600 s and
+    was refused with nothing wrong in it, while the same push's gate took 8 s on an idle Mac."""
+    if cpus <= 0 or load <= cpus:
+        return base
+    return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
+
+
 def gate_limit() -> float:
+    """CMUX_NEXT_GATE_LIMIT_SECONDS as given (a set limit is never scaled), else GATE_LIMIT_SECONDS for this load."""
     raw = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS", "").strip()
     try:
-        return float(raw) if raw else GATE_LIMIT_SECONDS
+        if raw:
+            return float(raw)
     except ValueError:
+        pass
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
         return GATE_LIMIT_SECONDS
+    return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
 
 
 if __name__ == "__main__":

@@ -315,6 +315,25 @@ CI_ONLY = (
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
 )
+# Files the app build or its packaging reads that the patterns above would route by their name to a Linux
+# tier: an app resource (THIRD_PARTY_LICENSES.md, *.md), a build phase's input list or helper
+# (cmux-tui-tree-inputs.txt, daemon-capabilities.json, scripts/ci/*), the GhosttyKit checksums the download checks (*.txt), the CEF
+# license the app ships (*.txt), and the scripts/ci helpers reload.sh and the signing scripts run. A change to
+# one runs the app compiles. tests/test_cmux_next_route.py's test_native_script_inputs_run_the_app_compiles
+# walks the Xcode project's build phases and the build and packaging scripts and fails on a file they read
+# that routes elsewhere.
+NATIVE_SCRIPT_INPUTS = (
+    "THIRD_PARTY_LICENSES.md",
+    "scripts/ghosttykit-checksums.txt",
+    "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+    "scripts/cmux-next/cef-license/LICENSE.txt",
+    "scripts/ci/macho_minos.py", "scripts/ci/cmux_tui_tree_key.py",
+    "scripts/ci/lib/signing-runtime-guard.sh", "scripts/ci/signing-keychain.sh",
+    "scripts/ci/nightly_version.py", "scripts/ci/swift_incremental_diagnostics.py",
+    # The app's daemon capability list, which a build phase checks the bundled daemon against (also a
+    # daemon input), and the Rust cache helper the Chief build phase runs.
+    "plans/cmux-next/daemon-capabilities.json", "scripts/ci/fleet-rust-cache.sh",
+)
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
 
@@ -334,6 +353,8 @@ MAX_PRIORITY_SUITES = 40
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
+    if path in NATIVE_SCRIPT_INPUTS:
+        return False
     if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
         return True
     if no_app_input(path):
@@ -342,7 +363,7 @@ def web_fast(path: str) -> bool:
 
 
 def ci_only(path: str) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+    return path not in NATIVE_SCRIPT_INPUTS and any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
 
 
 # The Python test registry. A tests/test_*.py file whose lane there is linux-guard runs only on
@@ -1119,7 +1140,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         if path.startswith(".github/actions/") and (actions is None or any(under(path, a) for a in actions)):
             result.fast_registry = True
             result.reasons.append(f"{path} is an action the Mac fast tier job runs")
-        if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW):
+        if path in NATIVE_SCRIPT_INPUTS:
+            result.native = result.scheme = True
+            result.reasons.append(f"{path} is read by the app build or its packaging (NATIVE_SCRIPT_INPUTS)")
+        elif any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW):
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass

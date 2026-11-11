@@ -18,6 +18,10 @@ path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_asc_review_package.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
