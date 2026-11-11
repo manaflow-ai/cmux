@@ -409,17 +409,74 @@ fn rename(
     if done { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
-/// A test's write into the windows of a replace: `before` the swap, and `after` a swap that
-/// found a change, before the swap back. Given the file's name and the window.
+/// A test's hook: given the file's name and the window.
 #[cfg(test)]
-pub(crate) static SWAP_HOOK: std::sync::Mutex<Option<Box<dyn Fn(&str, &str) + Send>>> =
-    std::sync::Mutex::new(None);
+type SwapFn = Box<dyn FnMut(&str, &str)>;
+/// Each `(name, window)` a hook was reached in.
+#[cfg(test)]
+type Reached = std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's write into the windows of a replace: `before` the swap, and `after` a swap that
+    /// found a change, before the swap back. Given the file's name and the window.
+    ///
+    /// One per test thread, not per process: the harness runs tests on parallel threads, and a
+    /// process-wide hook let one test's hook replace or clear another's before its replace ran,
+    /// so the race it forced never happened. A replace on another thread never sees it, which a
+    /// test catches through [`SwapHook::reached`].
+    static SWAP_HOOK: std::cell::RefCell<Option<(SwapFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The hook [`on_swap`] put on this thread; dropping it takes it off.
+#[cfg(test)]
+pub(crate) struct SwapHook {
+    reached: Reached,
+}
+
+#[cfg(test)]
+impl SwapHook {
+    /// Each `(name, window)` the hook was reached in, in order.
+    pub(crate) fn reached(&self) -> Vec<(String, String)> {
+        self.reached.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+impl Drop for SwapHook {
+    fn drop(&mut self) {
+        SWAP_HOOK.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+/// Runs `hook` in the windows of every replace on this thread until the returned guard drops.
+#[cfg(test)]
+pub(crate) fn on_swap(hook: impl FnMut(&str, &str) + 'static) -> SwapHook {
+    let reached = Reached::default();
+    SWAP_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "a swap hook is already on this thread");
+        *slot = Some((Box::new(hook), std::rc::Rc::clone(&reached)));
+    });
+    SwapHook { reached }
+}
 
 #[cfg(test)]
 fn swap_hook(name: &std::ffi::CStr, window: &str) {
-    if let Some(hook) = SWAP_HOOK.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        hook(&name.to_string_lossy(), window);
-    }
+    // Out of the slot while it runs, so the hook may itself replace a file.
+    let Some((mut hook, reached)) = SWAP_HOOK.with(|slot| slot.borrow_mut().take()) else {
+        return;
+    };
+    let name = name.to_string_lossy();
+    reached.borrow_mut().push((name.to_string(), window.to_owned()));
+    hook(&name, window);
+    SWAP_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some((hook, reached));
+        }
+    });
 }
 
 /// Elsewhere there is no link-safe open of each step, so no folder file is read.

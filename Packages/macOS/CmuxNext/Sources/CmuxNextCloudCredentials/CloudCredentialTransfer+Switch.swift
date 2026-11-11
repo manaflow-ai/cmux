@@ -37,3 +37,12 @@ extension CloudCredentialTransfer {
         isDogfoodBuild && passesHarnessLogin(isDogfoodBuild: true, defaults: defaults)
     }
 }
+
+extension CloudCredentialTransfer {
+    /// Whether this build copies a login with no consent asked: a DEV or NIGHTLY build with the copy on
+    /// (``passesHarnessLogin(isDogfoodBuild:defaults:remoteSwitch:)``). Its Claude copy needs no consent there,
+    /// and neither does the Mac's Codex sign-in (``CloudCodexSignInConsentSetting``), so both logins ride along alike.
+    public nonisolated static func copiesWithoutConsent(isDogfoodBuild: Bool, defaults: UserDefaults = .standard) -> Bool {
+        isDogfoodBuild && passesHarnessLogin(isDogfoodBuild: true, defaults: defaults)
+    }
+}
