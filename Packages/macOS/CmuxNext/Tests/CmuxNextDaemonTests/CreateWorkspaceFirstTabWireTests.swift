@@ -37,6 +37,21 @@ struct CreateWorkspaceFirstTabWireTests {
         #expect(fields["first_tab"] == nil)
     }
 
+    /// A tab after the first goes to the workspace itself: no pane of a terminal is named (imported tabs made a
+    /// terminal to host them, then closed it).
+    @Test func aLaterTabNamesTheWorkspaceNotAPane() throws {
+        let request = NewFrontendBrowserTabRequest(url: "https://example.org/", engine: .webkit, workspace: WorkspaceHandle(rawValue: 4), activate: false)
+        let value = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 9))
+        guard case .object(let fields) = value else {
+            Issue.record("not an object: \(value)")
+            return
+        }
+        #expect(fields["cmd"] == .string("new-frontend-browser-tab"))
+        #expect(fields["workspace"] == .number(4))
+        #expect(fields["pane"] == nil)
+        #expect(fields["activate"] == .bool(false))
+    }
+
     @Test func theReplyNamesTheTabItMade() throws {
         let reply = #"{"workspace":4,"key":"018f6e21-7b70-7e70-8000-0000000000b1","index":2,"workspace_revision":9,"replayed":false,"first_tab":{"surface":12,"tab_resource_id":"tab_0123456789abcdef0123456789abcdef","replayed":false}}"#
         let result = try JSONDecoder().decode(WorkspaceMutationResult.self, from: Data(reply.utf8))
