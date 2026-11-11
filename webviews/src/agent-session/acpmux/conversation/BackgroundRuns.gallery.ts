@@ -127,5 +127,8 @@ export default agentPaneEntry({
     },
   },
   // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
-  experiment: { definition: backgroundTurnLook, script: [] },
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
+  },
 });
