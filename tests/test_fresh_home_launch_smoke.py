@@ -6,6 +6,11 @@ in a visible window and streams the launch marks) passes it, a stub that stays u
 Home fails it, and every run leaves no process and no private root behind. The healthy stub also
 checks what the gate promises the app: an empty HOME, no runner variables, and its defaults set
 aside and put back.
+
+The second arm (--arms empty,seeded) launches the stub again from the home seed_cookie_sync_home makes. A stub
+that reads the seeded cookie store as the app's cookie sync does (and saves its baseline) passes it, one that
+aborts only in that home fails the run as a crash of that arm, and one that never reads the store leaves the
+arm "not-run" and the first arm's verdict standing.
 """
 from __future__ import annotations
 
@@ -14,11 +19,13 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fresh_home_launch_smoke.py"
@@ -28,8 +35,8 @@ spec.loader.exec_module(smoke)
 
 BUNDLE = "com.example.fresh-smoke-stub"
 
-# The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked) comes from the
-# bundle's Resources/mode file.
+# The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync)
+# comes from the bundle's Resources/mode file. sync-crash and no-sync are healthy in an empty home.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +63,29 @@ if os.path.exists(pid_path):
 if mode == "crash":
     time.sleep(0.5)
     os.abort()
+# The seeded home (the smoke's second arm): an import store that names sources whose cookies are kept in sync.
+import glob
+seeded = glob.glob(os.path.join(home, "Library", "Application Support", "*", "BrowserImport", "sources.json"))
+if seeded and mode == "sync-crash":  # as build 4294166855401: dead in its cookie sync, only with such a home
+    time.sleep(0.5)
+    os.abort()
+if seeded and mode != "no-sync":
+    # As the app's cookie sync: with the setting on, each such source's store is opened and read, then the
+    # baseline of what it holds is saved.
+    import sqlite3, urllib.parse
+    wanted = json.load(open(os.path.join(home, ".config", "cmux", "cmux-next.json")))["browser"]["import"]
+    for record in json.load(open(seeded[0])) if wanted["enabled"] and wanted["cookieSync"] else []:
+        database = urllib.parse.unquote(urllib.parse.urlparse(record["syncedCookieFile"]).path)
+        conn = sqlite3.connect("file:" + urllib.parse.quote(database) + "?mode=ro", uri=True)
+        hosts = {host: str(rows) for host, rows in conn.execute(
+            "SELECT host_key, count(*) FROM cookies WHERE length(encrypted_value) > 0 GROUP BY host_key")}
+        conn.close()
+        state = os.path.join(os.path.dirname(seeded[0]), "cookie-sync")
+        os.makedirs(state, exist_ok=True)
+        saved = {"version": 1, "source": record["browser"] + "/" + record["profileDirectory"], "hosts": hosts}
+        open(os.path.join(state, "chrome_Default-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
+if mode in ("sync-crash", "no-sync"):
+    mode = "healthy"
 marks = int(os.environ["CMUX_NEXT_LAUNCH_MARKS_FD"])
 os.write(marks, b"main_start 10.0\n")
 if mode in ("healthy", "new-tab", "first-run", "first-run-unmarked"):
@@ -144,6 +174,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             "CMUX_FRESH_SMOKE_DIAGNOSTIC_DIR": str(self.dir / "diagnostics"),
             "CMUX_FRESH_SMOKE_SKIP_SESSION_CHECK": "1",
             "CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS": "0",
+            "CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS": "4",
             "FAKE_DEFAULTS_DIR": str(self.defaults_dir),
             "FRESH_SMOKE_SECRET": "must-not-reach-the-app",
             "GH_TOKEN": "must-not-reach-the-app",
@@ -199,6 +230,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(report["home_tab"]["page"], "home-dock")
         self.assertIn("first_window_frame_committed", report["marks"])
         self.assertGreaterEqual(report["seconds_up"], 3)
+        # Without --arms there is one launch, from the empty home, and the report says nothing of arms.
+        self.assertNotIn("arms", report)
+        self.assertNotIn("seeded-home", output)
         # The account's defaults were set aside for the run and are back, byte for byte.
         calls = (self.defaults_dir / "calls.log").read_text().split("\n")
         self.assertEqual(calls[:2], [f"export {BUNDLE}", f"delete {BUNDLE}"])
@@ -267,6 +301,129 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         finally:
             subprocess.run(["rm", "-rf", str(root)], check=False)
         self.assertTrue(app.exists())
+
+    def seeded(self, mode: str, *extra: str) -> tuple[int, str, dict, Path]:
+        status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "2", *extra)
+        return status, output, report, self.dir / f"out-{mode}-{self.runs}"
+
+    def test_the_seed_tool_makes_a_home_with_cookie_sync_on_and_a_store_with_rows(self):
+        home = self.dir / "seeded-home"
+        seed = smoke.seed_cookie_sync_home(home, BUNDLE, now=1_800_000_000)
+        settings = json.loads((home / ".config" / "cmux" / "cmux-next.json").read_text())
+        self.assertEqual(settings, {"browser": {"import": {"enabled": True, "cookieSync": True}}})
+        store = home / "Library" / "Application Support" / BUNDLE / "BrowserImport"
+        (record,) = json.loads((store / "sources.json").read_text())
+        # What ImportSourceRecord decodes: the four required strings, and the store the cookies are kept in sync from.
+        for key in ("browser", "profileDirectory", "displayName", "proposedProfileID", "targetProfileID"):
+            self.assertIsInstance(record[key], str)
+        self.assertEqual(seed["source"], f"{record['browser']}/{record['profileDirectory']}")
+        self.assertEqual(seed["source"], "chrome/Default")
+        # Not "default": the app moves such an import into a new browser profile at launch (migrateImports).
+        self.assertNotEqual(record["targetProfileID"], "default")
+        self.assertTrue(record["syncedCookieFile"].startswith("file:///"))
+        # A file URL as Foundation writes one (the space of "Application Support" percent-encoded).
+        self.assertIn("/Application%20Support/", record["syncedCookieFile"])
+        database = Path(urllib.parse.unquote(urllib.parse.urlparse(record["syncedCookieFile"]).path))
+        self.assertTrue(database.is_file())
+        # Outside every browser's own folder, so the app's browser detection finds no browser in this home.
+        for browser in ("Google", "Chromium", "BraveSoftware", "Microsoft Edge", "Arc", "Firefox"):
+            self.assertFalse((home / "Library" / "Application Support" / browser).exists())
+        conn = sqlite3.connect(str(database))
+        try:
+            # The columns the app's sync and importer read (cmux-cookie-sync fingerprint.rs, ChromiumCookieReader).
+            rows = conn.execute("SELECT host_key, top_frame_site_key, name, path, value, encrypted_value, expires_utc, "
+                                "has_expires, is_secure, is_httponly, samesite FROM cookies").fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(rows), seed["rows"])
+        self.assertGreater(len(rows), 100)
+        self.assertEqual(len({row[0] for row in rows}), seed["hosts"])
+        for host, _site, _name, _path, value, blob, expires, *_ in rows:
+            self.assertRegex(host, r"^(\.|www\.|app\.|login\.)example\.(com|org|net)$")
+            self.assertEqual(value, "")
+            self.assertTrue(blob.startswith(b"v10") and len(blob) > 3)
+            self.assertGreater(expires, (1_800_000_000 + smoke.CHROMIUM_EPOCH_OFFSET) * 1_000_000)
+        # No baseline: the sync's first read then saves its own and asks the Keychain for nothing.
+        self.assertFalse(Path(seed["state_dir"]).exists())
+        self.assertIsNone(smoke.cookie_sync_scanned(seed))
+        # The proof of a read is a baseline of this source that names sites, and nothing else.
+        state = Path(seed["state_dir"])
+        state.mkdir()
+        (state / "other.fingerprint").write_text(json.dumps({"version": 1, "source": "arc/Default", "hosts": {"a": "1"}}))
+        (state / "torn.fingerprint").write_text("{")
+        self.assertIsNone(smoke.cookie_sync_scanned(seed))
+        (state / "x.fingerprint").write_text(json.dumps({"version": 1, "source": "chrome/Default", "hosts": {"a": "1"}}))
+        self.assertEqual(smoke.cookie_sync_scanned(seed), {"hosts": 1})
+
+    def test_the_seeded_arm_passes_when_the_app_reads_the_seeded_store(self):
+        (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
+        self.host_pid_path = self.dir / "host.pid"
+        status, output, report, out = self.seeded("healthy")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"))
+        self.assertEqual(report["arms"]["empty"]["verdict"], "pass")
+        arm = report["arms"]["seeded"]
+        self.assertEqual(arm["verdict"], "pass", output)
+        self.assertEqual(arm["cookie_sync"]["scanned_hosts"], len(smoke.SEED_HOSTS))
+        self.assertGreaterEqual(arm["seconds_up"], 2)
+        self.assertNotEqual(arm["pid"], report["pid"])
+        self.assertIn("seeded-home arm OK", output)
+        # The report still describes the first arm; each arm has its log.
+        self.assertEqual(report["home_tab"]["page"], "home-dock")
+        self.assertTrue((out / "app.log").is_file() and (out / "app-seeded.log").is_file())
+        # The defaults were set aside for each launch and are back; the second launch and its hosts are gone.
+        calls = (self.defaults_dir / "calls.log").read_text().split("\n")
+        self.assertEqual(calls.count(f"delete {BUNDLE}"), 4)
+        self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
+        time.sleep(0.2)
+        self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
+        self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
+        self.assert_cleaned_up(report)
+
+    def test_a_crash_from_the_seeded_home_fails_the_run_as_that_arms_crash(self):
+        status, output, report, out = self.seeded("sync-crash")
+        self.assertEqual(status, smoke.FAIL, output)
+        # The report now describes the seeded launch, in the fields the publish gate reads for a crash verdict.
+        self.assertEqual((report["verdict"], report["arm"]), ("fail", "seeded"))
+        self.assertEqual(report["exit"], -6)
+        self.assertEqual(report["pid"], report["arms"]["seeded"]["pid"])
+        self.assertRegex(report["failures"][0], r"^seeded home: the app exited \(signal 6\)")
+        self.assertEqual(report["arms"]["empty"]["verdict"], "pass")
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "fail")
+        self.assertIn("FAIL: seeded home: the app exited", output)
+        self.assertTrue((out / "app.log").is_file() and (out / "app-empty.log").is_file())
+        gate = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
+        spec = importlib.util.spec_from_file_location("nightly_next_launch_smoke", gate)
+        verdicts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verdicts)
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_an_app_that_never_reads_the_seeded_store_leaves_the_arm_not_run(self):
+        status, output, report, _out = self.seeded("no-sync")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"))
+        arm = report["arms"]["seeded"]
+        self.assertEqual(arm["verdict"], "not-run")
+        self.assertIn("did not read the seeded store", arm["reason"])
+        self.assertIn("seeded-home arm NOT RUN", output)
+        self.assert_cleaned_up(report)
+
+    def test_the_seeded_arm_is_not_run_after_a_first_arm_that_failed(self):
+        status, output, report, _out = self.seeded("crash")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["arm"]), ("fail", "empty"))
+        self.assertEqual(report["arms"]["seeded"], {"verdict": "not-run", "reason": "the first arm did not pass"})
+        self.assertNotIn("seeded-home launch of", output)
+        self.assert_cleaned_up(report)
+
+    def test_the_arms_are_the_empty_home_alone_or_with_the_seeded_one(self):
+        self.assertEqual(smoke.arms_asked("empty"), ("empty",))
+        self.assertEqual(smoke.arms_asked("empty, seeded"), ("empty", "seeded"))
+        for value in ("seeded", "seeded,empty", "empty,empty", "empty,real", ""):
+            with self.assertRaises(Exception, msg=value):
+                smoke.arms_asked(value)
 
     def test_a_stub_that_stays_up_without_home_fails(self):
         status, output, report = self.run_smoke("no-home", "--seconds", "2", "--startup-timeout", "3")

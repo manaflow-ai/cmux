@@ -25,8 +25,23 @@ The app keeps its defaults in the account's preferences whatever HOME says
 (defaults export, then delete) and puts it back afterwards: the app starts with
 no defaults and the account's are as before once the run ends.
 
+A NEXT nightly (2616865988e1, build 4294166855401) also crashed at launch only
+for a person whose imported cookies were kept in sync: no check launched with
+such a home. `--arms empty,seeded` adds a second launch of the same app copy
+from a home this tool makes (seed_cookie_sync_home: made-up data, no person's):
+`browser.import.cookieSync` on, the import store's sources.json naming one
+Chromium profile whose cookies are kept in sync, and that profile's `Cookies`
+database with rows. It passes when the app stays up SEEDED-SECONDS (default 10)
+with Home rendered and no crash, and the app's cookie sync saved its baseline
+of the seeded store (the proof that it opened and read it). A build whose sync
+never reads the store (it has none, or its format moved on) is "not-run" for
+this arm, said in the log and in report.json's `arms`; it is never a pass of
+it and never a failure. A crash of the seeded arm fails the run as a crash of
+the first does. Without --arms only the empty home is launched, as before.
+
 Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
-           [--startup-timeout S] [--out DIR]
+           [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
+           [--seeded-seconds S]
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -38,15 +53,18 @@ keeps the evidence: report.json (verdict, launch marks, snapshot), the app's
 output, its crash files (run.exception, the .ips) and a screenshot when the
 runner may take one (evidence only, never the verdict).
 
-Exit 0: passed. 1: the app crashed, exited or never rendered Home. 2: usage.
+Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
+arm; report.json's `arm` names the one the report describes). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
-never launched is never published.
+never launched is never published. A seeded arm that could not be made or did
+not reach the cookie sync changes no exit code: the first arm's verdict stands.
 """
 from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import plistlib
@@ -78,8 +96,113 @@ HOME_PAGE = "home-dock"
 FIRST_RUN_MARK = "first_run.history_import_shown"
 
 
+# The arms: EMPTY is a first install (the module doc's launch). SEEDED is a home where a person imported a
+# Chromium profile's cookies and keeps them in sync (seed_cookie_sync_home), launched from ROOT/SEEDED.
+EMPTY, SEEDED = "empty", "seeded"
+ARMS = (EMPTY, SEEDED)
+# The seeded arm's verdict when it launched nothing or the app never read the seeded store.
+NOT_RUN = "not-run"
+# The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
+# how long Home may take to render in it, and how long after launch the sync may take to read the store.
+SEEDED_STARTUP_LIMIT = 45.0
+SEEDED_SCAN_WAIT = 30.0
+# The seeded source: the key the app gives a Chrome profile named Default (ImportSourceRecord.sourceKey).
+SEED_BROWSER, SEED_PROFILE = "chrome", "Default"
+# Made-up sites (RFC 2606 names) and how many cookies each has.
+SEED_HOSTS = tuple(f"{sub}example.{tld}" for tld in ("com", "org", "net") for sub in (".", "www.", "app.", "login."))
+SEED_COOKIES_PER_HOST = 20
+# Seconds from 1601 to 1970: Chromium's cookie times are microseconds since 1601.
+CHROMIUM_EPOCH_OFFSET = 11_644_473_600
+# Chromium's `Cookies` schema (version 24), the one the app's cookie sync and importer read.
+SEED_SCHEMA = """
+CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
+INSERT INTO meta VALUES('version', '24');
+INSERT INTO meta VALUES('last_compatible_version', '24');
+CREATE TABLE cookies(creation_utc INTEGER NOT NULL, host_key TEXT NOT NULL, top_frame_site_key TEXT NOT NULL,
+  name TEXT NOT NULL, value TEXT NOT NULL, encrypted_value BLOB NOT NULL, path TEXT NOT NULL,
+  expires_utc INTEGER NOT NULL, is_secure INTEGER NOT NULL, is_httponly INTEGER NOT NULL,
+  last_access_utc INTEGER NOT NULL, has_expires INTEGER NOT NULL, is_persistent INTEGER NOT NULL,
+  priority INTEGER NOT NULL, samesite INTEGER NOT NULL, source_scheme INTEGER NOT NULL,
+  source_port INTEGER NOT NULL, last_update_utc INTEGER NOT NULL, source_type INTEGER NOT NULL,
+  has_cross_site_ancestor INTEGER NOT NULL);
+CREATE UNIQUE INDEX cookies_unique_index ON cookies(host_key, top_frame_site_key, has_cross_site_ancestor,
+  name, path, source_scheme, source_port);
+"""
+
+
 class CannotRun(Exception):
     pass
+
+
+def seed_cookie_sync_home(home: Path, bundle_id: str, now: float | None = None) -> dict:
+    """Makes HOME the home of a person who imported a Chromium profile's cookies into the app BUNDLE_ID and keeps
+    them in sync, from nothing: every value is made up here, and no browser, profile or keychain is read.
+
+    What the app reads at launch (Packages/macOS/CmuxNext: BrowserImportGate.follow, ImportCookieSync.reconcile,
+    then the Rust sync's thread `cmux-cookie-sync`, which copies the database and opens the copy with its SQLite):
+
+      .config/cmux/cmux-next.json                                browser.import.enabled and .cookieSync, both true
+      Library/Application Support/BUNDLE_ID/BrowserImport/sources.json
+                                                                 one ImportSourceRecord with syncedCookieFile
+      Library/Application Support/cmux-launch-smoke/Chromium/Default/Network/Cookies
+                                                                 that file: a Chromium cookie store with rows
+
+    The store is not in a browser's own folder, so the app's browser detection finds no browser in this home. No
+    baseline is written (BrowserImport/cookie-sync/ stays empty): the sync's first scan then saves its own and
+    reports nothing changed, so the app never asks the Keychain for a browser's key. Returns what the run checks
+    afterwards: the source's key, the baseline folder, and the hosts and rows written.
+    """
+    import sqlite3  # here, so a Python without it is this arm's cannot-run only
+
+    settings = home / ".config" / "cmux" / "cmux-next.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(json.dumps({"browser": {"import": {"enabled": True, "cookieSync": True}}}, indent=2) + "\n")
+    database = (home / "Library" / "Application Support" / "cmux-launch-smoke" / "Chromium" / SEED_PROFILE
+                / "Network" / "Cookies")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    stamp = int(((time.time() if now is None else now) + CHROMIUM_EPOCH_OFFSET) * 1_000_000)
+    rows = []
+    for host in SEED_HOSTS:
+        for index in range(SEED_COOKIES_PER_HOST):
+            # As Chrome stores a cookie on macOS: an empty value and a "v10" blob. These bytes are a digest of a
+            # made-up label, not a cookie encrypted with any key.
+            blob = b"v10" + hashlib.sha256(f"cmux launch smoke {host} {index}".encode()).digest()
+            rows.append((stamp + len(rows), host, "", f"smoke_{index}", "", blob, "/", stamp + 30 * 86400 * 1_000_000,
+                         1, index % 2, stamp, 1, 1, 1, index % 3 - 1, 2, 443, stamp, 0, 0))
+    conn = sqlite3.connect(str(database))
+    try:
+        conn.executescript(SEED_SCHEMA)
+        conn.executemany("INSERT INTO cookies VALUES(" + ",".join("?" * 20) + ")", rows)
+        conn.commit()
+    finally:
+        conn.close()
+    store = home / "Library" / "Application Support" / bundle_id / "BrowserImport"
+    store.mkdir(parents=True, exist_ok=True)
+    profile_id = "5eed0000-0000-4000-8000-00000c00c1e5"  # made up: the cmux browser profile the cookies went to
+    record = {"browser": SEED_BROWSER, "profileDirectory": SEED_PROFILE, "displayName": "Launch smoke profile",
+              "profileName": "Launch smoke", "proposedProfileID": profile_id, "targetProfileID": profile_id,
+              "syncedCookieFile": database.as_uri()}
+    (store / "sources.json").write_text(json.dumps([record], sort_keys=True))
+    return {"source": f"{SEED_BROWSER}/{SEED_PROFILE}", "state_dir": str(store / "cookie-sync"),
+            "hosts": len(SEED_HOSTS), "rows": len(rows)}
+
+
+def cookie_sync_scanned(seed: dict) -> dict | None:
+    """The baseline the app's cookie sync saved of the seeded store (cmux-cookie-sync baseline.rs: one
+    `*.fingerprint` JSON per source, written after its first read), as {"hosts": N}; None until it is there.
+    It exists only after the sync's thread opened the store's copy with its SQLite and read every row."""
+    try:
+        files = sorted(Path(seed["state_dir"]).glob("*.fingerprint"))
+    except OSError:
+        return None
+    for path in files:
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(saved, dict) and saved.get("source") == seed["source"] and isinstance(saved.get("hosts"), dict):
+            return {"hosts": len(saved["hosts"])}
+    return None
 
 
 def log(message: str) -> None:
@@ -422,8 +545,9 @@ def terminal_host_pids(root: Path) -> list[int]:
 
 
 def own_pids(root: Path) -> list[int]:
-    """Everything this run started that may still run: processes naming its root, and its terminal hosts."""
-    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)))
+    """Everything this run started that may still run: processes naming its root, and its terminal hosts (those
+    of the seeded arm too, whose home is under ROOT/SEEDED)."""
+    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
 
 
 def alive(pid: int) -> bool:
@@ -492,11 +616,15 @@ def screenshot(out: Path) -> str | None:
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
-          seconds: float, startup_timeout: float) -> dict:
-    """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits."""
+          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0) -> dict:
+    """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits.
+
+    SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
+    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
-    snap, rendered_at, status = None, None, None
+    snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
+    ready = READY if seed is None else None
     with open(marks_path, "ab") as marks:
         while True:
             try:
@@ -513,18 +641,161 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
                 seen = read_marks(marks_path)
-                shown = READY(snap) and RENDER_MARK in seen if READY is not None else home_rendered(snap, seen)
+                shown = ready(snap) and RENDER_MARK in seen if ready is not None else home_rendered(snap, seen)
                 if shown:
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
+            if seed is not None and scan is None:
+                scan = cookie_sync_scanned(seed)
+                if scan is not None:
+                    scanned_at = elapsed
+                    log(f"ok: the cookie sync read the seeded store ({scan['hosts']} sites) {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
-                break
+                # A seeded arm with Home up waits for the scan; without Home it ends as the first arm does.
+                if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
+                    break
             time.sleep(0.25)
-    return {"snapshot": snap, "rendered_at": rendered_at, "exit": status,
+    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status,
             "seconds_up": round(time.monotonic() - started, 1)}
+    if seed is not None:
+        seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
+    return seen
 
 
-def run(args: argparse.Namespace, root: Path, report: dict) -> int:
+def explain(pid: int, launched_wall: float, app_log: Path, crashes: list[Path], exceptions: list[Path],
+            failures: list[str], report: dict) -> None:
+    """A failed launch's evidence in the log: the app's errors in the system log, its exception and crash reports,
+    the end of its output, then each failure."""
+    errors = system_log_errors(pid, launched_wall)
+    if errors:
+        report["system_log_errors"] = errors
+        log("--- the app's errors in the system log (an uncaught exception or assertion names itself here)\n"
+            + "\n".join(errors))
+    for path in exceptions:
+        log(f"--- {path.name}\n{path.read_text(errors='replace')[:4000]}")
+    for path in crashes:
+        log(f"--- {path.name} (first 6000 bytes)\n{path.read_text(errors='replace')[:6000]}")
+    tail = [line for line in app_log.read_text(errors="replace").splitlines() if not line.startswith("objc[")]
+    log("--- app output (last 60 lines)\n" + "\n".join(tail[-60:]))
+    for failure in failures:
+        log(f"FAIL: {failure}")
+
+
+def awaited_crash_reports(diagnostics: Path, executable: str, since: float, exited: bool) -> list[Path]:
+    """The app's crash reports since SINCE. ReportCrash writes the .ips a few seconds after the process died, so
+    an app that EXITED is given that long."""
+    wait = float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS", 10))
+    deadline = time.monotonic() + (wait if exited else 0)
+    crashes = crash_reports(diagnostics, executable, since)
+    while not crashes and time.monotonic() < deadline:
+        time.sleep(1)
+        crashes = crash_reports(diagnostics, executable, since)
+    return crashes
+
+
+def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict, seen: dict) -> None:
+    """Launches the app copy once more, from the home seed_cookie_sync_home makes under ROOT/SEEDED, and puts
+    the arm's verdict in ARM (what report.json's `arms` keeps) and what the watch saw in SEEN."""
+    app, bundle_id, executable = launch["app"], launch["bundle_id"], launch["executable"]
+    sub = root / SEEDED
+    sub.mkdir()
+    socket_path, marks_path = sub / "s.sock", sub / "marks"
+    with DefaultsAside(bundle_id, sub):
+        marks_read, marks_write = os.pipe()
+        try:
+            env = fresh_env(sub, socket_path, marks_write)
+            seed = seed_cookie_sync_home(Path(env["HOME"]), bundle_id)
+            log(f"==> seeded-home launch of {bundle_id}: cookie sync on, {seed['rows']} made-up cookies of "
+                f"{seed['hosts']} sites, HOME={env['HOME']}, {args.seeded_seconds:.0f}s")
+            launched_wall = time.time() - 1
+            with open(sub / "app.log", "wb") as app_log:
+                process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
+                                            "-ApplePersistenceIgnoreState", "YES"],
+                                           env=env, cwd=env["HOME"], stdin=subprocess.DEVNULL, stdout=app_log,
+                                           stderr=subprocess.STDOUT, pass_fds=(marks_write,), start_new_session=True)
+        finally:
+            os.close(marks_write)
+        arm["pid"] = process.pid
+        try:
+            startup = min(max(args.seeded_seconds, args.startup_timeout), SEEDED_STARTUP_LIMIT)
+            scan_wait = float(os.environ.get("CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS", SEEDED_SCAN_WAIT))
+            seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
+                              seed=seed, scan_wait=max(args.seeded_seconds, scan_wait)))
+        finally:
+            os.close(marks_read)
+            stop_child(process)
+            stop(own_pids(root))
+    seen["marks"] = read_marks(marks_path)
+    seen["home_tab"] = home_tab(seen["snapshot"])
+    status, elapsed = seen["exit"], seen["seconds_up"]
+    crashes = awaited_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None)
+    exceptions = sorted((sub / "h").rglob("run.exception"))
+    seen["crash_reports"] = [str(path) for path in crashes]
+    seen["run_exceptions"] = [str(path) for path in exceptions]
+    if launch["out"] is not None:
+        for found in [*crashes, *exceptions]:
+            shutil.copyfile(found, launch["out"] / found.name)
+    failures = []
+    if status is not None:
+        how = f"signal {-status}" if status < 0 else f"status {status}"
+        failures.append(f"the app exited ({how}) {elapsed:.1f}s after launch")
+    if crashes:
+        failures.append(f"crash report: {', '.join(found.name for found in crashes)}")
+    if exceptions:
+        failures.append("the app recorded an uncaught exception (run.exception)")
+    if seen["rendered_at"] is None and status is None:
+        failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
+                        f"{RENDER_MARK} {'seen' if RENDER_MARK in seen['marks'] else 'missing'})")
+    arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
+                                           "cookie_sync")})
+    if failures:
+        seen["failures"] = [f"seeded home: {failure}" for failure in failures]
+        explain(process.pid, launched_wall, sub / "app.log", crashes, exceptions, seen["failures"], seen)
+        arm.update(verdict="fail", failures=seen["failures"])
+    elif seen["cookie_sync"]["scanned_at"] is None:
+        arm.update(verdict=NOT_RUN, reason=f"the app stayed up {elapsed:.0f}s with Home rendered, but its cookie sync "
+                   "did not read the seeded store (a build with no cookie sync, or one whose import store this tool "
+                   "does not make)")
+    else:
+        arm["verdict"] = "pass"
+
+
+def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict, status: int) -> int:
+    """The second arm, after the first ended with STATUS. Returns the run's exit code: 1 when the app crashed,
+    exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
+    the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
+    arm: dict = {"verdict": NOT_RUN}
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures") if key in report}
+    report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
+    if status != PASS:
+        arm["reason"] = "the first arm did not pass"
+        log(f"==> seeded-home arm NOT RUN: {arm['reason']}")
+        return status
+    started, seen = time.monotonic(), {}
+    try:
+        launch_seeded(args, root, launch, arm, seen)
+    except Exception as error:  # noqa: BLE001 - whatever stops this arm short of a verdict never fails the run
+        arm.update(verdict="cannot-run", reason=f"{type(error).__name__}: {error}"[:500])
+    arm["wall_seconds"] = round(time.monotonic() - started, 1)
+    if arm["verdict"] == "pass":
+        log(f"==> seeded-home arm OK: up {arm['seconds_up']:.0f}s, Home at {arm['rendered_at']:.1f}s, the cookie sync "
+            f"read the store at {arm['cookie_sync']['scanned_at']:.1f}s, no crash ({arm['wall_seconds']:.0f}s in all)")
+        return status
+    if arm["verdict"] != "fail":
+        log(f"==> seeded-home arm {'NOT RUN' if arm['verdict'] == NOT_RUN else 'CANNOT RUN'}: {arm['reason']}; "
+            "the first arm's verdict stands")
+        return status
+    for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
+                "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
+        report.pop(key, None)
+        if key in seen:
+            report[key] = seen[key]
+    report.update(pid=arm["pid"], verdict="fail", arm=SEEDED)
+    return FAIL
+
+
+def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None = None) -> int:
+    """The first arm. LAUNCH, when given, receives what a second arm needs to launch the same app copy."""
     present = signing_keychains_present()
     if present:
         raise CannotRun(f"a CI signing keychain is still present ({' '.join(present)}); bundle code never runs beside it")
@@ -543,6 +814,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     socket_path, marks_path = root / "s.sock", root / "marks"
     diagnostics = Path(os.environ.get("CMUX_FRESH_SMOKE_DIAGNOSTIC_DIR")
                        or os.path.expanduser("~/Library/Logs/DiagnosticReports"))
+    if launch is not None:
+        launch.update(app=app, bundle_id=bundle_id, executable=executable, diagnostics=diagnostics, out=out)
     with DefaultsAside(bundle_id, root):
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
@@ -571,13 +844,7 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(own_pids(root))
-    # ReportCrash writes the .ips a few seconds after the process died.
-    wait = float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS", 10))
-    deadline = time.monotonic() + (wait if seen["exit"] is not None else 0)
-    crashes = crash_reports(diagnostics, executable, launched_wall)
-    while not crashes and time.monotonic() < deadline:
-        time.sleep(1)
-        crashes = crash_reports(diagnostics, executable, launched_wall)
+    crashes = awaited_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None)
     exceptions = sorted((root / "h").rglob("run.exception"))
     report["crash_reports"] = [str(path) for path in crashes]
     report["run_exceptions"] = [str(path) for path in exceptions]
@@ -602,21 +869,16 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
         return PASS
-    errors = system_log_errors(report["pid"], launched_wall)
-    if errors:
-        report["system_log_errors"] = errors
-        log("--- the app's errors in the system log (an uncaught exception or assertion names itself here)\n"
-            + "\n".join(errors))
-    for path in exceptions:
-        log(f"--- {path.name}\n{path.read_text(errors='replace')[:4000]}")
-    for path in crashes:
-        log(f"--- {path.name} (first 6000 bytes)\n{path.read_text(errors='replace')[:6000]}")
-    tail = [line for line in (root / "app.log").read_text(errors="replace").splitlines() if not line.startswith("objc[")]
-    log("--- app output (last 60 lines)\n" + "\n".join(tail[-60:]))
-    for failure in failures:
-        log(f"FAIL: {failure}")
+    explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
     report["verdict"], report["failures"] = "fail", failures
     return FAIL
+
+
+def arms_asked(value: str) -> tuple[str, ...]:
+    names = tuple(name.strip() for name in value.split(",") if name.strip())
+    if not names or names[0] != EMPTY or len(set(names)) != len(names) or any(name not in ARMS for name in names):
+        raise argparse.ArgumentTypeError(f"--arms is {EMPTY} or {EMPTY},{SEEDED}")
+    return names
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -627,6 +889,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seconds", type=float, default=30.0, help="how long the app must stay up")
     parser.add_argument("--startup-timeout", type=float, default=90.0, help="how long Home may take to render")
     parser.add_argument("--out")
+    parser.add_argument("--arms", type=arms_asked, default=(EMPTY,),
+                        help=f"{EMPTY} (the default), or {EMPTY},{SEEDED}: then also a launch from a home whose "
+                             "imported cookies are kept in sync")
+    parser.add_argument("--seeded-seconds", type=float, default=10.0,
+                        help="how long the app must stay up in the seeded arm")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)
@@ -642,19 +909,29 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     status = CANNOT_RUN
+    launch: dict = {}
     try:
-        status = run(args, root, report)
-    except (CannotRun, OSError, subprocess.SubprocessError) as error:
-        log(f"CANNOT RUN: {error}")
-        report.update(verdict="cannot-run", failures=[str(error)])
-        status = CANNOT_RUN
+        try:
+            status = run(args, root, report, launch)
+        except (CannotRun, OSError, subprocess.SubprocessError) as error:
+            log(f"CANNOT RUN: {error}")
+            report.update(verdict="cannot-run", failures=[str(error)])
+            status = CANNOT_RUN
+        if SEEDED in args.arms:
+            status = run_seeded(args, root, report, launch, status)
     finally:
-        if report.get("pid"):
-            stop([report["pid"]])
+        seeded_pid = ((report.get("arms") or {}).get(SEEDED) or {}).get("pid")
+        for pid in (report.get("pid"), seeded_pid):
+            if pid:
+                stop([pid])
         stop(own_pids(root))
         if args.out:
-            if (root / "app.log").exists():
-                shutil.copyfile(root / "app.log", Path(args.out) / "app.log")
+            # app.log is the launch the report describes; the other arm's is beside it under its arm's name.
+            logs = {EMPTY: root / "app.log", SEEDED: root / SEEDED / "app.log"}
+            told = report.get("arm", EMPTY)
+            for name, app_log in logs.items():
+                if app_log.exists():
+                    shutil.copyfile(app_log, Path(args.out) / ("app.log" if name == told else f"app-{name}.log"))
             with open(Path(args.out) / "report.json", "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=2, sort_keys=True)
         left = own_pids(root)
