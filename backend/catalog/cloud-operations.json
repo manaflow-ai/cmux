@@ -7428,6 +7428,86 @@
         }
       ]
     },
+    "TeamAgentKeyAgent": {
+      "kind": "enum",
+      "values": [
+        "claude",
+        "codex"
+      ]
+    },
+    "TeamAgentKeyKind": {
+      "kind": "enum",
+      "values": [
+        "api_key",
+        "oauth"
+      ]
+    },
+    "TeamAgentKeyState": {
+      "kind": "object",
+      "fields": {
+        "agent": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamAgentKeyAgent"
+          }
+        },
+        "set": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamAgentKeyKind"
+            }
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        },
+        "hint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      }
+    },
     "TeamAiLimitMember": {
       "kind": "object",
       "fields": {
@@ -72935,6 +73015,565 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "team.agent_key.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "agent": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyAgent"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "agent": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamAgentKeyAgent"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team agent-key remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Remove the team's shared key for an agent (owners and admins). Members' Cloud machines go back to their own keys.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          }
+        },
+        "required": [
+          "agent"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          }
+        }
+      }
+    },
+    "team.agent_key.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "agent": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyAgent"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAgentKeyKind"
+            }
+          },
+          "secret": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 16384
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamAgentKeyState"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "team_agent_key.not_configured",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team agent-key set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "$ref": "#/$defs/TeamAgentKeyAgent"
+          },
+          "kind": {
+            "$ref": "#/$defs/TeamAgentKeyKind"
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 16384
+          }
+        },
+        "required": [
+          "agent",
+          "kind",
+          "secret"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamAgentKeyState",
+        "$defs": {
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamAgentKeyState": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "$ref": "#/$defs/TeamAgentKeyAgent"
+              },
+              "set": {
+                "type": "boolean"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamAgentKeyKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent",
+              "set",
+              "kind",
+              "generation",
+              "updated_at",
+              "updated_by",
+              "hint"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.agent_key.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "can_manage": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "agents": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamAgentKeyState"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team agent-key status",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Whether the team has a shared key for each agent (members). Never returns a key.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "can_manage": {
+            "type": "boolean"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamAgentKeyState"
+            }
+          }
+        },
+        "required": [
+          "team",
+          "can_manage",
+          "agents"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamAgentKeyAgent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ]
+          },
+          "TeamAgentKeyKind": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "oauth"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamAgentKeyState": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "$ref": "#/$defs/TeamAgentKeyAgent"
+              },
+              "set": {
+                "type": "boolean"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamAgentKeyKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent",
+              "set",
+              "kind",
+              "generation",
+              "updated_at",
+              "updated_by",
+              "hint"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "team.ai_limit.get": {

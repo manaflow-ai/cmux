@@ -576,6 +576,31 @@ pub struct TargetPolicyHost {
     pub fallback: TargetPolicyHostFallback,
 }
 
+wire_enum! {
+    TeamAgentKeyAgent {
+        Claude = "claude",
+        Codex = "codex",
+    }
+}
+
+wire_enum! {
+    TeamAgentKeyKind {
+        ApiKey = "api_key",
+        Oauth = "oauth",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAgentKeyState {
+    pub agent: TeamAgentKeyAgent,
+    pub set: bool,
+    pub kind: Option<TeamAgentKeyKind>,
+    pub generation: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+    pub hint: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAiLimitMember {
     pub user: UserId,
@@ -873,34 +898,4 @@ wire_enum! {
         Community = "community",
         Unverified = "unverified",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsAllowedTiers {
-    pub value: Vec<TeamPolicyValuesAppsAllowedTiersValueItem>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsAllowList {
-    pub value: Vec<String>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsForcedInstalls {
-    pub value: Vec<String>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesComputerUseAllowed {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesBrowserAutomationRawCdp {
-    pub value: bool,
-    pub mode: PolicyMode,
 }

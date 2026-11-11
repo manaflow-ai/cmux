@@ -4,6 +4,130 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings.
+    UserTextConfirmGetOp {
+        name: "user.text_confirm.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: UserTextConfirmGetParams,
+        result: Value,
+        error: UserTextConfirmGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmGetParams {}
+
+wire_errors! {
+    /// The error codes user.text_confirm.get declares.
+    UserTextConfirmGetError {
+        AuthForbidden = "auth.forbidden",
+    }
+}
+
+wire_op! {
+    /// Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower.
+    UserTextConfirmLevelSetOp {
+        name: "user.text_confirm.level.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: UserTextConfirmLevelSetParams,
+        result: UserTextConfirmLevelSetResult,
+        error: UserTextConfirmLevelSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLevelSetParams {
+    pub level: ConfirmLevel,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLevelSetResult {
+    pub level: ConfirmLevel,
+}
+
+wire_errors! {
+    /// The error codes user.text_confirm.level.set declares.
+    UserTextConfirmLevelSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        TextConfirmLocked = "text_confirm.locked",
+        TextConfirmProofRequired = "text_confirm.proof_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code.
+    UserTextConfirmLowerOp {
+        name: "user.text_confirm.lower",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: UserTextConfirmLowerParams,
+        result: Value,
+        error: UserTextConfirmLowerError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLowerParams {
+    pub level: ConfirmLevel,
+    pub nonce: String,
+    pub presence_sig: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_attest: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes user.text_confirm.lower declares.
+    UserTextConfirmLowerError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        TextConfirmLocked = "text_confirm.locked",
+        TextConfirmProofRequired = "text_confirm.proof_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install).
+    UserTextConfirmLowerChallengeOp {
+        name: "user.text_confirm.lower.challenge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: UserTextConfirmLowerChallengeParams,
+        result: Value,
+        error: UserTextConfirmLowerChallengeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLowerChallengeParams {
+    pub level: ConfirmLevel,
+}
+
 wire_errors! {
     /// The error codes user.text_confirm.lower.challenge declares.
     UserTextConfirmLowerChallengeError {
