@@ -1,11 +1,7 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxRemoteSession
 
 /// The reader's bounds are flow control: a consumer that falls behind slows the transport down
 /// instead of ending the stream.

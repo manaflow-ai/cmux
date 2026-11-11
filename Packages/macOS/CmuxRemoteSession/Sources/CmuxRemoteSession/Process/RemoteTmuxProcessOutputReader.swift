@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+public import Foundation
 
 /// A bounded process-pipe reader that publishes every byte written before exit.
 ///
@@ -15,8 +15,8 @@ import Foundation
 /// a remote that outpaces the parser is slowed down instead of disconnected.
 // Sendable safety: mutable descriptor, source, and byte-accounting state is
 // confined to `queue`; AsyncStream is the thread-safe handoff primitive.
-final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
-    let stream: AsyncStream<Data>
+public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
+    public let stream: AsyncStream<Data>
 
     private let continuation: AsyncStream<Data>.Continuation
     private let queue: DispatchQueue
@@ -37,12 +37,12 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// bound behind the producer. It is a stream of its own so the signal does not queue behind
     /// the backlog in ``stream``: a main-actor consumer of this stream runs at the ingest loop's
     /// next turn, before the next queued chunk is parsed.
-    let pauses: AsyncStream<Void>
+    public let pauses: AsyncStream<Void>
     private let pauseContinuation: AsyncStream<Void>.Continuation
 
     /// Creates a reader that holds at most `maxPendingChunks` unreleased chunks or
     /// `maxPendingBytes` unreleased bytes, reading at most `maxReadChunkBytes` at a time.
-    init(
+    public init(
         label: String,
         maxPendingChunks: Int,
         maxPendingBytes: Int,
@@ -61,7 +61,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     }
 
     /// Starts reading `handle` on the reader's queue. The descriptor is made nonblocking.
-    func attach(to handle: FileHandle) {
+    public func attach(to handle: FileHandle) {
         let fileDescriptor = handle.fileDescriptor
         queue.async { [weak self] in
             guard let self, !self.closed, self.source == nil else { return }
@@ -77,7 +77,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     }
 
     /// Returns a chunk's share of the bounds once the consumer is done with it.
-    func release(_ data: Data) {
+    public func release(_ data: Data) {
         let byteCount = data.count
         queue.async { [weak self] in
             self?.releaseOnQueue(byteCount: byteCount)
@@ -85,7 +85,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     }
 
     /// Drains bytes already committed to the pipe, then finishes the stream.
-    func processDidExit() {
+    public func processDidExit() {
         queue.async { [weak self] in
             guard let self, !self.closed else { return }
             // The drain owns reads from here on; a readability source left
@@ -98,7 +98,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     }
 
     /// Cancels the reader without promising delivery of unread bytes.
-    func close() {
+    public func close() {
         queue.async { [weak self] in
             self?.finishOnQueue()
         }
