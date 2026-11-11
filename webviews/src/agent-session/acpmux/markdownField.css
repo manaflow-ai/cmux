@@ -334,6 +334,49 @@
 .acpmux-md-inline > * {
   pointer-events: auto;
 }
+/* The caret on a line with a chip is the text's height (#40941): WebKit draws the native caret over
+   the whole line box, a thumbnail's height there, so the paragraph the caret is in clears it and the
+   field draws the bar (composer/inlineCaret.ts). Over any page rule that colors the caret (the
+   gallery's caret probes too): the field's own color is the drawn bar's. */
+.acpmux-md .acpmux-md-caret-line {
+  caret-color: transparent !important;
+}
+.acpmux-md-caret {
+  /* The native caret's width and blink period (WebKit's on the Mac: 2px, shown and hidden about
+     every half second); composer/inlineCaret.ts centers the bar on the insertion point. A blink is
+     not motion: it runs as the caret it stands in for does, whatever the motion setting
+     (no-breathing-dots.test.ts lists it). */
+  --acpmux-md-caret-width: 2px;
+  --acpmux-md-caret-blink-period: 1.06s;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--acpmux-md-caret-width);
+  pointer-events: none;
+  animation: acpmux-md-caret-blink var(--acpmux-md-caret-blink-period) step-end infinite;
+}
+.acpmux-md-caret[hidden] {
+  display: none;
+}
+@keyframes acpmux-md-caret-blink {
+  0% {
+    visibility: visible;
+  }
+  50% {
+    visibility: hidden;
+  }
+}
+/* The strip's view hides the chips, so the line is the text's height and keeps the native caret. A
+   page that is not the key one shows no caret (composerStates.css). */
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-caret-line,
+.nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-caret-line {
+  caret-color: inherit !important;
+}
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md-caret,
+.nt-composer[data-attachment-view="strip"] .acpmux-md-caret,
+:root[data-page-inactive] .acpmux-md-caret {
+  display: none;
+}
 /* The room is the chip's margin inside the node, so the node's content ends where its box does:
    WebKit paints the caret after an atom at one or the other, and they are then the same place. A
    pasted text card's chip sits in its right-click menu's wrapper (composer/inlineAttachments.tsx);

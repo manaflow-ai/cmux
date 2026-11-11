@@ -25,6 +25,7 @@ import {
   wholeSelected,
   withTextMarksEscaped,
 } from "./composer/inlineNode";
+import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
@@ -1398,7 +1399,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(gfm)
         .use(history)
         .use(clipboard)
-        .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+        .use(
+          placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current), $prose(() => inlineCaretPlugin())] : [],
+        )
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
         // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
         .use($prose(() => deeplinkTokensPlugin()))

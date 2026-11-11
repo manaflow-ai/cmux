@@ -142,9 +142,13 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
               `${engine} ${name} ${where}: caret ${height.toFixed(2)}px (${caret.top.toFixed(2)}..${caret.bottom.toFixed(2)}), line ${lineHeight}px, words ${words.top.toFixed(2)}..${words.bottom.toFixed(2)}, chip ${chip.top.toFixed(2)}..${chip.bottom.toFixed(2)}`,
             );
             if (height > lineHeight + TOLERANCE)
-              failures.push(`${engine} ${name}: the caret ${where} is ${height.toFixed(2)}px tall, the text's line ${lineHeight}px`);
+              failures.push(
+                `${engine} ${name}: the caret ${where} is ${height.toFixed(2)}px tall, the text's line ${lineHeight}px`,
+              );
             if (middle < words.top || middle > words.bottom)
-              failures.push(`${engine} ${name}: the caret ${where} is not on the words' line (middle ${middle.toFixed(2)})`);
+              failures.push(
+                `${engine} ${name}: the caret ${where} is not on the words' line (middle ${middle.toFixed(2)})`,
+              );
           }
         } finally {
           await context.close();
