@@ -13,7 +13,7 @@ struct OverviewLayout: Equatable, Sendable {
     var safeBottom: CGFloat
     var count: Int
     /// The first `pinned` items are pinned: Safari shows them as capsules
-    /// (177 x 30, two per row, 16 pt apart) above the grid.
+    /// (177 x 30, one per grid column, 16 pt apart) above the grid.
     var pinned: Int = 0
 
     static let pinnedHeight: CGFloat = 30
@@ -140,6 +140,17 @@ struct OverviewLayout: Equatable, Sendable {
         let clamped = min(maxOffset, max(0, current))
         if isFullyVisible(index, offset: clamped) { return clamped }
         return min(maxOffset, max(0, card(index).minY - top))
+    }
+
+    /// The scroll offset in `resized` (this grid at a new width: a foldable
+    /// folding or unfolding under a settled grid) that keeps the grid's
+    /// place: the first card still on screen below the top controls at
+    /// `offset` sits as far below the screen's top as it did, clamped to the
+    /// content. A grid at its top stays at its top.
+    func offset(keepingPlace offset: CGFloat, in resized: OverviewLayout) -> CGFloat {
+        guard offset > 0, let first = (0..<count).first(where: { card($0).maxY > offset + top }) else { return 0 }
+        let below = card(first).minY - offset
+        return min(resized.maxOffset, max(0, resized.card(first).minY - below))
     }
 }
 

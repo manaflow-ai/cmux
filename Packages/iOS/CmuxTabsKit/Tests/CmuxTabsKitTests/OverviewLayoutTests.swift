@@ -150,4 +150,22 @@ struct OverviewLayoutTests {
         #expect(TabsKitGrid(pageWidth: 800).cardScale(lone: false) == wide.cardWidth / 800)
         #expect(TabsKitGrid(pageWidth: 402).cardScale(lone: false) == 177.0 / 402)
     }
+
+    /// Folding or unfolding under a settled grid keeps the grid's place: the
+    /// card that led the screen still leads it in the new column count.
+    @Test func resizeKeepsTheGridsPlace() {
+        let folded = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 40)
+        let unfolded = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 40)
+        // Folded, scrolled so card 20 (row 10) leads the screen.
+        let atTwenty = folded.card(20).minY - folded.top
+        let wide = folded.offset(keepingPlace: atTwenty, in: unfolded)
+        #expect(abs(unfolded.card(20).minY - wide - (folded.card(20).minY - atTwenty)) < 1e-9)
+        #expect(wide > 0 && wide <= unfolded.maxOffset)
+        // And back: card 20 leads the folded screen again.
+        let back = unfolded.offset(keepingPlace: wide, in: folded)
+        #expect(abs(back - atTwenty) < 1e-9)
+        // At the top it stays at the top; past the end it clamps to the content.
+        #expect(folded.offset(keepingPlace: 0, in: unfolded) == 0)
+        #expect(folded.offset(keepingPlace: folded.maxOffset, in: unfolded) == unfolded.maxOffset)
+    }
 }
