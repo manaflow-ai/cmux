@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
@@ -415,7 +416,7 @@ export function ContextMenu({
                           checked, unchecked and plain rows start their text on one line. */}
                       {item.checked !== undefined ? (
                         <span className="ui-menu-check" aria-hidden="true">
-                          {item.checked ? "✓" : null}
+                          {item.checked ? <MenuCheckGlyph /> : null}
                         </span>
                       ) : null}
                       {item.icon ? (

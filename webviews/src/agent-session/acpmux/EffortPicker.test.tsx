@@ -128,7 +128,7 @@ test("every row, checked or not, starts with the same check gutter before its la
     translate("picker.off"),
     "On",
   ]);
-  for (const row of checked) expect(row.querySelector(".ui-menu-check")?.textContent).toBe("✓");
+  for (const row of checked) expect(row.querySelector(".ui-menu-check .ui-menu-check-glyph")).not.toBeNull();
 });
 
 test("Ultracode's note sits on its own row's line, with the full text as its tooltip", async () => {
