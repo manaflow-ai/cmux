@@ -121,10 +121,10 @@ class ABaseRedCannotExcuseAnother(unittest.TestCase):
     def missing(self, head_failing: set[str], base_failing: set[str], *, other_test: bool = False) -> set[str]:
         """What base_red_excuse.py finds on the head and not the base: failing test names, always compared,
         or error lines when no test name failed."""
-        head_steps, head_tests, head_errors = excuse.signature(*job_and_log(head_failing, other_test),
-                                                               step_names=excuse.STEP_NAMES_UNKNOWN)
-        base_steps, base_tests, base_errors = excuse.signature(*job_and_log(base_failing, other_test),
-                                                               step_names=excuse.STEP_NAMES_UNKNOWN)
+        head_steps, head_tests, head_errors = excuse.signature(excuse.failed_view(
+            *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
+        base_steps, base_tests, base_errors = excuse.signature(excuse.failed_view(
+            *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
         self.assertEqual(head_steps, base_steps)
         if head_tests:
             return head_tests - base_tests

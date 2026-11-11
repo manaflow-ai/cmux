@@ -188,7 +188,7 @@ def placed_signature(job, text, base=False):
     """excuse.signature of a fixture written before lines were placed by step order, framed as the job-log endpoint
     serves it (frame_legacy) so step_owners places it: a log it does not place has no signature (excuse.UNPLACED)."""
     job = copy.deepcopy(job)
-    return excuse.signature(job, frame_legacy(job, text), base, **UNKNOWN)
+    return excuse.signature(excuse.failed_view(job, frame_legacy(job, text), base=base, **UNKNOWN))
 
 
 class InProgressJobLogGitHub(FakeGitHub):
@@ -3538,7 +3538,7 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
              "started_at": "2026-10-30T23:16:38Z", "completed_at": "2026-10-30T23:29:27Z"},
             {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
              "started_at": "2026-10-30T23:29:27Z", "completed_at": "2026-10-30T23:29:27Z"}])
-        _, tests, errors = excuse.signature(job, self.gh.logs[2], **UNKNOWN)
+        _, tests, errors = excuse.signature(excuse.failed_view(job, self.gh.logs[2], **UNKNOWN))
         self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
         self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
 
@@ -4439,7 +4439,7 @@ class PanicRatchet(unittest.TestCase):
 
 
 GUARD = "nightly-guards / workflow-guard-tests / release-notary"
-GUARD_STEP = "Validate the car guards"
+CAR_GUARD_STEP = "Validate the car guards"
 MERGE_BASE = "c" * 40
 CAR_TEST = "test_cmux_next_follows_the_committed_target_graph"
 
@@ -4455,7 +4455,7 @@ def guard_log(*tests, file="tests/test_car_guards.py", exit_line=True):
     lines += ["-" * 70, "Ran 40 tests in 1.204s", "", f"FAILED (failures={len(tests)})"]
     if exit_line:
         lines.append("##[error]Process completed with exit code 1.")
-    return log(GUARD, GUARD_STEP, *lines)
+    return log(GUARD, CAR_GUARD_STEP, *lines)
 
 
 def ship_comment(sha, verdict="SHIP", login="teamleaderleo", at="2026-11-08T17:20:00Z"):
@@ -4469,8 +4469,8 @@ class FixedOnBaseGitHub(FakeGitHub):
 
     def __init__(self, changed=("Sources/App/Feature.swift",), status="ahead"):
         super().__init__()
-        self.jobs = {1: failed_job(1, 10, HEAD, name=GUARD, step=GUARD_STEP),
-                     2: dict(failed_job(2, 20, BASE_SHA, name=GUARD, step=GUARD_STEP), conclusion="success")}
+        self.jobs = {1: failed_job(1, 10, HEAD, name=GUARD, step=CAR_GUARD_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=GUARD, step=CAR_GUARD_STEP), conclusion="success")}
         self.logs = {1: guard_log(CAR_TEST), 2: ""}
         self.changed = list(changed)
         self.status = status
@@ -4893,13 +4893,13 @@ class FixedOnBase(unittest.TestCase):
     def test_a_crash_is_never_fixed_on_base(self):
         github = FixedOnBaseGitHub()
         github.logs[1] = guard_log(CAR_TEST, exit_line=False) + "\n" + log(
-            GUARD, GUARD_STEP, "##[error]Process completed with exit code 134.")
+            GUARD, CAR_GUARD_STEP, "##[error]Process completed with exit code 134.")
         with self.assertRaisesRegex(excuse.Refused, "crash"):
             self.judge(github)
 
     def test_a_cut_short_run_is_never_fixed_on_base(self):
         github = FixedOnBaseGitHub()
-        github.logs[1] = log(GUARD, GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
+        github.logs[1] = log(GUARD, CAR_GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
                              "python3 tests/test_car_guards.py", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
                              f"FAIL: {CAR_TEST} (__main__.FocusedTests.{CAR_TEST})",
                              f'  File "/w/tests/test_car_guards.py", line 160, in {CAR_TEST}',
@@ -4909,12 +4909,24 @@ class FixedOnBase(unittest.TestCase):
             self.judge(github)
         self.assertFalse([route for route in github.routes if "/compare/" in route])
 
+    def failed_steps(self, github, *sections):
+        """Serve the head job as failed steps SECTIONS, each (step name, its log text), each its own placed section
+        (failed_view reads a failed step's own lines; a second step's lines inside the first's places nothing)."""
+        steps, lines = [], []
+        for n, (step, text) in enumerate(sections):
+            at = 10 + 4 * n
+            steps.append((step, "failure", at, at + 2))
+            lines += [(step, at if line.startswith("##[group]Run ") else at + 1, line)
+                      for line in excuse.lines_of(text)]
+        github.jobs[1]["steps"] = framed_steps(steps)
+        github.logs[1] = framed_log(lines, GUARD)
+
     def test_a_failed_step_with_no_guard_test_is_not_excused(self):
         github = FixedOnBaseGitHub()
-        github.logs[1] += "\n" + log(GUARD, "Validate create-dmg", "##[group]Run ./tests/test_ci_create_dmg_pinned.sh",
-                                     "./tests/test_ci_create_dmg_pinned.sh", "shell: /usr/bin/bash -e {0}",
-                                     "##[endgroup]", "create-dmg is not pinned",
-                                     "##[error]Process completed with exit code 1.")
+        self.failed_steps(github, (CAR_GUARD_STEP, guard_log(CAR_TEST)), ("Validate create-dmg", log(
+            GUARD, "Validate create-dmg", "##[group]Run ./tests/test_ci_create_dmg_pinned.sh",
+            "./tests/test_ci_create_dmg_pinned.sh", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+            "create-dmg is not pinned", "##[error]Process completed with exit code 1.")))
         with self.assertRaisesRegex(excuse.Refused, "names no failing test"):
             self.judge(github)
 
@@ -4943,7 +4955,7 @@ class FixedOnBase(unittest.TestCase):
 
     def test_a_pytest_line_with_no_test_run_is_not_excused(self):
         github = FixedOnBaseGitHub()
-        github.logs[1] = log(GUARD, GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
+        github.logs[1] = log(GUARD, CAR_GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
                              "python3 tests/test_car_guards.py", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
                              f"FAILED tests/test_car_guards.py::FocusedTests::{CAR_TEST}",
                              "##[error]Process completed with exit code 1.")
@@ -4962,10 +4974,12 @@ class FixedOnBase(unittest.TestCase):
 
     def test_the_checks_job_rollup_step_is_read_as_its_guard_tests(self):
         github = FixedOnBaseGitHub(changed=("Sources/App/Feature.swift",))
-        github.logs[1] = guard_log("test_every_part_of_bun_run_check_runs_in_the_warn_branch",
-                                   file="tests/test_cmux_next_checks_workflow.py") + "\n" + log(
-            GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()", "shell: /usr/bin/bash -e {0}",
-            "##[endgroup]", "##[error]red check: Checks job structure", "##[error]Process completed with exit code 1.")
+        self.failed_steps(github, (CAR_GUARD_STEP, guard_log("test_every_part_of_bun_run_check_runs_in_the_warn_branch",
+                                                             file="tests/test_cmux_next_checks_workflow.py")),
+                          ("Fail on any red check", log(
+                              GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()",
+                              "shell: /usr/bin/bash -e {0}", "##[endgroup]", "##[error]red check: Checks job structure",
+                              "##[error]Process completed with exit code 1.")))
         self.assertIn("fixed on base", self.judge(github))
         for path in ("webviews/package.json", "cmux-tui/Cargo.toml", "Native/OptChat/chief/Cargo.toml"):
             github.changed = [path]
@@ -4974,10 +4988,10 @@ class FixedOnBase(unittest.TestCase):
 
     def test_a_rollup_naming_more_reds_than_guard_tests_is_not_excused(self):
         github = FixedOnBaseGitHub()
-        github.logs[1] += "\n" + log(
+        self.failed_steps(github, (CAR_GUARD_STEP, guard_log(CAR_TEST)), ("Fail on any red check", log(
             GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()", "shell: /usr/bin/bash -e {0}",
             "##[endgroup]", "##[error]red check: Checks job structure", "##[error]red check: God files",
-            "##[error]Process completed with exit code 1.")
+            "##[error]Process completed with exit code 1.")))
         with self.assertRaisesRegex(excuse.Refused, "rollup names 2 red checks"):
             self.judge(github)
 
@@ -7386,8 +7400,8 @@ def callers_case(case, columns=False, own=True):
 
 
 class StepOwnershipCallers(unittest.TestCase):
-    """package_tests and quarantined_only read a failed section's lines through step_lines, which shares
-    failed_steps_log's owner (step_owners): a log that does not map one to one onto its steps places nothing, so
+    """package_tests and quarantined_only read a failed section's lines through failed_view (section_lines), which
+    shares failed_steps_log's owner (step_owners): a log that does not map one to one onto its steps places nothing, so
     package_tests refuses (the package red is not excused) and quarantined_only answers False (not excused by
     quarantine)."""
 
@@ -7397,10 +7411,11 @@ class StepOwnershipCallers(unittest.TestCase):
                 job, log_text, package = callers_case(case, columns)
                 with self.subTest(case=case, columns=columns):
                     if case in PACKAGE_EXCUSED:
-                        self.assertEqual(excuse.package_tests(package, job, log_text, **UNKNOWN), ["own()"])
+                        self.assertEqual(excuse.package_tests(package, excuse.failed_view(job, log_text, **UNKNOWN)),
+                                         ["own()"])
                     else:
                         with self.assertRaises(excuse.Refused):
-                            excuse.package_tests(package, job, log_text, **UNKNOWN)
+                            excuse.package_tests(package, excuse.failed_view(job, log_text, **UNKNOWN))
 
     def test_every_step_ownership_case_through_quarantined_only(self):
         # The passing steps' quarantined failure never explains the failed step, whose own lines name no test.
@@ -7408,17 +7423,18 @@ class StepOwnershipCallers(unittest.TestCase):
             for columns in (False, True):
                 job, log_text, _ = callers_case(case, columns, own=False)
                 with self.subTest(case=case, columns=columns):
-                    self.assertFalse(excuse.quarantined_only(job, log_text, {"sometimes()": "hq#1"}, **UNKNOWN))
+                    self.assertFalse(excuse.quarantined_only(excuse.failed_view(job, log_text, **UNKNOWN),
+                                                             {"sometimes()": "hq#1"}))
 
-    def test_step_lines_gives_a_failed_section_its_own_lines_only(self):
+    def test_section_lines_gives_a_failed_section_its_own_lines_only(self):
         for case, (_, _, _, _, ambiguous, *_) in STEP_OWNERSHIP.items():
             job, log_text, _ = callers_case(case)
-            owned = excuse.step_lines(job, log_text, **UNKNOWN)
+            view = excuse.failed_view(job, log_text, **UNKNOWN)
             with self.subTest(case=case):
                 if ambiguous:
-                    self.assertIsNone(owned)
+                    self.assertIs(view, excuse.UNPLACED)
                     continue
-                red = [line for _, lines, failed in owned if failed for line in lines]
+                red = [line for _, lines in excuse.section_lines(view) for line in lines]
                 self.assertTrue(any(OWN in line for line in red))
                 self.assertFalse(any(FLAKE in line for line in red))
 
@@ -7429,9 +7445,9 @@ class StepOwnershipCallers(unittest.TestCase):
                  ("Unit tests", 19, FLAKE), ("Unit tests", 19, "##[error]Process completed with exit code 1.")]
         for columns in (False, True):
             with self.subTest(columns=columns):
-                self.assertTrue(excuse.quarantined_only({"name": "swift", "steps": framed_steps(steps)},
-                                                        framed_log(lines, columns=columns), {"sometimes()": "hq#1"},
-                                                        **UNKNOWN))
+                self.assertTrue(excuse.quarantined_only(
+                    excuse.failed_view({"name": "swift", "steps": framed_steps(steps)},
+                                       framed_log(lines, columns=columns), **UNKNOWN), {"sometimes()": "hq#1"}))
 
 
 class UnplacedSignature(unittest.TestCase):
@@ -7459,9 +7475,11 @@ class UnplacedSignature(unittest.TestCase):
             text = framed_log(self.lines(OLD_RED), SWIFT, columns=columns)
             for base in (False, True):
                 with self.subTest(columns=columns, base=base):
-                    self.assertIs(excuse.signature(self.job(), text, base, **UNKNOWN), excuse.UNPLACED)
-            placed = excuse.signature(self.job(), framed_log(self.lines(OLD_RED, placed=True), SWIFT, columns=columns),
-                                      True, **UNKNOWN)
+                    self.assertIs(excuse.signature(excuse.failed_view(self.job(), text, base=base, **UNKNOWN)),
+                                  excuse.UNPLACED)
+            placed = excuse.signature(excuse.failed_view(
+                self.job(), framed_log(self.lines(OLD_RED, placed=True), SWIFT, columns=columns), base=True,
+                **UNKNOWN))
             self.assertIsNot(placed, excuse.UNPLACED)
             self.assertEqual(placed[0], {"Unit tests"})
 
@@ -7471,11 +7489,11 @@ class UnplacedSignature(unittest.TestCase):
         lines = [(("swift test (macOS)" if step == "Unit tests" else step), at, text)
                  for step, at, text in self.lines(OWN)]
         with self.assertRaises(excuse.Refused):
-            excuse.package_tests(package, self.job(steps), framed_log(lines, SWIFT), **UNKNOWN)
+            excuse.package_tests(package, excuse.failed_view(self.job(steps), framed_log(lines, SWIFT), **UNKNOWN))
 
     def test_quarantined_only_never_explains_an_unplaced_log(self):
-        self.assertFalse(excuse.quarantined_only(self.job(), framed_log(self.lines(FLAKE), SWIFT),
-                                                 {"sometimes()": "hq#1"}, **UNKNOWN))
+        self.assertFalse(excuse.quarantined_only(excuse.failed_view(self.job(), framed_log(self.lines(FLAKE), SWIFT),
+                                                                    **UNKNOWN), {"sometimes()": "hq#1"}))
 
     def test_judge_refuses_an_unplaced_head_whatever_the_base(self):
         for columns in (False, True):
@@ -7497,18 +7515,22 @@ class StepNamesAreRequired(unittest.TestCase):
         job = {"name": SWIFT, "steps": framed_steps([("Build", "success", 3, 9), ("Unit tests", "failure", 10, 20)])}
         text = framed_log([("Build", 3, "##[group]Run swift build"), ("Unit tests", 10, "##[group]Run swift test"),
                            ("Unit tests", 19, NEW_RED), ("Unit tests", 19, EXIT)], SWIFT)
-        for reader in (excuse.step_owners, excuse.placed, excuse.failed_steps_log, excuse.signature,
-                       excuse.step_errors, excuse.step_lines):
+        for reader in (excuse.step_owners, excuse.failed_steps_log, excuse.failed_view):
             with self.subTest(reader=reader.__name__):
                 with self.assertRaises(TypeError):
                     reader(job, text)
                 with self.assertRaises(TypeError):
                     reader(job, text, step_names=None)
                 reader(job, text, step_names=excuse.STEP_NAMES_UNKNOWN)
+        # Every comparator reads a failed_view alone: a raw log handed to one is a TypeError, never read.
+        for comparator in (excuse.signature, excuse.step_errors, excuse.crash_signals, excuse.ratchet_red,
+                           excuse.section_lines, excuse.guard_tests, excuse.view_text):
+            with self.subTest(comparator=comparator.__name__), self.assertRaises(TypeError):
+                comparator(text)
         with self.assertRaises(TypeError):
-            excuse.package_tests(excuse.PACKAGE_JOBS["CmuxMobileKit tests (macOS swift test, iOS simulator)"], job, text)
+            excuse.package_tests(excuse.PACKAGE_JOBS["CmuxMobileKit tests (macOS swift test, iOS simulator)"], text)
         with self.assertRaises(TypeError):
-            excuse.quarantined_only(job, text, {})
+            excuse.quarantined_only(text, {})
 
 
 class NamedRunStepHeader(unittest.TestCase):
@@ -7706,7 +7728,7 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     owned = excuse.step_owners(job, log_text, step_names=names)
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
-                    self.assertIs(excuse.signature(job, log_text, base=True, step_names=names), excuse.UNPLACED)
+                    self.assertIs(excuse.failed_view(job, log_text, base=True, step_names=names), excuse.UNPLACED)
                     with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
                         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps))
 
@@ -7863,6 +7885,292 @@ class NoStepLookupByName(unittest.TestCase):
             "    return said, setup, other, stamp, wrong"])
         self.assertEqual([line.split(":")[1] for line in by_name_step_lookups(source)], ["6"])
 
+
+
+# failed_view is every comparator's one reader of a job log, head and base alike (#40542's seventh Codex BLOCK, F1, at
+# 35f63387: signature() read a head's failing tests from its whole log, a base's from its failed sections, so a passing
+# negative-case step's `✘ Test fake()` matched the base's real fake() failure and compare_window excused an unrelated
+# new error in the step that failed). Detector for cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md.
+FAKE_ISSUE = "✘ Test fake() recorded an issue at FakeTests.swift:4:5: Expectation failed: refused as expected"
+FAKE_FAILED = "✘ Test fake() failed after 0.001 seconds with 1 issue."
+VIEW_STEPS = [("Negative cases", "success", 10, 12), ("Check", "failure", 20, 22)]
+CRASH_11 = "error: Process '/tmp/t/swiftpm-testing-helper' exited with unexpected signal code 11"
+CRASH_6 = "error: Process '/tmp/t/swiftpm-testing-helper' exited with unexpected signal code 6"
+def ratchet(count):
+    """The panic ratchet's RED block for one row of COUNT hits."""
+    return ("rust-panic-ratchet: RED", f"cmux-core: clippy::unwrap_used {count} > baseline 3", "Fix the hit above")
+
+
+def view_case(passing, failing):
+    """(job, log) for a job whose passing "Negative cases" step prints PASSING and whose failing "Check" step prints
+    FAILING, framed so step_owners places every line."""
+    lines = [("Negative cases", 10, "##[group]Run python3 negative.py"),
+             *(("Negative cases", 11, text) for text in passing),
+             ("Check", 20, "##[group]Run scripts/check.sh"), *(("Check", 21, text) for text in failing),
+             ("Check", 21, EXIT)]
+    job = {"id": 1, "run_id": 10, "head_sha": HEAD, "name": "cmux-next static checks", "status": "completed",
+           "conclusion": "failure", "steps": framed_steps(VIEW_STEPS)}
+    return job, framed_log(lines, job["name"])
+
+
+# The Codex repro: the head's passing step prints fake()'s failure (a negative case), its failing step a new error;
+# the base's failing step really fails fake().
+HEAD_FAKE_IN_PASSING = ((FAKE_ISSUE, FAKE_FAILED), (NEW_RED,))
+BASE_FAKE_FAILS = (("ok: refused as expected",), (FAKE_ISSUE, FAKE_FAILED))
+COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "ratchet_unmatched",
+               "next_batch.expand_job")
+# Every function of base_red_excuse.py that compares a head's red with a base's, or decides from a log's lines whether
+# a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
+# itself. A function with a FailedView parameter that is not here fails the scan too.
+VIEW_COMPARATORS = frozenset({
+    "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
+    "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text"})
+# The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
+# compared).
+STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
+# Every other function of base_red_excuse.py that takes a raw log (a parameter named log, *_log or *_logs), and why it
+# may: it reads it into a failed_view, or only refuses, or reads evidence that is not a step's section. A new one fails
+# the scan until it is listed here or reads a failed_view instead.
+RAW_LOG_READERS = {
+    "failed_view": "the one reader: the owned non-passed sections, or UNPLACED",
+    "failed_steps_log": "what a comment shows; never compared",
+    "step_owners": "the one placer of a line in a step, read by the two above alone",
+    "lines_of": "a parser of log lines",
+    "refused_at_setup": "a gate: only refuses",
+    "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
+    "summary_red": "a gate: only refuses",
+    "summary_no_verdict": "a gate: only refuses",
+    "generated_no_verdict": "a gate: only refuses",
+    "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
+    "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
+    "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
+    "web_test_verdict": "per-test webview verdicts from run-webviews-tests.sh's own per-file blocks",
+}
+# The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
+# return no raw log to a comparator.
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "guard_routes_view", "guard_group_report",
+                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
+RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
+# next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+
+
+def raw_log_reads(source, next_batch_source=None):
+    """Each place in SOURCE (base_red_excuse.py) and NEXT_BATCH_SOURCE (next_batch.py) where a comparator could read
+    a raw log, as `function: why`: a comparator with a raw-log parameter or name, or calling step_owners, a log read
+    or failed_view itself; step_owners called outside STEP_OWNERS_READERS; a log read from GitHub outside
+    LOG_FETCHERS; a function taking a FailedView not in VIEW_COMPARATORS; a raw-log parameter not in RAW_LOG_READERS;
+    and next_batch's expand_job handing its raw log to anything but NEXT_BATCH_RAW_SINKS."""
+    import ast
+    found = []
+
+    def called(node):
+        func = node.func
+        return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+
+    def params(fn):
+        return [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+
+    functions = [node for node in ast.walk(ast.parse(source)) if isinstance(node, (ast.FunctionDef, ast.Lambda))
+                 and isinstance(node, ast.FunctionDef)]
+    names = {fn.name for fn in functions}
+    for fn in functions:
+        calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)]
+        annotated = {arg.arg: ast.unparse(arg.annotation) for arg in params(fn) if arg.annotation is not None}
+        if any("FailedView" in note for note in annotated.values()) and fn.name not in VIEW_COMPARATORS:
+            found.append(f"{fn.name}: takes a FailedView but is not a listed comparator (VIEW_COMPARATORS)")
+        if fn.name in VIEW_COMPARATORS:
+            for arg in params(fn):
+                if RAW_NAME.match(arg.arg):
+                    found.append(f"{fn.name}: takes a raw log ({arg.arg})")
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Name) and RAW_NAME.match(node.id):
+                    found.append(f"{fn.name}: reads a raw log ({node.id}, line {node.lineno})")
+            for node in calls:
+                if called(node) in ("step_owners", "failed_steps_log", "failed_view", "lost_runner_log"):
+                    found.append(f"{fn.name}: calls {called(node)} (line {node.lineno}); a comparator reads the "
+                                 "failed_view it is given")
+        elif fn.name not in RAW_LOG_READERS and fn.name not in LOG_FETCHERS:
+            for arg in params(fn):
+                if RAW_NAME.match(arg.arg):
+                    found.append(f"{fn.name}: takes a raw log ({arg.arg}) and is no listed reader (RAW_LOG_READERS)")
+        for node in calls:
+            if called(node) == "step_owners" and fn.name not in STEP_OWNERS_READERS:
+                found.append(f"{fn.name}: calls step_owners (line {node.lineno}); only failed_view places lines for "
+                             "a comparator")
+            if (isinstance(node.func, ast.Attribute) and node.func.attr == "log" and len(node.args) == 2
+                    and fn.name not in LOG_FETCHERS):
+                found.append(f"{fn.name}: reads a log from GitHub (line {node.lineno}) outside LOG_FETCHERS")
+    for listed in sorted((VIEW_COMPARATORS | STEP_OWNERS_READERS | RAW_LOG_READERS.keys()) - names):
+        found.append(f"{listed}: listed, but no such function")
+    if next_batch_source is not None:
+        tree = ast.parse(next_batch_source)
+        expand = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                      and node.name == "expand_job")
+        parents = {child: parent for parent in ast.walk(expand) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(expand):
+            if isinstance(node, ast.Call) and called(node) == "step_owners":
+                found.append(f"next_batch.expand_job: calls step_owners (line {node.lineno})")
+            if not (isinstance(node, ast.Name) and RAW_NAME.match(node.id) and isinstance(node.ctx, ast.Load)):
+                continue
+            parent = parents.get(node)
+            if isinstance(parent, ast.Compare) and any(isinstance(c, ast.Constant) and c.value is None
+                                                       for c in parent.comparators):
+                continue  # `log is None`
+            if isinstance(parent, ast.Attribute) and parent.attr == "strip":
+                continue  # `not log.strip()`
+            if isinstance(parent, ast.Call) and node in parent.args and called(parent) in NEXT_BATCH_RAW_SINKS:
+                continue
+            found.append(f"next_batch.expand_job: reads its raw log (line {node.lineno}) outside failed_view and "
+                         "the own-red keys")
+    return found
+
+
+class FailedViewIsTheOnlyReader(unittest.TestCase):
+    """failed_view is the one reader of a job log for every comparator, head and base alike, and the Codex repro of
+    #40542's seventh BLOCK is refused."""
+
+    SOURCE = (ROOT / "scripts/ci/base_red_excuse.py").read_text()
+    NEXT_BATCH = (ROOT / "scripts/ci/next_batch.py").read_text()
+
+    def test_codex_repro_a_passing_steps_failing_test_never_hides_a_new_error(self):
+        # At 35f63387 the head's tests were read from its whole log: the passing negative case's fake() matched the
+        # base's failing fake(), a failing test was "on the base", so its errors were never compared and the new
+        # New.swift error in the step that failed was excused.
+        github = FakeGitHub()
+        head_job, head_log = view_case(*HEAD_FAKE_IN_PASSING)
+        base_job, base_log = view_case(*BASE_FAKE_FAILS)
+        github.jobs = {1: head_job, 2: dict(base_job, id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: head_log, 2: base_log}
+        with self.assertRaisesRegex(excuse.Refused, r"New\.swift"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_the_same_red_on_both_sides_is_still_excused(self):
+        github = FakeGitHub()
+        head_job, head_log = view_case(*HEAD_FAKE_IN_PASSING)
+        github.jobs = {1: head_job, 2: dict(copy.deepcopy(head_job), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: head_log, 2: head_log}
+        self.assertIn("excused 'cmux-next static checks'", "\n".join(
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
+    def test_a_head_view_and_a_base_view_never_hold_a_passing_steps_lines(self):
+        job, text = view_case(*HEAD_FAKE_IN_PASSING)
+        for base in (False, True):
+            view = excuse.failed_view(job, text, base=base, **UNKNOWN)
+            with self.subTest(base=base):
+                self.assertNotIn("fake()", view.text())
+                self.assertIn("New.swift", view.text())
+                self.assertEqual(excuse.signature(view)[1], set())
+
+    def test_no_comparator_reads_a_raw_log_or_places_a_line_itself(self):
+        self.assertEqual(raw_log_reads(self.SOURCE, self.NEXT_BATCH), [])
+
+    def test_the_scan_catches_the_bug_reintroduced(self):
+        # Each fixture puts back a way a comparator read a raw log: 35f63387's signature() reading a head's tests from
+        # the whole log, a comparator placing lines itself, judge() reading a log, next_batch keying a raw log, and a
+        # new reader no list names.
+        def mutated(old, new, source=None):
+            source = self.SOURCE if source is None else source
+            self.assertEqual(source.count(old), 1, old)
+            return source.replace(old, new)
+        fixtures = {
+            "signature reads the whole log (35f63387)": (mutated(
+                'def signature(view: "FailedView | Unplaced")',
+                'def signature(view: "FailedView | Unplaced", log: str = "")').replace(
+                "    tests = test_reds.failed_names(test_reds.lines_of(text))\n    return steps,",
+                "    tests = test_reds.failed_names(test_reds.lines_of(log or text))\n    return steps,"),
+                None, "signature: takes a raw log"),
+            "compare_window places lines itself": (mutated(
+                "    head_crash = crash_signals(head_view)",
+                "    head_crash = {status for _, _, status in step_owners(head_view.job, '', step_names=None)}"),
+                None, "compare_window: calls step_owners"),
+            "judge reads a log": (mutated(
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)",
+                "        head_log = github.log(repo, job)\n"
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)"),
+                None, "judge: reads a raw log"),
+            "a new unlisted reader": (self.SOURCE + "\n\ndef new_errors(job, head_log):\n    return head_log\n",
+                                      None, "new_errors: takes a raw log"),
+            "next_batch keys a raw log": (self.SOURCE, mutated(
+                "        crashes = base_red_excuse.crash_signals(view)",
+                "        crashes = base_red_excuse.crash_signals(log)", self.NEXT_BATCH),
+                "next_batch.expand_job: reads its raw log"),
+        }
+        for label, (source, next_batch, want) in fixtures.items():
+            with self.subTest(fixture=label):
+                said = raw_log_reads(source, next_batch)
+                self.assertTrue(any(line.startswith(want) for line in said), said)
+
+    def verdicts(self, comparator, head, base):
+        """What COMPARATOR finds on HEAD (passing, failing) that BASE (passing, failing) lacks, each side read through
+        its own failed_view."""
+        (head_job, head_log), (base_job, base_log) = view_case(*head), view_case(*base)
+        head_view = excuse.failed_view(head_job, head_log, **UNKNOWN)
+        base_view = excuse.failed_view(base_job, base_log, base=True, **UNKNOWN)
+        if comparator == "signature":
+            mine, theirs = excuse.signature(head_view), excuse.signature(base_view)
+            return {f"test {t}" for t in mine[1] - theirs[1]} | {f"error {e}" for e in mine[2] - theirs[2]}
+        if comparator == "step_errors":
+            return {f"{step}: {error}" for step, error in excuse.step_errors(head_view) - excuse.step_errors(base_view)}
+        if comparator == "crash_signals":
+            return {f"signal {s}" for s in excuse.crash_signals(head_view) - excuse.crash_signals(base_view)}
+        if comparator == "ratchet_unmatched":
+            if not excuse.ratchet_red(head_view)[0]:
+                return set()
+            return set(excuse.ratchet_unmatched(head_view, base_view))
+        if comparator == "compare_window":
+            window = [({"id": 20}, base_view, excuse.signature(base_view), excuse.step_errors(base_view))]
+            try:
+                excuse.compare_window(REPO, "main", head_job["name"], excuse.signature(head_view), head_view, window,
+                                      False, head_pairs=excuse.step_errors(head_view))
+            except excuse.Refused as why:
+                return {str(why).split(": ", 1)[1]}
+            return set()
+        if comparator == "next_batch.expand_job":
+            sys.path.insert(0, str(ROOT / "scripts/ci"))
+            import next_batch
+            controller = next_batch.Controller.__new__(next_batch.Controller)
+            keys = []
+            for job, text in ((head_job, head_log), (base_job, base_log)):
+                controller.job_log = lambda job_id, text=text: text
+                keys.append(controller.expand_job(job["name"], job["id"], job))
+            return keys[0] - keys[1]
+        raise AssertionError(comparator)
+
+    def test_swapping_head_and_base_mirrors_every_comparator(self):
+        # Head and base are read alike: what one side's passing step prints is no failure of a head and no evidence
+        # of a base, so a comparator finds on A over B exactly what is A's own, and on B over A what is B's, and nothing
+        # on a log over itself.
+        pairs = {
+            "the Codex repro": (HEAD_FAKE_IN_PASSING, BASE_FAKE_FAILS),
+            "crash signals": (((CRASH_11,), (CRASH_6,)), (("ok",), (CRASH_11,))),
+            "panic ratchet": ((ratchet(9), ratchet(5)), (("ok",), ratchet(9))),
+        }
+        # (what A over B finds, what B over A finds): a line each way that is the head's failed step's own.
+        want = {
+            "the Codex repro": {"signature": ("error " + excuse.normalise_error(NEW_RED), "test fake()"),
+                                "step_errors": ("Check: " + excuse.normalise_error(NEW_RED), None),
+                                "compare_window": ("New.swift", "fake()"),
+                                "next_batch.expand_job": ("error " + excuse.normalise_error(NEW_RED), "test fake()")},
+            "crash signals": {"crash_signals": ("signal 6", "signal 11")},
+            "panic ratchet": {"ratchet_unmatched": (None, "clippy::unwrap_used 9 > baseline 3")},
+        }
+        self.assertEqual(set().union(*want.values()), set(COMPARATORS))
+        for label, (a, b) in pairs.items():
+            for comparator in want[label]:
+                with self.subTest(comparator=comparator, pair=label):
+                    self.assertEqual(self.verdicts(comparator, a, a), set())
+                    self.assertEqual(self.verdicts(comparator, b, b), set())
+                    for (head, base), expected in zip(((a, b), (b, a)), want[label][comparator]):
+                        found = self.verdicts(comparator, head, base)
+                        if expected is None:
+                            self.assertEqual(found, set())
+                        else:
+                            self.assertTrue(any(expected in said for said in found), (expected, found))
+                        # Nothing only a passing step printed is ever found: it is neither side's.
+                        passing_only = [text for text in head[0] if text not in head[1] and text != "ok"]
+                        self.assertFalse([said for said in found for text in passing_only if text in said])
 
 if __name__ == "__main__":
     unittest.main()

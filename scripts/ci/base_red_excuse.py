@@ -77,6 +77,7 @@ import urllib.parse
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
@@ -1092,12 +1093,6 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     return found
 
 
-def placed(job: dict, log: str, *, step_names) -> bool:
-    """Whether step_owners tells every line of LOG to the step of JOB that printed it (an empty log has nothing to
-    place)."""
-    return not log.strip() or all(status != AMBIGUOUS for _, _, status in step_owners(job, log, step_names=step_names))
-
-
 def failed_steps_log(job: dict, log: str, *, step_names) -> str:
     """LOG without the lines of JOB's passing steps: its FAILED, ERRORED and AMBIGUOUS lines (step_owners). A job
     runs many steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative
@@ -1106,6 +1101,64 @@ def failed_steps_log(job: dict, log: str, *, step_names) -> str:
     and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
     is kept: what is shown of a red never hides its evidence."""
     return "\n".join(line for line, _, status in step_owners(job, log, step_names=step_names) if status != PASSED)
+
+
+class FailedView:
+    """failed_view's answer for a placed log: the sections of JOB's failed steps, in log order, as (the index of the
+    step in STEPS, its status, its raw lines), and nothing a passing step printed. A head's view (BASE false) keeps
+    its FAILED and ERRORED sections, everything that may be its red; a base's keeps its FAILED ones alone, everything
+    that may be base evidence (an ERRORED section is a continue-on-error step's: shown, never evidence). TEXT is the
+    one way any comparator reads a log's lines."""
+    __slots__ = ("job", "base", "steps", "sections")
+
+    def __init__(self, job: dict, base: bool, steps: list[dict], sections: list[tuple[int, str, list[str]]]):
+        self.job, self.base, self.steps, self.sections = job, base, steps, sections
+
+    def text(self) -> str:
+        return "\n".join(line for _, _, lines in self.sections for line in lines)
+
+    def lines(self) -> list[tuple[str, int]]:
+        """(raw line, the index of its step in STEPS) for each line of the view."""
+        return [(line, k) for k, _, lines in self.sections for line in lines]
+
+    def __repr__(self) -> str:
+        return f"FailedView({'base' if self.base else 'head'}, {[(k, status) for k, status, _ in self.sections]})"
+
+
+def failed_view(job: dict, log: str, *, step_names, base: bool = False) -> "FailedView | Unplaced":
+    """The one reader of a job log for every comparator, head and base alike (signature, step_errors, compare_window,
+    crash_signals, the panic ratchet, the package, guard and quarantine rules, next_batch's expand_job): LOG's
+    sections step_owners places that are not PASSED (FailedView), or UNPLACED when any line of it is AMBIGUOUS. No
+    comparator reads a raw log or calls step_owners itself (tests/test_base_red_excuse.py's FailedViewIsTheOnlyReader
+    scans for both): #40542's seventh Codex BLOCK, F1, at 35f63387, was signature() reading a head's failing tests
+    from its whole log while a base's came from its failed sections alone, so a passing negative-case step's
+    `✘ Test fake()` matched the base's real fake() failure and compare_window excused an unrelated new error in the
+    step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'."""
+    if not log.strip():
+        return FailedView(job, base, [], [])
+    owned = step_owners(job, log, step_names=step_names)
+    if any(status == AMBIGUOUS for _, _, status in owned):
+        return UNPLACED
+    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in steps):
+        steps.sort(key=lambda step: step["number"])
+    keep = (FAILED,) if base else (FAILED, ERRORED)
+    sections: list[tuple[int, str, list[str]]] = []
+    for line, k, status in owned:
+        if status not in keep:
+            continue
+        if not sections or sections[-1][0] != k:
+            sections.append((k, status, []))
+        sections[-1][2].append(line)
+    return FailedView(job, base, steps, sections)
+
+
+def view_text(view: FailedView) -> str:
+    """VIEW's lines; a TypeError for anything that is not a FailedView (a raw log, UNPLACED), so no comparator can
+    be handed one."""
+    if not isinstance(view, FailedView):
+        raise TypeError(f"a comparator reads a FailedView (failed_view), not {type(view).__name__}")
+    return view.text()
 
 
 # The runner's own steps around a job's workflow steps in the jobs API's steps[]: "Set up job" first, then a job-started
@@ -1242,42 +1295,34 @@ UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a 
                 "header that is not its step's own), so no line can be told to the step that printed it")
 
 
-def signature(job: dict, log: str, base: bool = False, *,
-              step_names) -> tuple[set[str], set[str], set[str]] | Unplaced:
-    """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
-    runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
-    excused because the base's log echoed the same `echo "::error::..."` lines of its step's script). Error lines come
-    from the failed steps' own lines (step_owners): a head's lines that are not PASSED, so a line whose step cannot be
-    told stays evidence against it, and with BASE a base's FAILED lines alone (its failing tests too), so a line a
-    passing step may have printed never matches a head failure (cmux#40542 F1: a composite's extra STEP_START line put
-    a passing step's `Sources/New.swift` diagnostic in the base's errors, and judge() excused the head's new failure;
-    its fourth Codex BLOCK: a passing step's echoed exit line, or a failing "Complete job", made a passing step's
-    lines base evidence). A log step_owners does not place has no signature: UNPLACED, on either side. STEP_NAMES:
-    step_owners'."""
-    if not placed(job, log, step_names=step_names):
+def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[str]] | Unplaced:
+    """(failed step names, failing test names, error lines with numbers masked) of VIEW (failed_view): its job's failed
+    steps by the jobs API, and the tests and errors its sections print, a head's from its FAILED and ERRORED
+    sections, a base's from its FAILED ones, so a line a passing step printed is never a head's red or a base's
+    evidence (cmux#40542 F1: a composite's extra STEP_START line put a passing step's `Sources/New.swift` diagnostic
+    in the base's errors, and judge() excused the head's new failure; its seventh Codex BLOCK: a passing step's
+    `✘ Test fake()` was a head's failing test, matched the base's real one, and hid a new error). The runner's echo of
+    each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was excused because the
+    base's log echoed the same `echo "::error::..."` lines of its step's script). An UNPLACED view has no signature:
+    UNPLACED, on either side."""
+    if view is UNPLACED:
         return UNPLACED
-    steps = {step["name"] for step in job.get("steps") or []  # step-name: classify
+    text = view_text(view)
+    steps = {step["name"] for step in view.job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    owned = step_owners(job, log, step_names=step_names)
-    tests = test_reds.failed_names(test_reds.lines_of(
-        "\n".join(line for line, _, status in owned if status == FAILED) if base else log))
-    return steps, tests, {error for _, error in step_errors(job, log, base, owned, step_names=step_names)}
+    tests = test_reds.failed_names(test_reds.lines_of(text))
+    return steps, tests, {error for _, error in step_errors(view)}
 
 
-def step_errors(job: dict, log: str, base: bool = False, owned: list | None = None, *,
-                step_names) -> set[tuple[str, str]]:
-    """(the name of the step that printed it, the error line with numbers masked) for each error line signature()
-    reads from LOG: with BASE, from FAILED sections alone. judge() excuses a head error only when a base printed it
-    from a failed step of the same name."""
-    owned = step_owners(job, log, step_names=step_names) if owned is None else owned
-    ran = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
-    if all(isinstance(step.get("number"), int) for step in ran):
-        ran.sort(key=lambda step: step["number"])
-    keep = (FAILED,) if base else (FAILED, ERRORED, AMBIGUOUS)
-    scope = [(line, k) for line, k, status in owned if status in keep]
-    text = "\n".join(line for line, _ in scope)
+def step_errors(view: FailedView) -> set[tuple[str, str]]:
+    """(the name of the step that printed it, the error line with numbers masked) for each error line of VIEW
+    (failed_view) signature() reads. judge() excuses a head error only when a base printed it from a failed step of
+    the same name."""
+    text = view_text(view)
+    scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
-    tests = test_reds.failed_names(test_reds.lines_of(log))
+    tests = test_reds.failed_names(test_reds.lines_of(text))
+    job = view.job
     found: set[tuple[str, str]] = set()
     for n, line in enumerate(lines_of(text)):
         if n in skip or line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line):
@@ -1290,7 +1335,7 @@ def step_errors(job: dict, log: str, base: bool = False, owned: list | None = No
                 and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
                 and not SUCCESS_DIAGNOSTIC.search(line)):
             k = scope[n][1]
-            step = str(ran[k].get("name") or "") if k is not None else ""  # step-name: classify
+            step = str(view.steps[k].get("name") or "")  # step-name: classify
             found.add((step, normalise_error(line)))
     return found
 
@@ -1605,13 +1650,15 @@ RATCHET_ROW = re.compile(r"^(\S+): clippy::(\w+) (\d+) > (baseline \d+|new crate
 RATCHET_HIT = re.compile(r"^[^\s:]+\.rs:\d+:\d+$")
 
 
-def ratchet_red(log: str) -> tuple[dict[tuple[str, str, str], int], set[str]]:
-    """({(crate, lint, where): count} of the ratchet's RED rows, its other RED lines), hit locations left out."""
+def ratchet_red(view: FailedView) -> tuple[dict[tuple[str, str, str], int], set[str]]:
+    """({(crate, lint, where): count} of the ratchet's RED rows in VIEW (failed_view), its other RED lines), hit
+    locations left out."""
     rows: dict[tuple[str, str, str], int] = {}
     other: set[str] = set()
-    skip = test_reds.echoed(test_reds.log_lines(log))
+    said = view_text(view)
+    skip = test_reds.echoed(test_reds.log_lines(said))
     inside = False
-    for n, text in enumerate(lines_of(log)):
+    for n, text in enumerate(lines_of(said)):
         if n in skip:
             continue
         if text == RATCHET_RED:
@@ -1628,13 +1675,14 @@ def ratchet_red(log: str) -> tuple[dict[tuple[str, str, str], int], set[str]]:
     return rows, other
 
 
-def ratchet_unmatched(head_log: str, base_log: str) -> list[str]:
-    """The head's panic ratchet failures its base run does not have (empty when every one is covered)."""
-    head_rows, head_other = ratchet_red(head_log)
+def ratchet_unmatched(head: FailedView, base: FailedView) -> list[str]:
+    """The head's panic ratchet failures its base run does not have (empty when every one is covered), each side read
+    from its failed_view."""
+    head_rows, head_other = ratchet_red(head)
     if not head_rows:
         raise Refused("the panic ratchet is red with no per-lint row to compare with the base "
                       "(a clippy run that did not finish, say)")
-    base_rows, base_other = ratchet_red(base_log)
+    base_rows, base_other = ratchet_red(base)
     missing = [f"{crate}: clippy::{lint} {count} > {where}" + (
                    f" (the base has {base_rows[(crate, lint, where)]})" if (crate, lint, where) in base_rows else "")
                for (crate, lint, where), count in sorted(head_rows.items())
@@ -1642,9 +1690,9 @@ def ratchet_unmatched(head_log: str, base_log: str) -> list[str]:
     return missing + sorted(head_other - base_other)
 
 
-def crash_signals(log: str) -> set[str]:
-    """The signals a test helper died on, from SwiftPM's or the hang sampler's lines."""
-    return {first or second for first, second in CRASH.findall(log)}
+def crash_signals(view: FailedView) -> set[str]:
+    """The signals a test helper died on, from SwiftPM's or the hang sampler's lines in VIEW (failed_view)."""
+    return {first or second for first, second in CRASH.findall(view_text(view))}
 
 
 def refused_at_setup(job: dict, log: str | None = None) -> bool:
@@ -1653,6 +1701,23 @@ def refused_at_setup(job: dict, log: str | None = None) -> bool:
                         and step.get("conclusion") == "failure" for step in steps):
         return True
     return log is not None and HOOK_REFUSAL in log
+
+
+def guard_routes_view(repo: str, guard: dict, github) -> "FailedView | Unplaced":
+    """The failed_view of routed rollup job GUARD's log, after the gates its raw log is read for, each of which only
+    refuses: a runner refusal at setup, a no-verdict summary (scripts/ci/needs_verdict.py's rule: no verdict is
+    re-run, never compared), a crash or a run cut short."""
+    name = guard["name"]
+    text = github.log(repo, guard)
+    if refused_at_setup(guard, text):
+        raise Refused(f"'{name}' was refused at setup by its runner")
+    if (said := summary_no_verdict(text)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
+    report = test_reds.read(text)
+    if report.crashes or report.truncated:
+        raise Refused(f"'{name}': routing process crashed or ended early")
+    return failed_view(guard, text, step_names=job_step_names(repo, guard, github, {}))
 
 
 def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict], github) -> None:
@@ -1672,31 +1737,22 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': job is not for the exact SHA {sha}")
     if guard.get("status") != "completed" or guard.get("conclusion") != "failure":
         raise Refused(f"'{name}': no completed failure verdict for its routes")
-    text = github.log(repo, guard)
-    if refused_at_setup(guard, text):
-        raise Refused(f"'{name}' was refused at setup by its runner")
-    found = signature(guard, text, step_names=job_step_names(repo, guard, github, {}))
+    view = guard_routes_view(repo, guard, github)
+    found = signature(view)
     if found is UNPLACED:
         raise Refused(f"'{name}': {UNPLACED_WHY}; its routes are not judged")
     steps, _, errors = found
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
-    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
-    # red line (SUMMARY_RED) is no error here (signature drops it): the route reports below are the evidence.
-    if (said := summary_no_verdict(text)) is not None:
-        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
-                      "neither a pass nor this PR's own red; re-run it")
     if errors:
         raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
-    report = test_reds.read(text)
-    if report.crashes or report.truncated:
-        raise Refused(f"'{name}': routing process crashed or ended early")
     routes = []
-    lines = lines_of(text)
     inputs = {route["route"] for route in routed.values() if route["route"]}
     report = rf"({ROUTE_REPORT}|{'|'.join(re.escape(key) for key in sorted(set(routed) | inputs))}): (.+)"
-    # The runner's preamble (token permissions, and a called workflow's echoed `Inputs`, whose `linux_guard_tests: true`
-    # reads like a route report) ends at its `Complete job name:` line; no step prints before it.
+    # Only the failed step's own lines (failed_view): no passing step's. The runner's preamble (token permissions, and
+    # a called workflow's echoed `Inputs`, whose `linux_guard_tests: true` reads like a route report) ends at its
+    # `Complete job name:` line, should a failed "Set up job" section hold it; no step prints before it.
+    lines = lines_of(view_text(view))
     started = next((at for at, line in enumerate(lines) if line.startswith("Complete job name: ")), None)
     for line in lines if started is None else lines[started + 1:]:
         match = re.fullmatch(report, line)
@@ -2006,7 +2062,7 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
-                   log: str, github) -> tuple[str | None, str | None]:
+                   view: FailedView, github) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
     PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
     shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
@@ -2048,7 +2104,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
               f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
               "by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
-    if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+    if (tests or crash_signals(view) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
         return None, f"set aside '{FFI_PIN_CHECK}' (\"{FFI_PIN_ERROR}\"): {reason}"
     return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and {reason}", None
@@ -2791,10 +2847,11 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
     return reads
 
 
-def package_tests(package: dict, job: dict, head_log: str, *, step_names) -> list[str]:
-    """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps and names a failing
-    test of its own (one step's test failure never covers another's compile error); raises Refused."""
-    found = signature(job, head_log, step_names=step_names)
+def package_tests(package: dict, view: "FailedView | Unplaced") -> list[str]:
+    """The failing tests of a PACKAGE_JOBS job (VIEW: its failed_view), whose every failed step is one of its test
+    steps and names a failing test of its own (one step's test failure never covers another's compile error); raises
+    Refused."""
+    found = signature(view)
     if found is UNPLACED:
         raise Refused(UNPLACED_WHY)
     steps, _, _ = found
@@ -2802,14 +2859,8 @@ def package_tests(package: dict, job: dict, head_log: str, *, step_names) -> lis
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    owned = step_lines(job, head_log, step_names=step_names)
-    if owned is None:
-        raise Refused("its log does not map one to one onto its steps (step_owners), so no line can be told to the "
-                      "step that printed it")
     tests: set[str] = set()
-    for step, lines, red in owned:
-        if not red or step is owned[-1][0]:
-            continue  # "Complete job" prints no test of its own
+    for step, lines in section_lines(view):
         found = test_reds.read("\n".join(lines)).failed
         if not found:
             said = step.get("name")  # step-name: display
@@ -2833,10 +2884,12 @@ def guard_test_file(name: str, output: list[str]) -> str | None:
     return frames.pop() if len(frames) == 1 else None
 
 
-def guard_tests(log: str) -> dict[str, str]:
-    """{failing test: its tests/*.py file} for a job whose every failed step is a guard test's; raises Refused naming
-    the first step or test that is not."""
-    lines = test_reds.log_lines(log)
+def guard_tests(view: "FailedView | Unplaced") -> dict[str, str]:
+    """{failing test: its tests/*.py file} for a job (VIEW: its failed_view) whose every failed step is a guard
+    test's; raises Refused naming the first step or test that is not."""
+    if view is UNPLACED:
+        raise Refused(UNPLACED_WHY)
+    lines = test_reds.log_lines(view_text(view))
     skip = test_reds.echoed(lines)
     starts = [n for n in sorted(skip) if test_reds.ECHO_START.match(lines[n])]
     found: dict[str, str] = {}
@@ -2927,16 +2980,15 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
     return f"#{number}, SHIP at {sha[:12]}, red at the merge-base {merge_base[:12]}"
 
 
-def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
-                  job: dict | None = None, *, step_names) -> str:
+def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView | Unplaced", base_run: dict,
+                  github) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
     package = PACKAGE_JOBS.get(name)
     if not guard_job(name) and package is None:
         raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS) or package job (PACKAGE_JOBS); its tests "
                       "may read product code")
-    tests = guard_tests(head_log) if package is None else dict.fromkeys(package_tests(package, job or {}, head_log,
-                                                                                          step_names=step_names))
+    tests = guard_tests(head) if package is None else dict.fromkeys(package_tests(package, head))
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):
         raise Refused(f"{base} run {base_run['id']} names no commit it tested")
@@ -2992,7 +3044,8 @@ GUARD_RUN_DONE = re.compile(r"^cmux guards: \d+ steps passed, \d+ failed\b")
 
 
 def guard_red_steps(log: str) -> dict[str, set[str]] | None:
-    """{kind: red steps} from a guard group job's log, or None when it printed no closing summary (cut short)."""
+    """{kind: red steps} from the text of a guard group job's GUARD_GROUP_STEP (guard_group_report), or None when it
+    printed no closing summary (cut short)."""
     lines = test_reds.log_lines(log)
     skip = test_reds.echoed(lines)
     found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
@@ -3011,8 +3064,17 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     return found if whole else None
 
 
-def guard_group(repo: str, base: str, name: str, job: dict, head_log: str, base_run: dict, base_job: dict,
-                github) -> str:
+def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]] | None:
+    """guard_red_steps of a base guard group job's whole log. The one base read that is not a failed_view, on
+    purpose: the job reports each red step of its base on its own, `guard red step (base): STEP`, whatever its
+    conclusion (a push judged against the previous tip lists a red that persists as `base` and stays green, so its one
+    step PASSED), and those lines count only after run_ci_guards.py's closing line, which a passing step that merely
+    quotes them never prints after. The head's side is its failed_view (guard_group)."""
+    return guard_red_steps(github.log(repo, base_job))
+
+
+def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict,
+                base_job: dict, github) -> str:
     """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
     (the rule above); raises Refused naming the first step that is not."""
     failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
@@ -3020,13 +3082,15 @@ def guard_group(repo: str, base: str, name: str, job: dict, head_log: str, base_
     if failed != {GUARD_GROUP_STEP}:
         raise Refused(f"'{name}': failed steps {sorted(failed)}, not only '{GUARD_GROUP_STEP}'; nothing to compare "
                       "step by step")
-    head = guard_red_steps(head_log)
+    if head is UNPLACED:
+        raise Refused(f"'{name}': {UNPLACED_WHY}; its guard steps are not compared")
+    head = guard_red_steps(view_text(head))
     if head is None:
         raise Refused(f"'{name}': its guard comparison printed no summary (a cut-short run is never a base red)")
     charged = head["new"] | head["tip"]
     if not charged:
         raise Refused(f"'{name}': red, but names no red step of its own; nothing to compare with the base")
-    found = guard_red_steps(github.log(repo, base_job))
+    found = guard_group_report(repo, base_job, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     if found is None:
         raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
@@ -3043,39 +3107,42 @@ class Final(Refused):
     """A refusal no older base verdict can lift: it is judged against the newest verdict alone."""
 
 
-def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, window: list,
+def compare_window(repo: str, base: str, name: str, head: tuple, head_view: FailedView, window: list,
                    chromium_without_diagnostics: bool, *, flake_state: dict | None = None,
                    workflow: str = "", head_pairs: set | None = None) -> str:
-    """The audit line for red job NAME (HEAD: its signature) when each of its failures is on some red base verdict of
-    WINDOW (newest first: (run, log, signature[, step_errors])); raises Refused naming the first that is on none, Final
-    when the newest verdict's log alone (the Chromium check, a process signal, the panic ratchet) refuses it. With
-    HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a failed step of the same name."""
-    base_run, base_log, *_ = window[0]
+    """The audit line for red job NAME (HEAD: the signature of HEAD_VIEW, its failed_view) when each of its failures is
+    on some red base verdict of WINDOW (newest first: (run, its failed_view, signature[, step_errors])); raises Refused
+    naming the first that is on none, Final when the newest verdict alone (the Chromium check, a process signal, the
+    panic ratchet) refuses it. With HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a
+    failed step of the same name. Every line it reads, head and base alike, is a failed_view's."""
+    base_run, base_view, *_ = window[0]
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
-    head_crash = crash_signals(head_log)
+    head_crash = crash_signals(head_view)
     base_steps, base_tests, base_errors, on = set(), set(), set(), {}
     for run, _, (steps, tests, errors), *_ in window:
         base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
         for test in tests:
             on.setdefault(test, run["id"])
-    if chromium_without_diagnostics and (window[0][2][1] or window[0][2][2] or crash_signals(base_log)):
+    if chromium_without_diagnostics and (window[0][2][1] or window[0][2][2] or crash_signals(base_view)):
         raise Final(f"'{name}': no failing test or error line to match; nothing to compare with the base")
-    known = test_reds.flaky_failures(head_log, name, workflow, flake_state) if base == "feat-cmux-next" else {}
+    head_text = view_text(head_view)
+    known = test_reds.flaky_failures(head_text, name, workflow, flake_state) if base == "feat-cmux-next" else {}
     base_tests |= known.keys()
-    verdict = test_reds.classify_any(head_log, [(f"{base} run {run['id']}", text) for run, text, *_ in window], name,
+    verdict = test_reds.classify_any(head_text, [(f"{base} run {run['id']}", view_text(view))
+                                                 for run, view, *_ in window], name,
                                    flake_state=flake_state if base == "feat-cmux-next" else None, workflow=workflow)
     if verdict is not None and verdict.own:
         raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
     # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
-    if missing := sorted(head_crash - crash_signals(base_log)):
+    if missing := sorted(head_crash - crash_signals(base_view)):
         raise Final(f"'{name}': the process died on signal {', '.join(missing)}, "
                     f"and {base} run {base_run['id']} did not")
     # The ratchet's error line names the run's packages, not its red: its rows are compared instead (RATCHET_SCOPE).
     ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
     if ratchet:
         try:
-            unmatched = ratchet_unmatched(head_log, base_log)
+            unmatched = ratchet_unmatched(head_view, base_view)
         except Refused as error:
             raise Final(f"'{name}': {error}") from None
         if unmatched:
@@ -3097,7 +3164,7 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
             raise Refused(f"'{name}': errors not printed by the same failed step on {base} {runs}: "
                           f"{'; '.join(missing)[:600]}")
     rows = [f"{crate}: clippy::{lint} {count} > {where}"
-            for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
+            for (crate, lint, where), count in sorted(ratchet_red(head_view)[0].items())] if ratchet else []
     what = ("; ".join(test if on.get(test) == base_run["id"] else
                       f"{test} ({known[test]})" if test in known else f"{test} (red on run {on[test]})"
                       for test in sorted(head_tests))
@@ -3141,55 +3208,46 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str, *, step_names) -> list[tuple[dict, list[str], bool]] | None:
-    """[(step, the lines of HEAD_LOG it printed, whether its section is FAILED)] for each step of JOB that ran, by
-    number, as step_owners places them; None when it places nothing (the log does not map one to one onto the steps).
-    A step whose section has a live `##[error]` annotation (ERRORED) counts as failed whatever the jobs API says.
-    "Complete job" shares the last section with the step before it. Each line is its stamp and text (`gh run view --log`'s job
-    and step columns dropped)."""
-    if not placed(job, head_log, step_names=step_names):
-        return None
-    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
-    if all(isinstance(step.get("number"), int) for step in steps):
-        steps.sort(key=lambda step: step["number"])
-    found: list[list[str]] = [[] for _ in steps]
-    red = [False] * len(steps)
-    for line, index, status in step_owners(job, head_log, step_names=step_names):
-        parts = line.split("\t", 2)
-        found[index].append(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line)
-        red[index] = red[index] or status in (FAILED, ERRORED)
-    return [(step, found[i], red[i] or step_failed(step)) for i, step in enumerate(steps)]
+def section_lines(view: FailedView) -> list[tuple[dict, list[str]]]:
+    """[(step, the lines of VIEW's section of it)] for each section of VIEW (failed_view), in log order: each step
+    that failed (ERRORED included on a head's), never a passing one, never "Complete job" (which prints none of its
+    own). Each line is its stamp and text (`gh run view --log`'s job and step columns dropped)."""
+    view_text(view)
+    found = []
+    for k, _, lines in view.sections:
+        own = []
+        for line in lines:
+            parts = line.split("\t", 2)
+            own.append(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line)
+        found.append((view.steps[k], own))
+    return found
 
 
 def step_failed(step: dict) -> bool:
     return step.get("conclusion") not in (None, "success", "skipped")
 
 
-def quarantined_only(job: dict, head_log: str, known: dict, *, step_names) -> bool:
-    """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
-    found = test_reds.read(head_log)
-    sig = signature(job, head_log, step_names=step_names)
+def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
+    """A whole test-step red (VIEW: its failed_view) explained entirely by matching quarantines, with no additional
+    failing step/error."""
+    sig = signature(view)
     if sig is UNPLACED:
         return False  # no failed step's lines are proven, so no quarantine explains them
+    text = view_text(view)
+    found = test_reds.read(text)
     steps, _, errors = sig
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
             or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
         return False
     # A generic failed test-named step must not borrow a quarantined test from another step: each failed section's own
-    # lines (step_lines) name its quarantined tests, and a log that does not map one to one onto its steps explains
-    # none.
-    owned = step_lines(job, head_log, step_names=step_names)
-    if owned is None:
-        return False
-    for step, lines, red in owned:
-        if not red or step is owned[-1][0]:
-            continue
+    # lines name its quarantined tests.
+    for _, lines in section_lines(view):
         result = test_reds.read("\n".join(lines))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
             return False
     normalized = normalise_error
     diagnostics = set()
-    for observed in test_reds.observations(head_log):
+    for observed in test_reds.observations(text):
         if observed["outcome"] != "fail":
             continue
         for line in observed["signature"].splitlines():
@@ -3889,6 +3947,84 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
             + "; the files the cancel kept from running are not judged")
 
 
+class Head(NamedTuple):
+    """read_head's answer: an audit line that settles the job without a base comparison (AUDIT), or its failed_view
+    (VIEW, UNPLACED for a log not placed), whether it is a Chromium currency red with no diagnostics, and PER_TEST, the
+    gallery and webview per-test verdicts (each None for any other job), which take the run's record."""
+    audit: str | None
+    view: "FailedView | Unplaced | None" = None
+    chromium_without_diagnostics: bool = False
+    per_test: Callable[[dict], str | None] = lambda workflow_info: None
+
+
+def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
+              base_runs: dict) -> Head:
+    """The one reader of red head JOB's raw log for judge(), which reads only its failed_view. Raw, it is read only
+    by gates that refuse (a runner refusal at setup, a generated files, summary or no-verdict line, a crash or a run
+    cut short), by the verdicts that are not a comparison of its lines with a base's (a no-verdict compile another
+    pass compiled, the fleet's compile receipts at the merge-base), and by the gallery and webview per-test verdicts,
+    which read their runners' own per-state and per-file blocks (test_reds.gallery_classify, classify_web_window),
+    not its steps' sections. Raises Refused; Infra for a lost runner."""
+    head_log = lost_runner_log(repo, name, job, github)
+    # Which steps the workflow names (step_owners), read before any reader places this log's lines.
+    names = job_step_names(repo, job, github, run_reads)
+    if refused_at_setup(job, head_log):
+        raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
+        raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
+                      "re-run its prerequisite and this dependent job together")
+    if (said := summary_no_verdict(head_log)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
+    if (said := summary_red(head_log)) is not None:
+        raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
+                      "summary shares, never a red the base can share; compare its failed children, each as itself")
+    if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
+        proof = compile_pass_at(repo, sha, github)
+        if proof is None:
+            raise Refused(f"'{name}' gave no compile verdict ({said[:300]}) and nothing else compiled {sha}: "
+                          "a no-verdict compile is never a base red; re-run it once the fleet answers")
+        return Head(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
+    if name == FLEET_COMPILE_JOB and any(FLEET_COMPILE_FAIL.match(text) for text in lines_of(head_log)):
+        # A pull-request-only job: the fleet's receipts at the merge-base are its base verdict. When they do not
+        # excuse it, the job is compared with base runs, as before.
+        try:
+            return Head(inherited_compile_red(repo, base, sha, name, github))
+        except Refused:
+            pass
+    view = failed_view(job, head_log, step_names=names)
+    early = signature(view)
+    # An unplaced head has no signature: no rule that reads one (the Chromium currency step, the app FFI pin) applies
+    # to it, and the base comparison refuses it; per-test web and gallery verdicts read their own evidence.
+    chromium_without_diagnostics = (early is not UNPLACED and name == CHROMIUM_CURRENCY_JOB
+                                    and CHROMIUM_CURRENCY_STEP in early[0]
+                                    and not (early[1] or early[2] or crash_signals(view)))
+    # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
+    # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
+    own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
+    if own.crashes or (own.truncated and not chromium_without_diagnostics):
+        raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
+                      + " (a crash or a cut-short run is never a base red)")
+
+    def per_test(workflow_info: dict) -> str | None:
+        return (gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)
+                or web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs))
+    return Head(None, view, chromium_without_diagnostics, per_test)
+
+
+def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
+    """(RUN, the failed_view of red base job FOUND's log, its signature, its step_errors), the window entry
+    compare_window reads: the one reader of a compared base job's raw log. A base log failed_view does not place is
+    never base evidence: Refused."""
+    text = github.log(repo, found)
+    view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
+                       base=True)
+    if view is UNPLACED:
+        raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
+                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+    return run, view, signature(view), step_errors(view)
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -3928,52 +4064,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        head_log = lost_runner_log(repo, name, job, github)
-        # Which steps the workflow names (step_owners), read before any reader places this log's lines.
-        names = job_step_names(repo, job, github, run_reads)
-        if refused_at_setup(job, head_log):
-            raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
-            raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
-                          "re-run its prerequisite and this dependent job together")
-        if (said := summary_no_verdict(head_log)) is not None:
-            raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
-                          "neither a pass nor this PR's own red; re-run it")
-        if (said := summary_red(head_log)) is not None:
-            raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
-                          "summary shares, never a red the base can share; compare its failed children, each as itself")
-        if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
-            proof = compile_pass_at(repo, sha, github)
-            if proof is None:
-                raise Refused(f"'{name}' gave no compile verdict ({said[:300]}) and nothing else compiled {sha}: "
-                              "a no-verdict compile is never a base red; re-run it once the fleet answers")
-            audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
+        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)
+        if got.audit is not None:
+            audit.append(got.audit)
             continue
-        if name == FLEET_COMPILE_JOB and any(FLEET_COMPILE_FAIL.match(text) for text in lines_of(head_log)):
-            # A pull-request-only job: the fleet's receipts at the merge-base are its base verdict. When they do not
-            # excuse it, the job is compared with base runs below, as before.
-            try:
-                audit.append(inherited_compile_red(repo, base, sha, name, github))
-                continue
-            except Refused:
-                pass
-        early = signature(job, head_log, step_names=names)
-        # An unplaced head has no signature: no rule below that reads one (the Chromium currency step, the app FFI
-        # pin) applies to it, and the base comparison refuses it (placed, below); per-test web and gallery verdicts
-        # read their own evidence.
-        chromium_without_diagnostics = (early is not UNPLACED and name == CHROMIUM_CURRENCY_JOB
-                                        and CHROMIUM_CURRENCY_STEP in early[0]
-                                        and not (early[1] or early[2] or crash_signals(head_log)))
-        # A webview replay's log holds the merge parent's run too: only its head part can crash or be cut short as
-        # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
-        own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
-        if own.crashes or (own.truncated and not chromium_without_diagnostics):
-            raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
-                          + " (a crash or a cut-short run is never a base red)")
+        view, chromium_without_diagnostics = got.view, got.chromium_without_diagnostics
+        early = signature(view)
         pinned, aside = (None, None)
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log, github)
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, view, github)
         if pinned is not None:
             audit.append(pinned)
             continue
@@ -3987,17 +4087,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "with the base")
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
-        known = test_reds.flaky_failures(head_log, name, workflow_info.get("name", ""), flake_state)
-        if base == "feat-cmux-next" and quarantined_only(job, head_log, known, step_names=names):
+        known = ({} if view is UNPLACED
+                 else test_reds.flaky_failures(view_text(view), name, workflow_info.get("name", ""), flake_state))
+        if base == "feat-cmux-next" and quarantined_only(view, known):
             audit.append(f"excused '{name}': quarantined base flakes: "
                          + "; ".join(f"{test} ({why})" for test, why in sorted(known.items())))
             continue
-        if (crashed := gallery_crash_verdict(repo, base, name, job, head_log, workflow_info, github,
-                                             base_runs)) is not None:
-            audit.append(crashed)
-            continue
-        if (web := web_test_verdict(repo, base, name, job, head_log, workflow_info, github, base_runs)) is not None:
-            audit.append(web)
+        if (per_test := got.per_test(workflow_info)) is not None:
+            audit.append(per_test)
             continue
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
@@ -4020,11 +4117,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else ""))
         if name == GUARD_GROUP_JOB:
-            audit.append(guard_group(repo, base, name, job, head_log, base_run, base_job, github))
+            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github))
             continue
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job, step_names=names))
+                audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github))
             except Refused as why:
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
@@ -4035,35 +4132,27 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
-        if not placed(job, head_log, step_names=names):
+        if view is UNPLACED:
             raise Refused(f"'{name}': its log does not map one to one onto its steps (step_owners: a composite action, "
                           "a silent step or a header that is not its step's own), so no line can be told to the step "
                           "that printed it; nothing is compared with the base")
-        head = signature(job, head_log, step_names=names)
-        if head is UNPLACED:  # placed() above: never, and never compared if it were
+        head = signature(view)
+        if head is UNPLACED:  # refused above: never, and never compared if it were
             raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
         if aside is not None:
             head = without_ffi_pin(head)
-        if not head[1] and not head[2] and not crash_signals(head_log) and not chromium_without_diagnostics:
+        if not head[1] and not head[2] and not crash_signals(view) and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
-            text = github.log(repo, found)
-            found_names = job_step_names(repo, found, github, run_reads, path=run.get("path"))
-            if not placed(found, text, step_names=found_names):
-                raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                              "(step_owners), so no base line can be told to a failed step; nothing is compared")
-            said = signature(found, text, base=True, step_names=found_names)
-            if said is UNPLACED:  # placed() above: never, and never base evidence if it were
-                raise Refused(f"'{name}': {base} run {run['id']}: {UNPLACED_WHY}; nothing is compared")
-            return run, text, said, step_errors(found, text, base=True, step_names=found_names)
+            return base_evidence(repo, base, name, run, found, github, run_reads)
         window, newest, read = [red(base_run, base_job)], created(base_run), 1
         while True:
             try:
-                audit.append(compare_window(repo, base, name, head, head_log, window, chromium_without_diagnostics,
+                audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
                                             flake_state=flake_state, workflow=workflow_info.get("name", ""),
-                                            head_pairs=step_errors(job, head_log, step_names=names))
+                                            head_pairs=step_errors(view))
                              + (f"; {aside}" if aside is not None else ""))
                 break
             except Final:
