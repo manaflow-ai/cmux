@@ -63,6 +63,18 @@ const allKeys = (extra: Record<string, string> = {}) =>
 const RED_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 const imageMessages = [{ role: "user", content: [{ type: "text", text: "What color?" }, { type: "image_url", image_url: { url: RED_PNG } }] }]
 
+/** A chat of `count` earlier turns, each a user image and an answer, then a new text message. */
+const historyWithImages = (count: number) => [
+  ...Array.from({ length: count }, (_, i) => [
+    { role: "user", content: [{ type: "text", text: `Picture ${i + 1}` }, { type: "image_url", image_url: { url: RED_PNG } }] },
+    { role: "assistant", content: "Red" }
+  ]).flat(),
+  { role: "user", content: "Which of them was red?" }
+]
+
+/** The image parts of the messages a provider was sent. */
+const imagePartsOf = (messages: unknown) => (JSON.stringify(messages).match(/"type":"image_url"/g) ?? []).length
+
 const call = async (t: string, runEnv: unknown, model: string, messages: unknown = [{ role: "user", content: "hi" }], headers: Record<string, string> = {}) => {
   const ctx = createExecutionContext()
   const res = await worker.fetch!(
@@ -191,6 +203,42 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     const r = await call(t, allKeys(), "openai/gpt-oss-120b", imageMessages)
     expect(r.status).toBe(400)
     expect(JSON.parse(r.text).error.message).toContain("image")
+  })
+
+  // A chat is never locked out by its own history: older images past the model's per-request limit
+  // go as a placeholder the model reads, the answer counts them, and only a new message that alone
+  // carries more than the limit is refused (send-path caps rule).
+  it("serves a chat with 9 images in its history and a new text message", async () => {
+    const { t } = await paidPerson("router-vision-history")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys(), DS, historyWithImages(9))
+    expect(r.status).toBe(200)
+    expect(imagePartsOf(seen[0]!.body.messages)).toBe(9)
+    expect(r.headers.get("x-cmux-images-omitted")).toBeNull()
+  })
+
+  it("sends the newest images up to the limit and a placeholder for each older one", async () => {
+    const { t } = await paidPerson("router-vision-history-cut")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys(), "particle-ai/particle-1", historyWithImages(9))
+    expect(r.status).toBe(200)
+    const sent = seen[0]!.body.messages as Array<{ content: unknown }>
+    expect(imagePartsOf(sent)).toBe(8)
+    // The oldest image is the one left out; the model reads why.
+    expect(JSON.stringify(sent[0]!.content)).toContain("[earlier image not sent: limit 8 per request]")
+    expect(JSON.stringify(sent[0]!.content)).not.toContain("image_url")
+    expect(JSON.stringify(sent[2]!.content)).toContain("image_url")
+    expect(r.headers.get("x-cmux-images-omitted")).toBe("1")
+  })
+
+  it("refuses only a new message that alone carries more images than the limit", async () => {
+    const { t } = await paidPerson("router-vision-new-message")
+    const seen = record(() => ok())
+    const images = Array.from({ length: 9 }, () => ({ type: "image_url", image_url: { url: RED_PNG } }))
+    const r = await call(t, allKeys(), "particle-ai/particle-1", [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...images] }])
+    expect(r.status).toBe(400)
+    expect(JSON.parse(r.text).error.message).toContain("at most 8 images in one message")
+    expect(seen).toEqual([])
   })
 
   // Near the end: a failed Vercel attempt puts Vercel in the spend guard's cooldown for the next tests.
