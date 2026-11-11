@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43015891565",
+  "recorded_at": "2026-11-11T12:03:12Z",
+  "reason": "cmux-tui a5543e3fbd74 changes the image's cmux-tui (pinned 708fba6f3c51)",
+  "dry_run": false,
+  "cmux_tui": "a5543e3fbd744d12476178146b50e5acff23352f",
+  "fixes": [
+    {
+      "sha": "a5543e3fbd744d12476178146b50e5acff23352f",
+      "mergedAt": "2026-11-11T03:40:12-08:00",
+      "subject": "acpmux list: a page is built at its size and becomes its reply line in place"
+    },
+    {
+      "sha": "4ba98f3b3299abc5e830cea81a5f098b7a433d04",
+      "mergedAt": "2026-11-11T03:40:09-08:00",
+      "subject": "acpmux list: red test, a list page is copied into its reply line"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T12:03:12Z",
+    "snapshot_id": "sh-3e4eb7e3b16f486eb81c78d081cbf9ab",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43015891565): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "52c0c3e188aa4c463f016f6c392dadb8edf1b944",
+    "image": "cloud-native-auto-a5543e3f-43015891565-1",
+    "revision": "ci-43015891565-1",
+    "at": "2026-11-11T12:03:12Z"
+  },
+  "rolled_back": false
+}
