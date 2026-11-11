@@ -24,6 +24,7 @@ import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
+import { videoShapeOf } from "./videoShape";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -164,7 +165,10 @@ export type PendingAttachment = {
   /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
   /// above and then they land to where they should be").
   size?: { width: number; height: number };
-  /// An image whose header is still being read (a few bytes, a frame or two): its tile is held, zero
+  /// A video's tile shape (width over height) from its file's header (composer/videoShape.ts): the
+  /// loading tile is the box its chip, its poster and its sent tile keep. Unset once read, the square.
+  videoShape?: number;
+  /// An image or a video whose header is still being read (a few bytes, a frame or two): its tile is held, zero
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
@@ -392,6 +396,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           : chips,
       ),
   );
+  /// Pending video `id`'s header answered `videoShape` (undefined: none in time, the square): its tile shows.
+  const [shaped] = useState(
+    () => (id: string, videoShape: number | undefined) =>
+      setPending((chips) =>
+        chips.some((chip) => chip.id === id && chip.sizing)
+          ? chips.map((chip) =>
+              chip.id === id ? { ...chip, sizing: false, ...(videoShape ? { videoShape } : {}) } : chip,
+            )
+          : chips,
+      ),
+  );
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
@@ -409,13 +424,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && isImageFile(file) ? { sizing: true } : {}),
+      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
-      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
+      if (shown[index]!.sizing && !isMadeFile(file) && isVideoName(file.name))
+        void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
       else if (isMadeFile(file) && isImageFile(file))
         void file.file.then(
@@ -918,8 +936,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
-  /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
-  /// waits for them a few seconds at most (composer/videoAttachments.ts).
+  /// The video chips whose poster and frames the host still reads, for a chat on this Mac
+  /// (composer/videoAttachments.ts). No send waits for them: a video goes as its path.
   const videoReading = useVideoInfo(
     attachments,
     setAttachments,
