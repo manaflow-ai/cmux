@@ -1,8 +1,9 @@
-// The shimmer of a running row or Thinking line takes the shared clock's phase on the frame it mounts
-// (ui/spinnerClock.ts `setLoopPhase`) without asking an element for its animations: `getAnimations`
-// flushes style, and doing it on every running row's mount was about 8% of a streaming chat's main
-// thread on Leo's Mac (2026-11-11, "not sure what's up with 100% cpu still :("). Loads the real
-// stylesheets, the page's clock and the real components in Chromium.
+// The shimmer of a running row or Thinking line takes the shared clock's phase (ui/spinnerClock.ts
+// `setLoopPhase`) without asking an element for its animations in React's commit: `getAnimations`
+// flushes style, and doing it in every running row's mount was about 8% of a streaming chat's main
+// thread on Leo's Mac (2026-11-11, "not sure what's up with 100% cpu still :("). The exact start comes
+// in the next animation frame, once for all of that frame's rows. Loads the real stylesheets, the
+// page's clock and the real components in Chromium.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -77,6 +78,8 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
     });
   }
 
+  /// The loops take their start exactly (Animation.startTime), as the spinners do (spinner-phase.test.ts).
+  const TOLERANCE_MS = 4;
   const apart = (a: number, b: number, period: number) => {
     const d = Math.abs(a - b) % period;
     return Math.min(d, period - d);
@@ -87,18 +90,16 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
     test(`${what} mount on the clock's phase without asking for animations`, async () => {
       const p = await open();
       try {
-        await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "first"), row);
+        expect(await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "first"), row)).toBe(0);
         await frames(p);
         // fixed-wait: real time must pass between the two mounts; that gap is what the test is about.
         await p.waitForTimeout(337);
-        await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "second"), row);
+        expect(await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "second"), row)).toBe(0);
         await frames(p);
-        const asks = await p.evaluate(() => (window as unknown as { asks: number }).asks);
-        expect(asks).toBe(0);
         const { loops, clock, period } = await phases(p);
         expect(loops.filter((loop) => loop.host === "second").length).toBe(40);
         for (const loop of loops)
-          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(40);
+          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
       } finally {
         await p.close();
       }
@@ -135,7 +136,7 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
         const { loops, clock, period } = await phases(p);
         expect(loops.length).toBe(12);
         for (const loop of loops)
-          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(40);
+          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
       } finally {
         await p.close();
       }
@@ -154,7 +155,8 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
       await frames(p);
       const { loops, clock, period } = await phases(p);
       expect(loops.length).toBe(6);
-      for (const loop of loops) expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(40);
+      for (const loop of loops)
+        expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
     } finally {
       await p.close();
     }

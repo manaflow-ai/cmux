@@ -106,27 +106,57 @@ function periodOf(doc: Document, variable: string): number | undefined {
   return byName.get(variable);
 }
 
-/** Puts the shared loops under `element` on the shared phase on the frame they mount: a loop that mounts
- * again (a running line the transcript brings back into view as the reader scrolls) otherwise paints its
- * first frame at phase 0, and `animationstart` moves it a frame later, a blink (Leo, 2026-11-03: "not
- * flicker EVER when im scrolling"). It writes the phase as a negative delay (`LOOP_DELAY_VARIABLE`, which
- * the loops' rules read) from the period cached per page, and reads no style: asking the element for its
- * animations flushed style on every running row's mount, about 8% of a streaming chat's main thread on
- * Leo's Mac (2026-11-11). */
-/// `at` is when the loops start, in the document's ms (`performance.now()`): the mount by default, or an
-/// `animationstart`'s time when they start again later (below).
-export function setLoopPhase(element: HTMLElement, variable = SHIMMER_PERIOD_VARIABLE, at?: number): void {
+/** The phased elements whose loops still wait for their exact start (`alignQueued`), per document. */
+const queued = new WeakMap<Document, Set<Element>>();
+
+/** Gives the loops under each queued element their exact start time, in one animation frame for every
+ * element queued before it: the frame's style is flushed here once, just before the frame does it anyway,
+ * instead of once in each row's mount, mid-commit. A hidden page's loops are left to the realign on show. */
+function alignQueued(doc: Document): void {
+  const elements = queued.get(doc);
+  queued.delete(doc);
+  if (!elements || doc.documentElement.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
+  const now = doc.timeline?.currentTime;
+  const origin = doc.defaultView?.performance.timeOrigin;
+  if (typeof now !== "number" || typeof origin !== "number") return;
+  for (const element of elements) {
+    if (!element.isConnected || typeof element.getAnimations !== "function") continue;
+    for (const animation of element.getAnimations({ subtree: true }))
+      alignSpinner(animation as unknown as SpinnerAnimation, now, origin);
+  }
+}
+
+/** Has the loops under `element` take their exact start in the next animation frame (`alignQueued`). */
+function queueAlign(element: Element): void {
+  const doc = element.ownerDocument;
+  const view = doc.defaultView;
+  if (!view?.requestAnimationFrame) return;
+  let elements = queued.get(doc);
+  if (!elements) {
+    queued.set(doc, (elements = new Set()));
+    view.requestAnimationFrame(() => alignQueued(doc));
+  }
+  elements.add(element);
+}
+
+/** Puts the shared loops under `element` on the shared phase from the frame they mount: a loop that
+ * mounts again (a running line the transcript brings back into view as the reader scrolls) otherwise
+ * paints its first frame at phase 0, a blink (Leo, 2026-11-03: "not flicker EVER when im scrolling").
+ * It reads no style: asking each mounting row for its animations flushed style inside React's commit,
+ * about 8% of a streaming chat's main thread on Leo's Mac (2026-11-11). The phase is written as a
+ * negative delay (`LOOP_DELAY_VARIABLE`, which the loops' rules read) from the period cached per page,
+ * so the first frame is near the clock even when it paints before the next animation frame; that frame
+ * then sets the exact start of every loop queued in it (`alignQueued`), as the mount used to. */
+export function setLoopPhase(element: HTMLElement, variable = SHIMMER_PERIOD_VARIABLE): void {
   const doc = element.ownerDocument;
   const period = periodOf(doc, variable);
   const view = doc.defaultView;
   if (period === undefined || !view) return;
-  const unixAt = view.performance.timeOrigin + (at ?? view.performance.now());
-  const phase = ((unixAt % period) + period) % period;
-  const delay = `-${phase.toFixed(1)}ms`;
+  const unixNow = view.performance.timeOrigin + view.performance.now();
+  const phase = ((unixNow % period) + period) % period;
   element.setAttribute(LOOP_PHASE_ATTRIBUTE, "");
-  // The same delay again (a row's band and lit copy start in one frame) changes nothing: no style write.
-  if (element.style.getPropertyValue(LOOP_DELAY_VARIABLE) !== delay)
-    element.style.setProperty(LOOP_DELAY_VARIABLE, delay);
+  element.style.setProperty(LOOP_DELAY_VARIABLE, `-${phase.toFixed(1)}ms`);
+  queueAlign(element);
 }
 
 const installed = new WeakSet<Document>();
@@ -142,11 +172,11 @@ export function installSpinnerClock(doc: Document = document): void {
     "animationstart",
     (event) => {
       if (!SHARED_LOOP_KEYFRAMES.has(event.animationName) || !(event.target instanceof Element)) return;
-      // A loop phased by its delay (`setLoopPhase`) starts again whenever its rule comes back (an ancestor
-      // shown again, the static status look or the motion gate turned off): its delay is written anew for
-      // the time it started, still with no style read. The mount's own start writes the same phase.
+      // A loop phased by its delay (`setLoopPhase`) also starts again later, whenever its rule comes back
+      // (an ancestor shown again, the static status look or the motion gate turned off): it takes its exact
+      // start with the frame's other queued loops, not with a style read here.
       const phased = event.target.closest(`[${LOOP_PHASE_ATTRIBUTE}]`);
-      if (phased instanceof HTMLElement) return setLoopPhase(phased, SHIMMER_PERIOD_VARIABLE, event.timeStamp);
+      if (phased) return queueAlign(phased);
       // A hidden page's loops stay paused: giving one a start time would run it unseen. They take
       // the shared phase when the page shows (below).
       if (root.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
