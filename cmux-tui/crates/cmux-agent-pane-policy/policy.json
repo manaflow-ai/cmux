@@ -22,7 +22,9 @@
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
-    "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel"
+    "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel",
+    "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
+    "_acpmux/cold_archive", "_acpmux/prompt_coach"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -37,7 +39,9 @@
     "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
     "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
-    "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats"
+    "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
+    "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
+    "_acpmux/cold_archive", "_acpmux/prompt_coach"
   ],
   "optionally_session_scoped": [
     "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
@@ -73,8 +77,17 @@
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always",
     "_acpmux/plan/build": "always",
-    "_acpmux/race/start": "always"
+    "_acpmux/race/start": "always",
+    "_acpmux/presets": "always",
+    "_acpmux/run_elsewhere/start": "always"
   },
+  "click_only": [
+    "_acpmux/permission_group_respond",
+    "_acpmux/permission_respond",
+    "_acpmux/plan/build",
+    "_acpmux/presets"
+  ],
+  "click_window_ms": 1500,
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
@@ -159,6 +172,13 @@
     "_acpmux/process/tail": {"params": ["processId", "maxBytes"], "acpmux": []},
     "_acpmux/process/kill": {"params": ["sessionId", "processId"], "acpmux": []},
     "_acpmux/process/background": {"params": ["sessionId", "toolCallId"], "acpmux": []},
+    "_acpmux/presets": {"params": ["name", "approveMode", "approveDigest", "sessionId"], "acpmux": []},
+    "_acpmux/cold_archive": {"params": ["sessionId", "archived"], "acpmux": []},
+    "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
+    "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
+    "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
+    "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte"], "acpmux": []},
+    "_acpmux/bg/stop": {"params": ["sessionId", "id"], "acpmux": []},
     "_acpmux/route/list": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/session/auth": {"params": ["sessionId", "target", "refresh"], "acpmux": []},
     "_acpmux/chat/route.set": {"params": ["sessionId", "routeId", "when"], "acpmux": []},
