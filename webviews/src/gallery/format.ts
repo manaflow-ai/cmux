@@ -459,7 +459,9 @@ type EntryBase<V> = {
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
-   * pages, `swift:<TypeName>` for native views.
+   * pages, `swift:<TypeName>` for native views. A cover may also name another source file under
+   * webviews/src (`path#name` for a name it holds) that the entry exercises; it must exist, and it
+   * counts toward no component's coverage.
    */
   covers: string[];
   /** Default stage height in px (else 520). */

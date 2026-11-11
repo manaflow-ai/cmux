@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+from collections import Counter
 import zipfile
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -33,6 +34,9 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys  # noqa: E402
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
+# A host's own glaeda-gh keeps real job logs: every test reads its fakes only, unless it names a fake glaeda-gh
+# (GlaedaKeptLog).
+os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
@@ -211,6 +215,82 @@ def frame_legacy(job, text):
 
 # What a fixture with no workflow to read passes for step_owners' required STEP_NAMES.
 UNKNOWN = {"step_names": excuse.STEP_NAMES_UNKNOWN}
+
+
+def scaling_ratio(build, n, repeats=3, min_seconds=0.005):
+    """How a cost grows, with no wall-clock bound (#41236's review: a 0.04 s step failed a 0.5 s bound in a full run
+    on a loaded host). BUILD(size) makes the inputs and returns the call to time. The call is timed at N and at 4N in
+    this process, the two sizes in turn so a burst of load hits both, each sample repeating the call until it takes
+    MIN_SECONDS (the same count at both sizes), the garbage collector off, best of REPEATS each, in this process's CPU
+    seconds (time.process_time), so other processes' turns count on neither side; leo-workspace's
+    tools/scaling_check.py is the same protocol. The answer is (best at 4N / best at N, best at N, best at 4N). Linear
+    gives about 4, quadratic about 16: a test asserts well under quadratic (SCALING_LIMIT, assert_scales)."""
+    import gc
+    import math
+    import time
+
+    small, large = build(n), build(4 * n)
+
+    def sample(run, loops):
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            began = time.process_time()
+            for _ in range(loops):
+                run()
+            return (time.process_time() - began) / loops
+        finally:
+            if enabled:
+                gc.enable()
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))  # the first call also warms caches
+    best_small = best_large = math.inf
+    for _ in range(repeats):
+        best_small = min(best_small, sample(small, loops))
+        best_large = min(best_large, sample(large, loops))
+    return best_large / max(best_small, 1e-9), best_small, best_large
+
+
+# The most a 4x larger input may cost relative to the smaller one: linear is about 4, quadratic about 16.
+SCALING_LIMIT = 8
+# A hang guard for one assert_scales, never a timing bound: what it guards is how the time grows.
+SCALING_CEILING = 120
+
+
+class ScalingHang(Exception):
+    pass
+
+
+def scaling_failure(build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """None when BUILD's call at 4N costs under SCALING_LIMIT times its cost at N (scaling_ratio) in one of ATTEMPTS
+    measurements (super-linear code is over it every time, a burst of load only once), else why not. A measurement
+    still running after CEILING seconds is a failure too (SIGALRM, a hang guard: the quadratic reading this replaced
+    would run for minutes)."""
+    import signal
+
+    def expire(signum, frame):
+        raise ScalingHang()
+    tries = []
+    old = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, ceiling)
+    try:
+        for _ in range(attempts):
+            ratio, small, large = scaling_ratio(build, n)
+            if ratio < SCALING_LIMIT:
+                return None
+            tries.append(f"{ratio:.1f}x ({small:.4f} CPU s at {n:,}, {large:.4f} at {4 * n:,})")
+    except ScalingHang:
+        tries.append(f"still running after {ceiling} s (a hang guard, not a timing bound)")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    return (f"{label}: 4x the input took {', then '.join(tries)}; linear is about 4x and quadratic 16x, the bound is "
+            f"{SCALING_LIMIT}x: the reading is super-linear in its input")
+
+
+def assert_scales(case, build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """Fail CASE unless BUILD's call scales under SCALING_LIMIT from N to 4N (scaling_failure)."""
+    if failure := scaling_failure(build, n, label, attempts, ceiling):
+        case.fail(failure)
 
 
 def placed_signature(job, text, base=False):
@@ -784,6 +864,94 @@ class ListReadsNameTheirFields(unittest.TestCase):
             self.assertEqual(asked, [])
 
 
+FAKE_GLAEDA_GH = """#!/usr/bin/env python3
+import os, sys
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(sys.argv[1:]) + "\\n")
+mode = os.environ.get("FAKE_GLAEDA", "")
+if mode == "miss":
+    sys.stderr.write("glaeda-gh: no kept log for o/r job 7; --fetch reads it once\\n")
+    sys.exit(7)
+if mode == "old":
+    sys.stderr.write("glaeda-gh: error: argument command: invalid choice: 'log'\\n")
+    sys.exit(2)
+sys.stdout.write("\\ufeff2026-10-30T12:00:00.000Z kept \\x1b[31mred\\x1b[0m log\\n")
+"""
+
+
+class GlaedaKeptLog(unittest.TestCase):
+    """A failed job's log this host's glaeda-gh kept is read there, with no gh call; anything else reads GitHub."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for name, text in (("gh", FAKE_GH), ("glaeda-gh", FAKE_GLAEDA_GH)):
+            path = Path(self.dir.name) / name
+            path.write_text(text)
+            path.chmod(0o755)
+        self.gh_calls = Path(self.dir.name) / "gh-calls"
+        self.glaeda_calls = Path(self.dir.name) / "glaeda-calls"
+        self.gh_calls.write_text("")
+        self.glaeda_calls.write_text("")
+        env = git_fixture_env.fixture_env({"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}",
+                                           "FAKE_GH_CALLS": str(self.gh_calls),
+                                           "FAKE_GLAEDA_CALLS": str(self.glaeda_calls),
+                                           "CMUX_GLAEDA_GH": str(Path(self.dir.name) / "glaeda-gh")})
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GLAEDA"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def test_a_kept_log_is_read_with_no_api_call(self):
+        raw = self.read("")
+        self.assertEqual(self.gh_calls.read_text(), "")
+        self.assertEqual(self.glaeda_calls.read_text().splitlines(), [f"log job {REPO} 7"])
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["kept red log"])
+
+    def test_a_log_glaeda_gh_does_not_keep_is_read_from_github(self):
+        for mode in ("miss", "old"):
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(mode))
+            self.assertEqual(self.gh_calls.read_text().splitlines(),
+                             [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"], mode)
+
+    def test_no_glaeda_gh_on_the_host_reads_github(self):
+        for named in ("", str(Path(self.dir.name) / "absent")):
+            os.environ["CMUX_GLAEDA_GH"] = named
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(""))
+            self.assertEqual(len(self.gh_calls.read_text().splitlines()), 1, named)
+        self.assertEqual(self.glaeda_calls.read_text(), "")
+
+    # Readers of GET .../actions/jobs/ID/logs that do not ask glaeda-gh, and why. A new reader asks it first (or
+    # says here why it cannot): a replay or classifier that reads a log the host's mirror kept spends a read for
+    # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
+    UNCACHED_LOG_READERS = {
+        "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
+    }
+
+    def test_every_job_log_reader_asks_glaeda_gh_first(self):
+        route = re.compile(r"actions/jobs/\{[^}]*\}/logs")
+        readers = {path.name for path in (ROOT / "scripts/ci").glob("*.py") if route.search(path.read_text())}
+        uncached = {name for name in readers
+                    if "glaeda_log.cached_job_log(" not in (ROOT / "scripts/ci" / name).read_text()}
+        self.assertEqual(uncached - set(self.UNCACHED_LOG_READERS), set(),
+                         "a new job log reader: ask glaeda_log.cached_job_log first, or name why not")
+        self.assertEqual(set(self.UNCACHED_LOG_READERS) - uncached, set(), "this reader asks glaeda-gh now: drop it")
+        self.assertGreaterEqual(readers - uncached, {"base_red_excuse.py", "classify_failures.py", "guard_attribution.py",
+                                                      "main_compile_attribution.py", "next_batch.py",
+                                                      "affected_tests_replay.py"})
+
+
 class PortableGhLog(unittest.TestCase):
 
     def setUp(self):
@@ -808,7 +976,8 @@ class PortableGhLog(unittest.TestCase):
 
     def test_logs_use_the_flag_and_strip_ansi_in_python(self):
         raw = self.read("")
-        self.assertIn("\x1b[31mred", raw)
+        # The reader strips the colour gh served, once, so no parser sees it (#41329's review F2).
+        self.assertEqual(raw, "2026-10-30T12:00:00.000Z red log\n")
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
@@ -2935,7 +3104,7 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         gh.logs[1] = gh.logs[1].replace("re-running alone on the head:", "re-running alone on the head:\n"
                                         "2026-11-08T09:30:06Z ##[group]TIMEOUT test/x.test.ts\n2026-11-08T09:30:06Z "
                                         "##[endgroup]\n2026-11-08T09:30:06Z TIMEOUT test/x.test.ts (limit 120s)")
-        with self.assertRaisesRegex(excuse.Refused, "a crash or a cut-short run is never a base red"):
+        with self.assertRaisesRegex(excuse.Refused, "a cut-short run or a failure no parser names is never a base red"):
             self.judge(gh)
 
     def test_a_test_that_passed_again_alone_on_the_head_is_no_longer_charged(self):
@@ -3486,6 +3655,123 @@ class OtherRepoRollups(unittest.TestCase):
             excuse.rollups(HQ)
 
 
+# hq#9249 (2026-11-11): a child PR into lane/rerun-guard-fixed-on-base, the head of open PR hq#9226 at d755d38b.
+# Its 'Skill policy tests' (run 42988800012) failed the LaunchAgent step exactly as the parent's head did (run
+# 42985609913); the lane branch has no run of its own, so it was refused as "no lane/... run ... to compare with".
+LANE = "lane/rerun-guard-fixed-on-base"
+PARENT_SHA = "d755d38ba189a2c4c853ad5b5b2596cf6b3ea9e0"
+LAUNCHAGENT_STEP = "Shared clone maintenance LaunchAgent runs the compaction daily"
+LAUNCHAGENT_RED = ("AssertionError: ['/bin/bash', '/home/runner/Library/Application Support/cmuxterm-hq/"
+                   "shared-clone-maintenance/scripts/shared-clone-maintenance.sh', '/x/a&b/repo']",
+                   "FAIL: plist content", "##[error]Process completed with exit code 1.")
+
+
+def parent_pull(number=9226, sha=PARENT_SHA, ref=LANE, repo=HQ):
+    return {"number": number, "state": "open", "head": {"ref": ref, "sha": sha, "repo": {"full_name": repo}}}
+
+
+class StackedParentGitHub(HQGitHub):
+    """hq#9249's shape: head run 10 (Skill policy tests red, its rollup Skill documentation tests red) into LANE, the
+    head of open PR #9226 whose run 30 at PARENT_SHA has the same 'Skill policy tests' red. LANE has no push run."""
+
+    def __init__(self):
+        super().__init__()
+        del self.jobs[2]
+        self.base_runs = []
+        self.jobs[1] = failed_job(1, 10, HEAD, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.jobs[2] = failed_job(2, 30, PARENT_SHA, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[2] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.pulls = [parent_pull()]
+        self.tip = PARENT_SHA
+        self.parent_runs = [{"id": 30, "event": "pull_request", "head_branch": LANE, "head_sha": PARENT_SHA,
+                             "status": "completed", "conclusion": "failure", "workflow_id": 7,
+                             "created_at": "2026-11-11T08:40:00Z"}]
+
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        return SKILLS_YML
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{HQ}/pulls?"):
+            self.routes.append(route)
+            assert f"head=manaflow-ai:{LANE}" in route and "state=open" in route, route
+            return copy.deepcopy(self.pulls)
+        if route == f"repos/{HQ}/branches/{LANE}":
+            self.routes.append(route)
+            return {"name": LANE, "commit": {"sha": self.tip}}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?head_sha="):
+            self.routes.append(route)
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [copy.deepcopy(run) for run in self.parent_runs if run["head_sha"] == sha]}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?branch={LANE}"):
+            self.routes.append(route)
+            return {"workflow_runs": []}  # a lane branch has no push or dispatch run of its own
+        return super().json(route, paginate=paginate)
+
+
+class StackedChildIntoLaneParent(unittest.TestCase):
+    """A child PR into a lane branch that heads an open PR is judged by that parent PR's checks at its head
+    (stacked_parent): identity-keyed, as any base verdict; anything less refuses."""
+
+    def setUp(self):
+        self.gh = StackedParentGitHub()
+        patch = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        return excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_hq9249_a_red_the_parents_head_has_too_is_excused(self):
+        lines = "\n".join(self.judge())
+        self.assertIn("excused 'Skill policy tests'", lines)
+        self.assertIn(f"open PR #9226's head {PARENT_SHA[:12]}", lines)
+        self.assertIn(f"repos/{HQ}/actions/workflows/7/runs?head_sha={PARENT_SHA}&per_page=100", self.gh.routes)
+
+    def test_a_child_red_the_parents_head_does_not_have_is_refused(self):
+        self.gh.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED[:1],
+                              "FAIL: launchd label", LAUNCHAGENT_RED[2])
+        with self.assertRaisesRegex(excuse.Refused, "'Skill policy tests'.*not on lane/rerun-guard-fixed-on-base"):
+            self.judge()
+
+    def test_a_green_parent_job_makes_the_red_the_childs_own(self):
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[dict(step, conclusion="success") for step in self.gh.jobs[2]["steps"]])
+        with self.assertRaisesRegex(excuse.Refused, "passed on .*PR #9226 at its head d755d38ba189.*own"):
+            self.judge()
+
+    def test_a_parent_head_with_no_completed_run_is_refused(self):
+        for runs in ([], [dict(self.gh.parent_runs[0], status="in_progress", conclusion=None)]):
+            with self.subTest(runs=runs):
+                self.gh.parent_runs = runs
+                with self.assertRaisesRegex(excuse.Refused, "PR #9226's head; its head d755d38ba189 has no completed"):
+                    self.judge()
+
+    def test_a_branch_that_moved_past_its_prs_head_is_refused(self):
+        self.gh.tip = "c" * 40
+        with self.assertRaisesRegex(excuse.Refused, "tip cccccccccccc is not that PR's head d755d38ba189"):
+            self.judge()
+
+    def test_two_open_prs_headed_by_the_branch_judge_as_before(self):
+        # Ambiguous: no parent is chosen, and the lane branch's own (absent) runs refuse as they always did.
+        self.gh.pulls = [parent_pull(), parent_pull(number=9300)]
+        with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+            self.judge()
+
+    def test_a_fork_or_other_ref_is_no_parent(self):
+        for pull in (parent_pull(repo="someone/cmuxterm-hq"), parent_pull(ref="lane/other")):
+            with self.subTest(pull=pull):
+                self.gh.pulls = [pull]
+                with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+                    excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_an_integration_base_never_reads_a_parent(self):
+        self.assertIsNone(excuse.stacked_parent(HQ, "main", self.gh, {}))
+        self.assertIsNone(excuse.stacked_parent(REPO, "feat-cmux-next", self.gh, {}))
+        self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
+
+
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
@@ -3507,6 +3793,113 @@ if args[:2] == ["api", "graphql"]:
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
 sys.exit(1)
 """
+
+
+class GhReadByMethod(unittest.TestCase):
+    """gh_read (the gh reads GitHub.run keeps for the judgement) classifies by the HTTP method gh sends (review of
+    cmux#41312 at 67c48fb7, F1): an explicit GET reads, any other explicit method writes, a field or --input with no
+    method is gh's POST, and a GraphQL call reads only as a query. A write is never answered from the memo."""
+
+    R = f"repos/{REPO}/commits/{HEAD}"
+    QUERY = "query($owner: String!) { repository(owner: $owner, name: \"cmux\") { id } }"
+    TABLE = (
+        # REST with no method and no body: GET.
+        (["api", R], True),
+        (["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/7/logs"], True),
+        (["api", R, "--jq", ".sha"], True),
+        (["api", "-H", "Accept: application/vnd.github+json", R], True),
+        # An explicit GET reads, in every spelling; its fields are query parameters.
+        (["api", "-X", "GET", R], True),
+        (["api", "--method", "GET", R], True),
+        (["api", "--method=GET", R], True),
+        (["api", "-XGET", R], True),
+        (["api", "--method", "get", R], True),
+        (["api", "-X", "GET", "search/issues", "-f", "q=repo:o/r is:open"], True),
+        # Any other explicit method writes.
+        (["api", "-X", "POST", f"repos/{REPO}/actions/workflows/w.yml/dispatches", "-f", "ref=main"], False),
+        (["api", "--method", "PATCH", f"repos/{REPO}/pulls/1"], False),
+        (["api", "--method=PUT", f"repos/{REPO}/pulls/1/merge"], False),
+        (["api", "-XDELETE", f"repos/{REPO}/git/refs/heads/x"], False),
+        (["api", "-X", "POST", R], False),
+        # A field or --input with no method is gh's POST.
+        (["api", f"repos/{REPO}/issues/1/comments", "-f", "body=hi"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-F", "body=@note.md"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--field", "labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--raw-field=labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-fbody=hi"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input", "status.json"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input=-"], False),
+        # GraphQL: a query reads, a mutation writes, and a body gh_read cannot see is a write.
+        (["api", "graphql", "-f", f"query={QUERY}", "-f", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query={ viewer { login } }"], True),
+        (["api", "graphql", "-F", f"query={QUERY}", "-F", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query=mutation { addComment(input: {}) { clientMutationId } }"], False),
+        (["api", "graphql", "-f", "query=\n  mutation M { x }"], False),
+        (["api", "graphql", "-F", "query=mutation{x}"], False),
+        (["api", "graphql", "-F", "query=@query.graphql"], False),
+        (["api", "graphql", "--input", "body.json"], False),
+        (["api", "graphql", "-f", "owner=o"], False),
+        # Other gh commands: `gh run view` reads; anything else is not a read gh_read knows.
+        (["run", "view", "10", "--repo", REPO, "--job", "7", "--log"], True),
+        (["run", "rerun", "10", "--failed"], False),
+        (["pr", "merge", "1"], False),
+    )
+
+    def test_each_argv_shape_by_its_effective_method(self):
+        for args, read in self.TABLE:
+            with self.subTest(args=args):
+                self.assertIs(excuse.gh_read(args), read)
+
+    def test_the_clients_own_reads_are_reads(self):
+        owner, _, name = REPO.partition("/")
+        blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"expression={HEAD}:Package.swift"]
+        self.assertTrue(excuse.gh_read(blob))
+        self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
+
+
+class OneReadPerJudgement(unittest.TestCase):
+    """The real gh client at its wire (subprocess.Popen of gh, under main_fix_evidence.GitHub.run): in one judgement
+    each read (`gh api` REST and GraphQL, a job's log) goes out once, however often it is asked, and a write every
+    time. StaleFfiPinOfAStepARustChange's wire() counts the other entry points (git, the release downloads, the
+    compile receipts) through a whole judgement."""
+
+    def test_the_gh_client_reads_each_call_once_per_judgement(self):
+        calls: Counter = Counter()
+
+        class Gh:
+            def __init__(self, argv, stdout, stderr, **kwargs):
+                calls[tuple(argv)] += 1
+                blob = {"text": "t", "isBinary": False, "isTruncated": False}
+                stdout.write(json.dumps({"data": {"repository": {"object": blob}}} if "graphql" in argv
+                                        else {"workflow_run_id": 5}).encode())
+                self.returncode = 0
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        github = excuse.GitHub()
+
+        def reads():
+            for _ in range(2):
+                github.json(f"repos/{REPO}/commits/{HEAD}")
+                github.blob(REPO, HEAD, "Package.swift")
+                github.log(REPO, {"id": 7, "run_id": 10})
+                github.dispatch(REPO, "w.yml", "feat-cmux-next")
+        with unittest.mock.patch.object(subprocess, "Popen", Gh):
+            excuse.one_judgement(reads)()
+            once = dict(calls)
+            calls.clear()
+            reads()
+        writes = {argv: n for argv, n in once.items() if "POST" in argv}
+        self.assertEqual(set(writes.values()), {2}, once)
+        self.assertEqual({argv: n for argv, n in once.items() if argv not in writes and n != 1}, {})
+        self.assertEqual(len(once), 4, once)
+        # Outside a judgement every read goes out, as before.
+        self.assertEqual(set(calls.values()), {2}, calls)
 
 
 class SourceReads(unittest.TestCase):
@@ -4116,6 +4509,7 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         for line in ("cmux-next/compile is not a pass for {} (pending)", "cmux-next/compile is not a pass for {} (pass)",
                      "cmux-next/compile is not a pass for {} (last: queued)",
                      "cmux-next/compile is not a pass for {} (unavailable)", "could not post the pending status",
+                     "could not post the handoff status", "could not post the overflow handoff status",
                      "bad head sha '{}'"):
             with self.subTest(line=line):
                 self.gh.logs[1] = log(self.FLEET, self.STEP, "##[error]" + line.format(HEAD))
@@ -4765,6 +5159,60 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
         return self.files[path]
 
 
+class TrackedTree:
+    """This checkout's tree as the classifier reads a tree at a sha: every path git tracks, its text from the working
+    tree when it is checked out, else from the index. A sparse checkout leaves whole folders (cmux-next-ios among
+    them) out of the working tree, so a reader of the working tree alone sees a cargo root the code under test reaches
+    as missing. Nothing here names a root: whatever the code discovers, the tree serves."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, check=True).stdout
+        self.blobs = {}
+        for entry in out.decode().split("\0"):
+            if entry:
+                meta, path = entry.split("\t", 1)
+                mode, blob, _stage = meta.split()
+                if mode != "160000":  # a submodule has no text here
+                    self.blobs[path] = blob
+        self.cache: dict[str, str] = {}
+
+    def __contains__(self, path: str) -> bool:
+        return path in self.blobs
+
+    def files(self, under: str, suffix: str = "") -> list[str]:
+        return sorted(p for p in self.blobs if p.startswith(f"{under}/") and p.endswith(suffix))
+
+    def texts(self, paths) -> dict[str, str]:
+        """{path: its text} of the tracked PATHS, the ones not checked out read in one `git cat-file --batch`."""
+        missing = [p for p in paths if p in self.blobs and p not in self.cache and not (self.root / p).is_file()]
+        for path in paths:
+            if path in self.blobs and path not in self.cache and path not in missing:
+                self.cache[path] = (self.root / path).read_text(errors="replace")
+        if missing:
+            out = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], check=True, capture_output=True,
+                                 input="".join(f"{self.blobs[p]}\n" for p in missing).encode()).stdout
+            at = 0
+            for path in missing:
+                end = out.index(b"\n", at)
+                size = int(out[at:end].split()[2])
+                self.cache[path] = out[end + 1:end + 1 + size].decode(errors="replace")
+                at = end + 1 + size + 1
+        return {p: self.cache[p] for p in paths if p in self.cache}
+
+    def text(self, path: str) -> str | None:
+        return self.texts([path]).get(path)
+
+    def write(self, dest: Path, under: list[str], suffixes: tuple[str, ...]) -> Path:
+        """DEST holding every tracked file below UNDER that ends in one of SUFFIXES: a tree a reader of files
+        (cargo_test_verdict.crate_inputs) walks as it walks a full checkout."""
+        paths = sorted({p for d in under for p in self.files(d) if p.endswith(suffixes)})
+        for path, text in self.texts(paths).items():
+            (dest / path).parent.mkdir(parents=True, exist_ok=True)
+            (dest / path).write_text(text)
+        return dest
+
+
 class PackageFixedOnBase(unittest.TestCase):
     """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
 
@@ -4958,17 +5406,23 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
+        # The fake serves this checkout's whole tree, read the way the classifier reads a sha's tree (TrackedTree):
+        # the cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
+        tree = TrackedTree(ROOT)
 
-        def checkout(repo, ref, path):
-            if not (ROOT / path).is_file():
+        def served(repo, ref, path):
+            text = tree.text(path)
+            if text is None:
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return (ROOT / path).read_text()
-        github.blob = checkout
+            return text
+        github.blob = served
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        built = tree.write(Path(tempfile.mkdtemp()), crates + [cargo.WORKSPACE], (".rs", "Cargo.toml"))
+        self.addCleanup(shutil.rmtree, built)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(ROOT, crate)
+            dirs, files = cargo.crate_inputs(built, crate)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -4976,13 +5430,15 @@ class PackageFixedOnBase(unittest.TestCase):
         # time, which no manifest shows): every one that exists must be a declared read.
         literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
         for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
-            for source in sorted((ROOT / root).rglob("*.swift")):
-                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
-                    continue  # the job runs the kit's own tests; the packages it reaches build only their sources
-                for found in literal.finditer(source.read_text(errors="replace")):
+            sources = [source for source in tree.files(root, ".swift")
+                       if root == "cmux-next-ios/CmuxMobileKit" or "Tests" not in source.split("/")]
+            # the job runs the kit's own tests; the packages it reaches build only their sources
+            self.assertTrue(sources, f"{root} has no Swift in this tree")
+            for source, text in tree.texts(sources).items():
+                for found in literal.finditer(text):
                     path = found.group(1)
-                    if (ROOT / path).is_file():
-                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                    if path in tree:
+                        with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
 
@@ -5429,8 +5885,12 @@ class WsCheckGitHub:
                  "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
-            lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
+            # PRINTED is the step's lines, or {unit: lines} for a step split into units: each unit its own group and
+            # result line, labelled "STEP [UNIT]" (leo-workspace ws_check_run.py since its units).
+            for label, out in ([(f"{step} [{unit}]", out) for unit, out in printed.items()]
+                               if isinstance(printed, dict) else [(step, printed)]):
+                lines += [f"##[group]{label}", *out, "##[endgroup]",
+                          f"ws-check step FAILED: {label} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -5505,6 +5965,43 @@ class WsCheckPerTest(unittest.TestCase):
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
         self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_step_split_into_units_is_read_from_each_units_lines(self):
+        # leo-workspace#4322 at aa928f1c (run 43011639090): ws_check_run.py labels each unit's group and result line
+        # "STEP [UNIT]" and ends it with its CPU (", cpu 16.4 s, 18.3 s)"), while WS_CHECK_RESULT names the STEP. Read
+        # only as "ws-check step FAILED: STEP (exit", the red was refused "has no 'ws-check step FAILED: ...' line"
+        # though the log held it, so no red split into units could be excused.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        red = {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned"),
+                       "test_lane_place.py 2/4": self.ws_deploy("test_place")}}
+        self.gh.verdict(HEAD, 1, red, seconds=", cpu 16.4 s, 18.3 s")
+        self.gh.verdict(self.gh.TIP, 2, red, seconds=", cpu 15.0 s, 17.9 s")
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        for suite, test in (("test_ws_deploy_swap.py", "test_old_releases_are_pruned"),
+                            ("test_lane_place.py", "test_place")):
+            self.assertIn(f"excused 'ws-check' test '{other} :: [{suite}] {test} (__main__.FastForward.{test})': "
+                          f"red on main {self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)",
+                          audit)
+        # A test of one unit that main does not fail is still the head's own, whatever unit main's red is in.
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned")}},
+                        seconds=", cpu 15.0 s, 17.9 s")
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_place"):
+            self.judge()
+
+    def test_a_same_named_test_in_another_suite_does_not_excuse_it(self):
+        # cmux#41298 F1: every suite runs as __main__, so test_new.py's and test_old.py's test_check both print
+        # "test_check (__main__.FastForward.test_check)". Read by name alone, main's red in test_old.py excused the
+        # head's new red in test_new.py. A test is named with its suite; only a shard number may differ.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_new.py": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_old.py": self.ws_deploy("test_check")}})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*\[test_new\.py\] test_check"):
+            self.judge()
+        # The same suite in another shard is the same test.
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
@@ -5649,20 +6146,68 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "test_flaky"):
             self.judge()
 
-    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
-        snapshot = "9" * 40
+    SQUASHED = "5" * 40  # the tree a squash of HEAD onto main's tip makes, cut to the hosted paths
+
+    def snapshot_runs(self, snapshot="9" * 40, tree=SQUASHED):
+        """HEAD's and main's ws-check runs through cmux-ci: each tested a snapshot commit, named in its receipt, HEAD's
+        with source_tree TREE; the squash tree (ws_check_squash_tree) of HEAD onto main's tip is SQUASHED."""
         for sha, run_id in ((HEAD, 1), (self.gh.TIP, 2)):
             self.gh.runs[run_id]["display_title"] = f"Fast checks {snapshot}"
             self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][1], name="checks", conclusion="failure")]
+            receipt = {"source_sha": snapshot, "run_id": str(run_id), "head_after": snapshot}
+            if sha == HEAD and tree is not None:
+                receipt["source_tree"] = tree
             self.gh.logs[run_id * 10 + 1] = (self.gh.logs[run_id * 10 + 1].replace(sha, snapshot)
-                                             + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
-                                             + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
+                                             + "\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
+                                             + json.dumps(receipt))
+        self.squashed = []
+
+        def squash(repo, head, tip):
+            self.squashed.append((repo, head, tip))
+            return self.SQUASHED if (head, tip) == (HEAD, self.gh.TIP) else "6" * 40
+        patch = unittest.mock.patch.object(excuse, "ws_check_squash_tree", squash, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return snapshot
+
+    def test_a_fast_checks_run_is_read_through_its_snapshot_receipt(self):
+        snapshot = self.snapshot_runs()
         self.assertIn("every failure", self.judge()[0])
+        self.assertEqual(self.squashed, [(self.gh.REPO, HEAD, self.gh.TIP)])  # the head's run only, at main's tip
         # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
         self.assertIn("every failure", self.judge()[0])
         self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
         with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            self.judge()
+
+    def test_the_brokers_merge_tested_run_from_another_checkout_is_accepted_by_its_tree(self):
+        # LW#4369 at 4f84acf0 (2026-11-11): the broker's run 43048550008, `Fast checks SNAPSHOT job ID`, tested the head
+        # merged with main's tip and was refused as "from another checkout". Its tree is what lands: it counts.
+        snapshot = self.snapshot_runs()
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_a_merge_tested_run_against_an_older_base_is_refused(self):
+        # Its tree is the head merged with an older main: not what a squash onto main's tip makes now.
+        snapshot = self.snapshot_runs(tree="6" * 40)
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        with self.assertRaisesRegex(excuse.Refused, f"run 1 tested tree 666666666666, not {HEAD[:12]} merged with "
+                                                    f"main's tip {self.gh.TIP[:12]} .*another base or head"):
+            self.judge()
+
+    def test_a_run_naming_no_tested_tree_is_refused(self):
+        self.snapshot_runs(tree=None)
+        with self.assertRaisesRegex(excuse.Refused, "names no tested tree in its receipt"):
+            self.judge()
+
+    def test_a_head_that_does_not_merge_with_the_base_tip_is_refused(self):
+        self.snapshot_runs()
+
+        def conflicted(repo, head, tip):
+            raise excuse.Refused(f"{head[:12]} does not merge cleanly with the base tip {tip[:12]} (conflicts in: x)")
+        with unittest.mock.patch.object(excuse, "ws_check_squash_tree", conflicted, create=True), \
+                self.assertRaisesRegex(excuse.Refused, "does not merge cleanly"):
             self.judge()
 
     def merge_base_case(self, merge_base_red, *, tip=None):
@@ -5739,6 +6284,117 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckSquashTree(unittest.TestCase):
+    """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
+    to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
+    REPO = "teamleaderleo/leo-workspace"
+
+    # Every fixture git call has an identity, so a commit or a squash merge never depends on the host's git config.
+    IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t"}
+
+    def git(self, *args, cwd=None, text=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.work, check=True, capture_output=True, text=True,
+                              input=text, env=git_fixture_env.fixture_env({**os.environ, **self.IDENTITY})).stdout.strip()
+
+    def commit(self, files, message):
+        for name, body in files.items():
+            path = Path(self.work, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-squash-")
+        self.addCleanup(top.cleanup)
+        self.work = Path(top.name, "work")
+        git_fixture_env.init_repo(self.work, "-b", "main")
+        hosts = json.dumps({"fast_checks_hosts": {self.REPO: {"repo": "manaflow-ai/cmuxterm-hq",
+                                                               "paths": ["tools", "machines"]}}})
+        self.old = self.commit({"machines/lane-gh-broker.json": hosts, "tools/a.py": "a\n", "tools/b.py": "b\n",
+                                "notes/n.md": "not hosted\n"}, "base")
+        self.tip = self.commit({"tools/b.py": "b2\n"}, "main moves")
+        self.git("checkout", "-q", "-b", "pr", self.old)
+        self.head = self.commit({"tools/a.py": "a2\n", "notes/n.md": "pr note\n"}, "the PR")
+        self.git("checkout", "-q", "-b", "other", self.old)
+        self.other = self.commit({"tools/a.py": "a3\n"}, "another PR")
+        self.git("checkout", "-q", "-b", "clash", self.old)
+        self.clash = self.commit({"tools/b.py": "b3\n"}, "conflicts with main")
+        self.top = Path(top.name)
+        cache = Path(top.name, "cache")
+        git_fixture_env.init_repo(cache / "teamleaderleo__leo-workspace.git", "--bare")
+        self.git("push", "-q", str(cache / "teamleaderleo__leo-workspace.git"), "main", "pr", "other", "clash")
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(cache),
+                                                            "GH_MIRROR_ROOT": str(Path(top.name, "no-mirrors"))}),):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def squashed(self, head, tip):
+        """What a pinned squash of HEAD onto TIP lands, cut as the broker cuts its snapshot: tools and machines only."""
+        self.git("checkout", "-q", "--detach", tip)
+        self.git("merge", "-q", "--squash", head)
+        self.git("commit", "-q", "-m", "squash")
+        landed = self.git("rev-parse", "HEAD")
+        return self.git("mktree", text="\n".join(self.git("ls-tree", landed, "--", path)
+                                                   for path in ("tools", "machines")) + "\n")
+
+    def test_a_run_from_another_checkout_with_the_same_head_and_base_is_accepted(self):
+        self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip), self.squashed(self.head, self.tip))
+
+    def test_a_run_against_an_older_base_is_refused(self):
+        older = excuse.ws_check_squash_tree(self.REPO, self.head, self.old)
+        self.assertNotEqual(older, excuse.ws_check_squash_tree(self.REPO, self.head, self.tip))
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older}, self.tip)
+        excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": self.squashed(self.head, self.tip)},
+                                    self.tip)
+
+    def test_a_run_of_a_different_head_is_refused(self):
+        theirs = excuse.ws_check_squash_tree(self.REPO, self.other, self.tip)
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": theirs}, self.tip)
+
+    def test_a_conflicted_merge_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, r"does not merge cleanly .*conflicts in: tools/b\.py"):
+            excuse.ws_check_squash_tree(self.REPO, self.clash, self.tip)
+
+    def test_a_cache_git_commit_filled_shallow_still_merges_by_the_whole_history(self):
+        # dep-fleet-6 on cmux#41386 at 0000f4c0 (F1): git_commit fills the shared cache one commit deep, so both
+        # commits are present while their history is not. Present is not complete: the merge needs the merge-base.
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        remote = lambda repo: self.work.as_uri()  # noqa: E731
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}), \
+                unittest.mock.patch.object(excuse, "git_remote", remote):
+            self.assertEqual(excuse.git_commit(self.REPO, self.head), self.head)
+            self.assertEqual(excuse.git_commit(self.REPO, self.tip), self.tip)
+            cache = shallow / "teamleaderleo__leo-workspace.git"
+            self.assertEqual(self.git("rev-parse", "--is-shallow-repository", cwd=cache), "true")
+            self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip),
+                             self.squashed(self.head, self.tip))
+
+    def test_a_shallow_cache_whose_history_cannot_be_fetched_is_refused(self):
+        shallow = self.top / "shallow-cache"
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(shallow)}):
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: self.work.as_uri()):
+                excuse.git_commit(self.REPO, self.head)
+                excuse.git_commit(self.REPO, self.tip)
+            gone = (self.top / "gone.git").as_uri()
+            with unittest.mock.patch.object(excuse, "git_remote", lambda repo: gone), \
+                    self.assertRaisesRegex(excuse.Refused, "shallow"):
+                excuse.ws_check_squash_tree(self.REPO, self.head, self.tip)
+
+    def test_a_commit_git_cannot_read_is_refused(self):
+        with unittest.mock.patch.object(excuse, "git_remote", lambda repo: str(Path(self.work, "missing.git"))), \
+                self.assertRaisesRegex(excuse.Refused, "git cannot read .* commit 777777777777"):
+            excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
 class WsCheckFixedOnBase(unittest.TestCase):
@@ -6041,6 +6697,11 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
         published.start()
         self.addCleanup(published.stop)
+        # Package.swift and app-ffi-pin.json are read as the classifier reads them, git first (git_answers), never
+        # with git stubbed out (review of cmux#41266 at 8fafe451, F1).
+        self.reads: Counter = Counter()
+        self.fail_second = False
+        self.git_answers()
 
     CHECKSUM = "2" * 64
 
@@ -6097,6 +6758,30 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
             "step-A Rust change, pinned by the release its merge publishes"])
         self.assertEqual(len(self.graphql), 1)
+
+    def duplicate_rollup(self):
+        # #41158's review, F1 at 5fa1ea1d: a second "Fail on any red check", cancelled, beside the failed one. By name
+        # the two are one step, and the pin-only excuse took them as the pin's one red.
+        self.gh.jobs[1]["steps"].append(dict(self.gh.jobs[1]["steps"][-1], conclusion="cancelled"))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_placed(self):
+        self.pr_files(*self.RUST)
+        self.duplicate_rollup()
+        self.assertIsNot(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False,
+                                            **UNKNOWN), excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+
+    def test_review_41158_a_duplicate_rollup_step_is_not_the_pin_only_red_unplaced(self):
+        self.pr_files(*self.RUST)
+        self.gh.logs[1] = self.unplaced_pin_log()
+        self.duplicate_rollup()
+        self.assertIs(excuse.failed_view(self.gh.jobs[1], self.gh.log(REPO, self.gh.jobs[1]), base=False, **UNKNOWN),
+                      excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
 
     def unplaced_pin_log(self, *extra):
         """pin_log with its rollup step run through a composite action (two `Run` headers in one step), so step_owners
@@ -6219,6 +6904,144 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     # app compile passed at its head against that pin.
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def unplaced_rollup_head(self):
+        """cmux#40552's unplaced checks job (RollupJobReadsItsNamedReds' fixture) as this case's head: its whole log
+        sets the pin aside (a passing step's next-batch lines), so the rollup reading asks the pin rule again."""
+        fixtures = ROOT / "tests/fixtures/test_reds"
+        job = json.loads((fixtures / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh.jobs[1] = dict(job, id=1, run_id=10, head_sha=HEAD)
+        self.gh.logs[1] = (fixtures / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8")
+
+    def git_answers(self):
+        """This case's files from the real excuse.git_text, with git itself faked at subprocess.run: a fetch of any
+        ref, then `git show` of Package.swift or app-ffi-pin.json at it, the same text GitHub.blob serves (none when
+        the head has no such file). Each fetch and show counts in self.reads; after self.wire(fail_second=True) a
+        second fetch of a ref fails, as an unreachable remote does."""
+        real_run = subprocess.run
+
+        def run(argv, *args, **kwargs):
+            if not argv or argv[0] != "git":
+                return real_run(argv, *args, **kwargs)
+            answer = subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
+            if "fetch" in argv:
+                key = ("git fetch", argv[-1].lstrip("+").split(":")[0])
+                self.reads[key] += 1
+                answer.returncode = int(self.fail_second and self.reads[key] > 1)
+            elif "rev-parse" in argv:
+                answer.stdout = b"f" * 40 + b"\n"
+            elif "show" in argv:
+                path = argv[-1].split(":", 1)[1]
+                self.reads[("git show", path)] += 1
+                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
+            return answer
+        cache = tempfile.TemporaryDirectory(prefix="bre-git-")
+        self.addCleanup(cache.cleanup)
+        for patch in (unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT),
+                      unittest.mock.patch.object(subprocess, "run", run),
+                      unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: cache.name})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def wire(self, fail_second=False):
+        """Every network entry point of one judgement counted by key in self.reads: gh (this suite's fake client is
+        the gh transport: its json, run, blob and log), git (git_answers), the release downloads
+        (release_download.fetch under the real ffi_release_file) and the compile receipts (urlopen under the real
+        compile_receipt; the fleet has none). FAIL_SECOND: a second read of any key fails, as a 503 does."""
+        import urllib.error
+        self.fail_second = fail_second
+
+        def second(key):
+            self.reads[key] += 1
+            return fail_second and self.reads[key] > 1
+
+        def through(key, read):
+            if second(key):
+                raise excuse.Refused(f"GitHub evidence request failed: HTTP 503 Service Unavailable ({key})")
+            return read()
+        inner_json, inner_run, inner_blob, inner_log = self.gh.json, self.gh.run, self.gh.blob, self.gh.log
+        self.gh.json = lambda route, *, paginate=False: through(("gh api", route, paginate),
+                                                                lambda: inner_json(route, paginate=paginate))
+        self.gh.run = lambda args: through(("gh", *args), lambda: inner_run(args))
+        self.gh.blob = lambda repo, ref, path: through(("graphql blob", ref, path), lambda: inner_blob(repo, ref, path))
+        self.gh.log = lambda repo, job: through(("gh log", job["id"]), lambda: inner_log(repo, job))
+
+        def fetch(url, out, accept=None, timeout=120):
+            if second(("release", url)):
+                raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+            if url.startswith("https://api.github.com/"):  # the release-assets API: no such asset
+                Path(out).write_text('{"assets": []}')
+                return
+            tag, name = url.rsplit("/", 2)[1:]
+            text = self.release_file(REPO, tag, name)
+            if text is None:
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            Path(out).write_text(text)
+
+        def urlopen(request, timeout=None):
+            url = getattr(request, "full_url", request)
+            raise urllib.error.HTTPError(url, 503 if second(("urlopen", url)) else 404, "receipt", {}, None)
+        for patch in (unittest.mock.patch.object(excuse, "ffi_release_file", REAL_FFI_RELEASE_FILE),
+                      unittest.mock.patch.object(excuse.release_download, "fetch", fetch),
+                      unittest.mock.patch.object(excuse, "compile_receipt", REAL_COMPILE_RECEIPT),
+                      unittest.mock.patch.object(urllib.request, "urlopen", urlopen)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return self.reads
+
+    def release_url(self, name):
+        return f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/{name}"
+
+    def test_review_f1_a_second_read_of_a_proven_published_pin_never_overturns_it(self):
+        # Review of cmux#41151 at bfa0db5f (F1): a Swift change's pin is a published base release it compiled against.
+        # The whole-log reading proves it and sets the pin aside; the rollup reading asks the pin rule again, and its
+        # second read of the release files got a 503, refusing what the first proof had excused. Review of cmux#41266
+        # at 8fafe451 (F1): the same through git, whose second fetch failed, then GraphQL's 503.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.wire(fail_second=True)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}", said[0])
+        self.assertEqual(reads[("release", self.release_url("SOURCE_SHA"))], 1)
+        self.assertEqual(reads[("git show", excuse.FFI_PIN_MANIFEST)], 1, "Package.swift is read through git")
+
+    def test_one_judgement_reads_each_source_once(self):
+        # The class: every network entry point an excuse path reads (gh api, GraphQL, a job's log, git, the release
+        # downloads, the compile receipts) is read once per judgement, however many paths ask. A reader added
+        # outside the memo fails here on its own.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.wire()
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}'"))
+        self.assertEqual({key: n for key, n in reads.items() if n > 1}, {})
+        self.assertTrue({"gh api", "gh", "gh log", "git fetch", "git show", "release"}
+                        <= {key[0] for key in reads}, sorted(reads))
+        # A new judgement reads afresh: nothing is kept past the judgement that read it.
+        self.judge()
+        self.assertEqual(reads[("release", self.release_url("SOURCE_SHA"))], 2)
+
+    def test_review_f1_a_failed_compile_job_read_falls_back_to_the_status(self):
+        # Review of cmux#41151 at fd50c9b7 (F1), the same class: compile_pass_at's first source (the head's check runs)
+        # is one way to know; a 503 on it moves on to the cmux-next/compile status, which says it compiled.
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        inner = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                raise excuse.Refused("gh: Service Unavailable (HTTP 503)")
+            return inner(route, paginate=paginate)
+        self.gh.json = json
+        self.assertIn(f"the cmux-next/compile status compiled {HEAD} against that pin and passed", self.judge()[0])
+        # No source passes and one was unread: refused naming it, never read as "did not compile".
+        self.statuses = []
+        with self.assertRaisesRegex(excuse.Refused, "its compile jobs \\(gh: Service Unavailable"):
+            self.judge()
 
     def test_a_step_b_pin_on_the_base_that_compiled_is_excused(self):
         # cmux#37428 at 872fe1e7: Swift and a pin of cmux-app-ffi-1f63d516, which other PRs' Rust has since passed.
@@ -7113,15 +7936,18 @@ class FailingStepLogOnly(unittest.TestCase):
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
     # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
-    VENDORED_FINGERPRINT = "b25a8e4f61d1d373e53ae5fe0797484f4adf9c6cf104dda2d1472f1e8af5a61a"
+    # Its helpers are copied with it (_aligned_starts reads a StepNames' headers alone, so with STEP_NAMES_UNKNOWN a
+    # copy places exactly what it placed before).
+    VENDORED_FINGERPRINT = "01f6a87409fcacc05dc661db008c33ed272825f36c4921bca3daeb816fd37280"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
         import inspect
         parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "STEP_START", "SECTION_RED")]
-        parts += [str(excuse.STEP_OWNERS_MAX_LINES)]
+        parts += [str(excuse.STEP_OWNERS_MAX_LINES), str(excuse.ALIGN_MAX_STARTS)]
         parts += [inspect.getsource(getattr(excuse, name))
-                  for name in ("lines_of", "_stamp_time", "step_owners", "failed_steps_log")]
+                  for name in ("lines_of", "_stamp_time", "step_owners", "_live_red", "_line_time",
+                               "_one_to_one_starts", "_aligned_starts", "failed_steps_log")]
         parts += [repr(excuse.STEP_NAMES_UNKNOWN)]  # the sentinel step_owners requires when no workflow is read
         self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
                          "step_owners or failed_steps_log changed: copy them to cmuxterm-hq "
@@ -7517,32 +8343,39 @@ class StepOwnership(unittest.TestCase):
     def test_ten_thousand_step_starts_are_placed_in_linear_time(self):
         # LW#4181's Codex P2: a log with 10,000 `##[group]Run` lines took 21.6 s to place (each start rescanned every
         # block after it), and hq#8962's F2: 10,000 named steps took 0.62 s (each header rescanned every step's times).
-        # Placing is one pass: 10,000 unnamed steps and 10,000 named steps, each with its header in its own second,
-        # and one step printing 10,000 headers (not one to one, so nothing is placed), each in well under half a
-        # second.
-        import time
-
-        def shape(named):
-            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == 7_000 else "success",
-                      10 + n, 10 + n) for n in range(10_000)]
+        # Placing is one pass: unnamed steps and named steps, each with its header in its own second, and one step
+        # printing that many headers (not one to one, so nothing is placed). Each is placed right at N and 4N (2,500
+        # and 10,000 steps; 10,000 and 40,000 headers in one step), and 4N costs well under quadratic in N
+        # (scaling_ratio). No wall-clock bound: a loaded host broke the 0.5 s one in a full run (#41236's review). No
+        # _aligned_starts cost is in it: with no workflow headers (UNKNOWN) that reading returns at once
+        # (AlignedStartsIsLinear times it).
+        def shape(named, count):
+            red = count * 7 // 10
+            steps = [(f"Case {n}" if named else f"Run case {n}", "failure" if n == red else "success",
+                      10 + n, 10 + n) for n in range(count)]
             lines = [(name, start, f"##[group]Run case {n}") for n, (name, _, start, _) in enumerate(steps)]
-            lines.insert(7_001, (steps[7_000][0], 10 + 7_000 + 0.7, NEW_RED))
+            lines.insert(red + 1, (steps[red][0], 10 + red + 0.7, NEW_RED))
             lines.insert(3, (steps[2][0], 12.7, NEGATIVE_CASE))
             return steps, lines
-        one = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
-        flood = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
-                 *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(10_000)), ("Tests", 39, NEW_RED)]
-        for label, (steps, text), want in (("10,000 unnamed steps", shape(False), (excuse.FAILED, excuse.PASSED)),
-                                           ("10,000 named steps", shape(True), (excuse.FAILED, excuse.PASSED)),
-                                           ("one step's 10,000 headers", (one, flood), (excuse.AMBIGUOUS,) * 2)):
-            job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
-            started = time.perf_counter()
-            owned = excuse.step_owners(job, log_text, **UNKNOWN)
-            took = time.perf_counter() - started
-            said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+
+        def flood(count):
+            return ([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)],
+                    [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE),
+                     *(("Tests", 20 + n / 1000, f"##[group]Run case {n}") for n in range(count)),
+                     ("Tests", 39, NEW_RED)])
+        for label, make, n, want in (
+                ("unnamed steps", lambda count: shape(False, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("named steps", lambda count: shape(True, count), 2_500, (excuse.FAILED, excuse.PASSED)),
+                ("one step's headers", flood, 10_000, (excuse.AMBIGUOUS,) * 2)):  # cheaper per header: more of them
             with self.subTest(shape=label):
-                self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want)
-                self.assertLess(took, 0.5, f"step_owners took {took:.2f} s for {label}")
+                def build(count):
+                    steps, text = make(count)
+                    job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
+                    owned = excuse.step_owners(job, log_text, **UNKNOWN)
+                    said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
+                    self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want, f"{count:,} {label}")
+                    return lambda: excuse.step_owners(job, log_text, **UNKNOWN)
+                assert_scales(self, build, n, f"step_owners for {label}")
 
     def test_every_case_has_its_test(self):
         self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
@@ -8109,11 +8942,14 @@ class LocalCompositeCannotPose(unittest.TestCase):
     step of the jobs API, so it never shifts the order its marks rely on, and its inner steps' `##[group]Run ...` lines
     never become another step's header. Here a failing composite's inner step is named exactly like the header of the
     unnamed step after it (`Run swift test`), which the workflow proves unnamed, so its header text alone would fit.
-    - With several inner `Run` lines and the sibling's own header, there are more headers than steps: nothing is
-      placed (every line AMBIGUOUS), and the red is refused.
+    - With several inner `Run` lines and the sibling's own header, there are more headers than steps. The one-to-one
+      reading places nothing; the workflow's headers (_aligned_starts) place it, and the inner `Run swift test` line
+      (in the composite's times alone) stays the composite's: only the sibling's own header and echo are the sibling's.
     - With one inner `Run` line and a silent sibling (the counts balance), the inner line's stamp lies in the
-      composite's window: inside it alone, it is not in the sibling's; in the second they share, it is in two windows.
-      Either way nothing is placed, and no line is ever the sibling's."""
+      composite's window: inside it alone, it is not in the sibling's; in the second they share, it fits the
+      sibling's times and header, but the failed composite's section would then have no `##[error]` line, which a
+      failed step without `continue-on-error` always prints. Either way nothing is placed, and no line is ever the
+      sibling's."""
 
     NAME = "cmux-next swift checks"
     PATH = ".github/workflows/cmux-next.yml"
@@ -8186,6 +9022,18 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     # The composite does not stop the marks: the workflow proves the sibling unnamed.
                     self.assertEqual(names, {2: False, 3: True, 4: False})
                     owned = excuse.step_owners(job, log_text, step_names=names)
+                    if several:
+                        # Placed by the workflow's headers: the composite keeps its inner lines and its red.
+                        said = {(excuse.lines_of(line)[0], excuse.STAMP.search(line.split("\t")[-1]).group()[17:19]):
+                                (index, status) for line, index, status in owned}
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(NEW_RED, "15")], (2, excuse.FAILED))
+                        self.assertEqual(said[(f"##[group]{self.SIBLING}", "20")], (3, excuse.PASSED))
+                        self.assertEqual(sum(1 for _, index, _ in owned if index == 3), 2)
+                        said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps)))
+                        self.assertIn(f"excused '{self.NAME}'", said)
+                        self.assertNotIn("compared whole", said)
+                        continue
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
                     self.assertIs(excuse.failed_view(job, log_text, base=True, step_names=names), excuse.UNPLACED)
@@ -8385,7 +9233,8 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
+    "owned_unnamed"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -8393,6 +9242,7 @@ STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
 # may: it reads it into a failed_view, or only refuses, or reads evidence that is not a step's section. A new one fails
 # the scan until it is listed here or reads a failed_view instead.
 RAW_LOG_READERS = {
+    "generated_stale_host": "only the shared generated-files check's own one error line, to name its host; compares nothing",
     "failed_view": "the one reader: the owned non-passed sections, or UNPLACED",
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
@@ -8407,14 +9257,16 @@ RAW_LOG_READERS = {
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
     "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
     "web_test_verdict": "per-test webview verdicts from run-webviews-tests.sh's own per-file blocks",
+    "rollup_log_reds": "the rollup's `##[error]red check:` lines its annotations are made from, with its own count",
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
-NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+# unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read", "unjudged"})
 
 
 def raw_log_reads(source, next_batch_source=None):
@@ -8597,6 +9449,128 @@ class UnplacedGitHub(FakeGitHub):
         self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
 
 
+class PrOnlyStepGitHub(FakeGitHub):
+    """cmux#41046 at b329575b: head 'cmux-next daemon tests' (job 1, run 10) fails its live suites and 'Regenerate
+    stale files'; the base's newest verdict of the job (job 2, run 20) fails the live suites and skips the
+    regeneration; the base tier (job 3, run 21) fails 'Regenerate stale files' in 'cmux-next generated files'."""
+
+    DAEMON, GEN, SHARED = "cmux-next daemon tests", "cmux-next generated files", excuse.GENERATED_VERDICT_JOB
+    LIVE, REGEN = "Run the live-daemon suites", "Regenerate stale files"
+    QUIT = "✘ Test keepLeavesTheDaemon() failed after 1.000 seconds with 1 issue."
+    MENU = ("✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: "
+            "Expectation failed: (rows.count → 14) <= (cap → 13)",
+            "✘ Test everyMenuKeepsAShortTopLevel() failed after 0.559 seconds with 1 issue.",
+            "##[error]the action exports could not be regenerated")
+
+    def __init__(self, menu=MENU, base_regen=None, shared=True, gen_menu=MENU):
+        super().__init__()
+
+        def job(job_id, run, sha, name, steps):
+            return {"id": job_id, "run_id": run, "head_sha": sha, "name": name, "status": "completed",
+                    "conclusion": "failure", "steps": [{"name": "Set up runner", "status": "completed",
+                                                         "conclusion": "success"}]
+                    + [{"name": step, "status": "completed", "conclusion": state} for step, state in steps]}
+        self.jobs = {1: job(1, 10, HEAD, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, "failure")]),
+                     2: job(2, 20, BASE_SHA, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, base_regen)]),
+                     3: job(3, 21, BASE_SHA, self.GEN, [(self.REGEN, "failure")])}
+        self.logs = {1: unplaced_log(self.DAEMON, self.LIVE, self.QUIT) + "\n" + log(self.DAEMON, self.REGEN, *menu),
+                     2: unplaced_log(self.DAEMON, self.LIVE, self.QUIT),
+                     3: log(self.GEN, self.REGEN, *gen_menu)}
+        if shared:
+            self.jobs[4] = job(4, 10, HEAD, self.SHARED, [("Read the generated files verdict of the shared build",
+                                                           "failure")])
+            self.logs[4] = log(self.SHARED, "Read the generated files verdict of the shared build",
+                               "##[error]Generated cmux-next files are stale. daemon-test's step summary says how to "
+                               "regenerate them; its cmux-next-generated-patch artifact holds the regenerated files.",
+                               "##[error]Process completed with exit code 1.")
+        self.base_runs = [{"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T07:02:30Z"},
+                          {"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T06:58:50Z"}]
+
+
+class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
+    """2026-11-11: a pull request's 'cmux-next daemon tests' runs 'Regenerate stale files', which base pushes run in
+    'cmux-next generated files' instead; its only red there was the base's everyMenuKeepsAShortTopLevel()."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_step_the_base_job_skips_failing_only_another_base_jobs_tests_is_excused(self):
+        said = self.judge(PrOnlyStepGitHub())
+        self.assertIn("never run in feat-cmux-next run 20's 'cmux-next daemon tests'", said)
+        self.assertIn("everyMenuKeepsAShortTopLevel()", said)
+        self.assertIn("run 21's 'cmux-next generated files'", said)
+        # The shared check's stale verdict is its host's, excused with it.
+        self.assertIn(f"excused '{excuse.GENERATED_VERDICT_JOB}': its one red is the 'stale' verdict", said)
+
+    def test_a_green_base_verdict_that_skipped_the_step_still_excuses_it(self):
+        # The deadlock (cmux#41086, #40991 on 2026-11-11): the base's daemon job passed and skipped 'Regenerate stale
+        # files'; the head failed only that step, on the base tier's menu-cap test.
+        github = PrOnlyStepGitHub()
+        github.jobs[1]["steps"] = [step for step in github.jobs[1]["steps"] if step["name"] != PrOnlyStepGitHub.LIVE]
+        github.logs[1] = unplaced_log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.REGEN, *PrOnlyStepGitHub.MENU)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success" if step["name"] == PrOnlyStepGitHub.LIVE
+                                          else step["conclusion"]) for step in github.jobs[2]["steps"]])
+        github.base_runs[1]["conclusion"] = "success"
+        said = self.judge(github)
+        self.assertIn("never run in feat-cmux-next run 20's", said)
+        # A head red in a step the green verdict ran is the PR's own.
+        github.jobs[1]["steps"].append({"name": PrOnlyStepGitHub.LIVE, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.LIVE, PrOnlyStepGitHub.QUIT)
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_a_test_no_base_job_fails_is_the_prs_own(self):
+        mine = ("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",) + PrOnlyStepGitHub.MENU
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_an_error_line_no_base_job_prints_is_the_prs_own(self):
+        mine = PrOnlyStepGitHub.MENU + ("##[error]a new export error",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(base_regen="success"))
+
+    def test_without_a_failing_test_nothing_is_matched(self):
+        # Matching test IDs only: an extra step whose red names no test is never excused by another job.
+        only = ("##[error]the action exports could not be regenerated",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=only, gen_menu=only))
+
+    def test_a_base_red_from_before_a_newer_pass_of_that_job_never_counts(self):
+        # #41253's review: once base fixes the menu cap ('cmux-next generated files' passes in a newer run), its older
+        # red must not excuse a PR that breaks the menu again.
+        github = PrOnlyStepGitHub()
+        github.jobs[5] = {"id": 5, "run_id": 22, "head_sha": BASE_SHA, "name": PrOnlyStepGitHub.GEN,
+                          "status": "completed", "conclusion": "success",
+                          "steps": [{"name": PrOnlyStepGitHub.REGEN, "status": "completed", "conclusion": "success"}]}
+        github.base_runs.insert(0, {"id": 22, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                                    "created_at": "2026-11-11T07:10:00Z"})
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(github)
+
+    def test_a_head_log_that_says_tests_failed_unnamed_is_the_prs_own(self):
+        # #41253's review: a runner line saying tests failed with none named could hide a red no test ID matches.
+        # The shared reading (test_reds.read, #41244) refuses it first, before the PR-only step reading is reached.
+        with self.assertRaisesRegex(excuse.Refused, "names none|a failure no parser names is never a base red"):
+            self.judge(PrOnlyStepGitHub(menu=PrOnlyStepGitHub.MENU + (" 1 fail",)))
+
+    def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
+        github = PrOnlyStepGitHub(menu=("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",))
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(github)
+        self.assertNotIn("its one red is the 'stale' verdict", str(caught.exception))
+        self.assertIsNone(excuse.generated_stale_host("##[error]The action catalog checks fail on daemon-test"))
+
+
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
     """2026-11-11: every red in 'cmux-next checks' (cmux#40954) and the CmuxMobileKit tests (cmux#40598 at ea17b848,
     #40664 at bec7c32b) was refused because a composite action's log does not map onto its steps. Compared whole,
@@ -8666,6 +9640,31 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, red, red))
         self.assertEqual(len(asked), 1)
 
+    def test_a_compiler_warnings_quoted_source_is_no_error_line(self):
+        # cmux#41046: the base's build quoted a warning's source 11 times, the head's 6.
+        quote = ["53 |     static func interrupted(_ error: Error) -> Bool {",
+                 "   |                                      `- warning: use of protocol 'Error' as a type"]
+        red = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, quote + red, quote * 2 + red))
+        self.assertIn("compared whole", said)
+
+    def test_the_daemon_tests_live_suites_red_the_base_shares_is_excused(self):
+        # cmux#40598 at b22f9eff (run 42972264329): 'Run the live-daemon suites' red the same way on base run
+        # 42976173821; the daemon job's log is unplaced.
+        daemon, live = "cmux-next daemon tests", "Run the live-daemon suites"
+        red = ["✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() recorded an issue at "
+               "QuitSessionsTests.swift:18:13: Expectation failed: (hosts.count → 2) == 1",
+               "✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() failed after 205.578 seconds with 1 issue.",
+               "✘ Test endTerminalsShutdownRepliesOnTheSubscribedSocket() failed after 1.746 seconds with 1 issue.",
+               "##[error]2 red tests: keepLeavesTheDaemonAndTerminalsForTheNextLaunch() QuitSessionsTests.swift:18; "
+               "endTerminalsShutdownRepliesOnTheSubscribedSocket() BranchTeardownTests.swift:59"]
+        said = self.judge(UnplacedGitHub(daemon, live, red, red))
+        self.assertIn(f"excused '{daemon}': its log does not map onto its steps, so it was compared whole", said)
+        # One more failing test on the head is its own.
+        mine = red + ["✘ Test aNewDaemonTest() failed after 1.000 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*aNewDaemonTest"):
+            self.judge(UnplacedGitHub(daemon, live, mine, red))
+
     def test_tests_that_differ_only_in_a_digit_are_different_tests(self):
         head = ["✘ Test test2() failed after 1.000 seconds with 1 issue."]
         base = ["✘ Test test3() failed after 1.000 seconds with 1 issue."]
@@ -8727,6 +9726,42 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(kit(listing + ["** TEST FAILED **"] + listing, listing))
         self.assertIn("compared whole", self.judge(kit(listing, listing)))
 
+    def test_review_41158_f2_an_xcresult_line_and_each_listing_entry_both_count(self):
+        # #41158's review F2: a listing entry counted only when no line named its test alone, so with an xcresult
+        # `FAILED:` line naming it, two listings at the head matched the base's one.
+        failed = ["FAILED: CmuxMobileKit / KitTests / KitTests / reconnectsAfterSleep()"]
+        listing = ["Failing tests:", "KitTests.reconnectsAfterSleep()"]
+
+        def kit(head, base):
+            github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base)
+            framed = github.log  # xcodebuild's tab before each entry, as in the #41129 F2 test above
+            github.log = lambda repo, job: framed(repo, job).replace("Z KitTests.", "Z \tKitTests.")
+            return github
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*reconnectsAfterSleep"):
+            self.judge(kit(failed + listing + ["** TEST FAILED **"] + listing, failed + listing))
+        self.assertIn("compared whole", self.judge(kit(failed + listing, failed + listing)))
+
+    def test_review_41158_f1_bun_failures_are_named_in_a_whole_log_comparison(self):
+        # #41158's review F1: failed_names read no bun `(fail)` line, so a new head failure and an unrelated base
+        # flake, both under one `expect()` headline, gave empty test counters and the same error lines: excused.
+        def bun(test):
+            return ["bun test v1.3.0", "test/agent-pane.test.tsx:", "error: expect(received).toBe(expected)",
+                    "Expected: true", "Received: false", f"(fail) agent pane > {test} [1.20ms]", " 0 pass", " 1 fail"]
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*keeps its draft"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, bun("keeps its draft"), bun("scrolls to end")))
+        self.assertIn("compared whole", self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP,
+                                                                  bun("keeps its draft"), bun("keeps its draft"))))
+
+    def test_review_41158_f1_a_failure_count_no_test_is_named_by_is_never_compared_whole(self):
+        # The rest of #41158's review F1: a runner that says tests failed and whose failures no parser names leaves
+        # nothing to tell them apart, so the whole-log fallback refuses rather than excuse on the error lines alone.
+        for marker in (" 2 fail", "FAIL test/agent-pane.test.tsx (limit 120s)", "test result: FAILED. 3 passed; 1 failed",
+                       "FAILED (failures=1)", "Executed 4 tests, with 1 failure (0 unexpected) in 0.2 (0.3) seconds"):
+            with self.subTest(marker=marker):
+                said = ["error: expect(received).toBe(expected)", marker]
+                with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names"):
+                    self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
+
     def test_a_base_that_fails_more_is_not_enough_either(self):
         # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
         # head's failures are only those (a red the base hides could be the PR's).
@@ -8738,8 +9773,24 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
     def test_another_failed_step_is_the_prs_own(self):
         github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["##[error]x"], ["##[error]x"])
         github.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
-        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \[.swift test \(macOS\).\] are not"):
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(failure\)\) are not"):
             self.judge(github)
+
+    def test_review_41158_f1_a_failed_step_is_keyed_by_name_and_conclusion_with_counts(self):
+        # #41158's review F1: failed steps were a set of names, so a cancelled step matched the base's failure and a
+        # step that failed twice matched the base's one.
+        red = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
+        cancelled = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)
+        cancelled.jobs[1]["steps"][2]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(cancelled\)\) are not "
+                                                    r".*\(swift test \(macOS\) \(failure\)\)"):
+            self.judge(cancelled)
+        twice = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)
+        twice.jobs[1]["steps"].append(dict(twice.jobs[1]["steps"][2]))
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(swift test \(macOS\) \(failure\) x2\) are not"):
+            self.judge(twice)
+        # The same steps, conclusions and counts are still excused.
+        self.assertIn("swift test (macOS) (failure)", self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, red, red)))
 
     def test_a_line_the_base_printed_from_a_passing_step_is_still_new_in_the_failing_one(self):
         # #40542's Codex BLOCK, whole: the base's passing negative case prints the error the head's failing step now
@@ -9156,6 +10207,344 @@ class LoadedModuleList(unittest.TestCase):
 # judge() refused it as "errors not on feat-cmux-next any of runs ...". fixed_on_base_by_step judges the failing steps
 # alone, keyed by (workflow, job, step): base run 20 (at NEWER, after the merge-base) is the newest base verdict, base
 # run 19 (at the merge-base, created before its commit time) the verdict the PR was built on.
+class FailedStepIdentity(unittest.TestCase):
+    """#41158's review F1, placed: compare_window matched failed steps by name, so a head step the runner cancelled
+    was excused by a base whose step of that name failed, the same tests named."""
+
+    def test_a_cancelled_step_is_not_the_bases_failure(self):
+        self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], FakeGitHub())[0].startswith("excused "))
+        github = FakeGitHub()
+        github.jobs[1]["steps"][2]["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next run 20 with the same "
+                                                    r"conclusion, as often: Run package tests \(cancelled\)"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_step_failed_twice_is_not_the_bases_one_failure(self):
+        github = FakeGitHub()
+        github.jobs[1]["steps"].append(dict(github.jobs[1]["steps"][2]))
+        with self.assertRaisesRegex(excuse.Refused, r"Run package tests \(failure\) x2"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class OneVerdictCoversTheHeadsIdentity(unittest.TestCase):
+    """#41166's review F1 (found again by tests/test_base_red_excuse_property.py, seed 37): compare_window merged the
+    failed-step keys of the whole window (Counter |), so a head whose "Run package tests" failed and a second one was
+    cancelled matched the newest base verdict's failure and an older one's cancel: an identity no base run had. Each
+    verdict is compared alone."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        steps = self.gh.jobs[1]["steps"]
+        steps.append(dict(steps[2], conclusion="cancelled"))
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE)
+        self.gh.base_runs = []
+
+    def base(self, run_id, hour, conclusions):
+        self.gh.base_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                  "created_at": f"2026-11-11T{hour:02d}:00:00Z"})
+        job = failed_job(run_id, run_id, BASE_SHA)
+        job["steps"] = job["steps"][:2] + [dict(job["steps"][2], conclusion=c) for c in conclusions]
+        self.gh.jobs[run_id] = job
+        self.gh.logs[run_id] = log(SWIFT, TEST_STEP, ISSUE)
+
+    def test_a_failure_and_a_cancel_split_over_two_verdicts_is_not_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["cancelled"])
+        with self.assertRaisesRegex(excuse.Refused, r"failed steps not on feat-cmux-next any of runs 30, 29 with the "
+                                                    r"same conclusion, as often, each verdict alone"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_one_verdict_with_both_is_still_excused(self):
+        self.base(30, 12, ["failure"])
+        self.base(29, 11, ["failure", "cancelled"])
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+class EveryReportedFailureIsNamed(unittest.TestCase):
+    """#41166's review F2 (found again by tests/test_base_red_excuse_property.py, seeds 7 and 12): an unnamed failure
+    was recorded only when no failing test was named at all, and the placed comparison never asked, so a log with one
+    parsed name and one failure no parser reads (a cargo doc test) was excused as if fully identified. Whenever a
+    runner reports more failures than it names, the red is refused, placed or whole."""
+
+    CARGO = ["running 2 tests", "test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+             "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_placed(self):
+        github = FakeGitHub()
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *self.CARGO)
+        with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        # Every failure named, the same on the base: excused as before.
+        named = [line for line in self.CARGO if "src/lib.rs" not in line]
+        named[-1] = named[-1].replace("2 failed", "1 failed")
+        github.logs[1] = github.logs[2] = log(SWIFT, TEST_STEP, *named)
+        self.assertTrue(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0].startswith("excused "))
+
+    def test_whole_log(self):
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                         UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
+
+
+def bun_lines(results=(), recap=(), fail=None):
+    """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
+    out = ["bun test v1.3.0", "test/a.test.ts:"]
+    for title in results:
+        out += ["error: expect(received).toBe(expected)", f"(fail) {title} [1.00ms]"]
+    if recap:
+        out += [f"{len(recap)} test{'s' if len(recap) != 1 else ''} failed:", *(f"(fail) {t}" for t in recap)]
+    return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
+
+
+class UnnamedFailureRefusedInTheSharedReading(unittest.TestCase):
+    """#41222's review, earlier F1: "Move the refusal into the shared path every consumer goes through ... Cover each
+    entry point (classify, read, expand_job)". test_reds.read() records a failure no parser names as results that are
+    not whole, so read_head refuses it for every judge() path (placed, whole-log, fixed on base, per step, quarantine,
+    per-test), and the command line with it; next_batch's expand_job keys it as the job's own
+    (tests/test_next_batch.py)."""
+
+    UNNAMED = ["test src/lib.rs - parse (line 3) ... FAILED",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_the_fixed_on_base_path(self):
+        github = KitFixedOnBaseGitHub()
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .*test result: FAILED"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_the_command_line(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = framed_log(kit_lines(*((KIT_STEP, 19, line) for line in self.UNNAMED)), KIT)
+        err = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", lambda: github), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 1, err.getvalue())
+        self.assertIn("reports more failing tests than it names", err.getvalue())
+
+
+class PassingStepsNamePassingStepsOnly(unittest.TestCase):
+    """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
+    "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red. Filter Bun's unnamed markers by step
+    ownership, the same rule as #41241". read_head and next_batch's expand_job read a placed red's unnamed failures
+    from its failed sections alone (owned_unnamed)."""
+
+    NEGATIVE = ["bun test v1.3.0", "test/negative.test.ts:", "error: expect(received).toBe(expected)",
+                "(fail) negative > reports a red [1.00ms]", " 0 pass", " 2 fail"]
+
+    def head(self, step):
+        """KIT's red with NEGATIVE printed, in log order, by STEP: the passing build step or the failed test step."""
+        lines = kit_lines()
+        at = 1 if step == KIT_BUILD else len(lines) - 1
+        return framed_log(lines[:at] + [(step, 5 if step == KIT_BUILD else 19, line) for line in self.NEGATIVE]
+                          + lines[at:], KIT)
+
+    def test_a_passing_steps_bun_count_never_refuses_the_inherited_red(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] = self.head(KIT_BUILD)
+        self.assertIn("fixed on base", excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)[0])
+        # Printed by the failed step, the same count is the red's own.
+        github.logs[1] = self.head(KIT_STEP)
+        with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names .* 2 fail"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+class BunRecapAndRetryCounts(unittest.TestCase):
+    """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
+    identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker. I reproduced `judge()`
+    excusing this against a one-failure base in both comparison paths." And F2 (test_reds.py:493): "A first attempt
+    reporting two failures while naming one remains refused after a fully named retry matching the base"."""
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    BASE_RECAP = bun_lines(recap=["a > one"], fail=1)
+    RETRIED = bun_lines(results=["a > one"], fail=2) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+    # The base's file failed twice too, named both times: the whole-log comparison counts both attempts' error lines.
+    BASE_ONE = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(results=["a > one"])
+
+    def placed(self, head, base):
+        github = FakeGitHub()
+        github.logs[1], github.logs[2] = log(SWIFT, TEST_STEP, *head), log(SWIFT, TEST_STEP, *base)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def whole(self, head, base):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10],
+                            UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_f1_duplicate_recap_titles_are_two_failures_placed_and_whole(self):
+        # #41222's review F1 at 6719ba22: "a head with 2 failures is excused against a base with 1 ... Count identities
+        # with multiplicity: a name failing twice is 2." Refused against one; the same twice on the base is excused.
+        for path, why in ((self.placed, "more often than on any of .*a > one x2 \\(at most x1\\)"),
+                          (self.whole, "failing tests are not .*more on this head: a > one")):
+            with self.subTest(path=path.__name__):
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    path(self.HEAD_RECAP, self.BASE_RECAP)
+                self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
+                self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
+
+    def test_a_recap_only_retry_counts_its_titles_once_placed_and_whole(self):
+        # #41329's review F1: two attempts that each recap `a > one` counted it twice, refused against a base that
+        # failed it once. The retry drops the superseded attempt's recap titles too.
+        retried = self.BASE_RECAP + ["--- retry, alone ---"] + self.BASE_RECAP
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(retried, self.BASE_RECAP)[0].startswith("excused "))
+                with self.assertRaisesRegex(excuse.Refused, "a > one"):
+                    path(self.HEAD_RECAP + ["--- retry, alone ---"]
+                         + self.HEAD_RECAP, self.BASE_RECAP)
+
+    def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
+        # The same rule for a name its results print twice: the placed path compared the window by name alone.
+        twice = bun_lines(results=["a > one", "a > one"])
+        with self.assertRaisesRegex(excuse.Refused, "more often than on any of .*a > one x2 \\(at most x1\\)"):
+            self.placed(twice, bun_lines(results=["a > one"]))
+        self.assertTrue(self.placed(twice, twice)[0].startswith("excused "))
+
+    def test_f2_a_fully_named_retry_is_judged_alone_placed_and_whole(self):
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(self.RETRIED, self.BASE_ONE)[0].startswith("excused "))
+                unnamed_retry = bun_lines(results=["a > one"]) + ["--- retry, alone ---"] + bun_lines(
+                    results=["a > one"], fail=2)
+                with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
+                    path(unnamed_retry, self.BASE_ONE)
+
+
+
+class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
+    """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
+    recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base
+    alone excuses it, yet the combined window does. For each test, require the identity, diagnostic and count to all
+    hold on one verdict." """
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    NEWEST = bun_lines(recap=["a > one"], fail=1)
+    # bun with no file header names its results by title alone, as the recap does: the same test, its own error.
+    OLDER = ["bun test v1.3.0", "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]",
+             "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+
+    def judge(self, *bases):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, *self.HEAD_RECAP)
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                     "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            github.jobs[run] = failed_job(run, run, BASE_SHA)
+            github.logs[run] = log(SWIFT, TEST_STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_each_base_alone_refuses_it(self):
+        for bases in ((self.NEWEST,), (self.OLDER,)):
+            with self.subTest(base=bases[0][-1]), self.assertRaises(excuse.Refused):
+                self.judge(*bases)
+
+    def test_the_window_does_not_combine_one_verdicts_identity_with_anothers_count(self):
+        with self.assertRaisesRegex(excuse.Refused, "a > one x2"):
+            self.judge(self.NEWEST, self.OLDER)
+
+    def test_one_verdict_with_all_three_still_excuses(self):
+        said = self.judge(self.NEWEST, self.HEAD_RECAP)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+
+class SplitSectionsAreNeverJudgedAgain(unittest.TestCase):
+    """#41329's review follow-up F3 (base_red_excuse.py:1487): "re-parsing the concatenated failed sections runs
+    passed_steps again, so a failed section with no ##[error] can be read as passing and its unnamed Bun count dropped.
+    Parse each failed section on its own, and never re-judge pass or fail on text that's already been split." A
+    FailedView's text is a test_reds.Steps: each section is read as the failed step it was placed as."""
+
+    def sections(self):
+        echo = lambda script: [f"2026-11-11T12:00:0{n}.0Z {line}" for n, line in enumerate(
+            [f"##[group]Run {script}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"])]
+        # A failed step that printed no `##[error]` (the jobs API says it failed), then the step that did.
+        quiet = echo("bun test test/a.test.ts") + [f"2026-11-11T12:00:05.0Z {line}" for line in
+                                                     bun_lines(results=["a > one"], fail=2)]
+        loud = echo("cargo test") + [f"2026-11-11T12:00:09.0Z {line}" for line in (
+            "test tests::reconnects ... FAILED",
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+            "##[error]Process completed with exit code 101.")]
+        return quiet, loud
+
+    def view(self):
+        quiet, loud = self.sections()
+        steps = [{"name": "bun", "conclusion": "failure"}, {"name": "cargo", "conclusion": "failure"}]
+        return excuse.FailedView({"id": 1, "steps": steps}, False, steps,
+                                 [(0, "FAILED", quiet), (1, "FAILED", loud)])
+
+    def test_a_failed_sections_bun_count_is_kept_without_an_error_line(self):
+        view = self.view()
+        own = excuse.owned_unnamed(excuse.test_reds.read("\n".join(sum(self.sections(), []))), view)
+        self.assertEqual(own.unnamed, [" 2 fail"])
+        self.assertTrue(any(why.startswith(excuse.test_reds.UNNAMED_WHY) for why in own.truncated), own.truncated)
+        unnamed: list = []
+        excuse.test_reds.failed_in(excuse.view_text(view), unnamed)
+        self.assertEqual(unnamed, [" 2 fail"])
+
+
+class GuardCrashIsNotItsFinding(unittest.TestCase):
+    """hq#9218: the test-integrity guard (`deleted-or-weakened-tests`) prints each `--strict` finding as an `::error`
+    naming its kind and path, and its workflow says "the guard itself failed" when it crashed. A crash and a finding,
+    or findings on two files, are different reds and never excuse each other; the same crash on both sides is the
+    base's broken guard. The reviewer's four cases, and a fifth: findings on two files whose names differ only in a
+    digit, which normalise_error masked into one."""
+
+    JOB, STEP = "deleted-or-weakened-tests", "Flag deleted or weakened tests"
+    CRASH = ["Traceback (most recent call last):", '  File "test_integrity.py", line 3, in <module>', "OSError: boom",
+             "##[error]the guard itself failed (exit 2) and judged nothing; this is not a finding, its traceback is "
+             "above", "##[error]Process completed with exit code 2."]
+
+    @staticmethod
+    def finding(path):
+        return [f"##[error]deleted-test-file: {path}: the file was deleted",
+                "##[error]this change deletes or weakens tests (findings above)",
+                "##[error]Process completed with exit code 1."]
+
+    def judge(self, head, base):
+        github = FakeGitHub()
+        github.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.STEP),
+                       2: failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.STEP)}
+        github.logs = {1: log(self.JOB, self.STEP, *head), 2: log(self.JOB, self.STEP, *base)}
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_1_a_crash_on_head_is_not_excused_by_a_finding_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: the guard itself failed"):
+            self.judge(self.CRASH, self.finding("tests/test_a.py"))
+
+    def test_2_a_finding_on_head_is_not_excused_by_a_crash_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: .*deleted-test-file: "
+                                                    "tests/test_a.py"):
+            self.judge(self.finding("tests/test_a.py"), self.CRASH)
+
+    def test_3_a_finding_on_one_file_is_not_excused_by_one_on_another(self):
+        for head, base in (("tests/test_a.py", "tests/test_b.py"), ("tests/test_1.py", "tests/test_2.py")):
+            with self.subTest(head=head, base=base), self.assertRaisesRegex(
+                    excuse.Refused, f"errors not on feat-cmux-next run 20: deleted-test-file: {re.escape(head)}"):
+                self.judge(self.finding(head), self.finding(base))
+
+    def test_4_the_same_crash_on_head_and_base_is_the_bases(self):
+        said = self.judge(self.CRASH, self.CRASH)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': feat-cmux-next run 20"), said)
+        self.assertIn("the guard itself failed", said[0])
+
+
+    def test_a_directory_that_looks_like_a_file_name_keeps_its_digits_masked(self):
+        """Codex on #41172, F1: "run123.build" inside "run123.build-extra/" was read as a file name, so the run's own
+        directory kept its digits and the same error on two runs stopped matching. A file name ends its path
+        component; the real file's digits still count."""
+        def line(run, name="A1.swift"):
+            return f"##[error]/tmp/{run}.build-extra/Sources/{name}:12:3: error: cannot find 'x' in scope"
+        self.assertEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run456")))
+        self.assertNotEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run123", "A2.swift")))
+        self.assertNotEqual(excuse.normalise_error("##[error]tests/test_1.py: weakened."),
+                            excuse.normalise_error("##[error]tests/test_2.py: weakened."))
+
 class StepFixture:
     """FixedOnBaseByStep's fixture, shared with DerivedStatusByParts (a mixin, so neither runs the other's tests)."""
     JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -9199,7 +10588,7 @@ class StepFixture:
                 found = [(f"Sources/A{n}.swift", n + 1, f"{step} broke")]
                 if state.startswith("new"):
                     found.append(("Sources/New.swift", 9, f"{step} broke anew"))
-                lines += [(name, second + 1, f"/work/cmux/{path}:{line}:3: error: {said}") for path, line, said in found]
+                lines += [(name, second + 1, f"/home/runner/work/cmux/cmux/{path}:{line}:3: error: {said}") for path, line, said in found]
                 lines.append((name, second + 1, EXIT))
                 errors += [{"annotation_level": "failure", "path": path, "start_line": line, "message": said}
                            for path, line, said in found]
@@ -9514,6 +10903,26 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "annotations do not name its reds"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], unpaged, **self.PURPOSE)
 
+    def test_review_41158_f2_a_failing_line_is_matched_by_its_full_path(self):
+        # #41158's review F2: path_errors and step_evidence kept the file name alone, so Other/A2.swift at the head
+        # matched Sources/A2.swift at the merge-base.
+        for step, state in ((self.UNIT, "red"), (self.MOTION, "quiet-red")):
+            with self.subTest(step=step):
+                github = self.github(({step: state}, {}), ({}, {}), ({step: state}, {}))
+                github.logs[1] = github.logs[1].replace("/Sources/A", "/Other/A")
+                for note in self.notes[1]:
+                    if note.get("path"):
+                        note["path"] = note["path"].replace("Sources/", "Other/")
+                with self.assertRaisesRegex(excuse.Refused, r"failures not in feat-cmux-next run 19 at the merge-base, "
+                                                            r"so not the base's: .*Other/A\d\.swift"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+                # The same full path, printed under the runner's checkout root on one side, still matches.
+                said, _ = self.judge(({step: state}, {}), ({}, {}), ({step: state}, {}))
+                self.assertIn(f"step '{step}'", said)
+        self.assertEqual(excuse.repo_path("/home/runner/work/cmux/cmux/Sources/A.swift"), "Sources/A.swift")
+        self.assertEqual(excuse.repo_path("./Sources/A.swift"), "Sources/A.swift")
+        self.assertNotEqual(excuse.repo_path("/elsewhere/Sources/A.swift"), "Sources/A.swift")
+
     def test_a_step_absent_at_the_merge_base_and_green_on_base_is_fixed_on_base_for_update_branch_alone(self):
         # hq#9137 at e34418c5: Skill documentation tests failed in "The deleted-or-weakened-tests
         # guard ...", a step the base added after the merge-base (absent from merge-base job 130336035846) and green
@@ -9567,6 +10976,216 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                                         "cmux-next-web.yml;"), said)
         self.assertIn(f"repos/{REPO}/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next&head_sha={BASE_SHA}"
                       f"&per_page={excuse.STEP_PRIOR_RUNS}", github.routes)
+
+# What judge() refuses a red of the unplaced fixture with when the pin rule does not take it: the base passed the job,
+# and the per-step reading finds the head's red step green at the merge-base too (the PR's own red).
+NOT_JUDGED = "is not red on feat-cmux-next run 20 .*does not map one to one onto its steps|per step:"
+
+
+class RollupJobReadsItsNamedReds(unittest.TestCase):
+    """2026-11-11, cmux#40552 at fe40e511: its checks job (run 42895363602, job 130212680188) is red only for its
+    step-A Rust change's stale app FFI pin, which the step-A rule excuses. Since #40542 (a23139960ea5) step_owners
+    does not place its log (more steps start in one second than whole-second times tell apart), so the rule, which
+    read the placed log's signature, was never reached; the per-step reading read the rollup's reds from the check
+    run's annotations, and run attempt 2 had carried the job over without re-running it, so its check run had none
+    (they stayed on attempt 1's check run 130107053043). The rollup's own list still names its reds: the jobs API's
+    steps and that list are the job's every red. Read whole (#41158's UnplacedSignature), its log also holds a passing
+    step's error-looking next-batch lines, so the pin rule sets the pin aside there. The fixture is the job's log and
+    steps, trimmed to steps 53 to 62 (53 prints those lines) with the runner's own around them; its log is still not
+    placed."""
+
+    JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    PIN = "Check the app FFI pin"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+    LOG = (FIXTURES / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8").replace("﻿", "")
+    EXCUSED = (f"excused '{JOB}': only '{PIN}' is red (\"error: the app FFI sources changed since the pinned "
+               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: "
+               "a step-A Rust change, pinned by the release its merge publishes")
+    RUST = ("cmux-tui/crates/cmux-cloud-machine/src/refusals.rs", "cmux-tui/crates/cmux-cloud-start-core/src/moves/cli.rs")
+
+    def setUp(self):
+        test = self
+        self.notes: list[dict] = []  # the head check run's annotations: none, as run attempt 2's carried-over job had
+
+        class GitHub(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                if route.endswith("/check-runs/1/annotations?per_page=100"):
+                    self.routes.append(route)
+                    if isinstance(test.notes, Exception):
+                        raise test.notes  # the read failed: GitHub answered 503
+                    return copy.deepcopy(test.notes)
+                return super().json(route, paginate=paginate)
+
+            def log(self, repo, job):
+                return self.logs[job["id"]]  # the job-log endpoint's own text, steps with their times
+
+        job = json.loads((self.FIXTURES / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh = GitHub()
+        green = [dict(step, conclusion="success") for step in job["steps"]]
+        # The base's newest run passed the job: the pin is the head's own red, never the base's.
+        self.gh.jobs = {1: dict(job, id=1, run_id=10, head_sha=HEAD),
+                        2: dict(job, id=2, run_id=20, head_sha=BASE_SHA, conclusion="success", steps=green)}
+        self.gh.logs = {1: self.LOG, 2: ""}
+        self.graphql: list[list[str]] = []
+        self.files(*self.RUST)
+
+    def files(self, *paths):
+        self.gh.run = pr_graphql(self, self.graphql, paths, number=40552)
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def refused(self, pattern):
+        with self.assertRaisesRegex(excuse.Refused, pattern) as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
+        return str(raised.exception)
+
+    def rollup(self, *reds, count=None, extra=()):
+        """The fixture's log with its rollup's red lines and list naming REDS (COUNT in its summary line)."""
+        stamp = "2026-11-10T20:32:21.8714505Z "
+        said = [f"{stamp}##[error]red check: {red}" for red in reds]
+        said += [f"{stamp}### {len(reds) if count is None else count} cmux-next check(s) failed", stamp.rstrip()]
+        said += [f"{stamp}- {red} (failure)" for red in reds] + [stamp.rstrip(), *extra]
+        old = ("2026-11-10T20:32:21.8714505Z ##[error]red check: Check the app FFI pin\n"
+               "2026-11-10T20:32:21.8718839Z ### 1 cmux-next check(s) failed\n"
+               "2026-11-10T20:32:21.8718929Z \n"
+               "2026-11-10T20:32:21.8718999Z - Check the app FFI pin (failure)\n"
+               "2026-11-10T20:32:21.8719087Z \n")
+        self.assertEqual(self.LOG.count(old), 1)
+        return self.LOG.replace(old, "\n".join(said) + "\n")
+
+    def test_the_fixture_log_is_not_placed(self):
+        self.assertIs(excuse.failed_view(self.gh.jobs[1], self.LOG, base=False, **UNKNOWN), excuse.UNPLACED)
+        # Read whole, a passing step's lines are among its errors: only the rollup's list tells the job's reds.
+        whole = excuse.unplaced_signature(self.gh.jobs[1], self.LOG)
+        self.assertTrue(any(error.startswith("[next-batch") for error in whole.errors), whole.errors)
+
+    def test_a_carried_over_jobs_stale_ffi_pin_is_excused_from_its_rollups_own_list(self):
+        self.assertEqual(self.judge(), [self.EXCUSED])
+        self.assertEqual(len(self.graphql), 1)
+
+    def test_its_rollup_annotations_excuse_it_too(self):
+        # A job that ran in its own attempt: its check run has the annotations, and they are read first.
+        self.notes = [{"annotation_level": "failure", "title": "cmux-next check", "message": f"red check: {self.PIN}"}]
+        self.assertEqual(self.judge(), [self.EXCUSED])
+
+    def test_the_rollup_log_names_the_reds_its_annotations_would(self):
+        self.assertEqual(excuse.rollup_log_reds(self.LOG), {self.PIN})
+        two = ("Motion tokens", self.PIN)
+        self.assertEqual(excuse.rollup_log_reds(self.rollup(*two)), set(two))
+        for case, text in {
+            "a count that is not its lines'": self.rollup(self.PIN, count=2),
+            "a list that names another check": self.rollup(self.PIN).replace(f"- {self.PIN} (failure)",
+                                                                               "- Motion tokens (failure)"),
+            "a second summary": self.rollup(self.PIN, extra=["2026-11-10T20:32:21.87Z ### 0 cmux-next check(s) failed"]),
+            "a red line away from its summary": self.LOG.replace(
+                "2026-11-10T20:31:59.4061566Z ##[group]Run",
+                "2026-11-10T20:31:59.4061Z ##[error]red check: Motion tokens\n2026-11-10T20:31:59.4061566Z ##[group]Run"),
+            "no summary": self.LOG.replace("### 1 cmux-next check(s) failed", "### checks failed"),
+        }.items():
+            with self.subTest(case):
+                self.assertIsNone(excuse.rollup_log_reds(text))
+
+    def test_another_red_check_beside_the_pin_is_not_excused(self):
+        self.gh.logs[1] = self.rollup("Motion tokens", self.PIN)
+        self.refused(NOT_JUDGED)
+
+    def test_another_failed_step_beside_the_rollup_is_not_excused(self):
+        step = next(step for step in self.gh.jobs[1]["steps"] if step["name"] == "Daemon capabilities export is fresh")
+        step["conclusion"] = "failure"
+        self.refused(NOT_JUDGED)
+
+    def test_a_rollup_list_that_cannot_be_read_is_not_excused(self):
+        self.gh.logs[1] = self.rollup(self.PIN, count=2)
+        self.refused(NOT_JUDGED)
+        # The per-step reading (update-branch's alone, #41158) says why: no annotation and no readable list.
+        with self.assertRaisesRegex(excuse.Refused, "its annotations do not name its reds .*, nor does its log"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, purpose=excuse.PER_STEP_PURPOSE)
+
+    def test_a_pin_error_printed_twice_or_not_at_all_is_not_excused(self):
+        line = "2026-11-10T20:31:58.7617120Z error: the app FFI sources changed since the pinned source "
+        for case, text in {"twice": self.LOG.replace(line, line + "x\n" + line),
+                           "not at all": self.LOG.replace(line, "2026-11-10T20:31:58.7617120Z note: ")}.items():
+            with self.subTest(case):
+                self.gh.logs[1] = text
+                self.refused(NOT_JUDGED)
+
+    def test_a_crash_anywhere_in_an_unplaced_log_is_not_excused(self):
+        self.gh.logs[1] = self.LOG.replace("2026-11-10T20:31:59.4061566Z ##[group]Run",
+                                           "2026-11-10T20:31:59.40Z error: the test helper died on signal 11\n"
+                                           "2026-11-10T20:31:59.4061566Z ##[group]Run")
+        # test_reds.read finds it before any rule is asked; crashed_anywhere keeps the pin rule from reading past it.
+        self.refused("crash")
+
+    def test_review_f1_a_failed_annotation_read_never_refuses_what_the_whole_log_excuses(self):
+        # Review of cmux#41151 at fd50c9b7 (F1): the rollup reading's annotation read is an extra one. When it fails,
+        # the whole-log rule's verdict stands: an excuse when the log has no other error line, as before #41151.
+        self.notes = excuse.Refused("gh: Service Unavailable (HTTP 503)")
+        quiet = "\n".join(line for line in self.LOG.splitlines() if "base tier verdict for cmux-next" not in line)
+        self.assertFalse([error for error in excuse.unplaced_signature(self.gh.jobs[1], quiet).errors
+                          if "next-batch" in error])
+        self.gh.logs[1] = quiet
+        self.assertEqual(self.judge(), [self.EXCUSED])
+        # With the passing step's lines the whole log sets the pin aside, and an unread rollup cannot excuse it: the
+        # red is judged as before (refused here), never refused for the read itself.
+        self.gh.logs[1] = self.LOG
+        self.assertNotIn("503", self.refused(NOT_JUDGED))
+
+    def test_the_pin_rule_still_refuses_a_head_it_does_not_cover(self):
+        self.files(*self.RUST, "scripts/cmux-next/check-app-ffi-pin.sh")
+        self.refused("changes the app FFI pin check's code")
+
+
+class RollupLogRedsByStep(StepFixture, unittest.TestCase):
+    """fixed_on_base_by_step reads a head rollup's reds the same way: from its check run's annotations, or, when they
+    name none (a job a re-run attempt carried over), from the rollup's own list in its log (rollup_log_reds)."""
+
+    PURPOSE = {"purpose": excuse.PER_STEP_PURPOSE}  # the per-step reading's one caller
+
+    def unnamed(self):
+        # The head's annotations with no `red check:` one: its file errors stay, which #41158's step reading compares.
+        self.notes[1] = [note for note in self.notes[1] if not str(note.get("message", "")).startswith("red check: ")]
+
+    def listed(self, github, *reds):
+        # StepFixture's rollup prints its red lines alone; the real one lists them under its summary too.
+        lines = github.logs[1].splitlines()
+        last = max(n for n, line in enumerate(lines) if "##[error]red check: " in line)
+        stamp = lines[last].split(" ", 1)[0]
+        lines[last + 1:last + 1] = [f"{stamp} ### {len(reds)} cmux-next check(s) failed", stamp,
+                                    *(f"{stamp} - {red} (failure)" for red in reds)]
+        github.logs[1] = "\n".join(lines)
+
+    def test_a_head_with_no_annotations_is_judged_by_its_rollups_list(self):
+        for placed in (True, False):
+            with self.subTest(placed=placed):
+                github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                                     ({self.MOTION: "quiet-red"}, {}))
+                self.unnamed()
+                with self.assertRaisesRegex(excuse.Refused, "annotations do not name its reds .*, nor does its log"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+                if not placed:
+                    github.logs[1] = github.logs[1].replace(
+                        "##[group]Run scripts/check-1.sh",
+                        "##[group]Run a/composite@v1\n" + github.logs[1].splitlines()[3][:28] + " ##[group]Run inner.sh")
+                self.listed(github, self.MOTION)
+                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE))
+                self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+                self.assertIn(f"step '{self.MOTION}'", said)
+
+    def test_the_rollups_list_never_names_a_red_it_lacks(self):
+        # The list names Surface roles too, which the base's newest run fails: not fixed on base.
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        self.unnamed()
+        lines = github.logs[1].splitlines()
+        last = max(n for n, line in enumerate(lines) if "##[error]red check: " in line)
+        lines.insert(last + 1, lines[last].replace(self.MOTION, self.SURFACES))
+        github.logs[1] = "\n".join(lines)
+        self.listed(github, self.MOTION, self.SURFACES)
+        with self.assertRaisesRegex(excuse.Refused, f"'{self.SURFACES}' is failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+
 
 # cmux#40984 at a6698ad5: 'next-autoland / verdict' read "its own red: cmux-next / cmux-next checks (god files,
 # concurrency, crash safety, l10n) (and 2 more red, not probed)", and judge() refused it as a status with no job. It is a
@@ -9739,6 +11358,1103 @@ class DerivedStatusByParts(StepFixture, unittest.TestCase):
         github = self.parts([(self.JOB, self.FIXED)], "conflicting with feat-cmux-next")
         with self.assertRaisesRegex(excuse.Refused, "is not a red of the head's other checks"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+
+STEP_MAPPING_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+
+
+class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
+    """2026-11-11: two reds that fail as their base did were refused because step_owners could not place their logs
+    one header per step, and none of their steps is named "Run ...", so their workflow was never read:
+    - cmux#41001's "cmux-next daemon tests" (PR run 42973557339, job 130369194352; feat-cmux-next run 42976173821, job
+      130375759923): two composite actions (setup-cmux-tui-rust, cache-restore) print 7 inner `Run` lines, 38 for 31
+      steps, and many steps share a second. Compared whole instead, the base's extra flake
+      (aOneWorkspaceSnapshot...) and the head's extra failed step each broke identity, so nothing was told apart.
+    - hq#9191's "Skill policy tests" (run 42981858520, job 130394322965; main run 42981664549, job 130393775750): one
+      header per step, but five steps in 07:47:29, so no header was in its step's times alone.
+    With the workflow's headers (StepNames.headers: `Run <uses>`, `Run <script's first line>`), _aligned_starts places
+    both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
+    those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
+
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
+             "seconds with 1 issue.")
+    # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
+    LIVE_LAST = "✘ Test endEverythingWithHomeEndsTheRestAndKeepsHome() failed after 216.505 seconds with 1 issue."
+
+    def fixture(self, case, side):
+        job = json.loads((STEP_MAPPING_FIXTURES / f"{case}-{side}-job.json").read_text())
+        return job, (STEP_MAPPING_FIXTURES / f"{case}-{side}.log").read_text()
+
+    def after(self, text, anchor, line):
+        """TEXT with LINE added after the line that ends with ANCHOR, at its stamp."""
+        out = []
+        for raw in text.splitlines():
+            out.append(raw)
+            if raw.endswith(anchor):
+                out.append(raw.split(" ", 1)[0] + " " + line)
+        self.assertGreater(len(out), len(text.splitlines()), anchor)
+        return "\n".join(out)
+
+    def github(self, case, head, base):
+        """A fake serving CASE's workflow and HEAD's and BASE's (job, log) as head job 1 (run 10) and base job 2 (run
+        20)."""
+        path = self.PATHS[case]
+        workflow = (STEP_MAPPING_FIXTURES / f"{case}.yml").read_text()
+
+        class Fake(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                found = super().json(route, paginate=paginate)
+                if (isinstance(found, dict) and "/actions/runs/" in route and "/jobs" not in route
+                        and "workflow_id" in found):
+                    found["path"] = path
+                return found
+
+            def blob(self, repo, ref, wanted):
+                if wanted != path:
+                    raise excuse.Refused(f"{repo}@{ref}: {wanted} is not a text file GitHub served")
+                return workflow
+
+        github = Fake()
+        github.base_runs = [{**run, "path": path} for run in github.base_runs]
+        (head_job, head_log), (base_job, base_log) = head, base
+        github.jobs = {1: dict(copy.deepcopy(head_job), id=1, run_id=10, head_sha=HEAD, status="completed",
+                               conclusion="failure"),
+                       2: dict(copy.deepcopy(base_job), id=2, run_id=20, head_sha=BASE_SHA, status="completed",
+                               conclusion="failure")}
+        github.logs = {1: head_log, 2: base_log}
+        return github
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_both_logs_are_placed_by_their_workflows_headers(self):
+        for case, failed in (("cmux-41001", {"Check generated action catalog, surfaces and inventory": "errored",
+                                             "Run the live-daemon suites": "failed", "Regenerate stale files": "failed"}),
+                             ("hq-9191", {"Shared clone maintenance LaunchAgent runs the compaction daily": "failed"})):
+            with self.subTest(case=case):
+                github = self.github(case, self.fixture(case, "head"), self.fixture(case, "base"))
+                job = copy.deepcopy(github.jobs[1])
+                names = excuse.workflow_step_names(REPO, job, self.PATHS[case], github, {})
+                view = excuse.failed_view(job, github.logs[1], step_names=names, base=False)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, failed)
+
+    def test_cmux_41001_the_bases_failures_are_excused(self):
+        # The head fails what the base fails; the base fails one test more (the flake base run 42976173821 had).
+        head = self.fixture("cmux-41001", "head")
+        base = (head[0], self.after(head[1], self.LIVE_LAST, self.FLAKE))
+        said = self.judge(self.github("cmux-41001", head, base))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+        # And the same failures exactly, compared by step, never whole.
+        said = self.judge(self.github("cmux-41001", head, head))
+        self.assertIn("excused 'cmux-next daemon tests'", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_cmux_41001_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("cmux-41001", "head")
+        added = (head[0], self.after(head[1], self.LIVE_LAST,
+                                     "✘ Test quitKeepsTheNewWorkspace() failed after 1.250 seconds with 1 issue."))
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", added, head))
+        self.assertIn("quitKeepsTheNewWorkspace", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41001_against_its_real_base_run_refuses_only_the_heads_own_test(self):
+        # The real pair: the live-daemon failures are the base's, everyMenuKeepsAShortTopLevel (the catalog check and
+        # "Regenerate stale files", skipped on the base) is the head's own.
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github("cmux-41001", self.fixture("cmux-41001", "head"), self.fixture("cmux-41001", "base")))
+        self.assertIn("everyMenuKeepsAShortTopLevel", str(said.exception))
+        self.assertNotIn("endEverythingWithHomeEndsTheRestAndKeepsHome", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def not_job_error(self):
+        """The hq-9191 logs judged as a job whose `FAIL:` line is no error line (any job but JOB_ERROR's: #41235 made
+        'Skill policy tests' one of them), the shape SHELL_FAIL's placed rule is for."""
+        patch = unittest.mock.patch.dict(excuse.JOB_ERROR)
+        patch.start()
+        self.addCleanup(patch.stop)
+        del excuse.JOB_ERROR["Skill policy tests"]
+
+    def test_hq_9191_the_bases_failure_is_excused(self):
+        # 'Skill policy tests' is a JOB_ERROR job (#41235): its `FAIL: plist content` is its failed step's error line,
+        # compared by step, never whole.
+        said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
+        self.assertIn("excused 'Skill policy tests': feat-cmux-next run 20", said)
+        self.assertIn("fails the same way", said)
+        self.assertIn("FAIL: plist content", said)
+        self.assertNotIn("compared whole", said)
+        # Its failed step says only `FAIL: plist content`: placed, nothing names the failure, so it is compared whole.
+        self.not_job_error()
+        said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
+        self.assertIn("excused 'Skill policy tests': its failed steps name no failing test or error line, so it was "
+                      "compared whole", said)
+        self.assertIn("FAIL: plist content", said)
+
+    def test_hq_9191_a_failure_the_head_adds_is_refused(self):
+        head = self.fixture("hq-9191", "head")
+        added = (head[0], self.after(head[1], "FAIL: plist content", "FAIL: plist label"))
+        # As a JOB_ERROR job (#41235): the added `FAIL:` line is an error line the base's step never printed.
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: FAIL: plist label"):
+            self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+        self.not_job_error()
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
+            self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+
+def one_step_flood(headers, steps):
+    """(job, log, step_names, the own headers' line numbers): STEPS workflow steps, step K from second 100 + 10K to
+    105 + 10K with its `Run x` header at its start, and the middle step printing the rest of HEADERS `Run x` lines in
+    its own times (a composite's inner steps, a script's `::group::Run`)."""
+    def at(second):
+        return f"2026-11-10T{clock(second)}Z"
+    flooded = steps // 2
+    job = {"steps": [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+                      "started_at": at(0), "completed_at": at(2)}]}
+    job["steps"] += [{"number": k + 2, "name": f"Step {k}", "status": "completed", "conclusion": "success",
+                      "started_at": at(100 + 10 * k), "completed_at": at(105 + 10 * k)} for k in range(steps)]
+    last = 105 + 10 * (steps - 1)
+    job["steps"].append({"number": steps + 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                         "started_at": at(last), "completed_at": at(last)})
+    names = excuse.StepNames({k + 2: True for k in range(steps)})
+    names.headers = {k + 2: ("Run x", True, False) for k in range(steps)}
+    lines, own = [f"{at(1.0)} Current runner version: '2.338.2'"], []
+    inner = headers - steps
+    for k in range(steps):
+        own.append(len(lines))
+        lines.append(f"{at(100.0 + 10 * k)} ##[group]Run x")
+        if k == flooded:
+            lines += [f"{at(100.0 + 10 * k + 4 * (n + 1) / (inner + 1))} ##[group]Run x" for n in range(inner)]
+    return job, "\n".join(lines), names, own
+
+
+class AlignedStartsIsLinear(unittest.TestCase):
+    """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
+    headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
+    now, with the same answers as the frozen first version (scripts/ci/bench_aligned_starts.py, which times both)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import bench_aligned_starts  # scripts/ci, on sys.path above
+        cls.bench = bench_aligned_starts
+
+    def both(self, job, log_text, names):
+        args = self.bench.reading_inputs(job, log_text)
+        return excuse._aligned_starts(*args, names), self.bench.frozen_aligned_starts(*args, names)
+
+    def test_same_second_headers_over_ten_steps_cost_linear_in_the_headers(self):
+        # 5,000 and 20,000 same-second headers over 10 steps, each ambiguous, the larger well under quadratic in the
+        # smaller (scaling_ratio, no wall-clock bound: #41236's review). Linear here: about 0.025 and 0.1 CPU s;
+        # 478a15d7's quadratic reading: about 28 and 449 s.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 10)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))  # every header fits every step: ambiguous
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts over 10 steps")
+
+    def test_twenty_steps_of_twenty_thousand_same_second_headers_cost_linear_in_the_headers(self):
+        # #41220's review at 9ae6ba5d, F1: "_aligned_starts expands `ways` to every matching header, and for each state
+        # on each step it scans all later starts. That's O(steps x starts^2). A PR-controlled log (a step printing
+        # `##[group]Run ...` 20,000 times, with 20 steps, within the new limits) takes billions of iterations, so the
+        # classifier hangs and gives no verdict." 5,000 and 20,000 (ALIGN_MAX_STARTS, the most it reads) same-second
+        # headers over 20 steps, each ambiguous (None: the whole-log comparison reads it, never an excuse). At
+        # 9ae6ba5d the 5,000 case alone runs for minutes, so assert_scales' hang guard fails it; now about 0.02 and
+        # 0.09 CPU s, a ratio near 4.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts over 20 steps")
+
+    def test_a_step_printing_twenty_thousand_headers_is_still_placed(self):
+        # The same 20,000 headers in one of 20 steps, the others each in a second of its own: one choice fits, so the
+        # log is placed (each step's own header its first), at both sizes and linear in the headers.
+        def build(headers):
+            job, log_text, names, own = one_step_flood(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertEqual(excuse._aligned_starts(*args, names), own, f"{headers:,} headers")
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts, one step's headers")
+
+    def test_the_real_logs_read_the_same(self):
+        fixtures = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
+        for case, path in (("cmux-41001", ".github/workflows/cmux-next.yml"),
+                           ("hq-9191", ".github/workflows/skills-tests.yml")):
+            workflow = (fixtures / f"{case}.yml").read_text()
+
+            class Blob:
+                def blob(self, repo, ref, wanted):
+                    return workflow
+            for side in ("head", "base"):
+                with self.subTest(case=case, side=side):
+                    job = dict(json.loads((fixtures / f"{case}-{side}-job.json").read_text()), head_sha=HEAD)
+                    log_text = (fixtures / f"{case}-{side}.log").read_text()
+                    names = excuse.workflow_step_names(REPO, job, path, Blob(), {})
+                    now, then = self.both(job, log_text, names)
+                    self.assertIsNotNone(now)
+                    self.assertEqual(now, then)
+
+    def test_random_small_logs_read_the_same(self):
+        import random
+        texts = ("Run a", "Run b", "Run a b", "Post job cleanup.")
+        placed = refused = 0
+        for seed in range(4000):
+            rng = random.Random(seed)
+            count = rng.randint(1, 5)
+            second, steps = 10, []
+            for n in range(count):
+                start = second + rng.randint(0, 1)
+                second = start + rng.randint(0, 2)
+                steps.append((f"Step {n}", rng.choice(("success", "success", "failure")), start, second))
+            job = {"steps": framed_steps(steps)}
+            names = excuse.StepNames({step["number"]: True for step in job["steps"][1:-1]})
+            names.headers = {step["number"]: (rng.choice(texts[:3] if rng.random() < .8 else texts[3:]),
+                                              rng.random() < .7, rng.random() < .5)
+                             for step in job["steps"][1:-1]}
+            lines = []
+            # Mostly each step's own header in its own times (failed: an error line too), then extras anywhere.
+            for step, (_, conclusion, start, end) in zip(job["steps"][1:-1], steps):
+                if rng.random() < .9:
+                    text, exact, _ = names.headers[step["number"]]
+                    own = text if text == "Post job cleanup." else "##[group]" + text + ("" if exact else " c")
+                    at = rng.uniform(start, end + .99)
+                    lines.append(("x", round(at, 3), own))
+                    if conclusion == "failure" or rng.random() < .2:
+                        lines.append(("x", round(min(at + .001, end + .999), 3), "##[error]boom"))
+            for _ in range(rng.randint(0, 4)):
+                at = rng.uniform(9.5, second + 1.5)
+                lines.append(("x", round(at, 3), rng.choice(
+                    ("##[group]" + rng.choice(texts[:3]), "Post job cleanup.", "##[error]boom", "##[endgroup]", "ok"))))
+            lines.sort(key=lambda line: line[1])
+            log_text = framed_log(lines, columns=rng.random() < .5)
+            with self.subTest(seed=seed):
+                now, then = self.both(job, log_text, names)
+                self.assertEqual(now, then)
+            placed += now is not None
+            refused += now is None
+        # Both answers are exercised, not only "nothing placed".
+        self.assertGreater(placed, 100)
+        self.assertGreater(refused, 100)
+
+
+def hostile_block(i):
+    """One block of HostileLog: a line each parser of base_red_excuse.py and test_reds.py looks for (a compile error,
+    each test runner's failure and summary, a crash, a rollup's and a ratchet's red, bun's and the gallery's lines, a
+    mangled Swift frame), each naming its own test I so nothing is deduplicated away, and openers left unclosed."""
+    return [f"Sources/A{i}.swift:{i}:1: error: boom {i}", f"\u2718 Test t{i}() recorded an issue at A.swift:1:1: x",
+            f"\u25c7 Test t{i}() started.", f"\u2718 Test t{i}() failed after 0.1 seconds with 1 issue.",
+            f"\u2718 Suite S{i} failed", f"Test Case '-[Mod.Suite test{i}]' started.",
+            f"Test Case '-[Mod.Suite test{i}]' failed (0.1 seconds).", f"FAILED: Mod / Suite{i} / test{i}()",
+            f"test m::t{i} ... FAILED", "test result: FAILED. 1 passed; 1 failed; 0 ignored",
+            f"thread 't{i}' panicked at src/a.rs:1:1:", f"FAIL: test_{i} (a.B)", "FAILED (failures=1)",
+            f"FAILED tests/test_a.py::test_{i}", "===== 1 failed, 2 passed in 0.10s =====",
+            "\u2718 Test run with 3 tests in 1 suite failed after 1.0 seconds with 1 issue.",
+            "bun test v1.2.0", f"webviews/test/a{i}.test.ts:", f"(fail) suite > t{i} [1.00ms]",
+            "error: expect(received).toBe(expected)", f"      at <anonymous> (/w/webviews/test/a{i}.test.ts:1:1)",
+            " 1 fail", f"FAIL webviews/test/a{i}.test.ts", f"##[error]red check: c{i}", f"- c{i} (failure)",
+            f"RED crate lint{i} where", "error: exited with unexpected signal code 11",
+            f"Process 'helper{i}' exited with unexpected signal code 11", f"0 Mod $s3Mod5SuiteC5test{i}yyF + 12",
+            "Test Suite 'All tests' started at 2026-11-10 12:00:00", "::group::x", "  shell: bash", "##[endgroup]",
+            "##[warning]w", '\u2718 Test "never closed (x', "\u25c7 Test a( ${{ <!-- (signal: Test Case '-[ at /w/"]
+
+
+class HostileLog:
+    """A red job's log N blocks long (hostile_block), in its failing step "Tests" after a passing "Build": LOG, and
+    FLOOD, the same with a `##[group]Run` header opening each block (so step_owners cannot place it). Its lines keep
+    one length at every N: what grows is the log, as a PR's test output can make it grow."""
+
+    def __init__(self, n):
+        self.n = n
+        steps = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
+        self.job = {"steps": framed_steps(steps)}
+
+        def rows(headers):
+            out = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE), ("Tests", 20, "##[group]Run tests")]
+            for i in range(n):
+                at = 20 + i * 18 / n
+                if headers:
+                    out.append(("Tests", at, f"##[group]Run case {i}"))
+                out += [("Tests", at, text) for text in hostile_block(i)]
+            return [*out, ("Tests", 39, EXIT)]
+        self.log, self.flood = framed_log(rows(False)), framed_log(rows(True))
+        self.lines = excuse.test_reds.lines_of(self.log)
+        self.raw = self.log.splitlines()
+        self.view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=False)
+        self.base_view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=True)
+        self.windows = [(excuse._stamp_time(step["started_at"]),
+                         excuse._stamp_time(step["completed_at"]) + excuse.timedelta(seconds=1))
+                        for step in self.job["steps"]]
+
+
+def _package():
+    return next(iter(excuse.PACKAGE_JOBS.values()))
+
+
+TR = excuse.test_reds
+# Every reader of a PR's log in base_red_excuse.py and test_reds.py (PrLogReadersScale finds them: a function with a
+# parameter READER_PARAMS names and no `github`), each as the call the sweep times on HostileLog(N) and (4N).
+SCANNERS = {
+    "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
+    "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
+    "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    "base_red_excuse.lines_of": lambda f: excuse.lines_of(f.log),
+    "base_red_excuse.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
+                                              excuse.step_owners(f.job, f.flood, **UNKNOWN)),
+    "base_red_excuse._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
+    "base_red_excuse._one_to_one_starts": lambda f: excuse._one_to_one_starts(
+        [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
+    "base_red_excuse.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
+    "base_red_excuse.failed_view": lambda f: excuse.failed_view(f.job, f.log, **UNKNOWN, base=False),
+    "base_red_excuse.view_text": lambda f: excuse.view_text(f.view),
+    "base_red_excuse.signature": lambda f: (excuse.signature(f.view), excuse.signature(f.base_view)),
+    "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
+    "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
+    "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
+    "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
+    "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
+    "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
+    "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
+    "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
+    "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
+    "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
+    "base_red_excuse.swift_without_comments": lambda f: excuse.swift_without_comments(f.log),
+    "base_red_excuse.package_tests": lambda f: excuse.package_tests(_package(), f.view),
+    "base_red_excuse.guard_tests": lambda f: excuse.guard_tests(f.view),
+    "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
+    "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
+    "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
+    "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
+    "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
+        [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
+    "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
+    "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
+    "test_reds.echoed": lambda f: TR.echoed(f.lines),
+    "test_reds.passed_steps": lambda f: TR.passed_steps(f.lines),
+    "test_reds.volatile": lambda f: TR.volatile(f.log),
+    "test_reds.log_lines": lambda f: TR.log_lines(f.log),
+    "test_reds.lines_of": lambda f: TR.lines_of(f.log),
+    "test_reds.plain": lambda f: TR.plain(f.log),
+    "test_reds.step_sections": lambda f: TR.step_sections(f.log),
+    "test_reds.unjudged": lambda f: TR.unjudged(f.log),
+    "test_reds.red_steps": lambda f: TR.red_steps(f.log),
+    "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
+    "test_reds.step_lines": lambda f: TR.step_lines(f.log),
+    "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
+    "test_reds.check_rule_failure": lambda f: TR.check_rule_failure(f.log),
+    "test_reds.failed_names": lambda f: TR.failed_names(f.lines),
+    "test_reds.unnamed_failures": lambda f: TR.unnamed_failures(f.lines),
+    "test_reds.runner_unnamed": lambda f: TR.runner_unnamed(f.lines),
+    "test_reds.failed_tests": lambda f: TR.failed_tests(f.lines, []),
+    "test_reds.issue_sites": lambda f: TR.issue_sites(f.lines),
+    "test_reds._words": lambda f: TR._words(f.log, []),
+    "test_reds._identifier": lambda f: TR._identifier("9" * 9 + f.log, 0, []),
+    "test_reds.demangle_test": lambda f: TR.demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds._demangle_test": lambda f: TR._demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds.crashed_tests": lambda f: TR.crashed_tests(f.lines, set()),
+    "test_reds.signal_of": lambda f: TR.signal_of(f.log),
+    "test_reds.bun_diagnostic": lambda f: TR.bun_diagnostic(f.lines, "a.test.ts:1"),
+    "test_reds.read_bun": lambda f: TR.read_bun(f.lines, TR.Result()),
+    "test_reds._read_bun_step": lambda f: TR._read_bun_step(f.lines, 0, [], TR.Result()),
+    "test_reds.read": lambda f: TR.read(f.log),
+    "test_reds.parse_log": lambda f: TR.parse_log(f.log),
+    "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
+    "test_reds.exported_observations": lambda f: TR.exported_observations(f.lines),
+    "test_reds.observations": lambda f: TR.observations(f.log),
+    "test_reds._observations": lambda f: TR._observations(f.log),
+    "test_reds.flaky_failures": lambda f: TR.flaky_failures(f.log, "job", "wf.yml", {"schema": "tap-tests/v1"}),
+    "test_reds.classify": lambda f: TR.classify(f.log, f.log),
+    "test_reds.classify_any": lambda f: TR.classify_any(f.log, [("base", f.log)]),
+    "test_reds.web_head_part": lambda f: TR.web_head_part(f.log),
+    "test_reds.web_failures": lambda f: TR.web_failures(f.log),
+    "test_reds.merged_web": lambda f: TR.merged_web([f.log]),
+    "test_reds.web_head": lambda f: TR.web_head([f.log]),
+    "test_reds.web_compare": lambda f: TR.web_compare(["x"], TR.web_failures(f.log), [f.log], "the base"),
+    "test_reds.classify_web": lambda f: TR.classify_web([f.log], [f.log]),
+    "test_reds.classify_web_window": lambda f: TR.classify_web_window([f.log], [("base", [f.log])]),
+    "test_reds.web_cut_short": lambda f: TR.web_cut_short(f.log),
+    "test_reds.web_base_red_files": lambda f: TR.web_base_red_files([f.log]),
+    "test_reds.classify_web_cut_short": lambda f: TR.classify_web_cut_short(f.log, [("base", [f.log])]),
+    "test_reds.bisect_report": lambda f: TR.bisect_report(f.log),
+    "test_reds.gallery_read": lambda f: TR.gallery_read(f.log),
+    "test_reds.gallery_states": lambda f: TR.gallery_states(f.log),
+    "test_reds.gallery_entries": lambda f: TR.gallery_entries(f.log),
+    "test_reds.gallery_classify": lambda f: TR.gallery_classify(f.log, f.log),
+}
+# Readers the sweep does not time, each with why.
+NOT_SWEPT = {
+    "base_red_excuse._aligned_starts": "timed on its own adversarial shapes (AlignedStartsIsLinear): it reads a "
+                                       "workflow's headers, which HostileLog has none of",
+    "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
+                                      "test_reds.classify_web_window, each swept",
+    "test_reds._kept": "the parse cache: it calls the reader it is given",
+}
+
+
+class PrLogReadersScale(unittest.TestCase):
+    """#41220's review at 9ae6ba5d, F1's class: "classifier cost driven by PR-controlled log size. Detector: add
+    base_red_excuse's log parsers to the lazy-regex/scaling sweep (SCANNERS), so every parser that reads PR logs gets
+    an adversarial-shape scaling test." Each reader in SCANNERS is timed on HostileLog at N and 4N blocks
+    (assert_scales: a ratio, never seconds); a new reader of a PR's log fails the sweep until it is in SCANNERS (or in
+    NOT_SWEPT with why). PrLogPatternsScale does the same for each pattern on a long line."""
+    READER_PARAMS = {"log", "head_log", "base_log", "view", "head_view", "lines", "texts", "stack", "said", "text",
+                     "head_text", "base_text", "head_logs", "base_logs", "logs", "symbol"}
+    N = 150  # where a per-path replace already reads about 10x (normalise_error at 9ae6ba5d; 7.7x at 60)
+
+    def readers(self):
+        found = set()
+        for name in ("base_red_excuse", "test_reds"):
+            tree = ast.parse((ROOT / "scripts/ci" / f"{name}.py").read_text())
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    args = node.args
+                    params = {a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+                    if params & self.READER_PARAMS and "github" not in params:  # a fetcher reads through the readers
+                        found.add(f"{name}.{node.name}")
+        return found
+
+    def test_every_reader_of_a_pr_log_is_swept(self):
+        found = self.readers()
+        self.assertEqual(found - SCANNERS.keys() - NOT_SWEPT.keys(), set(),
+                         "a reader of a PR's log with no scaling check: add it to SCANNERS (its call on HostileLog)")
+        self.assertEqual((SCANNERS.keys() | NOT_SWEPT.keys()) - found, set(), "a stale SCANNERS or NOT_SWEPT entry")
+        self.assertFalse(SCANNERS.keys() & NOT_SWEPT.keys())
+
+    def test_every_reader_costs_linear_in_the_log(self):
+        logs = {}
+
+        def make(size):
+            if size not in logs:
+                logs[size] = HostileLog(size)
+            return logs[size]
+        self.assertIsInstance(make(self.N).view, excuse.FailedView)  # placed: the view readers read every line
+        for name, call in SCANNERS.items():
+            with self.subTest(reader=name):
+                def build(size, call=call):
+                    log = make(size)
+
+                    def run():
+                        try:
+                            call(log)
+                        except excuse.Refused:
+                            pass  # a refusal is an answer: it is timed like one
+                    return run
+                assert_scales(self, build, self.N, name)
+
+
+# The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
+OPENER_CANDIDATES = "xa0 _-./:<>\"'=#@!,;()[]{}|*+?$^%&~`\\Z9A"
+
+
+def _class_takes(ch, items):
+    import re._constants as constants  # python 3.11 and later, as scripts/ci requires
+    negate = hit = False
+    for op, av in items:
+        if op is constants.NEGATE:
+            negate = True
+        elif op is constants.LITERAL:
+            hit |= ord(ch) == av
+        elif op is constants.RANGE:
+            hit |= av[0] <= ord(ch) <= av[1]
+        elif op is constants.CATEGORY:
+            word = ch.isalnum() or ch == "_"
+            hit |= {"CATEGORY_DIGIT": ch.isdigit(), "CATEGORY_NOT_DIGIT": not ch.isdigit(),
+                    "CATEGORY_SPACE": ch.isspace(), "CATEGORY_NOT_SPACE": not ch.isspace(),
+                    "CATEGORY_WORD": word, "CATEGORY_NOT_WORD": not word}.get(str(av), False)
+    return hit != negate
+
+
+def regex_openers(pattern, flags):
+    """The shortest text that reaches each repeat of PATTERN (greedy, lazy or possessive) and each branch's end, one
+    character per class: hq's tools/agent-guards/test_lazy_regex_sweep.py's openers, for every repeat, since a greedy
+    `.*` before a literal reads to the line's end from each opener as a lazy one does."""
+    import re._constants as constants
+    import re._parser as parser
+    out, groups, found = [], {}, []
+
+    def walk(items):
+        for op, av in items:
+            if op is constants.LITERAL:
+                out.append(chr(av))
+            elif op is constants.NOT_LITERAL:
+                out.append("y" if av == ord("x") else "x")
+            elif op is constants.ANY:
+                out.append("x")
+            elif op is constants.IN:
+                out.append(next((c for c in OPENER_CANDIDATES if _class_takes(c, av)), "x"))
+            elif op in (constants.MAX_REPEAT, constants.MIN_REPEAT, constants.POSSESSIVE_REPEAT):
+                low, _, sub = av
+                found.append("".join(out))
+                for _ in range(low):
+                    walk(sub)
+            elif op is constants.SUBPATTERN:
+                start = len("".join(out))
+                walk(av[-1])
+                if av[0]:
+                    groups[av[0]] = "".join(out)[start:]
+            elif op is constants.ATOMIC_GROUP:
+                walk(av)
+            elif op is constants.BRANCH:
+                kept = list(out)
+                for branch in av[1]:
+                    walk(branch)
+                    found.append("".join(out))
+                    out[:] = kept
+                walk(av[1][0])  # what follows reads on from the first branch
+            elif op is constants.GROUPREF:
+                out.append(groups.get(av, ""))
+            elif op is constants.GROUPREF_EXISTS:
+                walk(av[1])
+    walk(parser.parse(pattern, flags))
+    return [opener.replace("\n", " ") for opener in dict.fromkeys(found) if opener]
+
+
+def module_patterns():
+    """(name, pattern) for each compiled pattern of base_red_excuse.py and test_reds.py at module level, alone or in a
+    tuple or list (test_reds.FAILED)."""
+    for module in (excuse, excuse.test_reds):
+        short = "test_reds" if module is excuse.test_reds else "base_red_excuse"
+        for key, value in vars(module).items():
+            if isinstance(value, re.Pattern):
+                yield f"{short}.{key}", value
+            elif isinstance(value, (tuple, list)):
+                for index, item in enumerate(value):
+                    if isinstance(item, re.Pattern):
+                        yield f"{short}.{key}[{index}]", item
+
+
+# Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
+# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
+# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+KNOWN_SUPERLINEAR = {
+    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
+    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
+    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
+    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
+    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
+    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
+    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
+    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
+    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
+    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+}
+
+
+class PrLogPatternsScale(unittest.TestCase):
+    """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
+    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
+    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
+    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
+    KNOWN_SUPERLINEAR."""
+    LINE = 3000
+    MEASURABLE = 0.0005
+    MOST = 200_000
+    CEILING = 10
+
+    def superlinear(self):
+        import gc
+        import signal
+        import time
+
+        def once(rx, text):
+            gc.disable()
+            try:
+                began = time.process_time()
+                for _ in rx.finditer(text):
+                    pass
+                return time.process_time() - began
+            finally:
+                gc.enable()
+        def expire(signum, frame):
+            raise ScalingHang()
+        previous = signal.getsignal(signal.SIGALRM)
+        found, seen = {}, 0
+        for name, rx in module_patterns():
+            for opener in regex_openers(rx.pattern, rx.flags):
+                seen += 1
+                if name in found:
+                    continue  # one opener is enough
+                count = max(1, self.LINE // len(opener))
+
+                def build(size, rx=rx, opener=opener):
+                    text = opener * size
+                    return lambda: [None for _ in rx.finditer(text)]
+                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+                signal.signal(signal.SIGALRM, expire)
+                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+                try:
+                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
+                            and 16 * count * len(opener) <= self.MOST:
+                        count *= 4
+                    large = min(once(rx, opener * 4 * count) for _ in range(2))
+                except ScalingHang:
+                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+                    continue
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous)
+                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                    continue
+                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
+                if name in KNOWN_SUPERLINEAR:
+                    found.setdefault(name, f"{large / small:.1f}x")
+                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                    found.setdefault(name, why)
+        return found, seen
+
+    def test_every_pattern_costs_linear_in_a_line(self):
+        found, seen = self.superlinear()
+        self.assertGreater(seen, 300, "the sweep found the patterns")
+        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
+        self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
+                         "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
+        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
+                         "linear now: drop it from KNOWN_SUPERLINEAR")
+
+
+# cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
+# (step "cmux-next spawn-owner ratchet", job 130449502223) and tooling-tests (test_spawn_owner_ratchet.py's
+# test_the_committed_baseline_holds_on_this_tree, job 130449577217), for `check-spawn-owner: cmux-tui/crates/acpmux/
+# src/hub/remote_table_bench.rs has 1 spawn line(s) with no owner (a new file).`, a file #41040 added on base. #41227
+# fixed it on base and run 43000928251 passed both jobs, but merge_hold and the broker's update_branch refused: "not
+# a declared guard job (GUARD_JOBS)". The jobs, their steps and logs are the real ones (tests/fixtures/
+# base_red_excuse_spawn_owner: the head jobs, the base run's two jobs, the merge-base run 42998467090's two jobs).
+SPAWN_FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_spawn_owner"
+SPAWN_HEAD, SPAWN_MERGE_BASE, SPAWN_BASE = ("ba8ff399dcc62d673464541c395094e92193c4bd",
+                                            "0238fcd45607926b7546c5b1714f4e4a75cb2689",
+                                            "83cfd4d7e998b01b6fd31b45fee39658ed1f079f")
+SPAWN_HEAD_RUN, SPAWN_BASE_RUN, SPAWN_PRIOR_RUN, SPAWN_WORKFLOW = 42998810174, 43000928251, 42998467090, 379181907
+OWN_CHANGE = "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"
+
+
+class SpawnOwnerGitHub:
+    """GitHub as judge() read it for cmux#41205 at ba8ff399, from the real jobs and logs; CHANGED is the PR's diff."""
+
+    def __init__(self, changed=("tests/test_ci_sparse_checkout_imports.py",), placed=True):
+        self.jobs, self.logs = {}, {}
+        for job_id in (130449502223, 130449577217, 130456563743, 130456666797, 130448365318, 130448465080):
+            self.jobs[job_id] = json.loads((SPAWN_FIXTURES / f"job-{job_id}.json").read_text())
+            if job_id in (130456563743, 130456666797):
+                continue  # the base run's passing jobs: their steps are read, never their logs
+            text = (SPAWN_FIXTURES / f"job-{job_id}.log").read_text()
+            self.logs[job_id] = text
+            if placed:
+                # The real stamps put the runner's own steps and the next step in one second, which step_owners does
+                # not place (cmux#41220 places them by the workflow's step headers). PLACED serves each red job as
+                # its one failed step's real lines, framed (framed_steps, framed_log): every line it prints, as
+                # printed, at times step_owners places.
+                self.jobs[job_id]["steps"], self.logs[job_id] = self.failed_step_only(self.jobs[job_id], text)
+        self.changed = list(changed)
+        self.runs = {
+            SPAWN_HEAD_RUN: {"id": SPAWN_HEAD_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "pull_request",
+                             "head_sha": SPAWN_HEAD, "created_at": "2026-11-11T09:52:21Z", "name": "cmux-next guards",
+                             "path": ".github/workflows/cmux-next-guards.yml", "status": "completed",
+                             "conclusion": "failure"},
+            SPAWN_BASE_RUN: {"id": SPAWN_BASE_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "push",
+                             "head_branch": "feat-cmux-next", "head_sha": SPAWN_BASE, "created_at": "2026-11-11T10:07:24Z",
+                             "status": "completed", "conclusion": "failure"},
+            SPAWN_PRIOR_RUN: {"id": SPAWN_PRIOR_RUN, "workflow_id": SPAWN_WORKFLOW, "event": "push",
+                              "head_branch": "feat-cmux-next", "head_sha": SPAWN_MERGE_BASE,
+                              "created_at": "2026-11-11T09:49:55Z", "status": "completed", "conclusion": "failure"},
+        }
+        self.pull = {"number": 41205, "state": "open", "mergeable": True, "mergeable_state": "clean",
+                     "labels": [{"name": "risk:low"}], "user": {"login": "agent-author", "type": "User"},
+                     "author_association": "MEMBER", "body": "", "head": {"sha": SPAWN_HEAD},
+                     "base": {"ref": "feat-cmux-next"}}
+        self.comments = [ship_comment(SPAWN_HEAD)]
+        self.routes: list[str] = []
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        path, _, query = route.partition("?")
+        if f"/compare/feat-cmux-next...{SPAWN_HEAD}" in route:
+            return {"merge_base_commit": {"sha": SPAWN_MERGE_BASE,
+                                          "commit": {"committer": {"date": "2026-11-11T09:49:40Z"}}},
+                    "files": [{"filename": name} for name in self.changed]}
+        if f"/compare/{SPAWN_MERGE_BASE}...{SPAWN_BASE}" in route:
+            return {"status": "ahead"}
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            run = int(path.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
+        if f"/actions/workflows/{SPAWN_WORKFLOW}/runs" in path:
+            runs = [copy.deepcopy(run) for run in self.runs.values() if run["event"] == "push"]
+            if "head_sha=" in query:
+                sha = query.split("head_sha=", 1)[1].split("&", 1)[0]
+                runs = [run for run in runs if run["head_sha"] == sha]
+            if "created=" in query:
+                runs = [run for run in runs if run["id"] == SPAWN_PRIOR_RUN]
+            return {"workflow_runs": sorted(runs, key=lambda run: run["created_at"], reverse=True)}
+        if "/actions/runs?head_sha=" in route:
+            return [{"total_count": 1, "workflow_runs": [copy.deepcopy(self.runs[SPAWN_HEAD_RUN])]}]
+        if "/actions/runs/" in path:
+            return copy.deepcopy(self.runs[int(path.rsplit("/", 1)[1])])
+        if path.endswith("/annotations"):
+            return [[]] if paginate else []
+        if path.endswith(f"/commits/{SPAWN_HEAD}/pulls"):
+            return [self.pull]
+        if path.endswith("/pulls/41205"):
+            return copy.deepcopy(self.pull)
+        if path.endswith("/issues/41205/comments"):
+            return [list(self.comments)] if paginate else list(self.comments)
+        if path.endswith("/pulls/41205/reviews"):
+            return [[]] if paginate else []
+        if f"/commits/{SPAWN_MERGE_BASE}/check-runs" in path:
+            name = urllib.parse.unquote(query.split("check_name=", 1)[1].split("&", 1)[0])
+            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"]}
+                                   for job in self.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN
+                                   and job["name"] == name]}
+        raise AssertionError(route)
+
+    @staticmethod
+    def failed_step_only(job, text):
+        """(steps, log) of JOB with only its one failed step, whose section of TEXT is the one with an error line."""
+        (step,) = [step for step in job["steps"] if step["conclusion"] == "failure"]
+        after = next(later for later in job["steps"] if later["number"] > step["number"]
+                     and later["conclusion"] == "success")  # the step that ran next, so the red one is not last
+        lines = [excuse.STAMP.sub("", line).lstrip("\ufeff") for line in text.splitlines()]
+        starts = [n for n, line in enumerate(lines) if excuse.STEP_START.match(line)] + [len(lines)]
+        (at,) = [k for k, (a, b) in enumerate(zip(starts, starts[1:]))
+                 if any(line.startswith("##[error]") for line in lines[a:b])]
+        section, header = lines[starts[at]:starts[at + 1]], lines[starts[at + 1]]
+        return (framed_steps([(step["name"], "failure", 3, 9), (after["name"], "success", 10, 12)]),
+                framed_log([(step["name"], 3, line) for line in section] + [(after["name"], 10, header)],
+                           job["name"]))
+
+    def log(self, repo, job):
+        return self.logs[job["id"]]
+
+    def run(self, args):
+        # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
+        assert args[:2] == ["api", "graphql"], args
+        query = next(arg for arg in args if arg.startswith("query="))
+        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+        return json.dumps({"data": {"nodes": [
+            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"conclusion": (job["conclusion"] or "").upper() or None}
+                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
+            for run in re.findall(r'"CS_(\d+)"', query)]}})
+
+
+class SpawnOwnerFixedOnBase(unittest.TestCase):
+    """cmux#41205's two cmux-next-guards.yml reds are fixed on base: excused for a land and for update_branch's base
+    merge, and refused when the PR's diff reaches what the check reads."""
+
+    def judge(self, github, purpose=None):
+        return excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], github, purpose=purpose)
+
+    def test_41205_at_ba8ff399_is_fixed_on_base_for_a_land(self):
+        said = self.judge(SpawnOwnerGitHub())
+        self.assertEqual(len(said), 2, said)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn(f"passes at {SPAWN_BASE[:12]} in feat-cmux-next run {SPAWN_BASE_RUN}", own)
+        self.assertIn("PR does not touch scripts/cmux-next/check-spawn-owner.py, "
+                      "scripts/cmux-next/spawn-owner-baseline.tsv, cmux-tui/crates/acpmux/", own)
+        self.assertIn("check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 spawn line(s) with "
+                      "no owner (a new file)", own)
+        tooling = next(line for line in said if line.startswith("excused 'tooling-tests': fixed on base ("))
+        self.assertIn("PR does not touch tests/test_spawn_owner_ratchet.py, tests/git_fixture_env.py, "
+                      "scripts/cmux-next/check-spawn-owner.py", tooling)
+        self.assertIn("test_the_committed_baseline_holds_on_this_tree", tooling)
+
+    def test_41205_at_ba8ff399_is_fixed_on_base_for_update_branch(self):
+        said = self.judge(SpawnOwnerGitHub(), purpose=excuse.PER_STEP_PURPOSE)
+        self.assertEqual(sorted(line.split("': ", 1)[0] for line in said),
+                         [f"excused '{OWN_CHANGE}", "excused 'tooling-tests"])
+        self.assertTrue(all(": fixed on base (" in line for line in said), said)
+
+    def test_the_real_stamps_get_a_base_merge_and_no_land_until_they_are_placed(self):
+        # As GitHub serves them: step_owners does not place these logs (the runner's steps share a second with the
+        # next one), so a land is refused on that, never on GUARD_JOBS; update_branch's base merge gets through.
+        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps") as raised:
+            self.judge(SpawnOwnerGitHub(placed=False))
+        self.assertNotIn("not a declared guard job", str(raised.exception))
+        said = self.judge(SpawnOwnerGitHub(placed=False), purpose=excuse.PER_STEP_PURPOSE)
+        self.assertEqual(sorted(line.split("': ", 1)[0] for line in said),
+                         [f"excused '{OWN_CHANGE}", "excused 'tooling-tests"])
+        self.assertTrue(all(": fixed on base (run 42998810174 / " in line for line in said), said)
+
+    def test_the_per_step_reading_matches_the_finding_with_the_merge_bases(self):
+        # No SHIP at the head: the job-level rule refuses, and update_branch's per-step reading matches the spawn-owner
+        # step's finding (test_reds.CHECK_RULE) with the merge-base run's, where the red was the base's.
+        github = SpawnOwnerGitHub()
+        github.comments = []
+        said = self.judge(github, purpose=excuse.PER_STEP_PURPOSE)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn("step 'cmux-next spawn-owner ratchet': passes in feat-cmux-next run 43000928251", own)
+        self.assertIn(f"red in feat-cmux-next run {SPAWN_PRIOR_RUN}", own)
+        # A finding the merge-base did not have is the PR's own: the per-step reading refuses it.
+        github = SpawnOwnerGitHub()
+        github.comments = []
+        github.logs[130448365318] = github.logs[130448365318].replace("remote_table_bench.rs", "other_bench.rs")
+        evidence = excuse.step_evidence(excuse.failed_view(
+            github.jobs[130449502223], github.logs[130449502223], base=False, **UNKNOWN),
+            "cmux-next spawn-owner ratchet")
+        self.assertEqual(evidence[0], {"check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 "
+                                       "spawn line(s) with no owner (a new file)"})
+        with unittest.mock.patch.object(excuse, "green_since", side_effect=excuse.Refused("off")), \
+                self.assertRaisesRegex(excuse.Refused, "failures not in feat-cmux-next run 42998467090 at the "
+                                                       "merge-base, so not the base's: 'cmux-next spawn-owner ratchet'"):
+            self.judge(github, purpose=excuse.PER_STEP_PURPOSE)
+
+    def test_a_diff_that_reaches_the_check_is_refused(self):
+        for path in ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv",
+                     "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
+                self.judge(SpawnOwnerGitHub(changed=(path,)))
+        with self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes: tests/test_spawn_owner_ratchet.py"):
+            self.judge(SpawnOwnerGitHub(changed=("tests/test_spawn_owner_ratchet.py",)))
+
+    def test_a_check_line_of_another_shape_is_refused(self):
+        # A baseline raised above the base's prints `... raises PATH`: not a finding this rule keys, so not excused.
+        github = SpawnOwnerGitHub()
+        raised = ("check-spawn-owner: scripts/cmux-next/spawn-owner-baseline.tsv raises cmux-tui/crates/acpmux/src/a.rs"
+                  " to 1 (base HEAD^1: 0). The baseline only goes down.")
+        text = github.logs[130449502223]
+        at = text.index("next: spawn the task")
+        stamp = text[:at].rsplit("\n", 1)[1]
+        github.logs[130449502223] = text[:at] + raised + "\n" + stamp + text[at:]
+        with self.assertRaisesRegex(excuse.Refused, "not its check rule's: check-spawn-owner: scripts/cmux-next/"
+                                                    "spawn-owner-baseline.tsv raises"):
+            self.judge(github)
+
+    def test_the_check_rule_is_a_named_failure(self):
+        line = ("check-spawn-owner: cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs has 1 spawn line(s) with no "
+                "owner (a new file).")
+        self.assertEqual(excuse.test_reds.failed_names([line]),
+                         {"check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 spawn line(s) "
+                          "with no owner (a new file)"})
+        self.assertEqual(excuse.test_reds.failed_names(["AssertionError: 1 != 0 : " + line]), set(),
+                         "a quoted finding is a test's output, never a finding of its own")
+
+
+class GreenSinceForABaseMerge(unittest.TestCase):
+    """dep-fleet-6 (2026-11-11): update_branch's base merge gets through when the newest base verdict for the job is a
+    pass made after the head's red run, whatever the job lists declare; a land never does."""
+
+    def github(self):
+        github = SpawnOwnerGitHub()
+        github.comments = []  # no SHIP: the job-level rule refuses, whatever is declared
+        prior = [job for job in github.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN]
+        for job in prior:
+            del github.jobs[job["id"]]  # no merge-base verdict: the per-step rule refuses too
+        return github
+
+    def test_an_undeclared_job_green_since_gets_its_base_merge(self):
+        with unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()):
+            said = excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], self.github(),
+                                purpose=excuse.PER_STEP_PURPOSE)
+        own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
+        self.assertIn(f"(run {SPAWN_HEAD_RUN} / {OWN_CHANGE}, job 130449502223", own)
+        self.assertIn(f"green in feat-cmux-next run {SPAWN_BASE_RUN} at {SPAWN_BASE[:12]}", own)
+        self.assertIn("for a base merge alone", own)
+
+    def test_a_land_still_refuses_it(self):
+        for purpose in (None, "land"):
+            with self.subTest(purpose=purpose), unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()), \
+                    self.assertRaisesRegex(excuse.Refused, "not a declared guard job") as raised:
+                excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], self.github(), purpose=purpose)
+            self.assertNotIn("green since", str(raised.exception))
+
+    def test_a_base_pass_older_than_the_red_run_is_not_green_since(self):
+        github = self.github()
+        github.runs[SPAWN_BASE_RUN]["created_at"] = "2026-11-11T09:52:00Z"
+        with unittest.mock.patch.object(excuse, "GUARD_JOBS", frozenset()), \
+                self.assertRaisesRegex(excuse.Refused, "green since: .* is not newer than the red run"):
+            excuse.judge(REPO, "feat-cmux-next", SPAWN_HEAD, [SPAWN_HEAD_RUN], github,
+                         purpose=excuse.PER_STEP_PURPOSE)
+
+
+class GuardJobsFollowTheWorkflows(unittest.TestCase):
+    """The detector for a guard job declaration that drifts from the workflows (2026-11-11, cmux#41205): every job of
+    every workflow that runs on pull requests is a declared guard job, a package job, or excluded with a reason, and
+    every hard-coded copy of a guard job's name is a name GitHub reports for a job of the workflows."""
+
+    # Workflows that run on pull requests and declare no guard job, each with why. A new one fails
+    # test_every_pull_request_workflow_is_classified until it is classified here or in excuse.GUARD_WORKFLOWS.
+    NOT_GUARD_WORKFLOWS = {
+        "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
+            "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
+            "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
+            "cmux-next-media.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
+            "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
+            "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "indexnow-tests.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
+            "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
+            "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
+            "swift-acpmux-protocol.yml", "swift-linux-packages.yml", "swift-packages-linux.yml",
+            "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
+            "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
+            "cmux-skill-contract.yml", "agent-brands.yml",
+            # React Doctor (da29cd0a): a ratchet over the React projects' own code.
+            "cmux-next-react-doctor.yml"),
+        "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
+            "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
+            "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
+            "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
+            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
+            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
+        "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
+            "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
+            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "ios-shared-packages-sync.yml", "pr-checks.yml",
+            "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.yaml = excuse.yaml_module()
+        cls.workflows = {}
+        for path in sorted(excuse.WORKFLOWS.glob("*.y*ml")):
+            doc = cls.yaml.safe_load(path.read_text())
+            if isinstance(doc, dict):
+                cls.workflows[path.name] = doc
+
+    def triggers(self, doc):
+        on = doc.get(True, doc.get("on"))
+        return {on} if isinstance(on, str) else set(on or ())
+
+    def pull_request_workflows(self):
+        return {file for file, doc in self.workflows.items()
+                if self.triggers(doc) & {"pull_request", "pull_request_target"}}
+
+    def reported_names(self):
+        """Every job name GitHub reports for the workflows' jobs with a fixed name, as it reports it (cut at 100)."""
+        names = set()
+        for file, doc in self.workflows.items():
+            for job_id, job in (doc.get("jobs") or {}).items():
+                try:
+                    names.update(excuse.github_job_name(name)
+                                 for name in excuse._check_matcher(str(job_id), job, file)["exact"])
+                except excuse.Refused:
+                    pass
+        return names
+
+    def test_the_committed_guard_jobs_are_the_workflows(self):
+        self.assertEqual(json.loads(excuse.GUARD_JOBS_FILE.read_text()), excuse.derive_guard_jobs(),
+                         "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+        self.assertEqual(excuse.GUARD_JOBS, frozenset(excuse.derive_guard_jobs()["jobs"]))
+
+    def test_every_pull_request_workflow_is_classified(self):
+        listed = [file for files in self.NOT_GUARD_WORKFLOWS.values() for file in files]
+        self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
+        guard = set(excuse.GUARD_WORKFLOWS) | {file for file, _ in excuse.GUARD_JOB_IDS}
+        self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
+                         "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
+                         "NOT_GUARD_WORKFLOWS: classify its jobs")
+        self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
+        self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
+
+    def test_every_job_of_a_guard_workflow_is_declared_or_excluded_with_a_reason(self):
+        declared = set(excuse.GUARD_JOB_IDS)
+        for file, excluded in excuse.GUARD_WORKFLOWS.items():
+            jobs = set((self.workflows[file].get("jobs") or {}))
+            with self.subTest(file=file):
+                ours = {job for f, job in declared if f == file}
+                self.assertEqual(sorted(jobs - ours - set(excluded)), [],
+                                 f"{file}: a job is neither declared (GUARD_JOB_IDS) nor excluded (GUARD_WORKFLOWS)")
+                self.assertEqual(sorted((ours | set(excluded)) - jobs), [], f"{file}: a classified job is gone")
+                self.assertEqual(sorted(ours & set(excluded)), [], f"{file}: a job is declared and excluded")
+                self.assertTrue(all(isinstance(why, str) and len(why) > 10 for why in excluded.values()))
+        self.assertEqual(sorted({file for file, _ in declared} - set(excuse.GUARD_WORKFLOWS)), [])
+
+    def test_a_renamed_or_new_guard_job_fails_the_detector(self):
+        with tempfile.TemporaryDirectory() as root:
+            for file in {file for file, _ in excuse.GUARD_JOB_IDS}:
+                (Path(root) / file).write_text((excuse.WORKFLOWS / file).read_text())
+            renamed = Path(root) / "cmux-next-guards.yml"
+            text = renamed.read_text()
+            renamed.write_text(text.replace(f"name: {OWN_CHANGE}", "name: cmux-next own change checks"))
+            self.assertNotEqual(excuse.derive_guard_jobs(Path(root)), json.loads(excuse.GUARD_JOBS_FILE.read_text()))
+            renamed.write_text(text.replace("\n  own-change-checks:", "\n  own-change-checks-v2:"))
+            with self.assertRaisesRegex(excuse.Refused, "no job own-change-checks"):
+                excuse.derive_guard_jobs(Path(root))
+
+    def test_the_suffixes_and_package_jobs_name_jobs_of_the_workflows(self):
+        guards = self.workflows["ci-guards.yml"]["jobs"]
+        for suffix in excuse.GUARD_JOB_SUFFIXES:
+            job_id, group = suffix.split(" / ")
+            self.assertIn(job_id, guards)
+            self.assertIn(f"matrix.group == '{group}'", (excuse.WORKFLOWS / "ci-guards.yml").read_text())
+        names = self.reported_names()
+        for name in excuse.PACKAGE_JOBS:
+            self.assertIn(name, names)
+
+    def test_every_hard_coded_copy_of_a_guard_job_name_is_a_name_github_reports(self):
+        # The same drift in the other lists that name a guard job: each must be a job name GitHub reports today
+        # (pr_red_checks_comment's static checks name was its 101-character `name:`, never reported: GitHub cuts it).
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import base_red_checks, car_guards, next_batch, pr_red_checks_comment  # noqa: E401,PLC0415
+        names = self.reported_names()
+        copies = [base_red_checks.CHECKS_JOB, next_batch.CHECKS_JOB, excuse.FFI_PIN_JOB, excuse.GUARD_GROUP_JOB,
+                  *car_guards.REUSE["guard"],
+                  *(value for kind, value in pr_red_checks_comment.TRACKED if kind == "name")]
+        self.assertEqual(sorted(set(copies) - names), [])
+        replay = (ROOT / "scripts/ci/affected_tests_replay.py").read_text()
+        no_tests = ast.literal_eval(re.search(r"^NO_TESTS = (\(.*\))$", replay, re.M).group(1))
+        for prefix in [prefix for prefix in no_tests if prefix.startswith("cmux-next checks")]:
+            self.assertTrue(any(name.startswith(prefix) for name in names), prefix)
+
+
+class ReplacedWaitingBaseRed(unittest.TestCase):
+    """A base summary red whose source job a newer push replaced while it waited judged nothing: base_verdicts passes
+    over it to an older run's verdict (feat-cmux-next runs 43032789758 and 43037486374, 'cmux-next crash ends the
+    app': "no verdict: crash gate: compile cancelled")."""
+
+    CRASH, COMPILE = "cmux-next crash ends the app", "cmux app scheme compile (Debug)"
+    REPLACED = ("Canceling since a higher priority waiting request for "
+                "cmux-next-push-refs/heads/feat-cmux-next-cmux-scheme-compile exists")
+
+    class Runs:
+        def __init__(self, jobs, notes):
+            self.jobs, self.notes, self.routes = jobs, notes, []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            if route.endswith("/jobs?filter=latest&per_page=100"):
+                run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                return [{"jobs": [dict(job) for job in self.jobs if job["run_id"] == run]}]
+            if "/actions/workflows/7/runs?" in route:  # the tip suite's dispatches (tip_suite_verdicts): none here
+                return {"workflow_runs": []}
+            if route.endswith("/annotations"):
+                return self.notes.get(int(route.split("/check-runs/", 1)[1].split("/", 1)[0]), [])
+            raise AssertionError(route)
+
+    def verdicts(self, compile_conclusion, note, crash="failure"):
+        step = [{"name": "Read the crash gate result", "status": "completed", "conclusion": crash}]
+        jobs = [{"id": 1, "run_id": 20, "name": self.CRASH, "conclusion": crash, "steps": step},
+                {"id": 2, "run_id": 20, "name": self.COMPILE, "conclusion": compile_conclusion, "steps": []},
+                {"id": 3, "run_id": 19, "name": self.CRASH, "conclusion": "success",
+                 "steps": [dict(step[0], conclusion="success")]}]
+        github = self.Runs(jobs, {2: [{"annotation_level": "failure", "message": note}]})
+        runs = [{"id": 20, "event": "push", "status": "completed", "conclusion": "cancelled"},
+                {"id": 19, "event": "push", "status": "completed", "conclusion": "success"}]
+        with unittest.mock.patch.object(excuse, "REPLACED_READS", {}):
+            found = list(excuse.base_verdicts(REPO, "feat-cmux-next", 7, self.CRASH, github, {7: runs}, {}, {}))
+        return [(run["id"], job["conclusion"]) for run, job in found], github.routes
+
+    def test_a_red_from_a_replaced_compile_is_passed_over(self):
+        found, routes = self.verdicts("cancelled", self.REPLACED)
+        self.assertEqual(found, [(19, "success")])
+        self.assertEqual(sum(route.endswith("/annotations") for route in routes), 1)
+
+    def test_any_other_red_stays_a_verdict(self):
+        for conclusion, note, crash in (("cancelled", "The job running on runner x has exceeded the maximum execution "
+                                         "time of 60 minutes.", "failure"),
+                                        ("failure", self.REPLACED, "failure"), ("success", self.REPLACED, "failure"),
+                                        ("cancelled", self.REPLACED, "success")):
+            with self.subTest(compile=conclusion, note=note[:20], crash=crash):
+                found, routes = self.verdicts(conclusion, note, crash)
+                self.assertEqual(found, [(20, crash), (19, "success")])
+                if conclusion != "cancelled" or crash != "failure":
+                    self.assertFalse(any(route.endswith("/annotations") for route in routes))
 
 
 if __name__ == "__main__":
