@@ -82,11 +82,34 @@ extension HomeStore {
     }
 
     /// Reads the open transcript `id` again after its first read failed (a view's Retry). The task
-    /// ends when the read does; nothing happens when the transcript is shown nowhere.
+    /// ends when the read does; nothing happens when the transcript is shown nowhere. A first
+    /// read that is still out (it hung past its deadline) is not asked again: the view shows
+    /// loading again under a fresh deadline, and that read's page still lands.
     @discardableResult
     public func retryTranscript(_ id: ConversationID) -> Task<Void, Never> {
         guard pager.isShown(id), mirror.windows[id] != nil else { return Task {} }
+        if let running = pager.runningLoad(id) {
+            if mirror.retryFirstPage(id) { bumpTranscript(id) }
+            armFirstPageDeadline(id)
+            return running
+        }
         return load(id)
+    }
+
+    /// Arms the deadline of `id`'s first read while its first page is loading: past
+    /// ``firstPageDeadline`` the first page is failed (the view's error with Retry), never loading
+    /// forever. A page that lands later still replaces the error.
+    func armFirstPageDeadline(_ id: ConversationID) {
+        firstPageDeadlines.removeValue(forKey: id)?.cancel()
+        guard mirror.windows[id]?.firstPage == .loading else { return }
+        let clock = self.clock
+        // task-owner: one first-read deadline of transcript `id`; cancelled when the read ends, by a retry and by stop()
+        firstPageDeadlines[id] = Task { [weak self] in
+            do { try await clock.sleep(for: HomeStore.firstPageDeadline) } catch { return }
+            guard let self, !self.stopped else { return }
+            self.firstPageDeadlines[id] = nil
+            if self.mirror.markFirstPageFailed(id) { self.bumpTranscript(id) }
+        }
     }
 
     /// The conversation's transcript read, or the one already running.
@@ -127,7 +150,9 @@ extension HomeStore {
             let epoch = pager.epoch(id)
             // A read after a failed first one: the view shows loading again, not the error.
             if mirror.retryFirstPage(id) { bumpTranscript(id) }
+            armFirstPageDeadline(id)
             let page = try? await source.snapshot(of: id, tail: Self.tailSize)
+            firstPageDeadlines.removeValue(forKey: id)?.cancel()
             guard !stopped else { return }
             guard pager.isShown(id) else {
                 // Closed while the read ran. The source reads off the main
