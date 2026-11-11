@@ -671,11 +671,11 @@ impl PersistentSessionStateResetter {
         let initial_session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let initial_terminal_host_root_exists =
             validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !initial_session_dir_exists
-            && !initial_terminal_host_root_exists
-            && initial_pending_reset_dirs.is_empty()
-            && !(remove_guard && session_guard_file_exists(root, session_name))
-        {
+        let anything_left = initial_session_dir_exists
+            || initial_terminal_host_root_exists
+            || !initial_pending_reset_dirs.is_empty()
+            || (remove_guard && session_guard_file_exists(root, session_name));
+        if !anything_left {
             return Ok(reset);
         }
         require_reset_confirmation(
