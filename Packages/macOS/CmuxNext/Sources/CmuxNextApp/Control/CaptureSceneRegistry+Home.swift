@@ -163,7 +163,7 @@ extension CaptureSceneRegistry {
 }
 
 /// `permission-feed-peer(-resolved)`: the real feed bridge against HomeNeedsYouCapture's acpmux and feed stub, in
-/// Chief Home's pinned Needs you; resolved: acpmux reports the prompt answered elsewhere (`withdrawn` says if it went).
+/// Chief Home's pinned Needs you; resolved: acpmux reports the prompt answered elsewhere, an error if it stays.
 extension CaptureSceneRegistry {
     func renderPermissionFeedPeer(_ params: [String: CmuxNextSettings.JSONValue], scene: String, windowID: String) async -> CmuxNextSettings.JSONValue {
         let (services, daemon) = (services, services.machines.local.connection)
@@ -214,7 +214,7 @@ extension CaptureSceneRegistry {
         withExtendedLifetime(bridge) {}
         result["scene"] = .string(scene)
         result["scene_action"] = .object(report)
-        return .object(result)
+        return .object(report["withdrawn"] == .bool(false) ? result.merging(["error": .string("the bridge kept the answered prompt in Needs you")]) { $1 } : result)
     }
 
     /// One `feed.*` op (params: a JSON object) on the app's local daemon connection, and what it answered.
