@@ -13,15 +13,22 @@ is dropped on purpose (#41383 F1), so base's refusal of one is a false positive 
 the same reason a default holds no closure leaf (base reads a closure in a default as a closure alias even
 when an argument replaces it).
 
+A base refusal that only says `unresolved` (base could not resolve the type, so it refuses rather than guess)
+does not bind the head: the head reports `unresolved` itself when it cannot resolve a type, so a head pass there
+means it resolved the type and found no hook. Every other base refusal is a hook base found, and the head must
+refuse that chain too.
+
 Deterministic: one seed, one sequence of chains. Prints how many chains it generated, how many each check
-refused, a sample of those only the head refuses (fine: it resolves what base reads as text), and every chain
-base refuses that head passes. Exit 1 if there is one.
+refused, a sample of those only the head refuses (fine: it resolves what base reads as text), how many base
+refused only as unresolved that the head resolved and passed, and every chain where base found a hook and the
+head passes. Exit 1 if there is one.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import random
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -39,6 +46,10 @@ PRELUDE_TEXT = """struct Cached { at: u64 }
 type Leaf = fn(u8);
 trait Callback { type Hook; }
 """
+
+
+# A finding line of check-test-hooks.py whose reason is that the type could not be resolved.
+UNRESOLVED = re.compile(r": unresolved: ")
 
 
 def load(path: str, name: str):
@@ -145,6 +156,7 @@ def main(argv: list[str]) -> int:
     counts = {"base": 0, "head": 0, "both": 0}
     head_only: list[str] = []
     missed: list[tuple[str, list[str]]] = []
+    resolved = 0
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "chain.rs"
         for _ in range(opts.count):
@@ -155,22 +167,26 @@ def main(argv: list[str]) -> int:
             counts["base"] += bool(base_found)
             counts["head"] += bool(head_found)
             counts["both"] += bool(base_found) and bool(head_found)
-            if base_found and not head_found:
-                missed.append((text, base_found))
+            base_hooks = [line for line in base_found if not UNRESOLVED.search(line)]
+            if base_hooks and not head_found:
+                missed.append((text, base_hooks))
+            elif base_found and not head_found:
+                resolved += 1
             elif head_found and not base_found:
                 head_only.append(text)
     print(f"property: {opts.count} chains (seed {opts.seed}): base refused {counts['base']}, "
           f"head refused {counts['head']}, both {counts['both']}, head only {len(head_only)}, "
-          f"base only {len(missed)}")
+          f"base only as unresolved, head resolved and passed {resolved}, base found a hook and head passed "
+          f"{len(missed)}")
     for text in head_only[:opts.samples]:
         print("head refuses, base passes:\n" + "".join(f"    {line}\n" for line in text.splitlines()[3:]), end="")
     for text, found in missed:
         print("BASE REFUSES, HEAD PASSES:\n" + "".join(f"    {line}\n" for line in text.splitlines()[3:])
               + "".join(f"    base: {line}\n" for line in found), end="")
     if missed:
-        print(f"property: FAIL: {len(missed)} chains base refuses and head passes")
+        print(f"property: FAIL: {len(missed)} chains where base found a hook and head passes")
         return 1
-    print("property: ok, base refuses implies head refuses")
+    print("property: ok, every hook base finds the head refuses too")
     return 0
 
 

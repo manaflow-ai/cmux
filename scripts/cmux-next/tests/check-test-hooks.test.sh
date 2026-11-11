@@ -312,7 +312,7 @@ rm "$src/unseen.rs"
 # BASE_CHECK: the check at origin/feat-cmux-next. Generated alias chains: whatever it refuses, this check refuses.
 if [ -n "${BASE_CHECK:-}" ]; then
   python3 -I "$repo/scripts/cmux-next/tests/check-test-hooks-property.py" "$check" "$BASE_CHECK" \
-    || fail "base refuses implies head refuses, on generated alias chains"
+    || fail "every hook base finds the head refuses too, on generated alias chains"
 fi
 
 if [ "$failures" -gt 0 ]; then
