@@ -3,6 +3,14 @@
 in a file with no row fails, a file at its row passes, one below it passes and --update lowers the
 row, and a baseline raised above the base's copy fails."""
 
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import shutil
 import subprocess
 import sys
@@ -37,8 +45,9 @@ class SpawnOwnerRatchet(unittest.TestCase):
 
     def git(self, *args):
         subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
-                       env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                            "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin"})
+                       env=git_fixture_env.fixture_env({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                                        "PATH": "/usr/bin:/bin"}))
 
     def test_a_new_file_with_one_bare_spawn_fails_and_names_scope_spawn(self):
         self.baseline({})
