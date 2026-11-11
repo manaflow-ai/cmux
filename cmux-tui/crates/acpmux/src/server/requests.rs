@@ -986,6 +986,9 @@ pub(super) async fn handle_request(
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+            // The program that ran a send no session proved (`sender_program.rs`), so a prompt
+            // no proof attributes still says which program sent it.
+            crate::sender_program::stamp(prompt, pid, carried, conn.caller().is_none()).await;
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
@@ -1852,10 +1855,13 @@ async fn dispatch_request_with_identity(
                     );
                     Some(crate::prompt_provenance::observed(note, transport))
                 }
-                None => Some(crate::prompt_provenance::unverified(
-                    &s.id,
-                    transport,
-                    claimed_labels(conn, &params),
+                None => Some(crate::sender_program::on_unverified(
+                    crate::prompt_provenance::unverified(
+                        &s.id,
+                        transport,
+                        claimed_labels(conn, &params),
+                    ),
+                    &params,
                 )),
             };
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.

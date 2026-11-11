@@ -27,6 +27,9 @@
 // A prompt acpmux could not attribute (kind `unverified`, prompt_provenance.rs: a plain `acpmux
 // send` at a shell, a script, an agent outside acpmux) is no one's for sure and never the person's:
 // a card from the name it puts first, else from an unverified sender, marked unverified either way.
+// The daemon names the program that ran the send when it can (`program: {name, path?}`,
+// sender_program.rs, from the socket peer's process chain, or a peer daemon that looked): that is
+// what acpmux saw, so it names the card over any name the text claims, still not proven an agent.
 // A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
 // predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
 // that mark was recorded so (only the explicit `unverified` kind marks a prompt).
@@ -96,6 +99,10 @@ export type IncomingMessage = {
   /// senderIdentity.ts, or provenance kind `unverified`, which names an unverified sender when the
   /// message names no one): the line draws a subtle marker by the name, never words in it.
   unverified?: true;
+  /// The program acpmux saw run the send of an `unverified` prompt (`program`, sender_program.rs),
+  /// and the machine the send claimed (`claimed.cliHost`): the card names the program, and its mark
+  /// says acpmux checked it, still no agent it proved.
+  program?: SenderProgram;
   /// The sender's model and thinking effort when the message names them (`fromModel`,
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
@@ -120,6 +127,33 @@ export type IncomingMessage = {
   /// message's first line, never that name beside the senders the line already names.
   preview?: string;
 };
+
+/// A program acpmux checked (`IncomingMessage.program`).
+export type SenderProgram = { name: string; path?: string; host?: string };
+
+/// The program an `unverified` provenance names, or none when it is malformed: a name of one line
+/// and at most 64 characters (code points, as acpmux counts them), a path of at most 256 bytes
+/// (sender_program.rs `MAX_NAME_CHARS`, `MAX_PATH_BYTES`). The host is only the send's claim
+/// (`claimed.cliHost`), read as `cliHost` reads one.
+export function senderProgram(provenance: Record<string, unknown> | undefined): SenderProgram | undefined {
+  const program = provenance?.program as Record<string, unknown> | undefined;
+  if (!program || typeof program !== "object" || Array.isArray(program)) return undefined;
+  const name = typeof program.name === "string" ? program.name.trim() : "";
+  if (!name || /[\r\n]/.test(name) || Array.from(name).length > 64) return undefined;
+  const path =
+    typeof program.path === "string" &&
+    program.path.trim() &&
+    !/[\r\n]/.test(program.path) &&
+    new TextEncoder().encode(program.path).length <= 256
+      ? program.path.trim()
+      : undefined;
+  const claimed = provenance?.claimed as Record<string, unknown> | undefined;
+  const host =
+    typeof claimed?.cliHost === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(claimed.cliHost)
+      ? claimed.cliHost
+      : undefined;
+  return { name, ...(path && { path }), ...(host && { host }) };
+}
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
 /// person's words: whether a name is this chat's, and whether it is a listed chat's. Each is asked
@@ -657,6 +691,22 @@ function promptOf(
   // No proof names its sender: the name it puts first is a claim, and it is never the person's.
   if (provenance?.kind === "unverified") {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
+    // The program acpmux saw names the card over the text's claim. A signature naming that program
+    // only repeats it and goes; one naming anyone else stays in the text, the claim it is.
+    const program = senderProgram(provenance);
+    if (program)
+      return {
+        kind: "message",
+        message: {
+          name: program.name,
+          text: named && namesSender(named.name, [program.name]) ? named.text : text.trim(),
+          unverified: true,
+          program,
+          ...remote,
+          ...harness,
+          raw: text,
+        },
+      };
     return {
       kind: "message",
       message: {
