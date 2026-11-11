@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import unittest.mock
+from collections import Counter
 import zipfile
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -33,6 +34,9 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys  # noqa: E402
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
+# A host's own glaeda-gh keeps real job logs: every test reads its fakes only, unless it names a fake glaeda-gh
+# (GlaedaKeptLog).
+os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
@@ -782,6 +786,94 @@ class ListReadsNameTheirFields(unittest.TestCase):
             github, asked = self.reader([])
             self.assertEqual(excuse.base_run_jobs(REPO, run, github)[0]["run_id"], 77)  # from the cache, no read
             self.assertEqual(asked, [])
+
+
+FAKE_GLAEDA_GH = """#!/usr/bin/env python3
+import os, sys
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(sys.argv[1:]) + "\\n")
+mode = os.environ.get("FAKE_GLAEDA", "")
+if mode == "miss":
+    sys.stderr.write("glaeda-gh: no kept log for o/r job 7; --fetch reads it once\\n")
+    sys.exit(7)
+if mode == "old":
+    sys.stderr.write("glaeda-gh: error: argument command: invalid choice: 'log'\\n")
+    sys.exit(2)
+sys.stdout.write("\\ufeff2026-10-30T12:00:00.000Z kept \\x1b[31mred\\x1b[0m log\\n")
+"""
+
+
+class GlaedaKeptLog(unittest.TestCase):
+    """A failed job's log this host's glaeda-gh kept is read there, with no gh call; anything else reads GitHub."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for name, text in (("gh", FAKE_GH), ("glaeda-gh", FAKE_GLAEDA_GH)):
+            path = Path(self.dir.name) / name
+            path.write_text(text)
+            path.chmod(0o755)
+        self.gh_calls = Path(self.dir.name) / "gh-calls"
+        self.glaeda_calls = Path(self.dir.name) / "glaeda-calls"
+        self.gh_calls.write_text("")
+        self.glaeda_calls.write_text("")
+        env = git_fixture_env.fixture_env({"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}",
+                                           "FAKE_GH_CALLS": str(self.gh_calls),
+                                           "FAKE_GLAEDA_CALLS": str(self.glaeda_calls),
+                                           "CMUX_GLAEDA_GH": str(Path(self.dir.name) / "glaeda-gh")})
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GLAEDA"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def test_a_kept_log_is_read_with_no_api_call(self):
+        raw = self.read("")
+        self.assertEqual(self.gh_calls.read_text(), "")
+        self.assertEqual(self.glaeda_calls.read_text().splitlines(), [f"log job {REPO} 7"])
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["kept red log"])
+
+    def test_a_log_glaeda_gh_does_not_keep_is_read_from_github(self):
+        for mode in ("miss", "old"):
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(mode))
+            self.assertEqual(self.gh_calls.read_text().splitlines(),
+                             [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"], mode)
+
+    def test_no_glaeda_gh_on_the_host_reads_github(self):
+        for named in ("", str(Path(self.dir.name) / "absent")):
+            os.environ["CMUX_GLAEDA_GH"] = named
+            self.gh_calls.write_text("")
+            self.assertIn("red", self.read(""))
+            self.assertEqual(len(self.gh_calls.read_text().splitlines()), 1, named)
+        self.assertEqual(self.glaeda_calls.read_text(), "")
+
+    # Readers of GET .../actions/jobs/ID/logs that do not ask glaeda-gh, and why. A new reader asks it first (or
+    # says here why it cannot): a replay or classifier that reads a log the host's mirror kept spends a read for
+    # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
+    UNCACHED_LOG_READERS = {
+        "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
+    }
+
+    def test_every_job_log_reader_asks_glaeda_gh_first(self):
+        route = re.compile(r"actions/jobs/\{[^}]*\}/logs")
+        readers = {path.name for path in (ROOT / "scripts/ci").glob("*.py") if route.search(path.read_text())}
+        uncached = {name for name in readers
+                    if "glaeda_log.cached_job_log(" not in (ROOT / "scripts/ci" / name).read_text()}
+        self.assertEqual(uncached - set(self.UNCACHED_LOG_READERS), set(),
+                         "a new job log reader: ask glaeda_log.cached_job_log first, or name why not")
+        self.assertEqual(set(self.UNCACHED_LOG_READERS) - uncached, set(), "this reader asks glaeda-gh now: drop it")
+        self.assertGreaterEqual(readers - uncached, {"base_red_excuse.py", "classify_failures.py", "guard_attribution.py",
+                                                      "main_compile_attribution.py", "next_batch.py",
+                                                      "affected_tests_replay.py"})
 
 
 class PortableGhLog(unittest.TestCase):
@@ -6244,6 +6336,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
 
+    def unplaced_rollup_head(self):
+        """cmux#40552's unplaced checks job (RollupJobReadsItsNamedReds' fixture) as this case's head: its whole log
+        sets the pin aside (a passing step's next-batch lines), so the rollup reading asks the pin rule again."""
+        fixtures = ROOT / "tests/fixtures/test_reds"
+        job = json.loads((fixtures / "cmux-40552-checks-job-130212680188.json").read_text())
+        self.gh.jobs[1] = dict(job, id=1, run_id=10, head_sha=HEAD)
+        self.gh.logs[1] = (fixtures / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8")
+
+    def counted_reads(self, fail_second=False):
+        """Every network read of one judgement, by source: (kind, what) -> times read. FAIL_SECOND: a second read of
+        any source fails, as GitHub's 503 does."""
+        reads: Counter = Counter()
+        inner_json, inner_run, inner_blob, inner_release = self.gh.json, self.gh.run, self.gh.blob, self.release_file
+
+        def counted(key, read):
+            reads[key] += 1
+            if fail_second and reads[key] > 1:
+                raise excuse.Refused(f"gh: Service Unavailable (HTTP 503) on {key}")
+            return read()
+        self.gh.json = lambda route, *, paginate=False: counted(("json", route, paginate),
+                                                                lambda: inner_json(route, paginate=paginate))
+        self.gh.run = lambda args: counted(("graphql", repr(args)), lambda: inner_run(args))
+        self.gh.blob = lambda repo, ref, path: counted(("blob", path), lambda: inner_blob(repo, ref, path))
+        patched = unittest.mock.patch.object(
+            excuse, "ffi_release_file",
+            lambda repo, tag, name: counted(("release", tag, name), lambda: inner_release(repo, tag, name)))
+        patched.start()
+        self.addCleanup(patched.stop)
+        return reads
+
+    def test_review_f1_a_second_read_of_a_proven_published_pin_never_overturns_it(self):
+        # Review of cmux#41151 at bfa0db5f (F1): a Swift change's pin is a published base release it compiled against.
+        # The whole-log reading proves it and sets the pin aside; the rollup reading asks the pin rule again, and its
+        # second read of the release files got a 503, refusing what the first proof had excused.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads(fail_second=True)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}", said[0])
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 1)
+
+    def test_one_judgement_reads_each_source_once(self):
+        # The class: every network source an excuse path reads is read once per judgement, however many paths ask.
+        self.unplaced_rollup_head()
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        reads = self.counted_reads()
+        self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}'"))
+        self.assertTrue(reads)
+        self.assertEqual({key: n for key, n in reads.items() if n > 1}, {})
+        # A new judgement reads afresh: nothing is kept past the judgement that read it.
+        self.judge()
+        self.assertEqual(reads[("release", f"cmux-app-ffi-{self.STEP_B_PIN}", "SOURCE_SHA")], 2)
+
     def test_review_f1_a_failed_compile_job_read_falls_back_to_the_status(self):
         # Review of cmux#41151 at fd50c9b7 (F1), the same class: compile_pass_at's first source (the head's check runs)
         # is one way to know; a 503 on it moves on to the cmux-next/compile status, which says it compiled.
@@ -8435,6 +8584,7 @@ STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
 # may: it reads it into a failed_view, or only refuses, or reads evidence that is not a step's section. A new one fails
 # the scan until it is listed here or reads a failed_view instead.
 RAW_LOG_READERS = {
+    "generated_stale_host": "only the shared generated-files check's own one error line, to name its host; compares nothing",
     "failed_view": "the one reader: the owned non-passed sections, or UNPLACED",
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
@@ -8453,7 +8603,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -8638,6 +8788,127 @@ class UnplacedGitHub(FakeGitHub):
         self.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step),
                      2: dict(failed_job(2, 20, BASE_SHA, name=name, step=step), conclusion=base_conclusion)}
         self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
+
+
+class PrOnlyStepGitHub(FakeGitHub):
+    """cmux#41046 at b329575b: head 'cmux-next daemon tests' (job 1, run 10) fails its live suites and 'Regenerate
+    stale files'; the base's newest verdict of the job (job 2, run 20) fails the live suites and skips the
+    regeneration; the base tier (job 3, run 21) fails 'Regenerate stale files' in 'cmux-next generated files'."""
+
+    DAEMON, GEN, SHARED = "cmux-next daemon tests", "cmux-next generated files", excuse.GENERATED_VERDICT_JOB
+    LIVE, REGEN = "Run the live-daemon suites", "Regenerate stale files"
+    QUIT = "✘ Test keepLeavesTheDaemon() failed after 1.000 seconds with 1 issue."
+    MENU = ("✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: "
+            "Expectation failed: (rows.count → 14) <= (cap → 13)",
+            "✘ Test everyMenuKeepsAShortTopLevel() failed after 0.559 seconds with 1 issue.",
+            "##[error]the action exports could not be regenerated")
+
+    def __init__(self, menu=MENU, base_regen=None, shared=True, gen_menu=MENU):
+        super().__init__()
+
+        def job(job_id, run, sha, name, steps):
+            return {"id": job_id, "run_id": run, "head_sha": sha, "name": name, "status": "completed",
+                    "conclusion": "failure", "steps": [{"name": "Set up runner", "status": "completed",
+                                                         "conclusion": "success"}]
+                    + [{"name": step, "status": "completed", "conclusion": state} for step, state in steps]}
+        self.jobs = {1: job(1, 10, HEAD, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, "failure")]),
+                     2: job(2, 20, BASE_SHA, self.DAEMON, [(self.LIVE, "failure"), (self.REGEN, base_regen)]),
+                     3: job(3, 21, BASE_SHA, self.GEN, [(self.REGEN, "failure")])}
+        self.logs = {1: unplaced_log(self.DAEMON, self.LIVE, self.QUIT) + "\n" + log(self.DAEMON, self.REGEN, *menu),
+                     2: unplaced_log(self.DAEMON, self.LIVE, self.QUIT),
+                     3: log(self.GEN, self.REGEN, *gen_menu)}
+        if shared:
+            self.jobs[4] = job(4, 10, HEAD, self.SHARED, [("Read the generated files verdict of the shared build",
+                                                           "failure")])
+            self.logs[4] = log(self.SHARED, "Read the generated files verdict of the shared build",
+                               "##[error]Generated cmux-next files are stale. daemon-test's step summary says how to "
+                               "regenerate them; its cmux-next-generated-patch artifact holds the regenerated files.",
+                               "##[error]Process completed with exit code 1.")
+        self.base_runs = [{"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T07:02:30Z"},
+                          {"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                           "created_at": "2026-11-11T06:58:50Z"}]
+
+
+class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
+    """2026-11-11: a pull request's 'cmux-next daemon tests' runs 'Regenerate stale files', which base pushes run in
+    'cmux-next generated files' instead; its only red there was the base's everyMenuKeepsAShortTopLevel()."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_step_the_base_job_skips_failing_only_another_base_jobs_tests_is_excused(self):
+        said = self.judge(PrOnlyStepGitHub())
+        self.assertIn("never run in feat-cmux-next run 20's 'cmux-next daemon tests'", said)
+        self.assertIn("everyMenuKeepsAShortTopLevel()", said)
+        self.assertIn("run 21's 'cmux-next generated files'", said)
+        # The shared check's stale verdict is its host's, excused with it.
+        self.assertIn(f"excused '{excuse.GENERATED_VERDICT_JOB}': its one red is the 'stale' verdict", said)
+
+    def test_a_green_base_verdict_that_skipped_the_step_still_excuses_it(self):
+        # The deadlock (cmux#41086, #40991 on 2026-11-11): the base's daemon job passed and skipped 'Regenerate stale
+        # files'; the head failed only that step, on the base tier's menu-cap test.
+        github = PrOnlyStepGitHub()
+        github.jobs[1]["steps"] = [step for step in github.jobs[1]["steps"] if step["name"] != PrOnlyStepGitHub.LIVE]
+        github.logs[1] = unplaced_log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.REGEN, *PrOnlyStepGitHub.MENU)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success" if step["name"] == PrOnlyStepGitHub.LIVE
+                                          else step["conclusion"]) for step in github.jobs[2]["steps"]])
+        github.base_runs[1]["conclusion"] = "success"
+        said = self.judge(github)
+        self.assertIn("never run in feat-cmux-next run 20's", said)
+        # A head red in a step the green verdict ran is the PR's own.
+        github.jobs[1]["steps"].append({"name": PrOnlyStepGitHub.LIVE, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + log(PrOnlyStepGitHub.DAEMON, PrOnlyStepGitHub.LIVE, PrOnlyStepGitHub.QUIT)
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_a_test_no_base_job_fails_is_the_prs_own(self):
+        mine = ("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",) + PrOnlyStepGitHub.MENU
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_an_error_line_no_base_job_prints_is_the_prs_own(self):
+        mine = PrOnlyStepGitHub.MENU + ("##[error]a new export error",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=mine))
+
+    def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(base_regen="success"))
+
+    def test_without_a_failing_test_nothing_is_matched(self):
+        # Matching test IDs only: an extra step whose red names no test is never excused by another job.
+        only = ("##[error]the action exports could not be regenerated",)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(PrOnlyStepGitHub(menu=only, gen_menu=only))
+
+    def test_a_base_red_from_before_a_newer_pass_of_that_job_never_counts(self):
+        # #41253's review: once base fixes the menu cap ('cmux-next generated files' passes in a newer run), its older
+        # red must not excuse a PR that breaks the menu again.
+        github = PrOnlyStepGitHub()
+        github.jobs[5] = {"id": 5, "run_id": 22, "head_sha": BASE_SHA, "name": PrOnlyStepGitHub.GEN,
+                          "status": "completed", "conclusion": "success",
+                          "steps": [{"name": PrOnlyStepGitHub.REGEN, "status": "completed", "conclusion": "success"}]}
+        github.base_runs.insert(0, {"id": 22, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                                    "created_at": "2026-11-11T07:10:00Z"})
+        with self.assertRaisesRegex(excuse.Refused, "compared whole"):
+            self.judge(github)
+
+    def test_a_head_log_that_says_tests_failed_unnamed_is_the_prs_own(self):
+        # #41253's review: a runner line saying tests failed with none named could hide a red no test ID matches.
+        with self.assertRaisesRegex(excuse.Refused, "names none"):
+            self.judge(PrOnlyStepGitHub(menu=PrOnlyStepGitHub.MENU + (" 1 fail",)))
+
+    def test_a_stale_shared_check_without_an_excused_host_is_not_excused_by_it(self):
+        github = PrOnlyStepGitHub(menu=("✘ Test aNewMenuTest() failed after 0.100 seconds with 1 issue.",))
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(github)
+        self.assertNotIn("its one red is the 'stale' verdict", str(caught.exception))
+        self.assertIsNone(excuse.generated_stale_host("##[error]The action catalog checks fail on daemon-test"))
 
 
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
