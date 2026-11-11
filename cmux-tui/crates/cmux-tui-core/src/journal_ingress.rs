@@ -1060,6 +1060,7 @@ impl JournalIngressSender {
         commit_fence: &AtomicU8,
         operation: &str,
     ) -> anyhow::Result<T> {
+        let _slow_log = crate::diagnostics::request_log::registry_wait(deadline);
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

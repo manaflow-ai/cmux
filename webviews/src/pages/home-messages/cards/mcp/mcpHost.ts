@@ -1,21 +1,21 @@
 // The MCP connect card's host ops (`cmux.home.mcp.*`), for the swap PR to wire on the
 // `home-messages` page route. Each effect of a flow step (mcpConnect.ts) is one op, sent on the
 // person's own connection; the host forwards it to the acpmux daemon and streams the daemon's
-// answers back as `cmux.home.messages.mcp` stream events, which step the flow (`signedIn`, `connected`,
+// answers back as `cmux.home.mcp.state` events, which step the flow (`signedIn`, `connected`,
 // `failed`). A key goes out once, in `submitKey`, and is never in an event or a log.
 import type { McpEffect, McpScope, McpTool } from "./mcpConnect";
 
 export const MCP_OPS = {
   /** `{requestID, approve: true, scope}` or `{requestID, approve: false}`: `_acpmux/mcp_connect_answer`. */
-  answer: "cmux.home.messages.mcp.answer",
+  answer: "cmux.home.mcp.answer",
   /** `{requestID, key}`: `_acpmux/mcp_key_submit`. The key goes to the daemon only. */
-  submitKey: "cmux.home.messages.mcp.submitKey",
+  submitKey: "cmux.home.mcp.submitKey",
   /** `{requestID}`: `_acpmux/mcp_auth_begin`; the host opens the URL it returns in a cmux browser tab. */
-  beginSignIn: "cmux.home.messages.mcp.beginSignIn",
+  beginSignIn: "cmux.home.mcp.beginSignIn",
 } as const;
 
 /** The event the host sends with the daemon's answers for one card. */
-export const MCP_STATE_EVENT = "cmux.home.messages.mcp";
+export const MCP_STATE_EVENT = "cmux.home.mcp.state";
 
 /** One daemon answer for card `requestID`. */
 export type McpStateEvent =

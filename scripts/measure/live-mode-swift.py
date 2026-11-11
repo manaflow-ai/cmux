@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The app half of scripts/measure/live-mode-swift.sh: Swift live mode end to end on a tagged build.
 
-A person's normal tagged build runs with a few workspaces, and they edit HomeConversationPage (Home red).
+A person's normal tagged build runs with a few workspaces, and they edit HomeHostView (Home red).
 `live-mode.py start` builds the live code build of that commit, turns Labs > Live Code on (its
 confirmation sheet is answered here through debug.dialog), restarts into it and patches the edit in
 (Home red). A save while live (Home blue) is patched in by the watcher, in the same process.
@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import account_home, rpc_at, socket_candidates  # noqa: E402
 
 LIVE_MODE = os.path.join(ROOT, "scripts/live-code/live-mode.py")
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift")
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
 RED = "layer?.backgroundColor = NSColor.systemRed.cgColor"
 BLUE = "layer?.backgroundColor = NSColor.systemBlue.cgColor"
