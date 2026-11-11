@@ -1415,6 +1415,13 @@ function shapeTurn(
   const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
+  // How the closed fold treats the earlier replies (turnFoldReplies.experiment.ts). The `answer` arm,
+  // Codex's: every earlier reply folds with the work; `replies` still marks them, so each keeps its
+  // action row once the fold opens. A reply whose question another agent's message cut off stays
+  // out: its card waits on the person, under it (`cutOff`).
+  const repliesArm = experimentArm(turnFoldReplies);
+  const keptOut: ReadonlySet<string> =
+    repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -1451,7 +1458,7 @@ function shapeTurn(
       (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&
         (steerDialogue.has(row.id) ||
-          replies.has(row.id) ||
+          keptOut.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
@@ -1473,7 +1480,7 @@ function shapeTurn(
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
       // A reply is never folded, so it is never one of the fold's messages, open or closed.
       // Other agents' messages that started the turn fold in too, as its first entries (`foldsPrompt`).
-      const hidden = [...(foldsPrompt ? [user] : []), ...work.filter((row) => !replies.has(row.id))];
+      const hidden = [...(foldsPrompt ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
       const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands").
@@ -1561,7 +1568,7 @@ function shapeTurn(
     // into its own line before and after it (turnFoldReplies.experiment.ts), so the replies read in
     // order with the work between them one click away.
     // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
-    const around = open ? undefined : nested ? "replies" : experimentArm(turnFoldReplies);
+    const around = open || repliesArm === "answer" ? undefined : nested ? "replies" : repliesArm;
     const between =
       around !== undefined && around !== "replies" && before.some((row) => replies.has(row.id) && out(row))
         ? (rows: readonly AcpmuxRow[]) => aroundReplies(rows, out, outside, around, steerDialogue, style.runs)

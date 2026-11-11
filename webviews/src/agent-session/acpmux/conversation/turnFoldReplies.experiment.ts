@@ -6,11 +6,18 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// happen", then "those intermediate messages should be counted differently than other tool calls
 /// like it's a special never-fold type"); the arms differ only in the work between replies.
 /// Compare in `agent-pane.turn-fold-replies`.
+/// Lawrence, 2026-11-11 standup: the closed fold "does not hide enough stuff", match Codex. The
+/// `answer` arm is the default: as the Codex app ends a turn, only the final answer stays outside
+/// the closed "Worked for"; the earlier replies read in order once it opens.
 export const turnFoldReplies = defineExperiment({
   id: "turn-fold-replies",
   title: "Replies in a closed turn fold",
   description: "How a closed Worked for draws the work before, between and after the replies it keeps in sight.",
   arms: {
+    answer: {
+      label: "Final answer only",
+      description: "Only the final answer stays in sight; every earlier reply folds under Worked for, as Codex does.",
+    },
     groups: {
       label: "One line per stretch",
       description: "Each stretch of work between two replies folds into one closed line (Ran 4 commands).",
@@ -24,5 +31,5 @@ export const turnFoldReplies = defineExperiment({
       description: "The replies stay in sight; all the work stays under Worked for.",
     },
   },
-  defaultArm: "groups",
+  defaultArm: "answer",
 });

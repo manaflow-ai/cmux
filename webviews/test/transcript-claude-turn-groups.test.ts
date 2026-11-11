@@ -125,25 +125,23 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   expect(view[summary]?.folded).toBe(false);
 });
 
-test("the same turn in a Codex chat folds its work and chatter under one Worked for, never a longer message", async () => {
+test("the same turn in a Codex chat folds its work and every earlier message under one Worked for", async () => {
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "codex" });
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
-  // The longer messages stay in sight (Leo, 2026-11-06: "your intermediate message got lost. that can
-  // never happen"); the work around them folds into one closed line each, and no short note shows.
+  // As the Codex app ends a turn (Lawrence, 2026-11-11: the fold "does not hide enough stuff"): only
+  // the final answer stays in sight, with no run line or note beside the closed fold.
   expect(
     assistants(view)
       .filter((row) => LONG.test(row.text ?? ""))
       .map(longAt),
-  ).toEqual([14, 16, 17]);
+  ).toEqual([17]);
   expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
-  const lines = view.filter((row) => row.kind === "activity" && !row.merged);
-  expect(lines.length).toBeGreaterThan(0);
-  expect(lines.every((row) => row.foldRun === true)).toBe(true);
+  expect(view.filter((row) => row.kind === "activity" && !row.merged)).toEqual([]);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-test("the recorded turn restored in a Claude chat, folded by default, keeps every longer message", async () => {
+test("the recorded turn restored in a Claude chat, folded by default, keeps only its final answer", async () => {
   globalThis.cmuxExperiments = {};
   try {
     const rows = await replayRows();
@@ -153,7 +151,7 @@ test("the recorded turn restored in a Claude chat, folded by default, keeps ever
       assistants(view)
         .filter((row) => LONG.test(row.text ?? ""))
         .map(longAt),
-    ).toEqual([14, 16, 17]);
+    ).toEqual([17]);
   } finally {
     globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
   }
