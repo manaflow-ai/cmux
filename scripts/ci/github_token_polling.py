@@ -473,9 +473,13 @@ def dotted(node: ast.AST) -> str:
 
 
 def python_http_call(name: str) -> bool:
-    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request, the transport
-    scripts/ci calls instead of urlopen (tests/test_ci_no_bare_urlopen.py)."""
-    return name.endswith("urlopen") or name == "deadline_http.request" or name.endswith(".deadline_http.request")
+    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request or .stream (a
+    download read as it comes), the transport scripts/ci calls instead of urlopen
+    (tests/test_ci_no_bare_urlopen.py)."""
+    if name.endswith("urlopen"):
+        return True
+    return any(name == f"deadline_http.{call}" or name.endswith(f".deadline_http.{call}")
+               for call in ("request", "stream"))
 
 
 def python_call_is_api(call: ast.Call) -> bool:

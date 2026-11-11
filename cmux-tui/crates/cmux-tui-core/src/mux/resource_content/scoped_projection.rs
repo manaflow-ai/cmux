@@ -42,6 +42,30 @@ pub(super) struct LiveTreeInput<'a> {
     /// scope's tabs show. A tab whose row, focus and terminal row are all
     /// stored as the walk would write them is not restated.
     pub(super) active_terminal_hosts: Option<&'a HashMap<TerminalPublicId, String>>,
+    /// Which workspaces outside the scope a scoped walk states again.
+    pub(super) rows: WorkspaceRows,
+}
+
+/// The workspace rows (the row and the public value of a workspace, with its position) that a
+/// scoped walk states again for the workspaces outside its scope. A workspace in the scope is
+/// always stated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceRows {
+    /// Every live workspace (a change that can move any of them).
+    All,
+    /// Only the workspaces at this live position and after it: the caller knows that the row and
+    /// the public value of every workspace before it are stored and stated as they are (a close
+    /// of the workspace that was at this position moves only the ones after it).
+    From(usize),
+}
+
+impl WorkspaceRows {
+    pub(super) fn states(self, position: usize) -> bool {
+        match self {
+            Self::All => true,
+            Self::From(first) => position >= first,
+        }
+    }
 }
 
 /// A scoped projection met a resource that crossed its scope.
@@ -67,7 +91,7 @@ thread_local! {
 
 /// Run `body` with the cross-check off on this thread, as release builds run.
 #[cfg(test)]
-pub(super) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
+pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
     CROSSCHECK_OFF.with(|off| off.set(true));
     let result = body();
     CROSSCHECK_OFF.with(|off| off.set(false));
@@ -140,6 +164,26 @@ impl Mux {
         workspaces: &[WorkspacePublicId],
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        self.resource_effect_projection_scoped_rows_locked(
+            registry,
+            state,
+            workspaces,
+            WorkspaceRows::All,
+            result,
+        )
+    }
+
+    /// [`Self::resource_effect_projection_scoped_locked`] that states again, of the workspaces
+    /// outside the scope, only the ones `rows` names. The same scoped read, walk, fallback and
+    /// cross-check; the one difference is the workspace rows it leaves out.
+    pub(crate) fn resource_effect_projection_scoped_rows_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        workspaces: &[WorkspacePublicId],
+        rows: WorkspaceRows,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
         let started = Instant::now();
         let mut scope = workspaces.iter().cloned().collect::<HashSet<_>>();
         let mut before = registry.resource_topology_scoped(&scope_list(&scope))?;
@@ -171,6 +215,7 @@ impl Mux {
             tab_order: &tab_order,
             stored_live: &stored_live,
             active_terminal_hosts: Some(&active_terminal_hosts),
+            rows,
         };
         let projection = match self.project_live_tree(&input, state, result.clone()) {
             Ok(projection) => projection,
@@ -356,7 +401,7 @@ fn reindex_scope(state: &mut State, scope: &HashSet<WorkspacePublicId>) -> anyho
         indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
         for screen in &workspace.screens {
-            split_ids::collect_screen_split_ids(screen, &mut splits);
+            collect_screen_split_ids(screen, &mut splits);
             indexes.screens.insert(screen.public_id.clone(), screen.id);
             indexes.screen_ids.insert(screen.id, screen.public_id.clone());
             indexes.screen_workspace.insert(screen.id, workspace.id);
