@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43122413957",
+  "recorded_at": "2026-11-11T23:50:56Z",
+  "reason": "cmux-tui 8483c1d75ec9 changes the image's cmux-tui (pinned 947352148e20)",
+  "dry_run": false,
+  "cmux_tui": "8483c1d75ec946a23c2036743a503dc508a92745",
+  "fixes": [
+    {
+      "sha": "8483c1d75ec946a23c2036743a503dc508a92745",
+      "mergedAt": "2026-11-11T15:29:40-08:00",
+      "subject": "ci: the cmux-next CI guard group is green again (12 red steps)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T23:50:56Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
