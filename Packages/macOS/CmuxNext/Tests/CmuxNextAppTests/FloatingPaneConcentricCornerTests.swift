@@ -44,7 +44,8 @@ import Testing
         #expect(Metrics.paneCornerRadius == concentric, "\(style): a \(inset) pt inset in a \(Metrics.standardWindowCornerRadius) pt window")
         #expect(LayoutStyle().applyingDesignMetrics().paneCornerRadius == concentric, "the layout draws that radius")
         #expect(Metrics.tabStripCardRadius == concentric, "the tabs nest in it")
-        #expect(Metrics.tabCornerRadius == min(max(0, concentric - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
+        // At Default the tab takes the workspace row's Codex corner instead (Metrics.tabRowCornerRadius, tabs follow rows).
+        #expect(Metrics.tabCornerRadius == Metrics.tabRowCornerRadius ?? min(max(0, concentric - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
     /// `layout.paneCornerRadius` still sets the pane cards, at most the window's own radius.

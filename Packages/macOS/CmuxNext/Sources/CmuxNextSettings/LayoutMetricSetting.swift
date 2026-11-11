@@ -25,6 +25,11 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
+    /// The workspace rows' height alone: unset, a row is the density's and the tab bar's pills match it
+    /// (`Metrics.densityRowHeight`); set, only the rows move (Lawrence 2026-11-11: "potentially I want my workspace rows to be
+    /// thinner than my tab bar rows, but then definitely not as the default").
+    public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
+                                                             comfortable: 32)
 
     /// The tab bar rows' ranges and compact values (their Settings placeholders) come from
     /// schemas/settings/source/tabs.json (SettingsSchema+Tabs.generated.swift).
@@ -46,7 +51,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 12)
     public static let tabBar: [LayoutMetricSetting] = [tabStripHeight, tabFontSize]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
+    public static let all: [LayoutMetricSetting] = [sidebarWidth, sidebarRowHeight, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
 
     /// A tab strip width whose comfortable value is the shared token's; its range and compact value (the
     /// Settings placeholder) are the source's (schemas/settings/source/tabs.json).

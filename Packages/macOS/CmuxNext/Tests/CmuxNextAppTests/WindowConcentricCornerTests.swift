@@ -87,7 +87,8 @@ import Testing
         load()
         let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
         #expect(Metrics.tabStripCardRadius == card)
-        #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
+        // At Default the tab takes the workspace row's Codex corner instead (Metrics.tabRowCornerRadius, tabs follow rows).
+        #expect(Metrics.tabCornerRadius == Metrics.tabRowCornerRadius ?? min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
     /// The ⋮ in the card's top-trailing corner is concentric with it: the card's radius less the

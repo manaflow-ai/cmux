@@ -47,7 +47,8 @@ import Testing
         let inset = scene.pill.minY - scene.card.minY
         #expect(abs(inset - CGFloat(padding)) <= 0.01, "\(style) \(radius)/\(padding): the pill is \(inset) pt below the card's top")
         #expect(abs((scene.pill.minX - scene.card.minX) - CGFloat(padding)) <= 0.01, "\(style): the same gap at the leading edge")
-        let expected = min(max(0, CGFloat(radius - padding)), Metrics.tabHeight / 2)
+        // At Default the tab takes the workspace row's Codex corner instead (Metrics.tabRowCornerRadius, tabs follow rows).
+        let expected = Metrics.tabRowCornerRadius ?? min(max(0, CGFloat(radius - padding)), Metrics.tabHeight / 2)
         for cell in scene.strip.cells.values {
             #expect(abs(cell.backgroundLayer.cornerRadius - expected) <= 0.01,
                     "\(style) \(radius)/\(padding): a tab is \(cell.backgroundLayer.cornerRadius) pt, concentric is \(expected) pt")
