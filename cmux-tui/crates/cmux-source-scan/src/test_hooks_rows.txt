@@ -1,4 +1,4 @@
-The rows of the test-hooks check (src/test_hooks_check.rs), read by test_hooks_check_tests.rs.
+The rows of the test-hooks check (src/test_hooks.rs), read by test_hooks_tests.rs.
 
 Kept out of the .rs sources so no checker reads a row's source as the crate's own statics. Each row
 starts with a line `=== KIND ARGS :: TITLE`; its source runs to the next `===` line. KIND is
@@ -7,7 +7,8 @@ starts with a line `=== KIND ARGS :: TITLE`; its source runs to the next `===` l
   clear FILE LINE               the check names nothing at FILE:LINE
   chain refused|passes          a generated chain (the property's prelude goes first): the python
                                 check's verdict, which this check gives too
-The rows of check-test-hooks.test.sh come first, then the two review rows, then the chains.
+The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, and the
+type-alias rows of the timing-ratio review), then the chains.
 
 === passes lib.rs :: production caches, thread_local! hooks and a serializer
 use regex::Regex;
@@ -266,6 +267,20 @@ thread_local! { static LOCAL: std::cell::Cell<u8> = const { std::cell::Cell::new
 wrapped! {
     static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
 }
+=== refused alias.rs 3 test slot :: a default that uses an earlier parameter, `type A<T, U = Option<T>>`, hiding a test slot
+type A<T, U = Option<T>> = std::sync::Mutex<U>;
+#[cfg(test)]
+static S: A<u8> = std::sync::Mutex::new(None);
+=== refused alias.rs 2 closure :: a default that uses an earlier parameter, `type A<T, U = T>`, given a closure
+type A<T, U = T> = std::sync::OnceLock<U>;
+static S: A<Box<dyn Fn()>> = std::sync::OnceLock::new();
+=== refused alias.rs 3 test slot :: a parameter named Option, given std's Option: a test slot under its own name
+type Hide<Option> = std::sync::Mutex<Option>;
+#[cfg(test)]
+static S: Hide<std::option::Option<u8>> = std::sync::Mutex::new(None);
+=== refused alias.rs 2 closure :: a parameter named Option hiding a closure
+type Hide<Option> = std::sync::OnceLock<Option>;
+static S: Hide<fn()> = std::sync::OnceLock::new();
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;

@@ -204,7 +204,7 @@ pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
-mod test_hooks_check;
+mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
 pub mod touched_files;

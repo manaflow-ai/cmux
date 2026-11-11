@@ -1,5 +1,8 @@
 //! No process-wide test hooks in acpmux (cmux#41350), judged on the syntax tree.
 //!
+//! acpmux's own tests run it over that crate's `src` (`test_hooks_tree.rs` there), so CI's
+//! `cargo test -p acpmux --lib` enforces it; `cmux-source-scan test-hooks` runs it by hand.
+//!
 //! The test harness runs tests on parallel threads of one process. A test hook kept in a
 //! process-wide static lets one test's hook replace or clear another's before the code it was
 //! meant to stop ran, so the race the test forces never happens, or a test runs another test's
@@ -44,8 +47,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use crate::source::{line_of, rel_path, rust_files, snippet};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -56,7 +60,7 @@ use syn::{
 };
 
 /// Where a finding's path starts, from the repository root.
-pub(crate) const CRATE_REL: &str = "cmux-tui/crates/acpmux/";
+pub const CRATE_REL: &str = "cmux-tui/crates/acpmux/";
 const CELLS: [&str; 6] = ["Mutex", "RwLock", "OnceLock", "LazyLock", "OnceCell", "Lazy"];
 const CLOSURES: [&str; 3] = ["Fn", "FnMut", "FnOnce"];
 const PER_THREAD: [&str; 2] = ["thread_local", "task_local"];
@@ -149,11 +153,11 @@ const WELL_KNOWN: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Finding {
-    pub(crate) rel: String,
-    pub(crate) line: usize,
-    pub(crate) name: String,
-    pub(crate) why: String,
+pub struct Finding {
+    pub rel: String,
+    pub line: usize,
+    pub name: String,
+    pub why: String,
 }
 
 impl fmt::Display for Finding {
@@ -162,34 +166,11 @@ impl fmt::Display for Finding {
     }
 }
 
-/// The `.rs` files under `dir`, sorted.
-pub(crate) fn sources(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(at) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&at) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                out.push(path);
-            }
-        }
-    }
-    out.sort();
-    out
-}
-
 /// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root.
-pub(crate) fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
+pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
     let mut found = Vec::new();
-    for path in sources(&crate_dir.join("src")) {
-        let rel = path.strip_prefix(crate_dir).unwrap_or(&path);
-        let rel =
-            rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+    for path in rust_files(&crate_dir.join("src")) {
+        let rel = rel_path(crate_dir, &path);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         found.extend(judge_source(&format!("{CRATE_REL}{rel}"), &text));
     }
@@ -197,13 +178,13 @@ pub(crate) fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
 }
 
 /// The findings of one file, `rel` its path from the repository root.
-pub(crate) fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
+pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
     let file = match syn::parse_file(text) {
         Ok(file) => file,
         Err(error) => {
             return vec![Finding {
                 rel: rel.to_string(),
-                line: error.span().start().line,
+                line: line_of(error.span()),
                 name: "-".to_string(),
                 why: format!("does not parse ({error}), so the check cannot judge its statics"),
             }];
@@ -487,7 +468,7 @@ impl Sites {
     fn push(&mut self, ident: &syn::Ident, ty: &Type, attrs: &[Attribute]) {
         self.out.push(Site {
             name: ident.to_string(),
-            line: ident.span().start().line,
+            line: line_of(ident.span()),
             ty: ty.clone(),
             gated: self.test_file || self.test_depth > 0 || is_cfg_test(attrs),
         });
@@ -596,18 +577,7 @@ impl Resolver<'_> {
 
     /// The source text of `span`, its whitespace folded.
     fn snippet(&self, span: Span) -> String {
-        let (start, end) = (span.start(), span.end());
-        let mut text = String::new();
-        for line in start.line..=end.line {
-            let Some(row) = self.lines.get(line.wrapping_sub(1)) else {
-                continue;
-            };
-            let from = if line == start.line { start.column } else { 0 };
-            let to = if line == end.line { end.column } else { usize::MAX };
-            text.extend(row.chars().skip(from).take(to.saturating_sub(from)));
-            text.push(' ');
-        }
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
+        snippet(self.lines, span)
     }
 
     /// A type's text, a bound parameter's argument put in for it.
@@ -978,5 +948,5 @@ impl Resolver<'_> {
 }
 
 #[cfg(test)]
-#[path = "test_hooks_check_tests.rs"]
+#[path = "test_hooks_tests.rs"]
 mod tests;

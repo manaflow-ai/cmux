@@ -1,0 +1,24 @@
+[package]
+name = "cmux-source-scan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Source checks of cmux's Rust that read the syntax tree (syn), never a hand tokenizer: process-wide test hooks in acpmux, wall-clock ratio and percentile asserts in default-run tests"
+
+[[bin]]
+name = "cmux-source-scan"
+path = "src/main.rs"
+
+[dependencies]
+# span-locations: a finding's line number comes from its span.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+syn = { version = "2", default-features = false, features = ["full", "parsing", "visit", "printing", "clone-impls"] }
+# cmux-tui/.config/nextest.toml: which tests run alone (`/regex/` filtersets).
+regex.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true
