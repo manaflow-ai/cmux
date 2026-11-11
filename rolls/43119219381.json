@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43119219381",
+  "recorded_at": "2026-11-11T23:31:58Z",
+  "reason": "cmux-tui 6478df578992 changes the image's cmux-tui (pinned 047c9fbd2238)",
+  "dry_run": false,
+  "cmux_tui": "6478df57899287b63009c41d9664a9445ed212af",
+  "fixes": [
+    {
+      "sha": "a556815e4c744121b5b03f5b5b34e9cebac557d9",
+      "mergedAt": "2026-11-11T15:02:00-08:00",
+      "subject": "Opt-in usage patterns: local counters of how cmux is used, never content (#40554)"
+    },
+    {
+      "sha": "739c07ed2e7e47f79c89b1eef07a225cf0351340",
+      "mergedAt": "2026-11-11T22:55:00Z",
+      "subject": "acpmux: a cancel reaches every link that still carries its request (#41467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T23:31:58Z",
+    "snapshot_id": "sh-06402eabddbd46f9851e15cfe8781bce",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43119219381): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1a96a0f8ebac13f7e74ade3792721c2d9a59a047",
+    "image": "cloud-native-auto-6478df57-43119219381-1",
+    "revision": "ci-43119219381-1",
+    "at": "2026-11-11T23:31:58Z"
+  },
+  "rolled_back": false
+}
