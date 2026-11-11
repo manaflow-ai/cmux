@@ -355,6 +355,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
+            terminal_exit_hook_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),

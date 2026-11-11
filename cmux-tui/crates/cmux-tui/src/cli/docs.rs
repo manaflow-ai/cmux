@@ -238,6 +238,40 @@ pub(super) const GUIDES: &[Guide] = &[
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
         browser page's own pixels are `cmux browser page screenshot`).",
     },
+    Guide {
+        topic: "Get woken when a job you started ends, with its exit status",
+        keywords: &[
+            "job",
+            "jobs",
+            "exit",
+            "exits",
+            "exited",
+            "ended",
+            "finish",
+            "finished",
+            "background",
+            "wake",
+            "woken",
+            "hook",
+            "hooks",
+            "watch",
+            "poll",
+            "polling",
+        ],
+        text: "Start a job and be told how it ended, with no wait loop and no polling: `cmux \
+        workspace WS run --notify-on-exit --on-exit-send AGENT -- CMD...` (or `cmux pane PANE run \
+        ...`; MCP workspace_run / pane_run with notify_on_exit and on_exit_send). When the \
+        process ends the daemon posts a notice (`cmux notification list`) and sends AGENT an \
+        agent message with the exact status: `exit 3`, or `signal 15 (SIGTERM)` for a signal, \
+        never a code. AGENT is acp:SESSION (an acpmux session by name or id; the message wakes \
+        it), term_ID, or an agent or tab name; an unknown one is refused before the job starts. \
+        For a terminal already running: `cmux terminal TERM exit-hook add --notify --send AGENT` \
+        (terminal_exit_hook_add); a process that already ended fires at once. Inside an acpmux \
+        session, `acpmux watch add --terminal TERM --until exit` wakes this session (or --to \
+        SESSION). `cmux terminal [TERM] exit-hook list` shows each hook: armed, fired or failed, \
+        with outcome, status and the notice and message ids. To block instead, `cmux terminal \
+        TERM process wait` prints the outcome once the process ends.",
+    },
 ];
 
 /// The guides for `query` (see [`Guide`]).

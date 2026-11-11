@@ -398,4 +398,31 @@ impl crate::mux::Mux {
         link.close();
         keys
     }
+
+    /// The exact id of the acpmux session `session` names (a name or an
+    /// id), for an exit hook's recipient: `Ok(None)` when acpmux runs no
+    /// such session, `Err` (why) when acpmux cannot be asked.
+    pub(crate) fn acp_session_lookup(&self, session: &str) -> Result<Option<String>, String> {
+        let Some(socket) = self.control_clients.agent_sessions.socket() else {
+            return Err("this daemon has no acpmux socket".to_owned());
+        };
+        let link = AcpmuxLink::connect(&socket, |_| {})
+            .map_err(|error| format!("acpmux is not reachable: {error}"))?;
+        let info = link.call(
+            "_acpmux/info",
+            agent_message_acpmux::info_params(session),
+            WORKSPACE_LOOKUP_TIMEOUT,
+        );
+        link.close();
+        match info {
+            Ok(info) => Ok(Some(
+                info.get("sessionId").and_then(Value::as_str).unwrap_or(session).to_owned(),
+            )),
+            // acpmux's session lookup (`Hub::resolve`) names what it did not find.
+            Err(LinkError::Rpc(message, _)) if message.starts_with("no session matches") => {
+                Ok(None)
+            }
+            Err(error) => Err(format!("acpmux did not answer: {error:?}")),
+        }
+    }
 }

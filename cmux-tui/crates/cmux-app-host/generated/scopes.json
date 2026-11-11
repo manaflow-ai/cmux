@@ -2190,6 +2190,8 @@
     "team_vm.ssh_cert.challenge",
     "team_vm.taint.accept",
     "terminal.close",
+    "terminal.exit_hook.add",
+    "terminal.exit_hook.list",
     "terminal.history.clear",
     "terminal.renderer_grant.create",
     "terminal.viewer.release",

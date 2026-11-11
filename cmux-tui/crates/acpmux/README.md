@@ -410,6 +410,12 @@ defaults to that session. A wake counts as delivered when the recipient's daemon
 not accepted yet with its outbox state. Removing a watch stops new wakes, and wakes it already
 owes are still delivered (`watch_rm` answers how many). `acpmux wait` remains the blocking
 script interface.
+`acpmux watch add --terminal <term_id> --until exit [--to <session>]` (MCP `watch_add` with
+`terminal`) watches a cmux terminal's process instead of sessions: it runs `cmux terminal <id>
+exit-hook add --send acp:<session>`, and the cmux daemon sends the session one message with the
+exact exit status (`exit 3`, or `signal 15 (SIGTERM)` for a signal) when the process ends, from
+the terminal's durable exit receipt (cmux `terminal-exit-hooks-v1`). The cmux daemon keeps that
+hook; `cmux terminal <id> exit-hook list` lists it, not `watch ls`.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own

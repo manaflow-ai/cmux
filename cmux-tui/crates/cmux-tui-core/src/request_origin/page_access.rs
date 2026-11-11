@@ -77,7 +77,9 @@ const fn access(operation: Op) -> Access {
         // lets a held one through, and an unsend sends the agent a notice.
         | Op::AgentMessageSend
         | Op::AgentMessageRelease
-        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
+        | Op::AgentMessageUnsend
+        // An exit hook sends an agent message when the job ends.
+        | Op::TerminalExitHookAdd => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -86,6 +88,7 @@ const fn access(operation: Op) -> Access {
         | Op::TerminalCopy
         | Op::TerminalWait
         | Op::TerminalWaitExit
+        | Op::TerminalExitHookList
         | Op::TerminalProcessGet => Access::Denied(Denied::ScreenRead),
         Op::TerminalAttach
         | Op::TerminalViewerResize

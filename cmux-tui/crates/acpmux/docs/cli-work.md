@@ -43,6 +43,7 @@ A cleanup archives work that exists only in a worktree before removing it.
 | From an agent session, post a rule every session reads at its next prompt | `acpmux forum announce --key builds "No local builds"` |
 | The current rules | `acpmux forum rules` |
 | From a coordinator session, be woken once when a worker is done or blocked | `acpmux watch add review-27310 my-linux/fix-27311 --match BLOCKER` |
+| Be woken once, with its exit status, when a job in a cmux terminal ends | `acpmux watch add --terminal term_<id> --until exit` |
 | Watches and the wakes they still owe | `acpmux watch ls` |
 | Remove a watch (wakes it already owes still arrive) | `acpmux watch rm WATCH_ID` |
 

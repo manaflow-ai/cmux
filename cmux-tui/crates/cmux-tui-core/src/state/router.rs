@@ -28,6 +28,7 @@ use crate::{Mux, ResourceSelectors, WorkspaceMutation};
 
 mod agent_message_router;
 mod checklist_router;
+mod exit_hook_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -132,6 +133,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogClear
     ) || agent_message_router::handles(operation)
         || checklist_router::handles(operation)
+        || exit_hook_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -966,6 +968,10 @@ pub(crate) fn dispatch(
         // workspace-checklist-v1
         operation if checklist_router::handles(operation) => {
             checklist_router::dispatch(mux, &request)
+        }
+        // terminal-exit-hooks-v1
+        operation if exit_hook_router::handles(operation) => {
+            exit_hook_router::dispatch(mux, &request)
         }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),

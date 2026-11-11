@@ -393,6 +393,36 @@ impl Mux {
         source: NotificationSource,
         desktop: bool,
     ) -> anyhow::Result<Option<u64>> {
+        self.create_durable_notification_identified(
+            actor,
+            idempotency_key,
+            title,
+            subtitle,
+            body,
+            level,
+            surface,
+            source,
+            desktop,
+        )
+        .map(|(numeric_id, _)| numeric_id)
+    }
+
+    /// [`Self::create_durable_notification_with`] that also returns the
+    /// notification's public id: the posted one, or the one a replay of the
+    /// same key posted before (`None` for an indeterminate earlier post).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_durable_notification_identified(
+        &self,
+        actor: &Actor,
+        idempotency_key: &str,
+        title: String,
+        subtitle: Option<String>,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+        source: NotificationSource,
+        desktop: bool,
+    ) -> anyhow::Result<(Option<u64>, Option<String>)> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
             let state = self.state.lock().unwrap();
@@ -417,7 +447,9 @@ impl Mux {
             fingerprint.set("subtitle", serde_json::json!(subtitle));
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
-            ResourceEffectOutcome::Success(_) => Ok(None),
+            ResourceEffectOutcome::Success(value) => {
+                Ok((None, value.get("id").and_then(Value::as_str).map(str::to_owned)))
+            }
             ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
         };
         let preparation = match self.lookup_resource_effect(
@@ -458,7 +490,7 @@ impl Mux {
                 // rather than retrying the same key forever; the agent-hook
                 // fold in particular must still commit its report and fence.
                 self.report_internal_diagnostic("notification effect indeterminate, skipped");
-                return Ok(None);
+                return Ok((None, None));
             }
             ResourceEffectPreparation::Execute { .. } => {
                 self.mark_resource_effect_executing(idempotency_key, OPERATION, &fingerprint)?
@@ -536,7 +568,7 @@ impl Mux {
             return Err(error.context("notification effect commit failed"));
         }
         self.prune_evicted_notification_reads();
-        Ok(Some(numeric_id))
+        Ok((Some(numeric_id), Some(notification_id.as_str().to_owned())))
     }
 
     /// Delete durable read marks for evicted notifications that the committed

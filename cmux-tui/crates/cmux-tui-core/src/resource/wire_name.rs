@@ -158,6 +158,8 @@ impl ResourceOperation {
             Self::TerminalOutputRead => "terminal.output_read",
             Self::TerminalWait => "terminal.wait",
             Self::TerminalWaitExit => "terminal.wait_exit",
+            Self::TerminalExitHookAdd => "terminal.exit_hook.add",
+            Self::TerminalExitHookList => "terminal.exit_hook.list",
             Self::TerminalCopy => "terminal.copy",
             Self::TerminalProcessGet => "terminal.process.get",
             Self::TerminalRendererGrantCreate => "terminal.renderer_grant.create",

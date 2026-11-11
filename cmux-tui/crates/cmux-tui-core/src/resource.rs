@@ -342,6 +342,10 @@ pub enum ResourceOperation {
     TerminalWait,
     #[serde(rename = "terminal.wait_exit")]
     TerminalWaitExit,
+    #[serde(rename = "terminal.exit_hook.add")]
+    TerminalExitHookAdd,
+    #[serde(rename = "terminal.exit_hook.list")]
+    TerminalExitHookList,
     #[serde(rename = "terminal.copy")]
     TerminalCopy,
     #[serde(rename = "terminal.process.get")]

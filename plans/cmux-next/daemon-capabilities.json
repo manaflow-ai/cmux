@@ -154,6 +154,7 @@
     "terminal-color-overrides-v1",
     "terminal-command-history-v1",
     "terminal-env-v1",
+    "terminal-exit-hooks-v1",
     "terminal-frontend-shell-integration-v1",
     "terminal-input-while-creating-v1",
     "terminal-last-command-v1",

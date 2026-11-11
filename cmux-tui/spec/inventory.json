@@ -305,6 +305,8 @@
     "terminal.attach",
     "terminal.close",
     "terminal.copy",
+    "terminal.exit_hook.add",
+    "terminal.exit_hook.list",
     "terminal.get",
     "terminal.history.clear",
     "terminal.history.read",

@@ -15,7 +15,8 @@ pub(super) const TOOLS: &[&str] = &["watch_add", "watch_ls", "watch_rm"];
 /// The instruction the server gives with the tools.
 pub(super) const STEER: &str = "To learn when other sessions finish or get blocked, call \
 watch_add once with them instead of polling them with ls, last or info: the daemon wakes this chat \
-with one message when one of them is done, even across restarts.";
+with one message when one of them is done, even across restarts. To learn when a job in a cmux \
+terminal ends, call watch_add with terminal and until [\"exit\"]: the message has its exit status.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
@@ -25,12 +26,12 @@ pub(super) fn tools() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "sessions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The sessions to watch: names, ids or host/name."},
+                    "sessions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The sessions to watch: names, ids or host/name. Not with terminal."},
+                    "terminal": {"type": "string", "description": "A cmux terminal (term_<id> or its name) to watch instead of sessions: wakes the chat once with the exact exit status (exit <code>, or signal <n> (<NAME>)) when its process ends. Use until [\"exit\"]."},
                     "to": {"type": "string", "description": "The session to wake (default: this chat)."},
-                    "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed"]}, "description": "States that wake it (default ready and permission)."},
+                    "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed", "exit"]}, "description": "States that wake it (default ready and permission; exit, the only one, for terminal)."},
                     "match": {"type": "string", "description": "Only a turn whose transcript contains this text wakes it, such as BLOCKER."}
-                },
-                "required": ["sessions"]
+                }
             }
         }),
         json!({
@@ -66,7 +67,7 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
         "watch_add" => {
             let sessions = strings("sessions")?;
             if sessions.is_empty() {
-                return Err("sessions is required: the sessions to watch".to_owned());
+                return Err("sessions or terminal is required: what to watch".to_owned());
             }
             let params = crate::cli::watch::add_params(
                 sessions,
@@ -85,6 +86,26 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
 }
 
 pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Value {
+    if name == "watch_add"
+        && let Some(terminal) = arg(args, "terminal")
+    {
+        if args.get("sessions").is_some_and(|sessions| !sessions.is_null()) {
+            return error_result("give sessions or terminal, not both".to_owned());
+        }
+        let until: Vec<String> = args
+            .get("until")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        let to = arg(args, "to").map(str::to_owned);
+        return match crate::cli::watch::terminal_watch(terminal, to, &until).await {
+            Ok(hook) => ok(crate::cli::watch::terminal_text(&hook), hook),
+            Err(error) => error_result(error),
+        };
+    }
     let (m, params) = match request(name, args) {
         Ok(r) => r,
         Err(e) => return error_result(e),

@@ -357,4 +357,9 @@ impl Mux {
     fn acp_session_workspace_keys(&self, sessions: &[String]) -> HashMap<String, Option<String>> {
         sessions.iter().map(|session| (session.clone(), None)).collect()
     }
+
+    /// No acpmux off unix: no exit hook names an acpmux session.
+    pub(crate) fn acp_session_lookup(&self, _session: &str) -> Result<Option<String>, String> {
+        Err("acpmux runs on macOS and Linux only".to_owned())
+    }
 }

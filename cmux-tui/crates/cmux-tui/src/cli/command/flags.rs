@@ -41,6 +41,10 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "expand",
     "clear",
     "reply",
+    // `workspace|pane run --notify-on-exit` and `terminal <t> exit-hook add
+    // --notify`: without these they would swallow a following `--json` or `--`.
+    "notify-on-exit",
+    "notify",
     "empty",
     "ephemeral",
     // `workspace create --top`: first in the sidebar, whatever workspaces.newPlacement says.

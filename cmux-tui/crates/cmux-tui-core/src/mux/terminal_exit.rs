@@ -450,6 +450,7 @@ impl Mux {
             }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);
+                self.wake_terminal_exit_hooks(Some(public_terminal_id.as_str()));
             }
             self.publish_resource_event();
             if let Some(effects) = detach_effects {

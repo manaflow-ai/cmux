@@ -521,6 +521,11 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "terminal.wait_exit",
         ),
         (
+            vec!["terminal", TERMINAL, "exit-hook", "add", "--notify", "--send", "acp:coord"],
+            "terminal.exit_hook.add",
+        ),
+        (vec!["terminal", TERMINAL, "exit-hook", "list"], "terminal.exit_hook.list"),
+        (
             vec!["terminal", TERMINAL, "viewport", "scroll", "--delta-rows", "-3"],
             "terminal.viewport.scroll",
         ),

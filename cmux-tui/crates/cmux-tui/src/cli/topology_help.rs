@@ -21,6 +21,7 @@ USAGE
     [--task-status todo|working|needs-attention|review|done|--clear-task-status]
   cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] shell <script>
+  cmux workspace <selector> run [--notify-on-exit] [--on-exit-send <agent>] [--on-exit-label <name>] -- <argv...>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace [<selector>] open-url --url <http(s) URL>
   cmux workspace <selector> screen ...
@@ -132,6 +133,7 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--notify-on-exit] [--on-exit-send <agent>] [--on-exit-label <name>] -- <argv...>
   cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--index <n>] [--focus]
   cmux pane <selector> move --to-tab <selector> [--index <n>] [--focus]
     (with --to-pane or --to-tab: [--to-workspace <selector>] [--to-screen <selector>])
@@ -251,6 +253,8 @@ USAGE
   cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
   cmux terminal <selector> process show
   cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> exit-hook add [--notify] [--send <agent>] [--label <name>]
+  cmux terminal [<selector>] exit-hook list
   cmux terminal <selector> wait --until idle|prompt|ready
     [--timeout <500ms|30s|5m>]
   cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none]
@@ -290,6 +294,14 @@ a message, as cmux agent start does: a startup dialog (Claude's folder-trust
 question, a login) ends it as blocked with the dialog and a reason (exit 4).
 process wait prints outcome once the process ends; when the timeout passes
 first it prints state pending, timed_out: true and exits 124.
+exit-hook add tells you once, with no wait, how the process ended: --notify
+posts a notice and --send <agent> sends that agent a message (acp:<session>,
+term_<id>, or an agent or tab name; refused when there is no such agent),
+both with the exact status: exit <code>, or signal <n> (<NAME>) for a signal.
+A process that already ended fires at once. exit-hook list shows the hooks
+(armed, fired or failed) with outcome, status and the notice and message ids.
+`workspace|pane run --notify-on-exit --on-exit-send <agent>` starts a job with
+the same hook; acpmux watch add --terminal <id> --until exit adds one too.
 list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): name, harness, state
 (blocked, done, working, idle, unknown, ended), age, workspace and title.

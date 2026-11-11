@@ -192,6 +192,7 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
+pub(crate) mod terminal_exit_hook_pump;
 #[cfg(test)]
 use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
@@ -678,6 +679,7 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    terminal_exit_hook_pump: terminal_exit_hook_pump::TerminalExitHookPump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by

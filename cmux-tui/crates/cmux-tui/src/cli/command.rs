@@ -1817,7 +1817,50 @@ fn run_params(
             }
         }
     }
+    exit_hook_params(&mut params, flags, "notify-on-exit", "on-exit-send", "on_exit_")?;
     Ok(params)
+}
+
+/// A job exit hook's fields (terminal-exit-hooks-v1): `--notify-on-exit` /
+/// `--notify`, `--on-exit-send` / `--send <agent>` and `--label <name>`, with
+/// this locale's notice title and message. `prefix` is `on_exit_` for a run's
+/// fields and empty for `terminal <t> exit-hook add`'s.
+fn exit_hook_params(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    notify_flag: &str,
+    send_flag: &str,
+    prefix: &str,
+) -> Result<bool, UsageError> {
+    let notify = flags.boolean(notify_flag);
+    let send = flags.take(send_flag);
+    let label = flags.take(if prefix.is_empty() { "label" } else { "on-exit-label" });
+    if !notify && send.is_none() {
+        if label.is_some() {
+            return Err(UsageError::new(format!(
+                "a job name needs --{notify_flag} or --{send_flag}"
+            )));
+        }
+        return Ok(false);
+    }
+    let (notify_field, send_field) =
+        if prefix.is_empty() { ("notify", "send_to") } else { ("notify_on_exit", "on_exit_send") };
+    if notify {
+        params.insert(notify_field.into(), Value::Bool(true));
+    }
+    if let Some(send) = send {
+        if send.trim().is_empty() {
+            return Err(UsageError::new(format!("--{send_flag} needs an agent")));
+        }
+        params.insert(send_field.into(), Value::String(send));
+    }
+    if let Some(label) = label {
+        params.insert(format!("{prefix}label"), Value::String(label));
+    }
+    let messages = &crate::localization::catalog().job_notify;
+    params.insert(format!("{prefix}title"), Value::String(messages.title.into()));
+    params.insert(format!("{prefix}text"), Value::String(messages.text.into()));
+    Ok(true)
 }
 
 fn add_stream_id(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {

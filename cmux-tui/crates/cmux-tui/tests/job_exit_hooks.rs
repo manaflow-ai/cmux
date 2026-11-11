@@ -217,6 +217,7 @@ mod job_exit_hooks {
             .env("CMUX_TUI_SOCKET", &daemon.socket)
             .env("ACPMUX_SOCKET", daemon.dir.join("acpmux.sock"))
             .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_TUI_CLI")
             .env_remove("CMUX_LAUNCH_CREDENTIAL")
             .env_remove("ACPMUX_SESSION_ID")
             .output()

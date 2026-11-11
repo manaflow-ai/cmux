@@ -219,6 +219,7 @@ impl Mux {
     ) {
         for terminal_id in terminal_ids {
             self.terminal_exit_waiters.notify(&terminal_id);
+            self.wake_terminal_exit_hooks(Some(terminal_id.as_str()));
         }
     }
 

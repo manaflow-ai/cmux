@@ -230,6 +230,25 @@ pub(super) fn parse_terminal(
             }
             request(ResourceOperation::TerminalWaitExit, selectors, flags, params)
         }
+        // Job exit hooks (terminal-exit-hooks-v1): a notice and an agent
+        // message with the exact exit status when the process ends.
+        ["exit-hook", "list"] => {
+            request(ResourceOperation::TerminalExitHookList, selectors, flags, Map::new())
+        }
+        [selector, "exit-hook", "list"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalExitHookList, selectors, flags, Map::new())
+        }
+        [selector, "exit-hook", "add"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if !exit_hook_params(&mut params, flags, "notify", "send", "")? {
+                return Err(UsageError::new(
+                    "exit-hook add needs --notify, --send <agent> or both",
+                ));
+            }
+            request(ResourceOperation::TerminalExitHookAdd, selectors, flags, params)
+        }
         [selector, "viewport", "scroll"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();

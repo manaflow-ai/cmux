@@ -92,6 +92,7 @@ impl ResourceOperation {
                 | Self::TerminalOutputRead
                 | Self::TerminalWait
                 | Self::TerminalWaitExit
+                | Self::TerminalExitHookList
                 | Self::TerminalCopy
                 | Self::TerminalProcessGet
                 | Self::BrowserList

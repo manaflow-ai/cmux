@@ -371,6 +371,18 @@ fn dispatch_exact_topology_mutation(
         // focus (a reconnect after `daemon restart`).
         fields.entry(crate::mux::SCREEN_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
     }
+    // A run's exit hook (terminal-exit-hooks-v1) is checked and its
+    // recipient resolved before the job starts, and armed once it runs.
+    let exit_hook = match operation {
+        ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun => {
+            crate::state::terminal_exit_hooks::ExitHookRequest::take_from_run(&mut fields)?
+                .map(|hook| {
+                    mux.prepare_terminal_exit_hook(&mutation.actor, &request.selectors, hook)
+                })
+                .transpose()?
+        }
+        _ => None,
+    };
     let commit = mux
         .resource_topology_operation(
             operation,
@@ -380,6 +392,9 @@ fn dispatch_exact_topology_mutation(
             &mutation,
         )
         .map_err(resource_operation_error)?;
+    if let Some(prepared) = &exit_hook {
+        arm_run_exit_hook(mux, &mutation, &commit.result, prepared)?;
+    }
     match operation {
         ResourceOperation::WorkspaceFocus | ResourceOperation::WorkspaceLayoutApply => {
             snapshot_mutation_result(mux, commit, &super::operation_name(operation), "workspace")
@@ -423,6 +438,37 @@ fn dispatch_exact_topology_mutation(
             json!({}),
         )),
     }
+}
+
+/// Arms a run's exit hook on the terminal the run started, under a key
+/// derived from the run's: a replayed run arms the same hook once.
+fn arm_run_exit_hook(
+    mux: &Mux,
+    run: &WorkspaceMutation,
+    result: &Value,
+    prepared: &crate::state::terminal_exit_hooks::PreparedExitHook,
+) -> Result<(), ResourceError> {
+    use crate::state::terminal_exit_hooks::{exit_hook_id, run_hook_key};
+    let terminal = result_id(result, "run", "terminal_id")?;
+    let terminal = crate::resource::TerminalPublicId::parse(terminal.to_owned())?;
+    let mutation =
+        WorkspaceMutation::new(run_hook_key(&run.id), run.origin.clone(), run.actor.clone())
+            .map_err(resource_operation_error)?;
+    mux.arm_terminal_exit_hook(
+        &mutation,
+        None,
+        &terminal,
+        &exit_hook_id(&run.id, &terminal),
+        prepared,
+    )
+    .map(|_| ())
+    .map_err(|error| {
+        ResourceError::operation_failed(
+            "run",
+            format!("the job started but its exit hook was not armed: {error:#}"),
+            json!({"terminal_id": terminal}),
+        )
+    })
 }
 
 fn snapshot_mutation_result(

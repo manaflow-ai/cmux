@@ -2916,6 +2916,138 @@
       },
       "extra": false
     },
+    "TerminalExitHook": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "hook_ and 32 hex digits; one request arms one hook."
+        },
+        "terminal_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "armed",
+              "fired",
+              "failed"
+            ]
+          },
+          "description": "armed until the process ends; fired once its notice and message are done; failed when one of them could not be done (error says why)."
+        },
+        "notify": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "send_to": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The resolved recipient (acp:<session id> or term_<id>)."
+        },
+        "label": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "TerminalExitOutcome"
+            }
+          },
+          "description": "The durable exit outcome once fired. A terminal closed before its exit was recorded is unknown."
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "exit <code>, signal <n> (<NAME>)[, core dumped] or unknown: <reason>. A signal is never reported as a code."
+        },
+        "notification_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "message_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "fired_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "TerminalExitOutcome": {
       "kind": "union",
       "variants": [
@@ -30002,6 +30134,54 @@
             },
             "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
+          "notify_on_exit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Post a notice with the job's exact exit status when its process ends (terminal-exit-hooks-v1). The hook is listed by terminal.exit_hook.list."
+          },
+          "on_exit_send": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Send this agent a message with the job's exact exit status when its process ends: acp:<session name or id>, term_<id>, or an agent session or terminal name. The daemon resolves it before the job starts and refuses an unknown recipient. The message is sent as the caller."
+          },
+          "on_exit_label": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 800
+            },
+            "description": "The job's name in the notice and the message ({name}). Defaults to name, then the command."
+          },
+          "on_exit_title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The notice title template. Placeholders: {name}, {status}, {code}, {signal}, {terminal}."
+          },
+          "on_exit_text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The message template, with the placeholders of on_exit_title."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -38916,6 +39096,156 @@
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
       ]
     },
+    "terminal.exit_hook.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "notify": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Post a notice with the exact exit status when the process ends."
+          },
+          "send_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Send this agent a message with the exact exit status: acp:<session name or id>, term_<id>, or an agent session or terminal name, resolved now. The message is sent as the caller."
+          },
+          "label": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 800
+            },
+            "description": "The job's name ({name}). Defaults to the terminal id."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The notice title template. Placeholders: {name}, {status}, {code}, {signal}, {terminal}."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The message template, with the placeholders of title."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "notify, send_to or both is present.",
+          "A session holds at most 1000 armed hooks."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TerminalExitHook"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "terminal.closed",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Fires once, from the terminal's durable exit receipt: a hook on a process that already ended fires at once.",
+        "The daemon fires it on the exit event; no client waits or polls.",
+        "The notice and the message are posted as the caller; an app cannot set send_to."
+      ]
+    },
+    "terminal.exit_hook.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "terminal": "optional"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "TerminalExitHook"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Newest first: one terminal's hooks, or every terminal's. The newest 500 ended hooks are kept."
+      ]
+    },
     "window_record.delete": {
       "class": "mutation",
       "idempotency": "required",
@@ -40101,6 +40431,54 @@
               ]
             },
             "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
+          },
+          "notify_on_exit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Post a notice with the job's exact exit status when its process ends (terminal-exit-hooks-v1). The hook is listed by terminal.exit_hook.list."
+          },
+          "on_exit_send": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Send this agent a message with the job's exact exit status when its process ends: acp:<session name or id>, term_<id>, or an agent session or terminal name. The daemon resolves it before the job starts and refuses an unknown recipient. The message is sent as the caller."
+          },
+          "on_exit_label": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 800
+            },
+            "description": "The job's name in the notice and the message ({name}). Defaults to name, then the command."
+          },
+          "on_exit_title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The notice title template. Placeholders: {name}, {status}, {code}, {signal}, {terminal}."
+          },
+          "on_exit_text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            },
+            "description": "The message template, with the placeholders of on_exit_title."
           },
           "cols": {
             "required": false,

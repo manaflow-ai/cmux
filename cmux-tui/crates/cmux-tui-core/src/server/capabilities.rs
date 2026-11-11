@@ -425,6 +425,7 @@ pub(super) fn advertised_capabilities(
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
+        crate::state::terminal_exit_hooks::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,

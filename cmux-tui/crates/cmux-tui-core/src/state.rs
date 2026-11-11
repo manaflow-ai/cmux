@@ -162,6 +162,8 @@ pub(crate) mod store;
 mod tab_group_icon_tests;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;
+pub(crate) mod terminal_exit_hook_store;
+pub(crate) mod terminal_exit_hooks;
 #[cfg(test)]
 mod tests;
 pub(crate) mod values;

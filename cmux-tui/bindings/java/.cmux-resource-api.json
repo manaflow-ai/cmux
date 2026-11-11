@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7a7b3e8bc2a6eb6d12e276c8073c3200a6b8d9a9bfd1b0403217c18c6323aee8",
+  "catalog_sha256": "c59d7262e6d086470744069209193b59d71638ebb99f73af3b59d5905f4abeb1",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -905,6 +905,12 @@
       "class": "mutation"
     },
     "terminal.copy": {
+      "class": "read"
+    },
+    "terminal.exit_hook.add": {
+      "class": "mutation"
+    },
+    "terminal.exit_hook.list": {
       "class": "read"
     },
     "terminal.get": {

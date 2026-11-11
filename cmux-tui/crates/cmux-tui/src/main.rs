@@ -2776,6 +2776,9 @@ fn run_server(
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
+    // Job exit hooks fire from terminal exits; this pass fires what a
+    // restart left armed (state/terminal_exit_hooks.rs).
+    mux.start_terminal_exit_hooks();
     #[cfg(unix)]
     acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]

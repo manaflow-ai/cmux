@@ -5,6 +5,11 @@
 //! restart and the recipient's outage; this command only creates, lists and removes one. Inside an
 //! agent session the CLI carries the session's caller token (`client.rs`), so `--to` defaults to
 //! that session. The MCP tools of the same names answer with the same text (`acpmux_mcp_watch.rs`).
+//!
+//! `watch add --terminal <id> --until exit` watches a cmux terminal's process instead: it arms the
+//! cmux daemon's exit hook (`cmux terminal <id> exit-hook add --send <session>`), which sends the
+//! session one message with the exact exit status when the process ends (terminal-exit-hooks-v1).
+//! The cmux daemon keeps that hook and fires it from the exit itself; nothing here waits or polls.
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -17,12 +22,17 @@ pub enum WatchCmd {
     /// Wake a session once, with one message, when one of these sessions is done or blocked.
     Add {
         /// The sessions to watch: names, ids or HOST/name.
-        #[arg(required = true)]
+        #[arg(required_unless_present = "terminal", conflicts_with = "terminal")]
         sessions: Vec<String>,
+        /// A cmux terminal (term_<id> or its name) to watch instead: wakes the session with the
+        /// exact exit status when its process ends (`--until exit`).
+        #[arg(long, conflicts_with = "match_text")]
+        terminal: Option<String>,
         /// The session to wake. Default: the session this command runs in.
         #[arg(long)]
         to: Option<String>,
-        /// States that wake it: ready, permission, done, closed. Default: ready or permission.
+        /// States that wake it: ready, permission, done, closed (exit for --terminal). Default:
+        /// ready or permission (exit for --terminal).
         #[arg(long = "until", value_delimiter = ',')]
         until: Vec<String>,
         /// Only a turn whose transcript contains this text wakes it.
@@ -59,7 +69,16 @@ pub(crate) fn add_params(
 
 pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
     let (m, params) = match cmd {
-        WatchCmd::Add { sessions, to, until, match_text } => {
+        WatchCmd::Add { terminal: Some(terminal), to, until, .. } => {
+            let hook = terminal_watch(&terminal, to, &until).await.map_err(anyhow::Error::msg)?;
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&hook)?);
+            } else {
+                println!("{}", terminal_text(&hook));
+            }
+            return Ok(());
+        }
+        WatchCmd::Add { sessions, to, until, match_text, terminal: None } => {
             (method::MUX_WATCH_ADD, add_params(sessions, to, until, match_text))
         }
         WatchCmd::Ls => (method::MUX_WATCH_LS, json!({})),
@@ -73,6 +92,73 @@ pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
         println!("{}", text(m, &reply));
     }
     Ok(())
+}
+
+/// `watch add --terminal <id> --until exit`, for the CLI and the MCP tool alike: arms the cmux
+/// daemon's exit hook on that terminal, which wakes `to` (default: the session this runs in) once,
+/// with the exact exit status, when the process ends. The hook as the cmux CLI answers it.
+pub(crate) async fn terminal_watch(
+    terminal: &str,
+    to: Option<String>,
+    until: &[String],
+) -> Result<Value, String> {
+    if until.iter().any(|state| state != "exit") {
+        return Err("a terminal watch wakes when the terminal's process ends: --until exit".into());
+    }
+    let to = match to.filter(|to| !to.trim().is_empty()) {
+        Some(to) => to,
+        None => std::env::var("ACPMUX_SESSION_ID")
+            .ok()
+            .filter(|id| !id.is_empty())
+            .ok_or("--to is required outside an agent session: the session to wake")?,
+    };
+    // acpmux names sessions; the cmux daemon also takes a terminal agent (term_<id>).
+    let to =
+        if to.starts_with("acp:") || to.starts_with("term_") { to } else { format!("acp:{to}") };
+    let words = ["--json", "terminal", terminal, "exit-hook", "add", "--send", to.as_str()];
+    let output = cmux_cli(&words)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|error| format!("cannot run the cmux CLI: {error}"))?;
+    let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_owned();
+    if !output.status.success() {
+        let stderr = said(&output.stderr);
+        let reason = if stderr.is_empty() { said(&output.stdout) } else { stderr };
+        return Err(format!("cmux refused the terminal watch: {reason}"));
+    }
+    let reply: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("the cmux CLI answered no JSON: {error}"))?;
+    // `cmux --json` prints a mutation's result; the hook is its value.
+    Ok(reply.get("value").cloned().unwrap_or(reply))
+}
+
+/// The cmux CLI: this binary without the `acp` prefix inside the cmux multicall binary (the same
+/// build as the daemon that runs this acpmux), else the session's `CMUX_TUI_CLI`, else `cmux`.
+fn cmux_cli(words: &[&str]) -> tokio::process::Command {
+    if !crate::daemon::daemon_prefix().is_empty()
+        && let Ok(this) = crate::self_command::SelfCommand::current()
+    {
+        return crate::self_command::SelfCommand::new(this.exe, Vec::new()).tokio_command(words);
+    }
+    let program = std::env::var_os("CMUX_TUI_CLI")
+        .filter(|cli| !cli.is_empty())
+        .unwrap_or_else(|| "cmux".into());
+    let mut command = tokio::process::Command::new(program);
+    command.args(words);
+    command
+}
+
+/// A terminal watch as text.
+pub(crate) fn terminal_text(hook: &Value) -> String {
+    format!(
+        "Watch {}: wakes {} once when terminal {} exits, with its exit status.\n\
+         List with cmux terminal {} exit-hook list.",
+        str_of(&hook["id"]),
+        str_of(&hook["send_to"]),
+        str_of(&hook["terminal_id"]),
+        str_of(&hook["terminal_id"]),
+    )
 }
 
 /// A reply as text, for the CLI and the MCP tools alike.

@@ -18,6 +18,7 @@ mod copy_mode;
 mod foreign_viewport;
 mod graphics;
 mod host_share;
+mod job_notify;
 mod layout;
 mod live_code;
 mod local_server;
@@ -56,6 +57,7 @@ pub(crate) use config::ConfigMessages;
 pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
+pub(crate) use job_notify::JobNotifyMessages;
 pub(crate) use layout::LayoutMessages;
 pub(crate) use live_code::LiveCodeMessages;
 pub(crate) use local_server::LocalServerMessages;
@@ -146,6 +148,7 @@ pub(crate) struct Catalog {
     pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
     pub pane_cli: PaneCliMessages,
+    pub job_notify: JobNotifyMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
@@ -209,6 +212,7 @@ static ENGLISH: Catalog = Catalog {
     skew: skew::ENGLISH,
     pairing: pairing::ENGLISH,
     pane_cli: pane_cli::ENGLISH,
+    job_notify: job_notify::ENGLISH,
     foreign_viewport: foreign_viewport::ENGLISH,
     graphics: graphics::ENGLISH,
     terminal: terminal::ENGLISH,
@@ -249,6 +253,7 @@ static JAPANESE: Catalog = Catalog {
     skew: skew::JAPANESE,
     pairing: pairing::JAPANESE,
     pane_cli: pane_cli::JAPANESE,
+    job_notify: job_notify::JAPANESE,
     foreign_viewport: foreign_viewport::JAPANESE,
     graphics: graphics::JAPANESE,
     terminal: terminal::JAPANESE,
