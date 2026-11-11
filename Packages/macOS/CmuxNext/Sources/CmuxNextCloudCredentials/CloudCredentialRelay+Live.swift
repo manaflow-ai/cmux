@@ -14,10 +14,14 @@ public nonisolated extension CloudCredentialRelay {
         return CloudCredentialRelay(
             // The person's pre-approval rides on every call (cmux-platform#1126); none held, the server checks in full.
             post: { path, body, bearer in
-                let approved = capability?.headers(installToken: bearer) ?? [:]
-                return try await transport.post(path, json: body, bearer: bearer, headers: headers.merging(approved) { $1 })
+                let approved = capability?.headers(installToken: bearer.token, generation: bearer.generation) ?? [:]
+                return try await transport.post(path, json: body, bearer: bearer.token, headers: headers.merging(approved) { $1 })
             },
-            token: { try await identity.installToken() },
+            // The generation is read before the await: a drop while the token is minted makes this bearer stale.
+            token: {
+                let generation = capability?.generation()
+                return Bearer(token: try await identity.installToken(), generation: generation)
+            },
             invalidate: { capability?.drop(); await identity.invalidate() },
             session: {
                 guard await signedIn() else { return Session(signedIn: false, team: nil) }
@@ -45,11 +49,21 @@ public struct CloudPreApproval: Sendable {
         self.headers = headers
     }
 
-    /// The header for one call made with `installToken`; starts the fetch in the background when Rust says so.
-    public func headers(installToken: String) -> [String: String] {
+    /// The account generation, read in the same step as a bearer is captured (before its await); Rust refuses a
+    /// call whose bearer was captured before the last drop.
+    public func generation() -> Double? {
+        struct Reply: Decodable { var generation: Double? }
+        let request: JSONValue = .object(["team": .null, "nowMs": .number(Self.nowMs())])
+        return CloudStartCore().call("cloud_capability_header", request, as: Reply.self)?.generation
+    }
+
+    /// The header for one call made with `installToken`, captured at `generation`; starts the fetch in the background
+    /// when Rust says so.
+    public func headers(installToken: String, generation: Double?) -> [String: String] {
         struct Reply: Decodable { var header: String?; var fetch: Bool; var fetchId: Double? }
         let team = MacInstallIdentity.team(ofToken: installToken)
-        let request: JSONValue = .object(["team": team.map(JSONValue.string) ?? .null, "nowMs": .number(Self.nowMs())])
+        let request: JSONValue = .object(["team": team.map(JSONValue.string) ?? .null, "nowMs": .number(Self.nowMs()),
+                                          "generation": generation.map(JSONValue.number) ?? .null])
         guard let reply = CloudStartCore().call("cloud_capability_header", request, as: Reply.self) else { return [:] }
         if reply.fetch, let team { fetch(team: team, installToken: installToken, id: reply.fetchId) }
         return reply.header.map { ["x-cmux-cloud-capability": $0] } ?? [:]
@@ -57,8 +71,9 @@ public struct CloudPreApproval: Sendable {
 
     /// Asks for a token now (sign-in, the person typing in a Cloud composer) unless one is held or in flight.
     public func prefetch(_ identity: MacInstallIdentity) async {
+        let generation = generation()
         guard let token = try? await identity.installToken() else { return }
-        _ = headers(installToken: token)
+        _ = headers(installToken: token, generation: generation)
     }
 
     /// The account or team changed, or the install token was refused: nothing is sent until a new token arrives.

@@ -26,7 +26,8 @@ fn kept(team: &str, sent: u64, now: u64, status: u64, body: Value) -> KeepReply 
 }
 
 fn used(state: &State, team: Option<&str>, now: u64) -> UseReply {
-    use_for(&UseRequest { state: state.clone(), team: team.map(str::to_owned), now_ms: now })
+    let request = json!({"state": state, "team": team, "nowMs": now});
+    use_for(&serde_json::from_value::<UseRequest>(request).unwrap())
 }
 
 /// Signed in with nothing held: the call goes with no token (the full checks) and starts the fetch;
@@ -181,28 +182,22 @@ fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
     // A test of the process-wide state: it holds `process()`; the pure rules' tests keep their own.
     let _turn = process();
     forget();
-    let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
+    let ask = |now: u64| asked("team_a", now);
     let first = ask(T0);
-    assert_eq!((first.header, first.fetch), (None, true));
-    assert!(first.fetch_id.is_some(), "the fetch has an id");
-    assert!(!ask(T0 + 1).fetch, "one fetch in flight");
-    let kept = super::answer(AnswerRequest {
-        team: "team_a".to_owned(),
-        fetch_id: first.fetch_id,
-        sent_ms: T0,
-        now_ms: T0 + 50,
-        status: 200,
-        body: answer("team_a", 1_000),
-    });
-    assert_eq!(kept.outcome, "held");
-    assert_eq!(
-        ask(T0 + 60),
-        HeaderReply { header: Some(TOKEN.to_owned()), fetch: false, fetch_id: None }
-    );
+    assert_eq!((&first["header"], &first["fetch"]), (&Value::Null, &json!(true)));
+    assert!(first["fetchId"].is_number(), "the fetch has an id");
+    assert_eq!(ask(T0 + 1)["fetch"], json!(false), "one fetch in flight");
+    assert_eq!(answer_wire("team_a", T0, T0 + 50, &first["fetchId"]), "held");
+    let next = ask(T0 + 60);
+    assert_eq!((&next["header"], &next["fetch"]), (&json!(TOKEN), &json!(false)));
+    assert_eq!(next["fetchId"], Value::Null);
     forget();
     let again = ask(T0 + 70);
-    assert_eq!((again.header, again.fetch), (None, true));
-    assert!(again.fetch_id > first.fetch_id, "ids keep counting across a drop");
+    assert_eq!((&again["header"], &again["fetch"]), (&Value::Null, &json!(true)));
+    assert!(
+        again["fetchId"].as_u64() > first["fetchId"].as_u64(),
+        "ids keep counting across a drop"
+    );
     forget();
 }
 
@@ -259,20 +254,15 @@ fn a_refusal_for_one_team_never_holds_off_another() {
 fn an_answer_to_a_fetch_sent_before_a_drop_is_not_kept() {
     let _turn = process();
     forget();
-    let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
-    let before = ask(T0);
-    assert!(before.fetch);
+    let (fetched, before) = ask_wire("team_a", T0);
+    assert!(fetched);
     forget();
-    let late = super::answer(AnswerRequest {
-        team: "team_a".to_owned(),
-        fetch_id: before.fetch_id,
-        sent_ms: T0,
-        now_ms: T0 + 50,
-        status: 200,
-        body: answer("team_a", 1_000),
-    });
-    assert_eq!(late.outcome, "dropped");
-    assert_eq!(ask(T0 + 60).header, None, "the signed-out account's token is never sent");
+    assert_eq!(answer_wire("team_a", T0, T0 + 50, &before), "dropped");
+    assert_eq!(
+        asked("team_a", T0 + 60)["header"],
+        Value::Null,
+        "the old account's token is never sent"
+    );
     forget();
 }
 
@@ -288,12 +278,30 @@ impl Schedule {
     }
 }
 
-/// A call through `cloud_capability_header` as the app makes it: whether it starts a fetch, and the
-/// fetch's id from the reply's JSON (`null` when it names none).
+/// `cloud_capability_header` as the app calls it, with a bearer captured at `generation`: the reply's
+/// JSON, with every field the app reads (`null` when absent).
+fn asked_at(team: Option<&str>, now: u64, generation: &Value) -> Value {
+    let request = json!({"team": team, "nowMs": now, "generation": generation});
+    let reply = serde_json::to_value(header(&serde_json::from_value(request).unwrap())).unwrap();
+    let field = |name: &str| reply.get(name).cloned().unwrap_or(Value::Null);
+    json!({"header": field("header"), "fetch": field("fetch"), "fetchId": field("fetchId"),
+           "generation": field("generation")})
+}
+
+/// The generation, read as the app reads it when it captures a bearer: a call with no team.
+fn generation() -> Value {
+    asked_at(None, T0, &Value::Null)["generation"].clone()
+}
+
+/// A call whose bearer was captured just now.
+fn asked(team: &str, now: u64) -> Value {
+    asked_at(Some(team), now, &generation())
+}
+
+/// [`asked`]: whether it starts a fetch, and the fetch's id.
 fn ask_wire(team: &str, now: u64) -> (bool, Value) {
-    let reply = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now });
-    let wire = serde_json::to_value(reply).unwrap();
-    (wire["fetch"] == json!(true), wire.get("fetchId").cloned().unwrap_or(Value::Null))
+    let reply = asked(team, now);
+    (reply["fetch"] == json!(true), reply["fetchId"].clone())
 }
 
 /// A 200 answer through `cloud_capability_answer` as the app sends it, naming the fetch's id.
@@ -331,11 +339,38 @@ fn an_answer_to_a_pre_drop_fetch_is_refused_even_in_the_same_millisecond() {
     forget();
 }
 
+/// Codex's P1 on 0654637e: a call captures the old account's bearer, suspends, a drop runs (a
+/// sign-out, or a switch to another account in the same team), then the call resumes and asks for a
+/// fetch. Its bearer is from before the drop: no fetch, no id, nothing held, and the new account's
+/// token never goes on it.
+#[test]
+fn a_bearer_captured_before_a_drop_starts_no_fetch_after_it() {
+    let _turn = process();
+    forget();
+    let captured = generation();
+    forget();
+    let stale = asked_at(Some("team_a"), T0, &captured);
+    assert_eq!(
+        (&stale["header"], &stale["fetch"], &stale["fetchId"]),
+        (&Value::Null, &json!(false), &Value::Null),
+        "the old bearer gets no fetch and no id"
+    );
+    // Nothing is in flight or held off: the new account's own call fetches at once and is held.
+    let (fetched, id) = ask_wire("team_a", T0);
+    assert!(fetched, "the stale call left nothing in flight");
+    assert_eq!(answer_wire("team_a", T0, T0 + 1, &id), "held");
+    // And the new account's token never goes out on the old bearer.
+    assert_eq!(asked_at(Some("team_a"), T0 + 2, &captured)["header"], Value::Null);
+    assert_eq!(asked("team_a", T0 + 2)["header"], json!(TOKEN));
+    forget();
+}
+
 /// The class: whatever team was asked for last is the one held once every fetch has answered, and
 /// after a drop no answer to a fetch from before it is ever held. Over 5,000 random orders of calls in
 /// three teams, answers in any order, drops (sign-out, an account or team switch) and a clock with few
-/// distinct values, so fetches on both sides of a drop often share a millisecond. Through the
-/// process's own ops, as the app calls them.
+/// distinct values, so fetches on both sides of a drop often share a millisecond. Calls also capture
+/// their bearer, suspend across other steps and resume: one captured before a drop never fetches.
+/// Through the process's own ops, as the app calls them.
 #[test]
 fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
     let _turn = process();
@@ -347,6 +382,8 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
         let mut last = None;
         // Each fetch still out: its team, when it was sent, its id, and the drops before it.
         let mut out: Vec<(&str, u64, Value, u32)> = Vec::new();
+        // Each call suspended after capturing its bearer: its team, the generation, the drops before it.
+        let mut suspended: Vec<(&str, Value, u32)> = Vec::new();
         let mut steps = Vec::new();
         for _ in 0..2 + schedule.below(14) {
             // Most steps keep the same millisecond.
@@ -360,7 +397,7 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
                 1 => "team_b",
                 _ => "team_c",
             };
-            match schedule.below(6) {
+            match schedule.below(9) {
                 0 | 1 => {
                     let (fetched, id) = ask_wire(team, now);
                     if fetched {
@@ -389,6 +426,34 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
                     last = None;
                     steps.push("drop".to_owned());
                 }
+                6 => {
+                    suspended.push((team, generation(), drops));
+                    steps.push(format!("capture {team}"));
+                }
+                7 | 8 if !suspended.is_empty() => {
+                    let index =
+                        usize::try_from(schedule.below(suspended.len() as u64)).unwrap_or(0);
+                    let (team, captured, epoch) =
+                        suspended.swap_remove(index.min(suspended.len() - 1));
+                    let reply = asked_at(Some(team), now, &captured);
+                    let fetched = reply["fetch"] == json!(true);
+                    steps.push(format!(
+                        "resume {team}@{now}{}",
+                        if fetched { " (fetch)" } else { "" }
+                    ));
+                    if epoch == drops {
+                        if fetched {
+                            out.push((team, now, reply["fetchId"].clone(), epoch));
+                        }
+                        last = Some(team);
+                    } else {
+                        assert_eq!(
+                            (&reply["header"], &reply["fetch"], &reply["fetchId"]),
+                            (&Value::Null, &json!(false), &Value::Null),
+                            "seed {seed}: a bearer from before a drop was used after {steps:?}"
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -403,10 +468,9 @@ fn the_last_team_asked_for_is_held_once_every_fetch_has_answered() {
             );
         }
         if let Some(team) = last {
-            let call = header(&HeaderRequest { team: Some(team.to_owned()), now_ms: now + 1 });
             assert_eq!(
-                call.header.as_deref(),
-                Some(TOKEN),
+                asked(team, now + 1)["header"],
+                json!(TOKEN),
                 "seed {seed}: {team} not held after {steps:?}"
             );
         }

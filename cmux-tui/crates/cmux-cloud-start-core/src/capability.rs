@@ -82,6 +82,11 @@ pub struct State {
     /// account's or team's, and is never kept.
     #[serde(default)]
     pub dropped_through: u64,
+    /// The account generation: a drop counts it up, and never back. A call names the generation it
+    /// read when it captured its bearer; one from before the last drop gets no token and starts no
+    /// fetch, whatever its team, since that bearer may be the old account's.
+    #[serde(default)]
+    pub generation: u64,
 }
 
 /// One team's fetch: the one in flight (its id, and since when, for the in-flight hold), and the
@@ -130,6 +135,9 @@ pub struct UseRequest {
     pub team: Option<String>,
     #[serde(deserialize_with = "ms")]
     pub now_ms: u64,
+    /// The [`State::generation`] read when the call's bearer was captured (absent: 0).
+    #[serde(default, deserialize_with = "opt_ms")]
+    pub generation: Option<u64>,
 }
 
 /// The token to send (none: the full checks), whether to start a fetch now, and the state to keep.
@@ -146,10 +154,13 @@ pub struct UseReply {
 /// The token for a call in `team` at `now_ms`, and whether this call starts the next fetch. A fetch
 /// it starts holds off others for the same team for [`IN_FLIGHT_MS`]; another team's call fetches
 /// its own at once. The call's team becomes the one wanted. With no team (signed out, no install
-/// token yet) nothing is sent and nothing is fetched.
+/// token yet) nothing is sent and nothing is fetched. Nor for a call whose bearer was captured before
+/// the last drop (an older [`UseRequest::generation`]): that bearer may be the old account's, even in
+/// the same team, so it gets no token, no fetch and no id, and the state is left as it was.
 pub fn use_for(request: &UseRequest) -> UseReply {
     let mut state = request.state.clone();
-    let Some(team) = request.team.as_deref().filter(|team| !team.is_empty()) else {
+    let stale = request.generation.unwrap_or(0) < state.generation;
+    let Some(team) = request.team.as_deref().filter(|team| !team.is_empty() && !stale) else {
         return UseReply { header: None, fetch: false, fetch_id: None, state };
     };
     let now = request.now_ms;
@@ -292,13 +303,16 @@ static HELD: std::sync::Mutex<State> = std::sync::Mutex::new(State {
     fenced: false,
     last_fetch_id: 0,
     dropped_through: 0,
+    generation: 0,
 });
 
 fn held() -> std::sync::MutexGuard<'static, State> {
     HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// `cloud_capability_header`: a call in `team` is about to go at `now_ms`.
+/// `cloud_capability_header`: a call in `team` is about to go at `now_ms`, with a bearer captured at
+/// `generation`. With no team it changes nothing: the app reads the generation that way, in the same
+/// step as it captures a bearer.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HeaderRequest {
@@ -306,6 +320,8 @@ pub struct HeaderRequest {
     pub team: Option<String>,
     #[serde(deserialize_with = "ms")]
     pub now_ms: u64,
+    #[serde(default, deserialize_with = "opt_ms")]
+    pub generation: Option<u64>,
 }
 
 /// The token to send (none: the server's full checks) and whether the app starts the fetch now.
@@ -316,6 +332,8 @@ pub struct HeaderReply {
     pub fetch: bool,
     /// The fetch's id when `fetch`: the app sends it back with the answer.
     pub fetch_id: Option<u64>,
+    /// The current [`State::generation`].
+    pub generation: u64,
 }
 
 /// [`use_for`] on the process's held state.
@@ -325,9 +343,11 @@ pub fn header(request: &HeaderRequest) -> HeaderReply {
         state: state.clone(),
         team: request.team.clone(),
         now_ms: request.now_ms,
+        generation: request.generation,
     });
     *state = reply.state;
-    HeaderReply { header: reply.header, fetch: reply.fetch, fetch_id: reply.fetch_id }
+    let generation = state.generation;
+    HeaderReply { header: reply.header, fetch: reply.fetch, fetch_id: reply.fetch_id, generation }
 }
 
 /// `cloud_capability_answer`: [`KeepRequest`] without the state, which this process holds.
@@ -378,12 +398,14 @@ pub fn forget() {
 }
 
 /// The state after a drop: nothing held or in flight, and every fetch started so far fenced off. The
-/// fetch ids keep counting, so no fetch after the drop shares an id with one before it.
+/// fetch ids keep counting, so no fetch after the drop shares an id with one before it, and the
+/// generation counts up, so no bearer captured before the drop starts a fetch after it.
 pub fn dropped(state: &State) -> State {
     State {
         fenced: true,
         last_fetch_id: state.last_fetch_id,
         dropped_through: state.last_fetch_id,
+        generation: state.generation.saturating_add(1),
         ..State::default()
     }
 }
