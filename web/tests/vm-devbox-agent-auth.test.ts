@@ -347,6 +347,29 @@ describe("Claude Code sign-in precedence", () => {
     expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
   });
 
+  test("with no choice, a provider switch or token in the env keeps own and is never cleared", async () => {
+    const cases: [string, Record<string, string>][] = [
+      ["Bedrock", { CLAUDE_CODE_USE_BEDROCK: "1" }],
+      ["Vertex", { CLAUDE_CODE_USE_VERTEX: "true" }],
+      ["Foundry", { CLAUDE_CODE_USE_FOUNDRY: "1" }],
+      ["a bearer token", { ANTHROPIC_AUTH_TOKEN: "personal" }],
+    ];
+    for (const [name, extra] of cases) {
+      const m = machine();
+      const { env, status } = await launchWith(m, "--resume x", { FAKE_ACCESS: ALL, ...extra });
+      expect(status, name).toBe(0);
+      expect(env.settings, name).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL, name).toBe("<unset>");
+      expect(env.ANTHROPIC_API_KEY, name).toBe("<unset>");
+      for (const [key, value] of Object.entries(extra)) expect(env[key], name).toBe(value);
+    }
+    // A switch that is off is no choice: team mode, which empties it.
+    const m = machine();
+    const { env } = await launchWith(m, "--resume x", { FAKE_ACCESS: ALL, CLAUDE_CODE_USE_BEDROCK: "0" });
+    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(settingsEnv(env)?.CLAUDE_CODE_USE_BEDROCK).toBe("");
+  });
+
   test("a chosen team mode keeps a personal endpoint and key the launch's --settings names", async () => {
     const m = machine();
     choose(m, "team");
