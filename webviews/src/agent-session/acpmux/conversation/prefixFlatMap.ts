@@ -14,6 +14,25 @@ export type PrefixFlat<R, T> = {
   readonly from: readonly number[];
 };
 
+/// What the maker of an array said of its kept prefix (`noteKeptPrefix`): the array it was made
+/// from, by number (holding the array would keep every earlier snapshot alive through the next, as
+/// rowChanges.ts says), and how many leading rows it kept.
+const told = new WeakMap<readonly unknown[], { from: number; count: number }>();
+const serials = new WeakMap<readonly unknown[], number>();
+let serial = 0;
+
+/// `rows` begin with the first `count` rows of `previous`, the same objects at the same places: the
+/// client says so of each snapshot (direct.ts `OrderedRows.sorted`, which knows the first slot an
+/// event wrote), so `keptPrefix` answers without walking the chat. A tool call arriving in a chat
+/// of 35,000 rows walked them once per pass that asked (bench/transcript-replay.bench.ts, god log).
+/// `count` may be less than the true prefix, never more.
+export function noteKeptPrefix(rows: readonly unknown[], previous: readonly unknown[], count: number): void {
+  if (rows === previous) return;
+  let from = serials.get(previous);
+  if (from === undefined) serials.set(previous, (from = serial += 1));
+  told.set(rows, { from, count: Math.max(0, Math.min(count, rows.length, previous.length)) });
+}
+
 /// How many leading rows of `rows` are the same objects at the same places in `previous`. The pane
 /// asks this of the same two snapshots once per pass (composer, tray, plan, Find, ...), so answers
 /// are kept: each pair is walked once. They are kept by the arrays themselves (weakly), so a chat
@@ -22,6 +41,8 @@ export type PrefixFlat<R, T> = {
 const kept = new WeakMap<readonly unknown[], WeakMap<readonly unknown[], { lengths: number; count: number }>>();
 export function keptPrefix(previous: readonly unknown[], rows: readonly unknown[]): number {
   if (previous === rows) return rows.length;
+  const said = told.get(rows);
+  if (said && serials.get(previous) === said.from) return said.count;
   const lengths = previous.length * 2 ** 26 + rows.length;
   let after = kept.get(rows);
   const known = after?.get(previous);
@@ -59,6 +80,8 @@ export function prefixFlatMap<R, T>(
       items.push(item);
       from.push(index);
     }
+  // A pass over these items (the next shaping step) starts after the kept ones too.
+  if (previous) noteKeptPrefix(items, previous.items, keep);
   return { rows, items, from };
 }
 
