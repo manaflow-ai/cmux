@@ -175,6 +175,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
+        if !contentHost.isHolding, hostsContent { toolbar?.view.followPageTools() } // before its width is read (#38142)
         let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = contentHost.isHolding, row = held ? nil : tabRowSharer // held: the row is the strip's (S1B)
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.

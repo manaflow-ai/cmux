@@ -97,6 +97,7 @@ final class PaneToolbar {
                 }
             }
         }
+        (view.pageToolsShown, view.onPageToolsShown) = ({ [weak pane] in pane?.view.nativeToolOwner.model?.tabRow.drawsTools == true }, { [weak self] in self?.refresh() })
         refreshCurrent = { [weak self, weak pane] in
             if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
         }
@@ -144,7 +145,8 @@ final class PaneToolbar {
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
+        // A New Tab page that draws a chat's tools in the row left the New Tab screen: its chat, before its session lands (#38142).
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab) && displayedModel?.tabRow.drawsTools != true), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -177,10 +179,7 @@ final class PaneToolbar {
     /// pinned zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
     func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = [], nativeEnabled: Bool = ChromeTunables.nativeRowTools.value) {
-        self.target = target
-        self.kind = kind
-        self.zoomed = zoomed
-        self.pinned = pinned
+        (self.target, self.kind, self.zoomed, self.pinned) = (target, kind, zoomed, pinned)
         let shown = target != nil && kind != nil
         // The room the bar keeps: "…" and the most pins any tab of the pane shows, so selecting a tab
         // without "…" (a chat, a window's own page) or fewer pins moves no tab. Search Tabs has no button
@@ -196,7 +195,7 @@ final class PaneToolbar {
         let nativeTools = nativeEnabled ? nativeItems : []
         view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins, buttons.count) + 1,
-                  nativeItems: nativeTools)
+                  nativeItems: nativeTools, yieldsToPageTools: shown && kind == .newTab) // #38142: never beside the chat's tools
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".

@@ -63,6 +63,30 @@ public final class PaneToolbarView: NSView {
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
     private var nativeMoreTool: PaneTabRowTool?
+    /// The pins and "…" are a New Tab page's (`PaneToolbar.Kind.newTab`): the chat that page becomes shows neither
+    /// beside its own tools, so ``tabRowWidth`` (the row's trailing inset the page draws its tools at) leaves them out
+    /// (#38142). The page lays its tools out at the inset it was offered while still on the New Tab screen; with their
+    /// room in it, a new workspace's first chat drew its tools left of an empty "…" slot, then shifted right.
+    public private(set) var yieldsToPageTools = false
+    /// Whether the selected page draws its tools in the row now (`AgentPaneTabRow.drawsTools`).
+    public var pageToolsShown: (() -> Bool)?
+    /// The page's tools came into the row or left it: the owner applies its state again (`PaneToolbar.refresh`).
+    public var onPageToolsShown: (() -> Void)?
+
+    /// ``pageToolsShown`` as the bar's owner last applied its state (``show(_:more:lit:reserving:nativeItems:yieldsToPageTools:)``).
+    private var appliedPageTools = false
+
+    /// Called as the pane lays out, before it measures this bar: when the page's tools came into the row or left it
+    /// since the owner last applied its state, the owner applies it again in this pass (#38142). A New Tab page whose
+    /// first prompt left the New Tab screen then gives up its pins and "…" as its chat's tools arrive, not when the
+    /// chat's session lands, so the tools and the bar beside them lay out once; a page back on the New Tab screen (a
+    /// refused first prompt, a reload) gets them back. The tools' report lays the pane out (`PaneTabRowSharing.offerTabRow`);
+    /// the tab store's observation would follow only after a frame, or not at all.
+    public func followPageTools() {
+        guard let shown = pageToolsShown?(), shown != appliedPageTools else { return }
+        appliedPageTools = shown
+        onPageToolsShown?()
+    }
     /// Each tab's room at the row's trailing end, so its pane's strip ends in one place whichever tab is selected.
     public private(set) var trailingSlots = PaneTrailingSlots()
 #if DEBUG
@@ -130,13 +154,17 @@ public final class PaneToolbarView: NSView {
     ///
     /// - Parameter reserving: buttons' room to keep even while fewer show: the most any tab of the
     ///   pane shows, so the strip's width (and every tab's) does not follow the selected tab.
+    /// - Parameter yieldsToPageTools: ``yieldsToPageTools``.
     public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0,
-                     nativeItems: [PaneTabRowTool] = []) {
+                     nativeItems: [PaneTabRowTool] = [], yieldsToPageTools: Bool = false) {
+        appliedPageTools = pageToolsShown?() ?? false
         let filteredNativeItems = nativeItems.filter { $0.id != "chat-menu" }
         let nextNativeMoreTool = nativeItems.first { $0.id == "chat-menu" }
         guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount ||
-            filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool else { return }
+            filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool ||
+            yieldsToPageTools != self.yieldsToPageTools else { return }
         reservedCount = reserving
+        self.yieldsToPageTools = yieldsToPageTools
         if items != self.items { setButtons(items) }
         if filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool { setNativeButtons(nativeItems) }
         self.nativeItems = filteredNativeItems
@@ -382,14 +410,23 @@ public final class PaneToolbarView: NSView {
     /// keep the strip still; beside a chat it is an empty slot after the chat's own "…", and a pane whose other tabs
     /// offer none kept 0, so the chat's tools ran to the pane's edge there (Leo 2026-11-07: "there's sometimes this,
     /// like, ghost area where it thinks there's, like, a fifth icon"). With nothing shown the chat's last tool sits on
-    /// the pane's trailing control column, where "…" sits, in every pane.
+    /// the pane's trailing control column, where "…" sits, in every pane. A New Tab page's pins and "…"
+    /// (``yieldsToPageTools``) are never beside the tools, so they are left out too.
     public var tabRowWidth: CGFloat {
-        let allButtons = buttons + nativeButtons
-        let count = shownCount
-        let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let moreWidth = hasMore ? TitlebarBandButton.side : 0
+        let row = rowControls
+        let count = row.buttons.count + (row.more ? 1 : 0)
+        let buttonWidth = row.buttons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let moreWidth = row.more ? TitlebarBandButton.side : 0
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
         return buttonWidth + moreWidth + gaps + Self.trailingGap
+    }
+
+    /// What the bar shows beside a page's tools in the row: its buttons (the pins first, then the native tools),
+    /// whether "…" shows, and how many of those buttons are pins (`items`). A New Tab page's (``yieldsToPageTools``):
+    /// the native tools alone, "…" only for a native chat menu, as `PaneToolbar` shows them beside the chat it becomes.
+    private var rowControls: (buttons: [TitlebarBandButton], more: Bool, pins: Int) {
+        guard yieldsToPageTools else { return (buttons + nativeButtons, hasMore, items.count) }
+        return (nativeButtons, !nativeItems.isEmpty || nativeMoreTool != nil, 0)
     }
 
     /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
@@ -423,18 +460,18 @@ public final class PaneToolbarView: NSView {
         let full = tabRowWidth
         guard full > limit else { return full }
         let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
-        let allButtons = buttons + nativeButtons
-        let trailingSlot: CGFloat = hasMore || reservedCount > allButtons.count ? 1 : 0
+        let row = rowControls, allButtons = row.buttons
+        let trailingSlot: CGFloat = row.more || (!yieldsToPageTools && reservedCount > allButtons.count) ? 1 : 0
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
         var cursor = limit - Self.trailingGap - trailingSlot * (side + gap)
-        var leading = hasMore ? limit - Self.trailingGap - side : limit - Self.trailingGap
+        var leading = row.more ? limit - Self.trailingGap - side : limit - Self.trailingGap
         for index in allButtons.indices.reversed() {
             let available = max(0, cursor)
             guard available >= side else { break }
             let width = min(allButtons[index].preferredWidth, available), x = cursor - width
             guard x >= 0 else { break }
-            if !(index < items.count && items[index].alwaysVisible) { leading = min(leading, x) }
+            if !(index < row.pins && items[index].alwaysVisible) { leading = min(leading, x) }
             cursor = x - gap
         }
         return max(0, min(limit, limit - leading))

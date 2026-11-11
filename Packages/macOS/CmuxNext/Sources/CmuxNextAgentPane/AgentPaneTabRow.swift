@@ -9,6 +9,8 @@ import CmuxNextSettings
 @MainActor public final class AgentPaneTabRow {
     /// The page's tools' width in CSS pixels, gap included; 0 while it draws no tools in the row.
     public private(set) var toolsWidth: CGFloat = 0
+    /// The page draws its tools in the row now: it is a chat, not the New Tab screen (#38142).
+    public var drawsTools: Bool { toolsWidth > 0 }
     /// The last positive ``toolsWidth``, kept after the row ends or the page loads again: whether
     /// the tools fit a pane's row (`PaneTabRowSharing.fitsTabRow`); 0 before the page first reported.
     public private(set) var neededWidth: CGFloat = 0
