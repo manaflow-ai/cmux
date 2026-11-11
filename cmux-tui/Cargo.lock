@@ -43,6 +43,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-source-scan",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -64,7 +65,6 @@ dependencies = [
  "notify",
  "plist",
  "png",
- "proc-macro2",
  "proptest",
  "pulldown-cmark",
  "ratatui",
@@ -79,7 +79,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook-registry",
- "syn 2.0.119",
  "syntect",
  "tar",
  "tempfile",
@@ -1932,6 +1931,16 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-source-scan"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]
