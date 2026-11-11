@@ -199,10 +199,17 @@ function Harness({
         },
         account: { sessionId: "chat-1", accounts },
         search: {
-          find: (query) =>
-            list.flatMap((family) =>
-              [...family.models, ...family.more].filter((row) => row.name.toLowerCase().includes(query)),
-            ),
+          // A trailing level word names the level a match lands with, as the real search's does ("sol high").
+          find: (query) => {
+            const words = query.split(" ");
+            const named = ["low", "medium", "high"].includes(words.at(-1) ?? "") ? words.pop() : undefined;
+            const text = words.join(" ");
+            return list.flatMap((family) =>
+              [...family.models, ...family.more]
+                .filter((row) => row.name.toLowerCase().includes(text))
+                .map((row) => (named ? { ...row, effort: named } : row)),
+            );
+          },
           pick(row) {
             calls.picks.push(row);
           },
@@ -493,6 +500,33 @@ test("Escape clears a search before it closes the menu", async () => {
   });
   await settle();
   expect(calls.open).toBe(false);
+});
+
+test("a level picked by hand under a search does not outlast the menu: the same search reopened shows its own level", async () => {
+  const calls = await openMenu();
+  const search = async (text: string) => {
+    const input = popup().querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, text);
+      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await settle();
+  };
+  const checked = () => levels().find((level) => level.checked)?.name;
+  await search("sol high");
+  expect(checked()).toBe("High");
+  const low = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "Low")!;
+  await click(low);
+  expect(checked()).toBe("Low");
+  // Escape clears the search, then closes the menu; the chip opens it again.
+  await press("Escape");
+  await press("Escape");
+  expect(calls.open).toBe(false);
+  await act(async () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await search("sol high");
+  expect(checked()).toBe("High");
 });
 
 test("a re-render never takes the keyboard back from a control outside the menu", async () => {
