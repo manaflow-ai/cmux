@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextAgentPane
 import Foundation
 import Testing
 import WebKit
@@ -68,6 +69,28 @@ struct DebugAgentPaneScriptTests {
             done = true
             continuation?.resume(throwing: error)
             continuation = nil
+        }
+    }
+}
+
+/// `debug.agent_pane {action: "answer_permission"}` answers the ask as the card's Allow once click
+/// does. Since cx-ocdz the relay lets a permission answer through only on a fresh click
+/// (`AgentPaneUserGestures.hasFreshAnswerGesture`), and the verb recorded a typing-class gesture:
+/// every scripted answer came back "Refused by the cmux host" (`transport.gesture_required`), on
+/// this Mac and on a Cloud machine alike (the cloud-ergo-start-chat capture, 2026-11-09).
+@MainActor
+struct DebugAgentPaneAnswerGestureTests {
+    @Test func answerPermissionRecordsTheClickAnAllowNeeds() {
+        let gestures = AgentPaneUserGestures()
+        DebugAgentPane.actAsUser("answer_permission", gestures: gestures)
+        #expect(gestures.hasFreshAnswerGesture, "a scripted Allow once has no click to answer with")
+    }
+
+    @Test func otherChatVerbsStillGiveNoAnswerClick() {
+        for verb in DebugAgentPane.userVerbs where verb != "answer_permission" {
+            let gestures = AgentPaneUserGestures()
+            DebugAgentPane.actAsUser(verb, gestures: gestures)
+            #expect(!gestures.hasFreshAnswerGesture, "\(verb) may answer a permission")
         }
     }
 }

@@ -278,3 +278,33 @@ fn seat_facts_and_invite_answers() {
     assert_eq!(invite_answer(Some("forbidden"), None), InviteAnswer::NotAllowed);
     assert_eq!(invite_answer(Some("signedOut"), None), InviteAnswer::Unreachable);
 }
+
+fn facts(id: &str, name: &str, plan: Option<&str>) -> TeamFacts {
+    TeamFacts { id: id.to_owned(), name: name.to_owned(), plan: plan.map(str::to_owned) }
+}
+
+#[test]
+fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
+    let teams = [
+        facts("t1", "cmux", Some(" Team ")),
+        facts("t2", "leo@example.com's Team", None),
+        facts("t3", "Personal", Some("pro")),
+        facts("t4", "  ", Some("")),
+    ];
+    let rows = team_rows(&teams, Some("t1"));
+    assert_eq!(rows.iter().filter(|row| row.active).count(), 1);
+    assert_eq!(rows[0].title, "cmux");
+    assert_eq!(rows[0].kind, TeamKind::Team);
+    assert_eq!(rows[0].plan.as_deref(), Some("team"));
+    assert_eq!(rows[1].kind, TeamKind::Team);
+    assert_eq!(rows[1].plan, None);
+    assert_eq!(rows[2].kind, TeamKind::Personal);
+    assert_eq!(rows[2].plan.as_deref(), Some("pro"));
+    assert!(!rows[2].active);
+    // A blank name shows the id, and a blank plan is none.
+    assert_eq!(rows[3].title, "t4");
+    assert_eq!(rows[3].plan, None);
+    // An active id no row has checks none.
+    assert!(team_rows(&teams, Some("gone")).iter().all(|row| !row.active));
+    assert!(team_rows(&teams, None).iter().all(|row| !row.active));
+}

@@ -10,6 +10,7 @@ import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 import { installSwipeNavigation } from "../../swipeNavigation/install";
 import { installPageHealth } from "./pageHealth";
+import { installBusyWatchdog } from "./busyWatchdog";
 
 export interface PageError extends Error {
   code: string;
@@ -358,6 +359,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     if (typeof document !== "undefined") installSwipeNavigation(client);
     // App health: the heartbeat, input count and kept scroll and draft (pageHealth.ts).
     if (typeof document !== "undefined") installPageHealth(client);
+    // A main thread busy for 30 s names its scripts in `cmux errors` (busyWatchdog.ts).
+    if (typeof window !== "undefined") installBusyWatchdog(window);
     return client;
   }
   return fallback ? fallback() : null;

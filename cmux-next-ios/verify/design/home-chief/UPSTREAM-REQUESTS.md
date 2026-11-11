@@ -228,6 +228,11 @@ public func focusComposer()
 
 ## U8. Host rows under the header that push the transcript down (new, round 3)
 
+**Status: landed (CMUX-25).** `ConversationViewController.headerAccessoryRoom`
+and `headerMaxY` (the reply thread and a full composer field stop under the row too): Chief's bar sits under the header and the header no
+longer moves, so the back button stays in the top-left corner. The R3-1
+band now covers only the bar's own room.
+
 **Need:** Chief shows a pinned row while it asks a question ("Chief is
 asking · Answer"), as Messages pins a business chat's request or "Report
 Junk" under its navigation bar. Messages' pinned rows push the transcript

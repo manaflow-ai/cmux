@@ -103,8 +103,9 @@ public struct MarkdownBlockView: View {
             if MarkdownInlineMath.contains(text) {
                 WebMarkdownView(markdown: text, style: .body)
             } else {
+                // No `.textSelection`: on iOS it took the long press and selected the whole
+                // paragraph. The enclosing row's context menu offers Select Text (CMUX-33).
                 InlineText(source: text)
-                    .textSelection(.enabled)
             }
         case .list(let list):
             MarkdownListView(list: list)

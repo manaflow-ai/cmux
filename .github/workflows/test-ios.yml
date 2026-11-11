@@ -178,7 +178,9 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1125,42 +1127,37 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           needs = json.loads(os.environ["IOS_NEEDS"])
 
-          # A cancelled job reaches this gate as a `cancelled` result, and the
-          # routing verdict below would report it as though the pull request had
-          # a routing defect. It does not: the run was stopped before it tested
-          # anything. Say that instead, and still fail. This gate is in the
-          # branch protection required list, so reporting success on a cancelled
-          # run would put a green on a required check that no suite stood
-          # behind, and a pull request could merge with the iOS suites never
-          # having run. Rerunning the run clears it.
-          cancelled = sorted(name for name, data in needs.items()
-                             if data["result"] == "cancelled")
-          if cancelled:
-              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
-              print("this run was stopped before it reported an iOS verdict; "
-                    "rerun it, or push again, to get one", file=sys.stderr)
-              sys.exit(1)
-
-          # The routing job must succeed for its should_run/should_lint outputs to
-          # be trustworthy; the suites below run or skip based on those outputs.
-          if needs["detect-ios-changes"]["result"] != "success":
-              print(f"detect-ios-changes: {needs['detect-ios-changes']['result']}", file=sys.stderr)
-              sys.exit(1)
-
-          # A suite that opted out via the routing filter reports "skipped", which
-          # is fine; a suite that actually ran and failed must block the merge.
-          allowed = {"success", "skipped"}
-          bad = {
-              name: data["result"]
-              for name, data in sorted(needs.items())
-              if name != "detect-ios-changes" and data["result"] not in allowed
-          }
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name} did not pass: {result}", file=sys.stderr)
-              sys.exit(1)
+          # A job that judged nothing (cancelled, abandoned, an empty result)
+          # reaches this gate as no verdict: it still ends red, because this gate
+          # is in the branch protection required list and a green with no suite
+          # behind it could merge a pull request whose iOS suites never ran, but
+          # it says "no verdict: ... re-run the run" (exit_with_verdict, from
+          # scripts/ci/needs_verdict.py), never a routing defect or this change's
+          # own red. A real failure still wins.
+          results = {name: data["result"] for name, data in sorted(needs.items())}
+          # One call with every result: the routing job must succeed (its outputs decide which suites run), a suite the
+          # routing filter opted out reports "skipped", and a failure anywhere wins over a routing job that judged nothing.
+          exit_with_verdict(results, "ios-tests", set(results) - {"detect-ios-changes"})
 
           for name, data in sorted(needs.items()):
               print(f"{name}={data['result']}")

@@ -254,10 +254,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "app-ffi-release.yml#build": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
+    "app-ffi-release.yml#build": "apple-app-build",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -294,15 +291,15 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cloud-chat-proof.yml#proof": {"class": "apple-app-build", "picker_followup": "builds and runs the tagged app while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, never a persistent owned Mac; an owned route needs the per-job secret isolation the signing pickers use"},
+    "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
+    "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
     "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-base-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-batch.yml#build": {
       "class": "apple-app-build",
@@ -353,8 +350,7 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-pr-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-shell-integration.yml#zsh-head-watch": {
       "class": "macos-runtime-tests",
@@ -420,10 +416,19 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "ios-internal-nightly.yml#archive": "apple-ios",
+    "ios-review-gate.yml#reviewer-path": {
+      "class": "apple-ios",
+      "picker_followup": "holds the agent pass's Claude token and runs its CLI on the Mac, so it stays on the ephemeral Blacksmith macOS 26 pool; an owned route needs a picker that keeps credentialed jobs off persistent machines"
+    },
+    "ios-review-gate.yml#asc-validate": {
+      "class": "apple-ios",
+      "picker_followup": "writes the App Store Connect key to the runner (release environment), so it stays on the ephemeral Blacksmith macOS 26 pool, as ios-app-store.yml's upload does"
+    },
     "ios-internal-nightly.yml#upload": {
       "class": "apple-ios",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
+    "ios-reliability-matrix.yml#ios": "apple-ios",
     "ios-screenshots.yml#screenshots": "apple-ios",
     "ios-streamed-validate.yml#validate": {
       "class": "apple-ios",

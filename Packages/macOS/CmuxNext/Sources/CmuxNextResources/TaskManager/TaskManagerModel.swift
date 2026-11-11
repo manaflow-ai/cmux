@@ -8,7 +8,7 @@ public import Observation
 /// the previous one finished; stopped, it samples nothing.
 ///
 /// Kill Process goes through `kill`, which the App wires to the
-/// `taskManager.killProcess` action (one path for the row menu, the page's
+/// `taskManager.killProcess` action (one path for the page's row menu and
 /// button, the palette and the CLI).
 ///
 /// ```swift
@@ -24,6 +24,8 @@ public final class TaskManagerModel {
     public private(set) var sampleCount = 0
     /// True while the periodic refresh runs.
     public var isRunning: Bool { running }
+    /// Runs after each sample replaced ``snapshot`` (the page pushes it to its open pages).
+    @ObservationIgnored public var onSnapshot: (@MainActor (TaskManagerSnapshot) -> Void)?
 
     @ObservationIgnored public let interval: Duration
     @ObservationIgnored private weak var source: (any TaskManagerSampleSource)?
@@ -93,6 +95,7 @@ public final class TaskManagerModel {
         previous = set
         sampleCount += 1
         selection.formIntersection(Set(snapshot.rows.map(\.id)))
+        onSnapshot?(snapshot)
     }
 
     /// Kill Process for `key` (asks first through the action).

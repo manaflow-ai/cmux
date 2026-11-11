@@ -101,6 +101,16 @@ nonisolated extension SidebarLayout {
         y += m.groupHeaderHeight + m.rowSpacing
     }
 
+    /// One list's "Workspaces" heading row at `y`, over `section`'s `count` top-level rows.
+    static func appendWorkspacesHeader(section: SectionID, count: Int, metrics m: SidebarLayoutMetrics,
+                                       to rows: inout [SidebarRow], y: inout CGFloat) {
+        rows.append(SidebarRow(
+            key: .listHeader(.workspaces), y: y, height: m.groupHeaderHeight, section: section, group: nil, siblingIndex: 0,
+            parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: count, groupColor: nil
+        ))
+        y += m.groupHeaderHeight + m.rowSpacing
+    }
+
     /// Projects' "Show N more" row (or "Show fewer"), then the "Recents" header and its rows, at `y`.
     static func appendRecents(_ split: RecentsSplit, firstRow: Bool, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                               to rows: inout [SidebarRow], y: inout CGFloat) {

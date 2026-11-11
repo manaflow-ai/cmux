@@ -69,6 +69,11 @@ path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_job_sdkroot.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the SDK step of nightly.yml on a fake macOS 27 host (Command Line Tools 27, Xcode 26.6) and links with each compiling job's environment; run python3 tests/test_nightly_job_sdkroot.py yourself after changing a Select Xcode step or a compiling job in nightly.yml (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_legacy_publish_linux.py"
 lane = "linux-guard"
 
@@ -209,6 +214,10 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_supersede.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_tail_off_push_group.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that a nightly-next loop run keeps the GitHub release and dSYMs and dispatches the rest of the tail (dispatch-published-in, gated on run_tail), whose run reads the record only from the checked source run's artifact; run python3 tests/test_nightly_next_tail_off_push_group.py yourself after changing published-build, dispatch-published-in or nightly_published_build.py (about 1 s, no Mac)."
@@ -275,6 +284,10 @@ path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_runner_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_sign_admit.py"
 lane = "linux-guard"
 
@@ -326,6 +339,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_version.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_sparse.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next builder's checkout step from nightly.yml in a temp workspace that the signer, the deltas jobs or a full actions/checkout left sparse, and needs the whole build tree after it; run python3 tests/test_nightly_warm_checkout_sparse.py yourself after changing that step or a sparse checkout of a job that can share its runner (about 5 s, git only, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_workflow_size.py"

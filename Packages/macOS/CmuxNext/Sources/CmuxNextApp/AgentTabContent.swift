@@ -47,6 +47,7 @@ struct AgentTabContent {
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
             if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: key, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }
+        view.model.shell.machine = { [weak pane] in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal else { return nil }; return pane.services.agentGit.link(for: daemon) } // a Cloud or SSH chat's `!` commands run on its machine
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
@@ -55,10 +56,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let machine = pane.services.agentTabs.remoteMachineID(of: key), let session = pane.services.machines.session(machine) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: key) == machine else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
-        view.model.onOpenSignInOnMachine = { [weak pane] url in
-            guard let pane else { return nil }
-            return ChatMachineSignInTab.opener(for: url, agentTab: key, from: pane)
-        }
+        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost); BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
@@ -82,13 +80,13 @@ struct AgentTabContent {
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.showsLoadingState = false
+        view.standOverPicture()
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.
         paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
         paneView.onLaunchImageCleared = { [weak view] in
-            if let view, view.model.newTab == nil { view.showsLoadingState = true }
+            view?.pictureBelowWent()
         }
         // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
         view.loadingView.whenRevealed { [weak paneView, weak imageView] in
@@ -119,7 +117,7 @@ struct AgentTabContent {
             paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
         }
         let imageView = image == nil ? nil : paneView.launchImageView
-        view.hideMovedPage { [weak paneView, weak imageView] in
+        view.hideMovedPage(overPicture: image != nil) { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")
             if let imageView { paneView?.clearLaunchImage(ifShowing: imageView) }
         }

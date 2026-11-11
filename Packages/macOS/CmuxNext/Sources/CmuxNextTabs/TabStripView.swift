@@ -84,6 +84,15 @@ public final class TabStripView: NSView {
     var leadsWithSelection = false
     /// The flush corner's state reached the window root since it was turned on.
     var reportedCornerFlush = false
+    /// A pane's tab row, the one the flush corner runs into the card; false for the workspace's screen
+    /// bar, which is no pane's top row: it neither reports to the flush chrome nor grows a foot.
+    public let isPaneTabRow: Bool
+    /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
+    /// reports again with the strip's fresh place.
+    var reportedCornerFrame: CGRect?
+    /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
+    /// tab may run into the card; true until the chrome first says otherwise.
+    var runsIntoCard = true
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -246,7 +255,8 @@ public final class TabStripView: NSView {
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none) {
+    public init(model: TabStripModel, background: Background = .none, isPaneTabRow: Bool = true) {
+        self.isPaneTabRow = isPaneTabRow
         self.model = model
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
@@ -412,11 +422,14 @@ public final class TabStripView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         syncShown(false)
+        // The flush corner's tab row draws only while no shown pane hides its strip (vertical tabs hide it).
+        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         syncShown()
+        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
@@ -556,8 +569,8 @@ public final class TabStripView: NSView {
         closingWatch.updateTracking()
     }
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the strip's window.
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement(in: window) }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

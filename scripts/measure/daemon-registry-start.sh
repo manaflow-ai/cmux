@@ -2,7 +2,7 @@
 # Start time of the cmux-tui session daemon on a large registry, before and after an agent-roster
 # reducer version bump (2026-11-09: a 59 GB registry took 26 min to restore after a bump).
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/daemon-registry-start.sh \
-#     --ref SHA --os macos [--arg=size_gb=10] [--arg=bump=1] [--arg=seal=1] [--arg=output_gb=0] \
+#     --ref SHA --os macos [--arg=size_gb=10] [--arg=bump=1] [--arg=seal=1] [--arg=segments=N] [--arg=output_gb=0] \
 #     [--arg=rounds=1] --artifact .build/daemon-registry-start/report.json --timeout 7200
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example, writes a registry of
 # about size_gb (96% personal.session.put rows of ~6 KiB, agent hook events, legacy output, sealed
@@ -30,12 +30,13 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=drs
-size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
+size_gb=2 bump=1 seal=1 segments= output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
     bump=*) bump="${kv#*=}" ;;
     seal=*) seal="${kv#*=}" ;;
+    segments=*) segments="${kv#*=}" ;;
     output_gb=*) output_gb="${kv#*=}" ;;
     rounds=*) rounds="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
@@ -158,6 +159,7 @@ else
   args=(--out "$scratch/state" --session "$session" --session-puts "$puts" --agent-events "$events"
     --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
   [[ "$seal" != 1 ]] || args+=(--seal)
+  [[ -z "$segments" ]] || args+=(--seal-segments "$segments")
   [[ "$bump" != 1 ]] || args+=(--roster-version-bump)
   gen_started=$(date +%s)
   "$synth" "${args[@]}" > "$out/generate.json"

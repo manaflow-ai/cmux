@@ -5331,6 +5331,9 @@ mod idle_template;
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
 
+#[path = "terminal_host_recovery/kept_restore.rs"]
+mod kept_restore;
+
 #[path = "terminal_host_recovery/reconnect_checkpoints.rs"]
 mod reconnect_checkpoints;
 
@@ -5343,6 +5346,9 @@ mod parallel_new_tabs;
 #[path = "terminal_host_recovery/startup_adoption_order.rs"]
 mod startup_adoption_order;
 
+#[path = "terminal_host_recovery/startup_kitty_wave.rs"]
+mod startup_kitty_wave;
+
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
 
@@ -5354,6 +5360,11 @@ mod answers_before_adoption;
 
 #[path = "terminal_host_recovery/adoption_startup_state.rs"]
 mod adoption_startup_state;
+
+/// Needs the debug-build seam that holds each adoption.
+#[cfg(debug_assertions)]
+#[path = "terminal_host_recovery/input_while_adopting.rs"]
+mod input_while_adopting;
 
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]

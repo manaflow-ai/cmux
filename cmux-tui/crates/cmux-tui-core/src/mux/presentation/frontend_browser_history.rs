@@ -106,7 +106,7 @@ impl Mux {
             }
             self.publish_journal_event();
             if let Some(title) = title {
-                self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
+                self.emit(MuxEvent::page_title(surface, Arc::from(title)));
             }
             self.emit_tab_changed(surface);
         }

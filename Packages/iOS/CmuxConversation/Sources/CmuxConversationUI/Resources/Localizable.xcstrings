@@ -1226,6 +1226,23 @@
         }
       }
     },
+    "conversation.audio.holdHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap and hold to record and send audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしたままにすると、オーディオを録音して送信できます"
+          }
+        }
+      }
+    },
     "conversation.audio.keep": {
       "extractionState": "manual",
       "localizations": {

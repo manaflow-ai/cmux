@@ -12,6 +12,10 @@ public enum DaemonVersionDecision: Sendable, Equatable {
     /// keeping its terminal hosts, and a daemon of the bundled build (`bundled`)
     /// adopts them.
     case restart(running: String, bundled: String)
+    /// The same handoff, after the bundled build premigrated the registry beside the running
+    /// daemon (`server premigrate-registry`): the app attaches to the running daemon now, and
+    /// the handoff runs on that connection once the premigration ends, however it ends.
+    case handOffAfterPremigrate(running: String, bundled: String)
 }
 
 /// One launcher's handoff state: the bundled builds it already handed off
@@ -33,6 +37,17 @@ final class DaemonHandoffState: Sendable {
             $0.exiting = pid
             return true
         }
+    }
+
+    /// Claims the one handoff to `bundled` without marking a daemon exiting, so connects go on
+    /// reaching the running daemon until ``exit(pid:)``; false when it was already claimed.
+    func reserve(bundled: String) -> Bool {
+        state.withLock { $0.handedOffTo.insert(bundled).inserted }
+    }
+
+    /// The daemon `pid` is exiting for the handoff ``reserve(bundled:)`` claimed.
+    func exit(pid: Int32) {
+        state.withLock { $0.exiting = pid }
     }
 
     func cancel(pid: Int32) {
@@ -101,7 +116,10 @@ extension DaemonLauncher {
     }
 
     /// After an update the app finds the daemon an older app started: hand
-    /// it off to the bundled build so the update reaches it. Terminals keep
+    /// it off to the bundled build so the update reaches it. A bundled binary first premigrates the
+    /// registry beside the running daemon, in the background: the call returns
+    /// `.handOffAfterPremigrate` at once, the caller attaches to the running daemon, and the
+    /// handoff runs on `connection` once the premigration ends. Terminals keep
     /// running: `shutdown-daemon` without `end_terminals` leaves every
     /// terminal host alive, the connection reconnects through this
     /// launcher's endpoint provider, which waits for the old daemon to exit
@@ -118,10 +136,26 @@ extension DaemonLauncher {
         }
         let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
         guard case .restart(let running, let target) = decision else { return decision }
+        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+        if configuration.binaryIsBundled {
+            // One premigration and one handoff per bundled build (the reservation): a second
+            // launch check while it runs does not start another.
+            guard handoff.reserve(bundled: target) else { return .keep("already handed off to \(target)") }
+            logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); premigrating, then handing off to \(target, privacy: .public)")
+            // task-owner: one per reserved bundled build; the command bounds itself (--max-seconds
+            // default) and ProcessRunner's timeout backs it up
+            Task.detached { [self] in
+                // The bundled build folds what its first start would (a new agent roster version)
+                // while this daemon serves the app.
+                await premigrateRegistry(logger: logger)
+                self.handoff.exit(pid: identity.pid)
+                _ = await requestHandoff(identity: identity, using: connection)
+            }
+            return .handOffAfterPremigrate(running: running, bundled: target)
+        }
         guard handoff.begin(bundled: target, pid: identity.pid) else {
             return .keep("already handed off to \(target)")
         }
-        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
         // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
         let handoff = handoff
@@ -139,6 +173,22 @@ extension DaemonLauncher {
             }
             return decision
         }, accepted: { $0 == decision })
+    }
+
+    /// Thin call site: `server premigrate-registry` of the bundled binary on this launcher's
+    /// session decides what to fold and for how long (cmux-tui `cli/lifecycle.rs`). A failure is
+    /// logged and left to the new daemon's start.
+    private func premigrateRegistry(logger: Logger) async {
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: ["--session", configuration.session, "--json", "server", "premigrate-registry"],
+                // Only a backstop past the command's own bound.
+                environment: await ensureEnvironment(), timeout: .seconds(900), clock: clock)
+            logger.info("registry premigrate exit \(result.status): \(String(decoding: result.stdout, as: UTF8.self), privacy: .public)")
+        } catch {
+            logger.error("registry premigrate failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// The running owner lacks `capability`, which the bundled build serves (an older build, or a

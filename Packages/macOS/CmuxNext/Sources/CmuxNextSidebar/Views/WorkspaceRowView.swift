@@ -84,8 +84,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
     var hiddenWorkspaceName: String?
-    /// An idle workspace nobody named: its name reads in the secondary ink (Leo 2026-10-20: such rows clutter the sidebar).
-    var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
@@ -292,12 +290,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
-        isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement
+            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement(in: window)
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -370,7 +367,7 @@ final class WorkspaceRowView: SidebarRowView {
                                     variant: SidebarWorkspaceTitleMotionVariant,
                                     placeholder: Bool) {
         guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, Motion.sidebar.animatesMovement else { return }
+              variant != .instant, Motion.sidebar.animatesMovement(in: window) else { return }
         let transition: CATransition
         switch variant {
         case .instant: return

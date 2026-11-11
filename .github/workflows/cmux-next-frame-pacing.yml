@@ -107,7 +107,9 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

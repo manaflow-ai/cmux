@@ -6,6 +6,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check-backend-migration-flow.py"
 
@@ -19,7 +26,7 @@ class BackendMigrationFlowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.remote, self.repo = root / "remote.git", root / "work"
-        sh(root, "git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.remote))
+        git_fixture_env.init_repo(self.remote, "--bare", "-b", "feat-cmux-next", cwd=root)
         sh(root, "git", "init", "-q", "-b", "feat-cmux-next", str(self.repo))
         for k, v in (("user.email", "t@example.com"), ("user.name", "t"), ("commit.gpgsign", "false")):
             sh(self.repo, "git", "config", k, v)

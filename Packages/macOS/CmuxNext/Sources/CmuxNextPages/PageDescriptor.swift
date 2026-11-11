@@ -182,6 +182,9 @@ public extension PageDescriptor {
         actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
+            // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
+            // restore makes a machine from an archive (a money op, titled with the machine's name).
+            "cmux.cloud.machine.archive_delete": .delete, "cmux.cloud.snapshot.restore": .custom,
             "cmux.cloud.publication.delete": .delete, "cmux.cloud.firewall.delete": .delete,
             "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
@@ -305,6 +308,15 @@ public extension PageDescriptor {
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
 
+    /// The Feed page (plans/cmux-next/feed-page.md): the app shows only Chief Home's pinned
+    /// Needs you (`#/needs-you`); the Inbox tab (`#/inbox`) and the right sidebar's Feed
+    /// (`#/list`) have no entry point now. Its `cmux.feed.` ops go to the daemon's feed
+    /// client; it opens an item and runs a GitHub action through the host's actions, and Add
+    /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`).
+    static let feed = PageDescriptor(
+        id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed."],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        actions: ["feed.openItem", "feed.githubAction", "openSettings"])
     /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
     /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
     static let stash = PageDescriptor(

@@ -4,7 +4,7 @@
  * connection slots are reserved for roles with the SUPERUSER attribute" means the server is full.
  *
  *   bun db-connections.ts report --url-env CMUX_VM_DATABASE_URL
- *   bun db-connections.ts free   --url-env CMUX_VM_DATABASE_URL [--idle-seconds 120]
+ *   bun db-connections.ts free   --url-env CMUX_VM_DATABASE_URL [--idle-seconds 120] [--wait-seconds 0]
  *
  * report: max_connections, the reserved slots and the timeouts, then the client backends grouped by role,
  * application and state, with the longest idle and the oldest age of each group; a warning at 80 % used.
@@ -14,7 +14,11 @@
  * which Hyperdrive opens again on demand.
  *
  * It connects direct first and, when the server is full, through the branch's PgBouncer (port 6432),
- * which may still hold a free server connection. It prints no URL, password, query text or client address.
+ * which may still hold a free server connection. With --wait-seconds N it tries again every 15 s for up to N s
+ * while the server stays full (the db-connections-staging action waits that way after it restarts the Worker's
+ * Hyperdrive pool: the old pool drained in minutes, not seconds, on 2026-11-09). When no login gets in at all,
+ * restarting that pool is the way to free the slots: a full server reserves the rest for superusers, which
+ * no role of ours is. It prints no URL, password, query text or client address.
  */
 import { appendFileSync } from "node:fs"
 
@@ -36,6 +40,9 @@ const connectOnce = async (url: string): Promise<Client> => {
 }
 
 const code = (e: unknown) => String((e as { code?: unknown } | null)?.code ?? "")
+/** An error's message with any `scheme://user:password@` cut out: a malformed URL's parse error quotes it. */
+export const safeMessage = (e: unknown, max = 160) =>
+  String((e as Error | null)?.message ?? e).replace(/[a-z][a-z0-9+.-]*:\/\/\S*@/gi, "<redacted>@").slice(0, max)
 export const isFull = (e: unknown) => ["53300", "57P03"].includes(code(e))
 
 /** The same URL on PgBouncer's port (PlanetScale runs one next to every primary on 6432). */
@@ -51,8 +58,30 @@ export const connect = async (url: string, open: (url: string) => Promise<Client
     return { client: await open(url), route: "direct" }
   } catch (e) {
     if (!isFull(e)) throw e
-    console.log(`direct connection refused: ${code(e)} (${String((e as Error).message).slice(0, 120)}); trying PgBouncer (6432)`)
+    console.log(`direct connection refused: ${code(e)} (${safeMessage(e, 120)}); trying PgBouncer (6432)`)
     return { client: await open(bouncerUrl(url)), route: "pgbouncer" }
+  }
+}
+
+/** connect, tried again every `everyMs` while the server is full, until `waitMs` of wall time has passed
+ * (the attempts count too: each may wait out its connect timeout). */
+export const connectWaiting = async (
+  url: string,
+  waitMs: number,
+  open?: (url: string) => Promise<Client>,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  everyMs = 15_000,
+  now: () => number = Date.now,
+): Promise<{ client: Client; route: string }> => {
+  const deadline = now() + waitMs
+  for (;;) {
+    try {
+      return await connect(url, open)
+    } catch (e) {
+      if (!isFull(e) || now() + everyMs > deadline) throw e
+      console.log(`still full, ${Math.round((deadline - now()) / 1000)} s left; trying again in ${everyMs / 1000} s`)
+      await sleep(everyMs)
+    }
   }
 }
 
@@ -108,8 +137,9 @@ export const run = async (argv: Array<string>, open?: (url: string) => Promise<C
   const [command] = argv
   const urlEnv = arg(argv, "--url-env")
   const idleSeconds = Number(arg(argv, "--idle-seconds") ?? 120)
-  if ((command !== "report" && command !== "free") || !urlEnv || !Number.isInteger(idleSeconds) || idleSeconds < 30) {
-    console.error("usage: db-connections.ts report|free --url-env NAME [--idle-seconds N>=30]")
+  const waitSeconds = Number(arg(argv, "--wait-seconds") ?? 0)
+  if ((command !== "report" && command !== "free") || !urlEnv || !Number.isInteger(idleSeconds) || idleSeconds < 30 || !Number.isInteger(waitSeconds) || waitSeconds < 0 || waitSeconds > 900) {
+    console.error("usage: db-connections.ts report|free --url-env NAME [--idle-seconds N>=30] [--wait-seconds 0..900]")
     return 2
   }
   const url = process.env[urlEnv]
@@ -120,9 +150,9 @@ export const run = async (argv: Array<string>, open?: (url: string) => Promise<C
   let client: Client
   let route: string
   try {
-    ;({ client, route } = await connect(url, open))
+    ;({ client, route } = await connectWaiting(url, waitSeconds * 1000, open))
   } catch (e) {
-    const line = `cannot read the database's connections: ${code(e) || "error"} (${String((e as Error).message).slice(0, 160)})`
+    const line = `cannot read the database's connections: ${code(e) || "error"} (${safeMessage(e)})`
     console.log(`::warning title=db-connections::${line}`)
     summary([`### Database connections`, "", line])
     return 1

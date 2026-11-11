@@ -50,7 +50,8 @@ export async function untilHostAnswers<T>(attempt: () => Promise<T>, wait: HostW
       if (!sendWaitsForHost(error) || wait.stop?.() || now() + delay > deadline) throw error;
       wait.waiting?.();
       await sleep(delay);
-      if (wait.stop?.()) throw error;
+      // A timer that fired late (a busy or sleeping Mac) never starts a try past the deadline.
+      if (wait.stop?.() || now() > deadline) throw error;
       delay = nextRetryDelay(delay, true);
     }
   }

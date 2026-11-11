@@ -52,9 +52,14 @@ pub enum MuxEvent {
         surface: SurfaceId,
         status: Option<crate::program_status::ShownProgramStatus>,
     },
+    /// What a tab shows of a surface's title changed: its text or its
+    /// activity (plans/cmux-next/main-thread-scheduling.md, D2). A terminal
+    /// spinner frame changes neither and sends nothing. `title` is the raw
+    /// title at that moment, for clients that read only it.
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
+        shown: crate::TabTitle,
     },
     /// The latest agent state for one surface changed.
     AgentChanged {
@@ -127,6 +132,17 @@ pub enum MuxEvent {
     HistoryChanged {
         revision: u64,
         kinds: Vec<String>,
+    },
+    /// The feed client's view changed (`feed-client-v1`, feed_client.rs):
+    /// its revision and the items whose value moved. Readers re-read
+    /// `feed.view.read` (the page: `cmux.feed.view.changed`).
+    FeedViewChanged {
+        revision: u64,
+        changed: Arc<[String]>,
+    },
+    /// The Reports basket changed (`cmux.feed.reports.changed`).
+    FeedReportsChanged {
+        revision: u64,
     },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
@@ -211,6 +227,20 @@ pub enum MuxEvent {
     TasksChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
+}
+
+impl MuxEvent {
+    /// A terminal's new title: the tab shows it without its status glyphs.
+    pub fn terminal_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::terminal(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
+
+    /// A page's new title, shown as is (no glyph split).
+    pub fn page_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::page(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
 }
 
 /// Machine-level model spend for the machine hosting this daemon, as
@@ -299,4 +329,16 @@ pub struct TreeDelta {
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,
+    /// The `origin` and `mutation_id` of the registry event at
+    /// `workspace_revision`, read once when the delta is published (under the
+    /// registry guard), so a subscriber never reads the registry for them.
+    pub mutation: Option<Arc<DeltaMutation>>,
+}
+
+/// Who made a revisioned workspace delta: its registry event's `origin` and
+/// `mutation_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaMutation {
+    pub origin: String,
+    pub mutation_id: String,
 }

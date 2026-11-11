@@ -47,6 +47,13 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.resize", Kind::UserOnly),
     ("cloud.machine.delete", Kind::UserOnly),
     ("cloud.machine.idle_policy.set", Kind::Mutation),
+    // Automatic cleanup (cmux-platform Retention.ts): Keep pins a machine
+    // (no money, nothing lost); archive and delete removes the machine (its
+    // disk stays as an archive snapshot), so a person confirms it; the
+    // retention settings are the team's numbers and the caller's email choice.
+    ("cloud.machine.keep", Kind::Mutation),
+    ("cloud.machine.archive_delete", Kind::UserOnly),
+    ("cloud.retention.set", Kind::Mutation),
     ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
     // A snapshot counts against the plan's saved limit: a money op.
@@ -166,6 +173,8 @@ const REVISION_RESULTS: &[&str] = &[
     "cloud.machine.pause",
     "cloud.machine.resize",
     "cloud.machine.idle_policy.set",
+    "cloud.machine.keep",
+    "cloud.machine.archive_delete",
     "cloud.machine.upgrade",
     "cloud.snapshot.restore",
 ];
@@ -516,7 +525,7 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
-            "plan" | "billing" => plan::run(&mut ctx, name, args),
+            "plan" | "billing" | "retention" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }

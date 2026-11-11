@@ -11,7 +11,8 @@
 //
 // The row rests as one muted line, as ChatGPT's and Codex's queues do: no "Queued / Sends after
 // this turn" header and no number, and the actions show only while the pointer is on the row or
-// focus is in it (keyboard reach), not at rest.
+// focus is in it (keyboard reach, earned by a real Tab: only a key's focus shows them at once,
+// FOCUS-RING, src/ui/focusModality.ts), not at rest.
 //
 // The page is the pane's dev entry (vite.config.acpmux-pane.mjs) with its browser host, talking
 // JSON-RPC over a WebSocket to a stand-in acpmux (agent-pane-queue-steer.test.ts's): a turn still
@@ -19,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -336,7 +338,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 0,
           `${ROW} .acpmux-queued-actions`,
         );
-        await page.locator(ROW).focus();
+        await focusByKey(page, ROW);
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
         await page.close();
       });

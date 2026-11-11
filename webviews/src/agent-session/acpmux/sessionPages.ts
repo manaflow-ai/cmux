@@ -11,6 +11,29 @@ import { translate } from "./i18n";
 export const SESSION_PAGE = 200;
 /** Later pages one list reads at most (a million sessions) before reading the whole list instead. */
 const MAX_PAGES = 5000;
+/** Times a later page that failed for another reason is asked again, from the same cursor, before
+ * the whole list is read instead. */
+const PAGE_RETRIES = 3;
+/** The wait before a failed page is asked again, when acpmux names none. */
+const PAGE_RETRY_MS = 500;
+/** The longest wait a refusal's `retryAfterMs` is followed for. */
+const MAX_PAGE_RETRY_MS = 10_000;
+
+/** acpmux's reply to a list read past its pace (`list.paced`): the page is asked again after its
+ * `retryAfterMs`, from the same cursor, for as long as this list is current. Read whole instead,
+ * every paced page cost the whole list in one reply, itself paced and read again 2 s later: 31 MB
+ * replies about seven times a minute on one Mac (2026-11-11: "im at 100% cpu rn"). */
+function paced(error: unknown): boolean {
+  const data = (error as { data?: { reason?: unknown; retryable?: unknown } } | undefined)?.data;
+  return data?.reason === "list.paced" || data?.retryable === true;
+}
+
+/** How long to wait before asking a page again after `error`: acpmux's `retryAfterMs`, else a moment. */
+function retryWait(error: unknown): number {
+  const data = (error as { data?: { retryAfterMs?: unknown } } | undefined)?.data;
+  const ms = Number(data?.retryAfterMs);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(ms, MAX_PAGE_RETRY_MS) : PAGE_RETRY_MS;
+}
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
@@ -71,12 +94,19 @@ function newestFirst(a: Summary, b: Summary): number {
 
 /**
  * Reads the session list a page at a time. Starting a list again (a reconnect, a lagged watch)
- * or `stop` ends the pages of the one before. Every `session_changed` since the list started is
+ * or `stop` ends the pages of the one before. Every `session_changed` while the list loads is
  * remembered: a page read before it carries the older state, so `settle` lays the changes over
  * the pages, and `rest` never adds a session the pane already holds or one purged meanwhile.
+ * Once the list is whole (`done`) the changes are forgotten and no more are kept: the pane's own
+ * list takes each one from then on. Kept for the client's life instead, every chat ever closed
+ * stayed in `purged` and the newest summary of every chat ever changed in `changed`, one entry
+ * per closed chat for as long as the pane lived (test/state-growth.test.ts, session-churn).
  */
 export class SessionPager<S extends Summary> {
   private run = 0;
+  private loading = false;
+  /** Whole-list reads still out (`settledWhole`): changes are kept until each lands and is settled. */
+  private wholeReads = 0;
   private purged = new Set<string>();
   private changed = new Map<string, S>();
 
@@ -87,6 +117,7 @@ export class SessionPager<S extends Summary> {
     const run = ++this.run;
     this.purged.clear();
     this.changed.clear();
+    this.loading = true;
     const page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
     return run === this.run ? { ...page, run } : undefined;
   }
@@ -97,7 +128,7 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    let page = wholePageOf<S>(await this.request("_acpmux/watch", { enabled: true }));
+    let page = wholePageOf<S>(await this.pacedRequest("_acpmux/watch", { enabled: true }));
     const sessions = page.sessions;
     const seen = new Set<string>();
     for (let next = page.next; next !== undefined; next = page.next) {
@@ -107,23 +138,71 @@ export class SessionPager<S extends Summary> {
           `acpmux gave the page cursor ${JSON.stringify(next)} twice`,
         );
       seen.add(next);
-      page = wholePageOf<S>(await this.request("_acpmux/sessions", { cursor: next }), next);
+      page = wholePageOf<S>(await this.pacedRequest("_acpmux/sessions", { cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);
     }
     // The pages come in an order updates do not change (hash order), not newest first.
     return seen.size > 0 ? sessions.sort(newestFirst) : sessions;
   }
 
+  /** `request`, asked again after acpmux's wait while acpmux paces it (`paced`), so a whole-list
+   *  read resumes from the page it reached instead of starting over. Any other failure throws. */
+  private async pacedRequest(method: string, params: Record<string, unknown>): Promise<any> {
+    for (;;) {
+      try {
+        return await this.request(method, params);
+      } catch (error) {
+        if (!paced(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+      }
+    }
+  }
+
+  /**
+   * The whole list (`whole`) with every change since it was asked laid over it. Changes are kept
+   * while it is out even if a newer list finishes meanwhile (`done`), so a reply that lands after
+   * a chat closed never brings the chat back.
+   */
+  async settledWhole(): Promise<S[]> {
+    this.wholeReads += 1;
+    try {
+      return this.settle(await this.whole());
+    } finally {
+      this.wholeReads -= 1;
+      if (this.wholeReads === 0 && !this.loading) this.forget();
+    }
+  }
+
+  private get tracking(): boolean {
+    return this.loading || this.wholeReads > 0;
+  }
+
+  private forget(): void {
+    this.purged.clear();
+    this.changed.clear();
+  }
+
   /** A `session_changed` seen while the list loads. */
   changedSession(session: S): void {
+    if (!this.tracking) return;
     this.purged.delete(session.sessionId);
     this.changed.set(session.sessionId, session);
   }
 
   /** A `session_changed` purge seen while the list loads. */
   purgedSession(sessionId: string): void {
+    if (!this.tracking) return;
     this.changed.delete(sessionId);
     this.purged.add(sessionId);
+  }
+
+  /** The list `run` started is whole and settled into the pane's: its changes are forgotten. A newer
+   *  list (another `first` meanwhile) keeps its own. */
+  done(run: number | undefined): void {
+    if (run === undefined || run !== this.run) return;
+    this.loading = false;
+    // A whole-list read still out keeps them until it lands (`settledWhole`).
+    if (this.wholeReads === 0) this.forget();
   }
 
   /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */
@@ -134,8 +213,10 @@ export class SessionPager<S extends Summary> {
 
   /**
    * Reads every page after `first`, handing `add` the sessions the pane lacks. Answers false when
-   * a newer list replaced the one `first` started. A page that fails, a cursor that comes back,
-   * or a list past `MAX_PAGES` falls back to the whole list (`whole`); when that fails too, it throws.
+   * a newer list replaced the one `first` started. A paced page is asked again from its cursor
+   * after acpmux's wait until it comes (`paced`); one that fails otherwise, `PAGE_RETRIES` times.
+   * One that still fails, a cursor that comes back, or a list past `MAX_PAGES` falls back to the
+   * whole list (`whole`); when that fails too, it throws.
    */
   async rest(first: SessionPage<S>, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
     const run = first.run;
@@ -150,12 +231,18 @@ export class SessionPager<S extends Summary> {
       if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };
       else {
         seen.add(next);
-        try {
-          page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
-        } catch {
-          if (run !== this.run) return false;
-          page = { sessions: await this.whole() };
+        let read: SessionPage<S> | undefined;
+        for (let tries = 0; read === undefined; tries += 1) {
+          try {
+            read = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
+          } catch (error) {
+            if (run !== this.run) return false;
+            if (!paced(error) && tries >= PAGE_RETRIES) break;
+            await new Promise((resolve) => setTimeout(resolve, retryWait(error)));
+            if (run !== this.run) return false;
+          }
         }
+        page = read ?? { sessions: await this.whole() };
       }
       if (run !== this.run) return false;
       const fresh = page.sessions.filter(
