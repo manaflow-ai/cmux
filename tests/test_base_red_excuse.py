@@ -7481,6 +7481,29 @@ class UnplacedSignature(unittest.TestCase):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
+class StepNamesAreRequired(unittest.TestCase):
+    """step_owners and every reader of it take the workflow's step names as a required keyword (step_names): a call
+    without them raises, never quietly places by the "Run " prefix, and a caller that cannot read the workflow says so
+    with STEP_NAMES_UNKNOWN (#40542's Codex F1 at 221c7e4d: next_batch's expand_job read no workflow)."""
+
+    def test_a_call_without_the_step_names_raises(self):
+        job = {"name": SWIFT, "steps": framed_steps([("Build", "success", 3, 9), ("Unit tests", "failure", 10, 20)])}
+        text = framed_log([("Build", 3, "##[group]Run swift build"), ("Unit tests", 10, "##[group]Run swift test"),
+                           ("Unit tests", 19, NEW_RED), ("Unit tests", 19, EXIT)], SWIFT)
+        for reader in (excuse.step_owners, excuse.placed, excuse.failed_steps_log, excuse.signature,
+                       excuse.step_errors, excuse.step_lines):
+            with self.subTest(reader=reader.__name__):
+                with self.assertRaises(TypeError):
+                    reader(job, text)
+                with self.assertRaises(TypeError):
+                    reader(job, text, step_names=None)
+                reader(job, text, step_names=excuse.STEP_NAMES_UNKNOWN)
+        with self.assertRaises(TypeError):
+            excuse.package_tests(excuse.PACKAGE_JOBS["CmuxMobileKit tests (macOS swift test, iOS simulator)"], job, text)
+        with self.assertRaises(TypeError):
+            excuse.quarantined_only(job, text, {})
+
+
 class NamedRunStepHeader(unittest.TestCase):
     """A step named "Run ..." by its workflow's author is a named step: its header (`Run <its script's first line>`)
     cannot be read off its name, so only its stamp places its header, as for any other named step. Whether a step has

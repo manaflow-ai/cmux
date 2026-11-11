@@ -870,6 +870,68 @@ class BaseReds(unittest.TestCase):
         stack = set(controller.failed_jobs(2, detail=True))
         self.assertTrue(stack - base, f"a new failure read as inherited: head {stack}, base {base}")
 
+    def test_a_step_its_workflow_names_run_something_is_inherited_the_same_on_both_sides(self):
+        """#40542's Codex F1 at 221c7e4d: expand_job read no workflow, so a step its workflow names "Run package
+        tests (...)", whose header is `Run set -euo pipefail`, left both sides' logs unplaced and each red was keyed
+        by its own job: the same failure on the base and the stack counted as new. Each side reads its own job's
+        workflow (base_red_excuse.workflow_step_names, by git), and the same failure gets the same keys."""
+        controller = self.controller()
+        tests_step = "Run package tests (changed suites first, then selected targets)"
+        workflow = ("name: cmux-next\non: push\njobs:\n  swift-test:\n    name: cmux-next swift test\n"
+                    "    runs-on: macos-26\n    steps:\n      - uses: actions/checkout@v6\n"
+                    "      - name: Build package and tests\n        run: swift build\n"
+                    f"      - name: {tests_step}\n        run: |\n          set -euo pipefail\n          swift test\n")
+
+        def at(second: int) -> str:
+            return f"2026-10-19T03:02:{second:02d}Z"
+
+        def job(job_id: int, run_id: int, sha: str) -> dict:
+            names = [("Set up job", "success", 0, 1), ("Run actions/checkout@v6", "success", 3, 4),
+                     ("Build package and tests", "success", 5, 9), (tests_step, "failure", 10, 20),
+                     ("Post Run actions/checkout@v6", "success", 21, 22), ("Complete job", "success", 22, 22)]
+            return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": "cmux-next swift test",
+                    "conclusion": "failure",
+                    "steps": [{"number": n, "name": name, "status": "completed", "conclusion": conclusion,
+                               "started_at": at(start), "completed_at": at(end)}
+                              for n, (name, conclusion, start, end) in enumerate(names, 1)]}
+
+        lines = [("Set up job", 0, "Current runner version: '2.338.2'"),
+                 ("Run actions/checkout@v6", 3, "##[group]Run actions/checkout@v6"),
+                 ("Run actions/checkout@v6", 3, "##[endgroup]"),
+                 ("Build package and tests", 5, "##[group]Run swift build"),
+                 ("Build package and tests", 5, "##[endgroup]"),
+                 (tests_step, 10, "##[group]Run set -euo pipefail"), (tests_step, 10, "##[endgroup]"),
+                 (tests_step, 19, "\u2718 Test alpha() recorded an issue at A.swift:1:2: x"),
+                 (tests_step, 19, "##[error]Process completed with exit code 1."),
+                 ("Post Run actions/checkout@v6", 21, "Post job cleanup.")]
+        base_job, stack_job = job(9, 1, "b" * 40), job(8, 2, "c" * 40)
+        jobs = {1: base_job, 2: stack_job}
+
+        def api(route: str, *args, **kwargs):
+            run = int(route.split("/runs/")[1].split("/")[0].split("?")[0])
+            if "/jobs" in route:
+                return {"jobs": [jobs[run]]}
+            return {"id": run, "path": ".github/workflows/cmux-next.yml"}
+
+        controller.gh.api.side_effect = api
+        read = []
+
+        def git_text(repo, ref, path):
+            read.append((ref, path))
+            return workflow if path == ".github/workflows/cmux-next.yml" else None
+
+        for columns in (False, True):
+            with self.subTest(columns=columns), mock.patch.object(nb.base_red_excuse, "git_text", git_text):
+                text = "\n".join((f"cmux-next swift test\t{step}\t" if columns else "")
+                                  + f"{at(second)[:-1]}.5Z {line}" for step, second, line in lines) + "\n"
+                controller.gh.gh.return_value = log_of(text)
+                base = set(controller.failed_jobs(1, detail=True))
+                stack = set(controller.failed_jobs(2, detail=True))
+                self.assertIn("cmux-next swift test: test alpha()", stack)
+                self.assertEqual(stack - base, set(), f"an inherited failure read as new: {stack - base}")
+        self.assertIn(("b" * 40, ".github/workflows/cmux-next.yml"), read)
+        self.assertIn(("c" * 40, ".github/workflows/cmux-next.yml"), read)
+
     def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
         """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
         controller = self.controller()
