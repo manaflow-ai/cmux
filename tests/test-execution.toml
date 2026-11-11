@@ -117,6 +117,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_left_sidebar.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_right_sidebar_aliases.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]

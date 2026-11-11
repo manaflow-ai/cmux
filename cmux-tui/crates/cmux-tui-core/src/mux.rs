@@ -18,8 +18,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
 pub use terminal_reap::{
-    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
-    validate_terminal_reap_grace,
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -2806,13 +2806,9 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
     terminal_reap_grace_ms: AtomicU64,
-    /// The running unplaced-terminal reaper's event receiver; `Some` while it
-    /// runs (`terminal-reaper-active-v1`).
+    /// The unplaced-terminal reaper's event receiver; `Some` while its thread
+    /// runs, held or released (`terminal-reaper-active-v1`).
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
-    /// The owner will start the unplaced-terminal reaper once its socket is
-    /// bound (`announce_terminal_reaper`); cleared when the reaper stops or
-    /// its start fails.
-    terminal_reaper_announced: AtomicBool,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3235,7 +3231,6 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
-            terminal_reaper_announced: AtomicBool::new(false),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
