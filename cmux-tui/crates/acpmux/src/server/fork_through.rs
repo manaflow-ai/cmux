@@ -111,6 +111,30 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
     let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
+    // A chat on another computer (a peer's, a Cloud machine's) forks there as it is now: the
+    // `session/fork` goes to that machine (`peer_forward.rs`), onto another harness too (a pick
+    // of another harness's model, sent; Leo 2026-11-11: "across any and all conditions of
+    // workspaces/folders/models/provides/harnesses").
+    if live
+        && hub.resolve(key).is_err()
+        && hub.resolve_remote(key).is_some()
+        && params.get("throughSeq").is_none()
+        && params.get("beforePromptId").is_none()
+    {
+        let mut mux = cancel_token(params);
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        for key in ["harness", "model"] {
+            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        mux.insert("startLater".into(), json!(true));
+        return Ok(json!({"sessionId": key, "_meta": {"acpmux": mux}}));
+    }
     let session = hub.resolve(key).map_err(|e| {
         if hub.resolve_remote(key).is_some() {
             RpcError::invalid_params(remote_refusal(live))
@@ -277,19 +301,27 @@ mod tests {
         assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
     }
 
-    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
-    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    /// A `live` fork of a peer's chat (a Cloud machine's too) is that machine's `session/fork`,
+    /// onto another harness when the pick names one (Leo 2026-11-11: "across any and all
+    /// conditions of workspaces/folders/models/provides/harnesses"); a fork through a turn there
+    /// is still refused, saying so.
     #[tokio::test]
-    async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
+    async fn a_peer_chats_live_fork_goes_there_and_a_turn_fork_is_refused() {
         let hub = hub_with_a_peer_chat();
         assert!(
             hub.resolve_remote("hb/peer-chat-1").is_some(),
             "the fixture lists the peer's chat"
         );
-        let live = to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "live": true}))
-            .await
-            .unwrap_err();
-        assert_eq!(live.message, "forking a chat on another computer is not supported yet");
+        let live = to_session_fork(
+            &hub,
+            &json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex", "model": "m"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(live["sessionId"], "hb/peer-chat-1");
+        assert_eq!(live["_meta"]["acpmux"]["harness"], "codex");
+        assert_eq!(live["_meta"]["acpmux"]["model"], "m");
+        assert_eq!(live["_meta"]["acpmux"]["startLater"], true);
         let through =
             to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}))
                 .await
