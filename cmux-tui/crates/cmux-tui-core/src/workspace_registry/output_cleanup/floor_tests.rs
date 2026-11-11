@@ -578,6 +578,12 @@ fn a_swap_at_a_floor_leaves_a_base_of_each_reducer() {
 /// A start whose floor says that the records can go, on a registry whose
 /// saved roster is not this build's own fold (another version). No base can
 /// stand for the records, so the swap deletes nothing.
+///
+/// The fixture holds the floor of the start at the staged floor
+/// (`START_FLOOR_FOR_TEST`), so the check "built above the floor of this
+/// start" passes and the base check of the swap is the only guard here
+/// (red at 58458ce0e84c, before that check). In the product a roster of
+/// another version also gives floor 0, and the first check discards the file.
 #[test]
 fn a_swap_with_no_state_for_a_base_deletes_nothing() {
     let fixture = fixture("no-base", 1_100);

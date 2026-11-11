@@ -57,8 +57,10 @@ impl Mux {
         } else {
             JOURNAL_RETENTION_HISTORY_FOLD_BUDGET
         };
-        // A fold that fails holds the floor where it is; it is not work the
-        // next tick could finish, so the worker may still settle.
+        // A fold that fails counts as done: it is not work the next tick
+        // could finish, so the worker may still settle. The pass goes on, and
+        // the floor cannot move past the fold: it is read below from the
+        // SAVED cursor of the fold, which a fold that failed did not move.
         let folded = crate::history_ops::fold_for_retention(
             self,
             fold_budget,

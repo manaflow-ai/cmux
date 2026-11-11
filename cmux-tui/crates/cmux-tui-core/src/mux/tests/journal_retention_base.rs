@@ -343,11 +343,16 @@ fn start_and_check_the_list(store: &Store, problems: &mut Vec<String>) {
     drop(mux);
 }
 
-/// A build with another version of the agent history fold saved an empty
-/// fold at the head. A saved fold of another version is the start state on a
-/// registry with a floor: the two sessions were gone from the list.
+/// An empty agent history fold of another VERSION, saved at the head. A
+/// saved fold of another version is the start state on a registry with a
+/// floor: the two sessions were gone from the list.
+///
+/// This is the next raise of the fold version, not an older build: the fold
+/// is version 1 in each build since 2026-10-19, and no build writes the
+/// version of this test. A fold of version 1 that an older build saved with
+/// fewer sessions is taken as this build's own fold; no test here covers it.
 #[test]
-fn an_empty_history_fold_of_another_build_does_not_lose_a_session_below_the_floor() {
+fn an_empty_history_fold_of_another_version_does_not_lose_a_session_below_the_floor() {
     let store = store("retention-base-other-fold");
     let mut problems = Vec::new();
     base(&store, AGENT_FOLD_STATE_ID, RESTED_SESSION, &mut problems);
@@ -367,7 +372,7 @@ fn an_empty_history_fold_of_another_build_does_not_lose_a_session_below_the_floo
     start_and_check_the_list(&store, &mut problems);
     assert!(
         problems.is_empty(),
-        "another build's empty agent history loses a session below the retention floor: \
+        "an empty agent history of another version loses a session below the retention floor: \
          {problems:#?}"
     );
 }
