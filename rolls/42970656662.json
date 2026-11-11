@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42970656662",
+  "recorded_at": "2026-11-11T06:18:58Z",
+  "reason": "cmux-tui f150bd859423 changes the image's cmux-tui (pinned 0909c8bd7c02)",
+  "dry_run": false,
+  "cmux_tui": "f150bd8594239792b21252f69b5ca340cec2a48a",
+  "fixes": [
+    {
+      "sha": "f150bd8594239792b21252f69b5ca340cec2a48a",
+      "mergedAt": "2026-11-10T21:59:03-08:00",
+      "subject": "acpmux: a watch match cut at load starts its cursors' match over (#41065)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T06:18:58Z",
+    "snapshot_id": "sh-933c965603d9413dbc1d700903b26f87",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42970656662): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "67ad42ac9af2e47342f936db5dde52dcd156c1c9",
+    "image": "cloud-native-auto-f150bd85-42970656662-1",
+    "revision": "ci-42970656662-1",
+    "at": "2026-11-11T06:18:58Z"
+  },
+  "rolled_back": false
+}
