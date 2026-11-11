@@ -568,14 +568,20 @@ def name(text: str, word: Word) -> str:
     return re.sub(r"[\"'\\]", "", literal(text, word))
 
 
-def unwrap(argv: list[str]) -> list[str] | None:
+def unwrap(argv: list[str], assigned: list | None = None) -> list[str] | None:
     """The command ARGV runs and its arguments, read through NAME=value words, reserved words (!, if, do, ...) and
     the command wrappers in WRAPPERS with their options: `time -p env -i X=1 nice -n 5 mktemp t` runs
     ["mktemp", "t"]. An env -S string is split into words. None when ARGV runs nothing (command -v, an env with no
-    command) or when a wrapper has an option this does not know, so a caller cannot tell what runs."""
-    argv, k = list(argv), 0
+    command) or when a wrapper has an option this does not know, so a caller cannot tell what runs. Each NAME=value
+    word read through goes on ASSIGNED as (its index in ARGV, or that of the env -S string it came from; the word):
+    those before the command, after time, and env's (and exec's, as the knob lint reads it); after another wrapper,
+    NAME=value is the command's name."""
+    argv, k, assigns = list(argv), 0, True
+    origin = list(range(len(argv)))
     while k < len(argv):
-        if argv[k] in KEYWORDS or ASSIGNMENT.match(argv[k]):
+        if argv[k] in KEYWORDS or assigns and ASSIGNMENT.match(argv[k]):
+            if assigned is not None and argv[k] not in KEYWORDS:
+                assigned.append((origin[k], argv[k]))
             k += 1
             continue
         base = argv[k].rsplit("/", 1)[-1]
@@ -586,6 +592,8 @@ def unwrap(argv: list[str]) -> list[str] | None:
         while k < len(argv):
             opt = argv[k]
             if base == "env" and (opt == "-" or ASSIGNMENT.match(opt)):
+                if assigned is not None and opt != "-":
+                    assigned.append((origin[k], opt))
                 k += 1  # env's - (as -i) and its NAME=value words
                 continue
             if not opt.startswith("-") or opt == "-":
@@ -595,13 +603,18 @@ def unwrap(argv: list[str]) -> list[str] | None:
                 break
             if base == "command" and opt in ("-v", "-V"):
                 return None  # it looks the command up and runs nothing
-            if base == "env" and (opt == "--split-string" or opt.startswith(("-S", "--split-string="))):
-                value = opt.split("=", 1)[1] if opt.startswith("--split-string=") else opt[2:] if opt[1] == "S" else ""
+            short_s = base == "env" and not opt.startswith("--") and "S" in opt and all(
+                "-" + c in flags for c in opt[1:opt.index("S")])  # -S, -iS'cmd': flags, then S and its string
+            if base == "env" and (short_s or opt == "--split-string" or opt.startswith("--split-string=")):
+                value = opt.split("=", 1)[1] if opt.startswith("--split-string=") else opt[opt.index("S") + 1:] if (
+                    short_s) else ""
+                at = origin[k - 1]
                 if not value:
                     if k >= len(argv):
                         return None
-                    value, k = argv[k], k + 1
+                    value, at, k = argv[k], origin[k], k + 1
                 argv[k:k] = value.split()
+                origin[k:k] = [at] * len(value.split())
                 continue
             if opt.startswith("--"):
                 key = opt.split("=", 1)[0]
@@ -618,6 +631,7 @@ def unwrap(argv: list[str]) -> list[str] | None:
                     break
                 if "-" + opt[j] not in flags:
                     return None
+        assigns = base in ("time", "env", "exec")  # env reads NAME=value after --, too
         k += operands
     return None
 
