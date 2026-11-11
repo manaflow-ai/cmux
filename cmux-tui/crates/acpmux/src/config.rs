@@ -2105,4 +2105,6 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
 }
 
 #[cfg(test)]
+mod save_merge_tests;
+#[cfg(test)]
 mod tests;
