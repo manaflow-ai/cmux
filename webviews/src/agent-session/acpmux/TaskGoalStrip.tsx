@@ -137,7 +137,6 @@ function GoalStrip({
   const [cut, setCut] = useState(false);
   const bodyId = useId();
   const clip = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const trail = useRef<HTMLSpanElement>(null);
@@ -177,44 +176,30 @@ function GoalStrip({
     }
   };
   // perf-hot: 16ms goal-hat-toggle
-  // The fold's one height transition, set in the frame the click commits. From whatever height it
-  // has now (a fold in flight included) to the new one: CSS turns a running transition around from
-  // its current value, so a click mid-way reverses at once and nothing queues. Open, it ends on
-  // `auto`, so the text rewraps with the pane and no observer is needed.
+  // The fold is CSS (TaskGoalStrip.css `.acpmux-goal-clip`): its one grid row moves between 0fr and
+  // 1fr on the open and close curves, so a click mid-way turns it around from where it is drawn and
+  // nothing queues, and open it follows the text as the pane rewraps it or the field grows. No script
+  // measures it (it read the box, its text and forced a reflow on every click; Leo, 2026-11-11: "the
+  // composer hat the way it switches between text is ugly bc it's too slow on the transitions"). This
+  // only clamps the objective back to one cut line once the fold has closed over it.
   useLayoutEffect(() => {
     const box = clip.current;
-    const inner = content.current;
-    if (!box || !inner) return;
-    // Folded, the box is one line of the objective's type (its CSS height, which `""` restores).
-    const view = box.ownerDocument.defaultView;
-    const line = Number.parseFloat(view?.getComputedStyle(text.current ?? box).lineHeight ?? "") || 0;
-    const target = shown ? inner.scrollHeight : line;
-    const from = box.getBoundingClientRect().height;
-    // No motion (the gate, Reduce Motion, a page away, or a 0 ms token): the end state at once.
+    if (!box || shown || clamped) return;
+    // No motion (the gate, Reduce Motion, a page away, or a 0 ms token): at once. A style read.
     const still =
       !motionAllowed(box) ||
       (cssTimeMs(box.ownerDocument.defaultView?.getComputedStyle(box).transitionDuration ?? "0s") ?? 0) === 0;
-    if (still || Math.abs(from - target) < 0.5) {
-      box.style.height = shown ? "auto" : "";
-      if (!shown) setClamped(true);
+    if (still) {
+      setClamped(true);
       return;
     }
-    // A box at `auto` (opened and settled) has no length to move from: pin it first.
-    if (box.style.height === "auto" || box.style.height === "") {
-      box.style.height = `${from}px`;
-      void box.offsetHeight;
-    }
-    box.style.height = `${target}px`;
-    // Ends this fold. A click mid-way cancels the transition it replaces, and that cancel reaches
-    // the new fold's listener after the old one is gone: a cancel settles only when no transition
-    // runs any more (the host turned motion off), never on a reversal (review of cmux#39151, F1).
+    // A click mid-way that opens it again removes these first. A cancel settles only when no
+    // transition runs any more (the host turned motion off), never on a reversal (review of
+    // cmux#39151, F1).
     const settle = (event: TransitionEvent) => {
-      if (event.target !== box || event.propertyName !== "height") return;
+      if (event.target !== box || event.propertyName !== "grid-template-rows") return;
       if (event.type === "transitioncancel" && box.getAnimations().length > 0) return;
-      box.removeEventListener("transitionend", settle);
-      box.removeEventListener("transitioncancel", settle);
-      box.style.height = shown ? "auto" : "";
-      if (!shown) setClamped(true);
+      setClamped(true);
     };
     box.addEventListener("transitionend", settle);
     box.addEventListener("transitioncancel", settle);
@@ -222,10 +207,10 @@ function GoalStrip({
       box.removeEventListener("transitionend", settle);
       box.removeEventListener("transitioncancel", settle);
     };
-  }, [shown]);
-  // The time and chevron's width, which the objective's first line leaves free; GoalTime keeps it
-  // as its own text changes.
-  useLayoutEffect(() => keepTrailWidth(trail.current));
+  }, [shown, clamped]);
+  // The time and chevron's width, which the objective's first line leaves free, as the trail's own
+  // observer reports it after layout (a unit added to the time widens it): never read in a render.
+  useLayoutEffect(() => keepTrailWidth(trail.current), []);
   // Open, the text takes the pointer so the wheel scrolls a long goal (review of cmux#39151, F1). A
   // click on it (not a selection, not on a button or the field) still folds it, as the line's button
   // does; keyboard users fold with that button or Escape. Removed with the open state.
@@ -248,23 +233,18 @@ function GoalStrip({
     node.focus();
     node.setSelectionRange(node.value.length, node.value.length);
   }, [editing]);
-  // Typing in the field grows the open card with it, on the same transition.
-  useLayoutEffect(() => {
-    const box = clip.current;
-    const inner = content.current;
-    if (!editing || !box || !inner || box.style.height === "auto") return;
-    box.style.height = `${inner.scrollHeight}px`;
-  }, [draft, editing]);
-  // A cut objective is what the hover card is for: measured after layout, when the text changes, and
-  // while folded whenever the line's width does (a pane narrowed or widened; review of cmux#39151, F2).
-  // The observer goes with the folded state or the row.
+  // A cut objective is what the hover card is for: measured by the line's observer after layout (its
+  // first report, then whenever the line's width changes: a pane narrowed or widened; review of
+  // cmux#39151, F2), when the text changes and while folded. The observer goes with the folded state
+  // or the row.
   useLayoutEffect(() => {
     const node = text.current;
     if (!node) return;
-    const measure = () => setCut(clamped && !shown && node.scrollWidth > node.clientWidth + 0.5);
-    measure();
-    if (!clamped || shown || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    if (!clamped || shown || typeof ResizeObserver === "undefined") {
+      setCut(false);
+      return;
+    }
+    const observer = new ResizeObserver(() => setCut(node.scrollWidth > node.clientWidth + 0.5));
     observer.observe(node);
     return () => observer.disconnect();
   }, [goal.objective, clamped, shown]);
@@ -326,7 +306,7 @@ function GoalStrip({
       </span>
       <span className="acpmux-goal-state">{status}</span>
       <div className="acpmux-goal-clip" ref={clip}>
-        <div className="acpmux-goal-content" ref={content} id={bodyId}>
+        <div className="acpmux-goal-content" id={bodyId}>
           {/* Holds the first line's end for the time and buttons; the lines under it run full width. */}
           <span className="acpmux-goal-spacer" aria-hidden="true" />
           {objective}
@@ -444,20 +424,27 @@ function GoalStrip({
   );
 }
 
-/** Writes the trail's width (the time and chevron) on its row as `--acpmux-goal-trail`, only when it
- *  changed: the objective's first line stops short of it. */
+/** Writes the trail's width (the time and chevron) on its row as `--acpmux-goal-trail` whenever its
+ *  observer reports a change (after layout, before paint; no read of the page): the objective's first
+ *  line stops short of it. Returns the cleanup. */
 function keepTrailWidth(trail: HTMLElement | null | undefined) {
   const row = trail?.parentElement;
-  if (!trail || !row) return;
-  const width = `${trail.offsetWidth}px`;
-  if (row.style.getPropertyValue("--acpmux-goal-trail") !== width) row.style.setProperty("--acpmux-goal-trail", width);
+  if (!trail || !row || typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver((entries) => {
+    const size = entries.at(-1)?.borderBoxSize?.[0];
+    if (!size) return;
+    const width = `${size.inlineSize}px`;
+    if (row.style.getPropertyValue("--acpmux-goal-trail") !== width)
+      row.style.setProperty("--acpmux-goal-trail", width);
+  });
+  observer.observe(trail);
+  return () => observer.disconnect();
 }
 
 /** The goal's elapsed time, a leaf of its own: the page clock's tick re-renders only this text, never
  *  the row, the hat or the composer around it. A `Clock` like the running lines' times, so its width
  *  changes only when a unit is added. */
 function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
-  const node = useRef<HTMLTimeElement>(null);
   const current = useNow(live);
   const start = goal.startedAt;
   const elapsed =
@@ -467,9 +454,8 @@ function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
         ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
         : undefined;
   const text = elapsed === undefined ? undefined : formatDuration(elapsed);
-  useLayoutEffect(() => keepTrailWidth(node.current?.parentElement), [text]);
   return text === undefined ? null : (
-    <time ref={node} className="acpmux-goal-time">
+    <time className="acpmux-goal-time">
       <ClockText text={text} />
     </time>
   );

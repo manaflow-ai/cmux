@@ -199,10 +199,6 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 5,
     what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",
   },
-  "src/agent-session/acpmux/composer/fieldGrowth.ts": {
-    count: 2,
-    what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
-  },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
     what: "a chat switch: the transcript's rows, the title and Session Info move in (an opt-in experiment)",

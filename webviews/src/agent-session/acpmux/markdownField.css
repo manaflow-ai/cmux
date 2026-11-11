@@ -35,6 +35,28 @@
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
 }
+/* The field's height moving to its text's (composer/fieldGrowth.ts): a CSS transition, set only while
+   the field moves (the script gives the field the height it drew, then the end; the attribute names
+   the composer-field-growth arm). The one spring on its step: it travels fast and is at its end by
+   about 130 ms, never past it (Leo, 2026-11-11, on the composer going up: too slow). An engine with
+   no `linear()` easing (WebKit before Safari 17.2) takes the send curve on the move step. The motion
+   gate's zero tokens and Reduce Motion make it no motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-md-field[data-field-growth] {
+    transition: height var(--agent-motion-move) var(--agent-ease-send);
+  }
+  @supports (transition-timing-function: linear(0, 1)) {
+    .acpmux-md-field[data-field-growth="spring"] {
+      transition: height var(--agent-motion-calm) var(--cmux-ease-spring, var(--agent-ease-send));
+    }
+  }
+  .acpmux-md-field[data-field-growth="soft"] {
+    transition-duration: var(--agent-motion-calm);
+  }
+  .acpmux-md-field[data-field-growth="ease"] {
+    transition-timing-function: var(--agent-ease-out);
+  }
+}
 .acpmux-md-field[data-fade-top] {
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);
 }
