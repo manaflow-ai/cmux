@@ -18,7 +18,7 @@ import { poolsMachineTime, teamCapApplies } from "../billing-catalog.ts"
 import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
 import { Effect, Result } from "effect"
-import { allowedModels, validateChat } from "./chat-request.ts"
+import { allowedModels, omittedImagePlaceholder, validateChat } from "./chat-request.ts"
 
 const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
@@ -190,7 +190,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const checked = await Effect.runPromise(Effect.result(validateChat(env, body)))
   if (Result.isFailure(checked)) return err(checked.failure.status, checked.failure.code, checked.failure.message)
-  const { model, images } = checked.success
+  const { model, images, omittedImages, messages } = checked.success
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"
@@ -203,8 +203,10 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
-  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling.
-  const promptBound = promptBytes + images * (model.vision?.tokensPerImage ?? 0)
+  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling. An
+  // omitted image's placeholder may be longer than its part was (a short https URL): count it too.
+  const placeholderBytes = omittedImages * omittedImagePlaceholder(model.vision?.maxImages ?? 0).length
+  const promptBound = promptBytes + placeholderBytes + images * (model.vision?.tokensPerImage ?? 0)
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 
@@ -250,6 +252,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
+  upstreamBody.messages = messages
   upstreamBody.max_tokens = maxTokens
   if (body.stream === true) upstreamBody.stream_options = { include_usage: true }
 
@@ -289,7 +292,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
         log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: r.status, attempt, input: r.usage?.input ?? null, output: r.usage?.output ?? null, usd, priced_by: r.usage?.costUsd !== undefined ? "provider" : r.usage ? "card" : "reservation", ttfb_ms: r.ttfbMs, stream: body.stream === true })
       }
     })
-    if (outcome.kind === "response") return outcome.response
+    if (outcome.kind === "response") return withOmittedImages(outcome.response, omittedImages)
     if (outcome.kind === "charged") {
       // The provider may have billed (a timeout or a broken body after the request was sent): the
       // full reservation is spent and there is no fallback, so a client cannot repeat it for free.
@@ -312,6 +315,17 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
   await settleMember(null)
   return last ?? err(503, "provider.unavailable", "no provider can serve this model now")
+}
+
+/** Names the answer's count of older images left out to fit the model's per-request limit. */
+export const IMAGES_OMITTED_HEADER = "x-cmux-images-omitted"
+
+/** `response` with `IMAGES_OMITTED_HEADER` when images were left out, so the cut is never silent. */
+const withOmittedImages = (response: Response, omitted: number): Response => {
+  if (omitted === 0) return response
+  const headers = new Headers(response.headers)
+  headers.set(IMAGES_OMITTED_HEADER, String(omitted))
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
 const log = (env: Env, fields: Record<string, unknown>) => console.log(JSON.stringify({ msg: "inference.request", environment: env.ENVIRONMENT, ...fields }))

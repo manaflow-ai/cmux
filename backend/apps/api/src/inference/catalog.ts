@@ -54,10 +54,13 @@ export interface ModelEntry {
    */
   readonly freeProviders?: ReadonlyArray<ProviderId>
   /**
-   * Image input (OpenAI `image_url` parts). Set: the most images one request may carry and the
-   * token ceiling we bill each one at before usage is known. Unset: text only.
+   * Image input (OpenAI `image_url` parts). Set: the token ceiling we bill each image at before
+   * usage is known, and `maxImages`, the most images one request may carry at every route of the
+   * model (the lowest published provider limit; unset when no route has a count limit). Unset:
+   * text only. Past `maxImages`, chat-request.ts sends the newest images and a placeholder for each
+   * older one; it never refuses a chat for its history.
    */
-  readonly vision?: { readonly maxImages: number; readonly tokensPerImage: number }
+  readonly vision?: { readonly maxImages?: number; readonly tokensPerImage: number }
 }
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
@@ -73,7 +76,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
-    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    // DeepSeek's own API takes 600 images per request (api-docs.deepseek.com vision guide, 2026-11);
+    // Azure AI Foundry, the last fallback, enforces 50 on its vision models: the lowest route wins.
+    vision: { maxImages: 50, tokensPerImage: 4_096 },
     routes: [
       { provider: "vercel", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.075, output: 0.3 } },
       { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.15, output: 0.6 } },
@@ -96,7 +101,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 131_072,
     defaultMaxTokens: 16_384,
     tools: true,
-    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    // Particle has no image-count limit, only bytes (16 MiB per image, 100 MiB in all;
+    // docs.particle.ai/models, 2026-11): the 8 MiB request body is below both.
+    vision: { tokensPerImage: 4_096 },
     routes: [{ provider: "particle", id: "particle-ai/particle-1", list: { input: 0.25, output: 1 } }]
   },
   {
@@ -109,7 +116,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 128_000,
     defaultMaxTokens: 16_384,
     tools: true,
-    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    // OpenAI takes 1,500 images per request now and documented 500 before (images-vision guide,
+    // 2026-11); Vercel AI Gateway passes to OpenAI: 500 holds at both routes.
+    vision: { maxImages: 500, tokensPerImage: 4_096 },
     routes: [
       { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
       { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }

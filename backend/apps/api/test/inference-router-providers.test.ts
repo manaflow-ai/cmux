@@ -72,6 +72,9 @@ const historyWithImages = (count: number) => [
   { role: "user", content: "Which of them was red?" }
 ]
 
+/** `count` image parts of one tiny PNG. */
+const imageParts = (count: number) => Array.from({ length: count }, () => ({ type: "image_url", image_url: { url: RED_PNG } }))
+
 /** The image parts of the messages a provider was sent. */
 const imagePartsOf = (messages: unknown) => (JSON.stringify(messages).match(/"type":"image_url"/g) ?? []).length
 
@@ -220,12 +223,12 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
   it("sends the newest images up to the limit and a placeholder for each older one", async () => {
     const { t } = await paidPerson("router-vision-history-cut")
     const seen = record(() => ok())
-    const r = await call(t, allKeys(), "particle-ai/particle-1", historyWithImages(9))
+    const r = await call(t, allKeys(), DS, historyWithImages(51))
     expect(r.status).toBe(200)
     const sent = seen[0]!.body.messages as Array<{ content: unknown }>
-    expect(imagePartsOf(sent)).toBe(8)
+    expect(imagePartsOf(sent)).toBe(50)
     // The oldest image is the one left out; the model reads why.
-    expect(JSON.stringify(sent[0]!.content)).toContain("[earlier image not sent: limit 8 per request]")
+    expect(JSON.stringify(sent[0]!.content)).toContain("[earlier image not sent: limit 50 per request]")
     expect(JSON.stringify(sent[0]!.content)).not.toContain("image_url")
     expect(JSON.stringify(sent[2]!.content)).toContain("image_url")
     expect(r.headers.get("x-cmux-images-omitted")).toBe("1")
@@ -234,11 +237,20 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
   it("refuses only a new message that alone carries more images than the limit", async () => {
     const { t } = await paidPerson("router-vision-new-message")
     const seen = record(() => ok())
-    const images = Array.from({ length: 9 }, () => ({ type: "image_url", image_url: { url: RED_PNG } }))
-    const r = await call(t, allKeys(), "particle-ai/particle-1", [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...images] }])
+    const r = await call(t, allKeys(), DS, [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(51)] }])
     expect(r.status).toBe(400)
-    expect(JSON.parse(r.text).error.message).toContain("at most 8 images in one message")
+    expect(JSON.parse(r.text).error.message).toContain("at most 50 images in one message")
     expect(seen).toEqual([])
+  })
+
+  it("sends every image to a model whose provider has no image-count limit", async () => {
+    // Particle limits image bytes only (16 MiB each, 100 MiB in all), never their count.
+    const { t } = await paidPerson("router-vision-no-count-limit")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys(), "particle-ai/particle-1", [{ role: "user", content: [{ type: "text", text: "All of these?" }, ...imageParts(9)] }])
+    expect(r.status).toBe(200)
+    expect(imagePartsOf(seen[0]!.body.messages)).toBe(9)
+    expect(r.headers.get("x-cmux-images-omitted")).toBeNull()
   })
 
   // Near the end: a failed Vercel attempt puts Vercel in the spend guard's cooldown for the next tests.
