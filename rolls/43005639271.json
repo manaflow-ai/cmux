@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43005639271",
+  "recorded_at": "2026-11-11T10:47:41Z",
+  "reason": "cmux-tui 027024479e86 changes the image's cmux-tui (pinned 83cfd4d7e998)",
+  "dry_run": false,
+  "cmux_tui": "027024479e86380c57a99b3c545bb29095503415",
+  "fixes": [
+    {
+      "sha": "86803b3d1a6c8ced19d142aefc9e23f6c298ef24",
+      "mergedAt": "2026-11-11T02:27:42-08:00",
+      "subject": "Vim keys in pages: scroll titles go in the ActionCatalog table of strings.json"
+    },
+    {
+      "sha": "0f843397198c63ec625b32fc49f42a23093611dd",
+      "mergedAt": "2026-11-11T02:27:42-08:00",
+      "subject": "Vim keys in pages: failing tests for gg, WebKit key reports and browser.vimKeys"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T10:47:41Z",
+    "snapshot_id": "sh-6ac5a1877e8b41b4b9fe4ce6dfe5c23d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43005639271): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e4d7ed4bc7db08947ec76e506ffa2fec3a273bcd",
+    "image": "cloud-native-auto-02702447-43005639271-1",
+    "revision": "ci-43005639271-1",
+    "at": "2026-11-11T10:47:41Z"
+  },
+  "rolled_back": false
+}
