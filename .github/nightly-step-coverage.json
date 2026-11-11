@@ -3,7 +3,6 @@
   "workflows": {
     "nightly.yml": {
       "runner-preflight": {
-        "Check out the preflight": {"plumbing": true},
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
