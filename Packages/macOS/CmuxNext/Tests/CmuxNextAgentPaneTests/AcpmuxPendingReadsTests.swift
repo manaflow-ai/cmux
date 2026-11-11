@@ -232,4 +232,65 @@ struct AcpmuxPendingReadsTests {
         #expect(asked == 1, "\(asked) info reads of one silent session after 100 recoveries")
         #expect(outstanding <= 1, "\(outstanding) info reads of one silent session still wait")
     }
+
+    /// An acpmux that lists two peers' sessions with the same raw `sessionId`, each with its own
+    /// prompt. Its `_acpmux/info` answers a qualified id (`peer/id`) with that peer's prompt; the
+    /// raw id names two sessions, which acpmux refuses (`session_ambiguous`): no answer.
+    final class SharedIdLine: AgentDialogLine {
+        var isPerson = true
+        var capabilities: Set<String> = [AcpmuxSessionListGate.pendingCapability]
+        private(set) var asked: [String] = []
+
+        static let rows: [[String: Any]] = [
+            ["sessionId": "acp_shared", "qualifiedSessionId": "peer-a/acp_shared", "peer": "peer-a", "pendingPermissions": 1],
+            ["sessionId": "acp_shared", "qualifiedSessionId": "peer-b/acp_shared", "peer": "peer-b", "pendingPermissions": 1],
+        ]
+
+        func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+            switch method {
+            case "_acpmux/sessions":
+                return ["sessions": Self.rows]
+            case "_acpmux/info":
+                let key = params["sessionId"] as? String ?? ""
+                asked.append(key)
+                return info(key)
+            default:
+                return nil
+            }
+        }
+
+        func info(_ key: String) -> [String: Any]? {
+            let parts = key.split(separator: "/").map(String.init)
+            guard parts.count == 2, parts[1] == "acp_shared" else { return nil }
+            let peer = parts[0]
+            return ["pending": [["permissionId": "perm-\(peer)", "request": ["toolCall": ["title": "Run make on \(peer)"]]]]]
+        }
+
+        func close() {}
+    }
+
+    /// Two peers' sessions that share a raw `sessionId` are two sessions: each is read by its
+    /// qualified id, on its own read (one never joins the other's), and each prompt comes back
+    /// under its own session. Keyed by the raw id, the second joined the first's read, the read
+    /// asked for a raw id acpmux cannot place, and a prompt could be posted under the other peer.
+    @Test func twoPeersSharingARawSessionIdEachGetTheirOwnAnswer() async {
+        let line = SharedIdLine()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .seconds(10))
+        let posts = Posts()
+        await reads.forEachPrompt(SharedIdLine.rows, read: { await line.call("_acpmux/info", ["sessionId": $0]) }) { session, permission, _ in
+            posts.add("\(session) \(permission)")
+        }
+        let posted = posts.all
+        #expect(line.asked.sorted() == ["peer-a/acp_shared", "peer-b/acp_shared"], "info reads: \(line.asked)")
+        #expect(posted.sorted() == ["peer-a/acp_shared perm-peer-a", "peer-b/acp_shared perm-peer-b"], "posted: \(posted)")
+    }
+
+    /// The dialog desk's list reads the same way: each prompt names the session it came from.
+    @Test func theDialogListNamesEachSharedIdPromptsOwnSession() async {
+        let line = SharedIdLine()
+        let prompts = await line.pendingPrompts()
+        #expect(line.asked.sorted() == ["peer-a/acp_shared", "peer-b/acp_shared"], "info reads: \(line.asked)")
+        let found = prompts.map { "\($0.session) \($0.permission)" }.sorted()
+        #expect(found == ["peer-a/acp_shared perm-peer-a", "peer-b/acp_shared perm-peer-b"], "prompts: \(found)")
+    }
 }
