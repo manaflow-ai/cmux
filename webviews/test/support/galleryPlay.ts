@@ -33,3 +33,20 @@ export function playFailures(report: string | undefined): string[] {
         .map((problem) => `${step.step}: ${problem}${problem.startsWith("layout shift ") ? shifted(step.shifts) : ""}`),
     );
 }
+
+/**
+ * One workflow notice line that names everything the stage graded, the runner's timing too, or
+ * undefined when the play passed. A test prints it and the runner keeps a passing file's notices
+ * (scripts/ci/run-webviews-tests.sh), so a green run on a slow runner still says which step it was:
+ * `::notice title=<name> play::status fail; step 1 of 2, click button "Stop": 1 frame(s) over 33 ms (longest 63.8 ms)`.
+ */
+export function playNotice(name: string, report: string | undefined): string | undefined {
+  const play = JSON.parse(report ?? "{}") as PlayReport;
+  if (play.status === "pass") return undefined;
+  const steps = play.steps ?? [];
+  const problems = steps.flatMap((step, index) =>
+    step.problems.map((problem) => `step ${index + 1} of ${steps.length}, ${step.step}: ${problem}`),
+  );
+  const said = [play.error, ...problems].filter(Boolean).join("; ") || `no problem named: ${report}`;
+  return `::notice title=${name} play::status ${play.status ?? "none"}; ${said.replace(/\s+/g, " ")}`;
+}
