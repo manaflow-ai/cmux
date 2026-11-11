@@ -1,0 +1,87 @@
+{
+  "title": "A closed chat's transcript stays in the Home disk cache and draws at once after a relaunch, while its read is still held (ui-state-fixes M2)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The native Home fixture with its client cache in a fresh folder: the Chief's chat loads",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "cache": "reset"
+        }
+      },
+      "wait": 4,
+      "record": true
+    },
+    {
+      "title": "The Chief's chat drawn",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Switch to the team chat: the Chief's chat closes (a kept, closed transcript)",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "team"
+        }
+      },
+      "wait": 3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Write the client cache to disk",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "flush"
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Quit the app (keeping sessions) and open it again",
+      "reopen": "quit",
+      "recordLaunch": 6,
+      "wait": 2
+    },
+    {
+      "title": "After the relaunch: the fixture over the same cache folder, every transcript read held (the owner never answers)",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "cache": "keep",
+          "transcript": "loading"
+        }
+      },
+      "wait": 1.5,
+      "record": true
+    },
+    {
+      "title": "The closed Chief chat draws from the disk cache: first page loaded, items drawn, its read still held",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 public import CmuxNextControl
 #if DEBUG
 import CmuxNextDevices
-import CryptoKit
 import CmuxNextSettings
 import Foundation
 
@@ -32,8 +31,8 @@ import Foundation
 /// - `relay_delete` {id}; `relay_check` {id}.
 /// - `refresh`: devices, permissions, relays and the audit log again.
 /// - `audit` {limit?}: the newest entries as History shows them.
-/// - `capture_devices` {state: loading | failed}: Your Devices on the home page reads a hub that is
-///   not started, or whose start failed (captures only).
+/// - `capture_devices` {state}: Your Devices on the home page reads a capture hub
+///   (``MacScreenHubCapture``; captures only).
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
                                 openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
@@ -137,19 +136,21 @@ extension MacScreenPages {
         }
     }
 
-    /// `capture_devices` {state: loading | failed} (captures of ui-state-fixes M5): the home page's
-    /// Your Devices reads a hub of its own that is not started (`idle`: "Loading your devices…") or
-    /// whose start failed (no account: "Couldn't reach the device hub…" with Try Again). Only the
-    /// page's box takes it, never ``hub``: no session, push or approval follows it. A software key
-    /// and an unreachable address: nothing leaves this Mac.
+    /// `capture_devices` {state} (captures of ui-state-fixes M5): the home page's Your Devices reads
+    /// a capture hub of its own (``MacScreenHubCapture``): `loading`, `failed`, `failed_then_hang`,
+    /// `timeout` and `empty` make one; `deliver`, `retry` and `geometry` act on the shown one. Only
+    /// the page's box takes it, never ``hub``: no session, push or approval follows it, and its HTTP
+    /// calls are answered in this process.
     private func captureDevices(_ state: String?) async -> JSONValue {
-        guard state == "loading" || state == "failed" else { return ["error": "state: loading or failed"] }
-        guard let unreachable = URL(string: "http://127.0.0.1:9") else { return ["error": "no address"] }
-        let identity = DeviceIdentity(deviceID: UUID(), keys: CaptureDeviceKeys())
-        let client = DeviceHubClient(baseURL: unreachable, identity: identity,
-                                     tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })
-        let captured = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Capture")
-        if state == "failed" { await captured.start() }
+        switch state {
+        case "deliver": return MacScreenHubCapture.deliver(hubBox.hub)
+        case "retry": return MacScreenHubCapture.clickRetry()
+        case "geometry": return MacScreenHubCapture.geometry()
+        default: break
+        }
+        guard let state, let captured = await MacScreenHubCapture.make(state) else {
+            return ["error": "state: loading, failed, failed_then_hang, timeout, empty, deliver, retry or geometry"]
+        }
         hubBox.hub = captured
         return ["status": .string("\(captured.status)"), "listed": .bool(captured.devicesListed)]
     }
@@ -214,20 +215,6 @@ extension MacScreenPages {
             "last_error": hub.lastError.map { .string($0.description) } ?? .null,
             "tabs": .array(tabsRows),
         ]
-    }
-}
-/// Software P-256 keys for ``MacScreenPages/captureDevices(_:)``'s hub, which never registers.
-nonisolated private struct CaptureDeviceKeys: DeviceKeyMaterial {
-    let signing = P256.Signing.PrivateKey()
-    let agreement = P256.KeyAgreement.PrivateKey()
-
-    var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
-    var agreementPublicKey: P256.KeyAgreement.PublicKey { agreement.publicKey }
-
-    func signature(for message: Data) throws -> P256.Signing.ECDSASignature { try signing.signature(for: message) }
-
-    func open(_ ciphertext: Data, encapsulatedKey: Data, info: Data) throws -> Data {
-        throw DeviceHubError.identity("capture keys open nothing")
     }
 }
 #else

@@ -88,6 +88,59 @@ final class UIStateDeadlineCaptureUITests: XCTestCase {
         app.terminate()
     }
 
+    @MainActor func testFeedLateEventsDark() throws { try feedLate(.dark, "dark") }
+    @MainActor func testFeedLateEventsLight() throws { try feedLate(.light, "light") }
+
+    /// Data after the deadline (`-cmux-mobile-demo feed-connecting-late`): "Your Macs are offline"
+    /// after 15 s, then the Mac's events arrive 25 s in and replace it.
+    @MainActor
+    private func feedLate(_ appearance: XCUIDevice.Appearance, _ look: String) throws {
+        let app = launchFeed(appearance, demo: "feed-connecting-late")
+        let offline = app.descendants(matching: .any)["feed.offline"]
+        XCTAssertTrue(offline.waitForExistence(timeout: 30), "Your Macs are offline\n\(app.debugDescription)")
+        pace(1)
+        attach(app, "i2-late-\(look)-10-offline")
+        for frame in 1..<16 {
+            pace(1)
+            attach(app, String(format: "i2-late-\(look)-frame-%02d", frame))
+            if !offline.exists, frame > 1 { break }
+        }
+        XCTAssertFalse(offline.exists, "the late events replace the offline state\n\(app.debugDescription)")
+        pace(1)
+        attach(app, "i2-late-\(look)-20-events")
+        app.terminate()
+    }
+
+    @MainActor func testFeedTrulyEmptyDark() throws { try feedEmpty(.dark, "dark") }
+    @MainActor func testFeedTrulyEmptyLight() throws { try feedEmpty(.light, "light") }
+
+    /// Truly empty (`-cmux-mobile-demo feed-empty`): the events were read and there are none, so
+    /// the empty copy shows, not a spinner and not the offline state, also past the deadline.
+    @MainActor
+    private func feedEmpty(_ appearance: XCUIDevice.Appearance, _ look: String) throws {
+        let app = launchFeed(appearance, demo: "feed-empty")
+        let empty = app.staticTexts["No events"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 30), "No events\n\(app.debugDescription)")
+        attach(app, "i2-empty-\(look)-00-empty")
+        pace(17)
+        XCTAssertTrue(empty.exists, "still empty past the deadline")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.offline"].exists, "no offline state when empty")
+        XCTAssertFalse(app.descendants(matching: .any)["feed.connecting"].exists, "no spinner when empty")
+        attach(app, "i2-empty-\(look)-10-after-deadline")
+        app.terminate()
+    }
+
+    @MainActor
+    private func launchFeed(_ appearance: XCUIDevice.Appearance, demo: String) -> XCUIApplication {
+        XCUIDevice.shared.appearance = appearance
+        let app = XCUIApplication()
+        app.launchArguments += ["-cmuxMobile.settings.appearance", appearance == .dark ? "dark" : "light"]
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", demo]
+        app.launch()
+        return app
+    }
+
     // MARK: I3 Screen Sharing
 
     @MainActor func testScreenSharingNoAnswerDark() throws { try screenSharing(.dark, "dark") }

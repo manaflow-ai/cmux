@@ -1,0 +1,68 @@
+{
+  "title": "Mac Screen Your Devices: Try Again under the error shows Loading your devices\u2026 again (ui-state-fixes M5)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A workspace for the Mac Screen tab",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "devices"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open it",
+      "cmux": [
+        "workspace",
+        "name:devices",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A hub whose start failed, and whose next start never answers",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "failed_then_hang"
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mac Screen home",
+      "rpc": {
+        "method": "debug.mac_screen",
+        "params": {
+          "action": "open"
+        }
+      },
+      "wait": 2,
+      "record": true
+    },
+    {
+      "title": "Click Try Again",
+      "rpc": {
+        "method": "debug.device_hub",
+        "params": {
+          "action": "capture_devices",
+          "state": "retry"
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    }
+  ]
+}

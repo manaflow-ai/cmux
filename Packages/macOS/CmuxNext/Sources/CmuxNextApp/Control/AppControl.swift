@@ -387,11 +387,6 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
-            // `debug.feed_loading_fixture.open {view: list | inbox | reports}`: the Feed's loading states (captures).
-            .mainActor("debug.feed_loading_fixture.open") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugFeedLoadingFixture.open(call.params, services: services))
-            },
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
@@ -400,7 +395,12 @@ final class AppControl {
                 // `transcript`: "loading" or "failed", the Chief's first transcript read held or failing (its load state).
                 let load = call.params["transcript"]?.stringValue
                 return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false,
-                                                          fresh: fresh, transcriptLoad: load))
+                                                          fresh: fresh, transcriptLoad: load, cache: call.params["cache"]?.stringValue))
+            },
+            // `debug.home_native_fixture.capture {action}`: the transcript load states' capture hooks (ui-state-fixes M1, M2).
+            .async("debug.home_native_fixture.capture") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugHomeNativeFixture.capture(call.params, services: services)
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as

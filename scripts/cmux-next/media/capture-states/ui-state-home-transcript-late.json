@@ -1,0 +1,62 @@
+{
+  "title": "Home Chief transcript: a first page that lands after the 10 s deadline replaces the error (ui-state-fixes M1)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The native Home transcript, its Chief transcript read held",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "transcript": "loading"
+        }
+      },
+      "wait": 1.5,
+      "record": true
+    },
+    {
+      "title": "Past the 10 s deadline: the error with Try Again",
+      "wait": 11,
+      "shot": false
+    },
+    {
+      "title": "After the deadline: first page failed",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "The held read answers now (late)",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "release"
+        }
+      },
+      "wait": 3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "The late page replaced the error: first page loaded",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 0.5,
+      "record": true,
+      "shot": false
+    }
+  ]
+}
