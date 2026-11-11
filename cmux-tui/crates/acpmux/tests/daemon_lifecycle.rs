@@ -65,11 +65,12 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit), exports one variable and runs its
+    // `-c` script, as a real one does (the login read waits for the script's end marker).
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nSSL_CERT_DIR=/amx-test-imported\nexport SSL_CERT_DIR\nexec /bin/sh -c \"$4\"\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
@@ -752,11 +753,14 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let login = dir.join("login-bin");
     std::fs::create_dir_all(&login).unwrap();
     write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
-    // The login shell lists its own `cmux` first.
+    // The login shell lists its own `cmux` first, then runs its `-c` script.
     let shell = dir.join("loginsh");
     write_executable(
         &shell,
-        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+        format!(
+            "#!/bin/sh\nPATH='{}':\"$PATH\"\nexport PATH\nexec /bin/sh -c \"$4\"\n",
+            login.display()
+        ),
     );
     let socket = dir.join("s.sock");
     let app_socket = dir.join("app.sock");
