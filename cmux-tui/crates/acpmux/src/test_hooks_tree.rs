@@ -16,9 +16,13 @@ const SRC: &str = "cmux-tui/crates/acpmux/src/";
 /// static no longer has one (take the row out).
 const KNOWN: &[&str] = &[
     "agent_host/link.rs RECEIPTS",
+    "config.rs HELD_HOME_DIR",
+    "config.rs CHECKED",
+    "config.rs BEFORE_RENAME",
     "daemon/router_owner.rs ROUTER",
     "harness_fixture.rs LOADED",
     "harness_fixture.rs EMPTY",
+    "lost_home_race_tests.rs TARGET",
     "route_probe.rs LAST",
     "server/chats/team_audit.rs HELD",
     "server/dual_requests.rs BOOK",
