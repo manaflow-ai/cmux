@@ -290,6 +290,24 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         remove_staging(db_path)?;
         return Ok(Swap::NotReady);
     }
+    // The saved reducer states are the only copy of what the new file left
+    // out of the journal: the swap copies each to its base
+    // (`journal_retention/base.rs`). A state that cannot be a base (another
+    // version, a rebuild owed, a cursor below the floor of the build) is
+    // not this start's fold of those records: the file is not installed.
+    let retention = super::super::journal_retention::journal_pruned_through(&source)?;
+    if built_floor > retention
+        && !super::super::journal_retention::reducer_bases_possible(&source, built_floor)?
+    {
+        eprintln!(
+            "cmux-tui: output cleanup: the new registry was built without the journal through \
+             {built_floor} and a saved reducer state cannot stand for those records; discarding it"
+        );
+        drop(source);
+        drop(staged);
+        remove_staging(db_path)?;
+        return Ok(Swap::NotReady);
+    }
     let built_head = state_u64(&staged, "built_head")?;
     let head = query_journal_head(&source)?;
     // A catch-up stopped before it packed leaves staged records unpacked;
@@ -731,6 +749,15 @@ fn build_in(
              WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)",
             [super::super::journal_retention::PRUNED_THROUGH_META_KEY, cut.to_string().as_str()],
         )?;
+        // The saved reducer states (copied with `meta`) are the only copy
+        // of what the cut takes from the journal: each gets its base in the
+        // new file. `build_and_swap` asked before the build; a state that
+        // cannot be a base here is an error, and the registry stays.
+        let based = super::super::journal_retention::save_reducer_bases(tx, "main", cut)?;
+        anyhow::ensure!(
+            based || cut <= super::super::journal_retention::journal_pruned_through(source)?,
+            "a saved reducer state cannot stand for the journal through {cut}"
+        );
     }
     steps.mark("meta");
     // Indexes of the copied tables after their rows (the rebuilt tables got

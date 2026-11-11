@@ -7,9 +7,10 @@
 //!   and 3 full starts: until then the registry's directory is larger than
 //!   the registry by the size of that file, and no rebuild runs.
 //! - Saved reducer states that a start could not load. After retention
-//!   deleted records, such a state is the only copy of what it folded, so
-//!   it is kept as it was, and the start folds again from the records that
-//!   are left: the agent list or History can be shorter than before.
+//!   deleted records, such a state is kept as it was. The start goes on
+//!   from the reducer's base (`journal_retention/base.rs`); with no base it
+//!   folds again from the records that are left, and the agent list or
+//!   History can be shorter than before.
 //!
 //! Cost per request: two `stat` calls, and on its own read-only connection
 //! (no registry lock) at most four `meta` rows by key and one key range.

@@ -823,8 +823,10 @@ registry by `bytes`, no start reads the file, and no rebuild runs (retention
 deletes in place). To go back to it, stop the daemon and rename the file to
 `workspace-registry.sqlite3`. `kept_raw` counts the saved reducer states
 that a start could not load after journal retention deleted records; each is
-kept as it was in `meta` under `journal_reducer_kept.<reducer>`, and the
-agent list or History can be shorter than before. The section reads two file
+kept as it was in `meta` under `journal_reducer_kept.<reducer>`. That start
+goes on from the reducer's base (`meta` `journal_reducer_base.<reducer>`, a
+copy of the saved state that each move of the retention floor makes); with
+no base, the agent list or History can be shorter than before. The section reads two file
 sizes and, on its own read-only connection, a few `meta` rows; `error` says
 why when the registry cannot be read. It is present only for a registry on
 disk.

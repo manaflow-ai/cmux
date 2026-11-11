@@ -68,6 +68,10 @@ fn store(session: &'static str) -> Store {
     }
     assert!(roster_agent_state(&mux, &later).is_some(), "the setup: the roster has the agent");
     assert!(
+        roster_agent_state(&mux, &rested).is_some(),
+        "the setup: a restart with its own saved roster serves the agent below the floor"
+    );
+    assert!(
         crate::history_ops::fold_for_retention(&mux, Duration::from_secs(30), 1).unwrap(),
         "the setup: the agent history fold reaches the journal head"
     );

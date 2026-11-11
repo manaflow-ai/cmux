@@ -293,6 +293,23 @@ fn saved_roster(source: &Connection, head: u64) -> anyhow::Result<Option<(AgentR
     Ok(roster.map(|roster| (roster, cursor)))
 }
 
+/// The roster's base on a registry with a retention floor, as this build
+/// reads it, with its cursor. `None` when there is none or it does not
+/// restore.
+fn base_roster(source: &Connection) -> anyhow::Result<Option<(AgentRoster, u64)>> {
+    let Some((version, cursor, snapshot)) =
+        super::journal_retention::usable_reducer_base(source, AGENT_ROSTER_REDUCER_ID)?
+    else {
+        return Ok(None);
+    };
+    let roster = if version == AGENT_ROSTER_REDUCER_VERSION {
+        AgentRoster::restore(&snapshot)
+    } else {
+        AgentRoster::migrate(version, &snapshot)
+    };
+    Ok(roster.map(|roster| (roster, cursor)))
+}
+
 fn fold_roster(
     source: &Connection,
     db_path: &Path,
@@ -351,8 +368,14 @@ fn fold_roster(
     // rule of the owner's background rebuild, `agent_roster_rebuild.rs`).
     // Retention never passes the saved roster's cursor, so no record
     // between that cursor and the head is missing.
+    // The saved roster here is not this build's own fold (another version,
+    // or a rebuild owed), and an older build can have saved an empty one:
+    // the roster's base (`journal_retention/base.rs`) goes first.
     let resumed = match resumed {
-        None if pruned_through > 0 => saved_roster(source, head)?,
+        None if pruned_through > 0 => match base_roster(source)? {
+            Some(base) => Some(base),
+            None => saved_roster(source, head)?,
+        },
         resumed => resumed,
     };
     let (mut roster, mut cursor) = resumed.unwrap_or_default();

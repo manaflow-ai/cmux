@@ -121,9 +121,16 @@ impl HistoryHost {
     /// hole. The loaded fold is saved again at this build's version by the
     /// next save.
     ///
+    /// Not when the fold has a base (`journal_retention/base.rs`, written
+    /// each time the retention floor moves): a saved fold that is not this
+    /// build's own can be the fold of a build that does not decode the
+    /// journal. The base is then the start state, and the fold goes on from
+    /// the base's cursor.
+    ///
     /// A saved fold that is there and does not load (its value is not JSON,
     /// its snapshot does not parse, its cursor is past the head) is not
-    /// loaded: the fold starts at the first retained record. When retention
+    /// loaded: the fold starts at the base, or with none at the first
+    /// retained record. When retention
     /// has deleted records, the next save would then write a smaller fold
     /// over the only copy of the sessions below the floor. So the raw saved
     /// value is first kept under a second `meta` key
@@ -139,6 +146,8 @@ impl HistoryHost {
         let mut another_version = false;
         // The floor, when a saved fold that does not load was kept.
         let mut kept_at = None;
+        // The cursor of the fold's base, when the fold starts from it.
+        let mut from_base = None;
         let restored = {
             let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let saved = match registry.journal_reducer_state(AGENT_FOLD_STATE_ID) {
@@ -179,15 +188,60 @@ impl HistoryHost {
                     })?;
                 kept_at = kept.then_some(pruned_through);
             }
-            restored
+            // A saved fold that is not this build's own (another version,
+            // none, or one that does not load) cannot stand for the records
+            // below the floor: a build that does not decode the journal
+            // saves a fold without them under the same key. The fold's base
+            // can (`journal_retention/base.rs`): it is the start state, and
+            // the fold goes on from its cursor, where every record is still
+            // in the journal. It is saved at this build's version by the
+            // next save.
+            let own = restored.is_some() && !another_version;
+            let base = if own {
+                None
+            } else {
+                registry
+                    .journal_reducer_base(AGENT_FOLD_STATE_ID)
+                    .map_err(|error| error.context("reading the agent history base failed"))?
+                    .and_then(|(_, cursor, snapshot)| {
+                        serde_json::from_str::<AgentSessionFold>(&snapshot)
+                            .ok()
+                            .filter(|fold| {
+                                fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor
+                            })
+                            .map(|fold| (fold, cursor))
+                    })
+            };
+            match base {
+                Some((fold, cursor)) => {
+                    another_version = true;
+                    from_base = Some(cursor);
+                    Some((fold, cursor))
+                }
+                None => restored,
+            }
         };
-        if let Some(pruned_through) = kept_at {
-            let message = format!(
-                "the saved agent history does not load, and journal retention deleted the \
-                 records through {pruned_through}: the agent sessions with no later record are \
-                 not listed. The raw saved value is kept in meta \
-                 journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+        if let Some(cursor) = from_base {
+            eprintln!(
+                "cmux-tui: the saved agent history is not this build's own fold and journal \
+                 retention deleted records: the fold starts from its base at sequence {cursor}"
             );
+        }
+        if let Some(pruned_through) = kept_at {
+            let message = match from_base {
+                Some(cursor) => format!(
+                    "the saved agent history does not load, and journal retention deleted the \
+                     records through {pruned_through}: the fold starts from its base at sequence \
+                     {cursor}. The raw saved value is kept in meta \
+                     journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+                ),
+                None => format!(
+                    "the saved agent history does not load, and journal retention deleted the \
+                     records through {pruned_through}: the agent sessions with no later record \
+                     are not listed. The raw saved value is kept in meta \
+                     journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+                ),
+            };
             eprintln!("cmux-tui: {message}");
             mux.report_internal_diagnostic(message);
         }

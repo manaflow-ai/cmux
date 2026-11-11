@@ -393,6 +393,9 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     seal_all(&mux, "second_above");
     hook(&mux, terminal, "UserPromptSubmit");
     assert!(mux.settle_agent_roster_for_test());
+    // As the maintenance tick does before a retention pass: the saved agent
+    // history fold is at the head, above the second floor.
+    assert!(crate::history_ops::fold_for_retention(&mux, Duration::from_secs(30), 1).unwrap());
     mux.shutdown();
     drop(mux);
     // The second full start: the rollback window is over, and the file of
@@ -598,6 +601,10 @@ fn a_swap_with_no_state_for_a_base_deletes_nothing() {
     );
     assert_eq!(records_after(db_path, 0, *head), all, "the registry lost records");
     assert_eq!(meta(db_path, &format!("journal_reducer_base.{}", BASED[0])), None);
+    // As a file built above the floor of this start: it goes, and the
+    // cleanup is not stopped for this build.
+    assert!(!staging_path(db_path).exists(), "the file that cannot be installed stays");
+    assert!(!failed_path(db_path).exists(), "the cleanup was stopped for this build");
 }
 
 /// The floor can be lower at the next start than at the build: an update

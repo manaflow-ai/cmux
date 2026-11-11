@@ -33,12 +33,19 @@
 //! reader that crosses it (`output_cleanup::pruned_gap`) reads on from the
 //! first retained record, and as `meta.journal_retention_floor`, so
 //! `session.journal.subscribe` can refuse an older cursor with `cursor.gap`.
+//!
+//! A reducer's saved state is then the only copy of what it folded below
+//! the floor, under a key that every build writes. So the transaction that
+//! moves the floor first copies it to the reducer's base ([`base`]), and a
+//! floor that has no base does not move.
 
+mod base;
+
+pub(crate) use base::{reducer_bases_possible, save_reducer_bases, usable_reducer_base};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::WorkspaceRegistry;
-use crate::history_ops::{AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION};
-use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
 
 /// `meta` key of the sequence retention has deleted through.
 pub(crate) const PRUNED_THROUGH_META_KEY: &str = "journal_retention_floor";
@@ -141,10 +148,7 @@ fn retention_limit(connection: &Connection) -> anyhow::Result<u64> {
     if roster_rebuilds {
         return Ok(0);
     }
-    for (reducer, version) in [
-        (AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION),
-        (AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION),
-    ] {
+    for (reducer, version) in base::FLOOR_REDUCERS {
         limit = limit.min(reducer_cursor(connection, reducer, version)?);
     }
     if let Some(cursor) =
@@ -290,6 +294,14 @@ impl WorkspaceRegistry {
             )
             .optional()?;
         let Some((segment_id, end)) = segment else { return Ok(false) };
+        // The saved reducer states are the only copy of what this delete
+        // takes from the journal: each gets its base first. A state that
+        // cannot be a base (another version, a rebuild owed) leaves the
+        // segment: `retention_limit` gives no floor for such a state, so
+        // only a caller with a floor of its own comes here.
+        if !save_reducer_bases(&tx, "main", u64::try_from(end)?)? {
+            return Ok(false);
+        }
         // The tables refuse deletes by trigger; as the seal does for the
         // live rows it archives, this transaction alone may delete.
         tx.execute_batch(

@@ -78,21 +78,26 @@ impl Mux {
         let worker = &self.agent_roster_worker;
         // A roster the next build premigrated beside the previous owner and
         // did not finish: the rebuild folds only the journal after it.
-        let (seed, pruned_through) = {
+        let (seed, pruned_through, base) = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let seed = crate::workspace_registry::premigrate::rebuild_seed(&registry);
-            (seed, registry.journal_pruned_through().unwrap_or(0))
+            let base = super::agent_roster_restore::roster_base(&registry);
+            (seed, registry.journal_pruned_through().unwrap_or(0), base)
         };
         // Journal retention deleted the first records: a fold of what is
         // left, and a premigrated roster folded from it, lack every agent
-        // whose records are all below the floor. The roster this start
-        // serves (the old reducer's snapshot, migrated) holds them: the
-        // rebuild goes on from it, so no agent is lost. An empty served
-        // roster (a snapshot that did not migrate) has nothing to keep; the
-        // rebuild then folds the retained journal.
+        // whose records are all below the floor. The roster's base holds
+        // them (`journal_retention/base.rs`): the rebuild goes on from it,
+        // so no agent is lost. A registry whose floor moved before the base
+        // was written has none: the rebuild then goes on from the roster
+        // this start serves (the old reducer's snapshot, migrated). An empty
+        // served roster (a snapshot that did not migrate) has nothing to
+        // keep; the rebuild then folds the retained journal.
         let seed = if pruned_through > 0 {
-            let served = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            (!served.roster.entries.is_empty()).then(|| (served.roster.clone(), served.cursor))
+            base.map(|(roster, cursor, _)| (roster, cursor)).or_else(|| {
+                let served = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+                (!served.roster.entries.is_empty()).then(|| (served.roster.clone(), served.cursor))
+            })
         } else {
             seed
         };
