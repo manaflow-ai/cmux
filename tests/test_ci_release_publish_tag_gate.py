@@ -336,6 +336,86 @@ class TagGate(unittest.TestCase):
         self.assertEqual(len(problems("w.yml", fixture(job("p", step(UPLOAD), "    if: github.event_name == 'push'\n")), policy)), 1)
         self.assertEqual(len(problems("w.yml", fixture(job("p", step(UPLOAD), f"    if: {branch} || github.event_name == 'workflow_dispatch'\n")), policy)), 1)
 
+    def test_the_branch_gated_workflow_needs_an_event_term_naming_only_push_and_dispatch(self) -> None:
+        policy = POLICIES["app-ffi-release.yml"]
+        branch = "github.ref == 'refs/heads/feat-cmux-next'"
+        push, dispatch = "github.event_name == 'push'", "github.event_name == 'workflow_dispatch'"
+        passes = (f"{branch} && ({push} || {dispatch})", f"{branch} && {push}", f"{branch} && {dispatch}",
+                  f"${{{{ {branch} && ({push} || {dispatch}) }}}}", f"({push} || {dispatch}) && {branch}")
+        refused = {
+            "ref only": branch,
+            "ref and an unrelated term": f"{branch} && github.repository_owner == 'manaflow-ai'",
+            "workflow_run added": f"{branch} && ({push} || github.event_name == 'workflow_run')",
+            "workflow_run alone": f"{branch} && github.event_name == 'workflow_run'",
+            "repository_dispatch": f"{branch} && github.event_name == 'repository_dispatch'",
+            "schedule": f"{branch} && github.event_name == 'schedule'",
+            "an event alternative outside the branch": f"{branch} && {push} || {dispatch}",
+            "negated event": f"{branch} && github.event_name != 'pull_request'",
+        }
+        for label, condition in [(c, c) for c in passes]:
+            with self.subTest(passes=label):
+                for header, text in ((f"    if: {condition}\n", ""), ("", condition)):
+                    document = fixture(job("p", step(UPLOAD, text or None), header))
+                    self.assertEqual(problems("w.yml", document, policy), [], condition)
+        for label, condition in refused.items():
+            with self.subTest(refused=label):
+                self.assertEqual(len(problems("w.yml", fixture(job("p", step(UPLOAD), f"    if: {condition}\n")), policy)), 1)
+                self.assertEqual(len(problems("w.yml", fixture(job("p", step(UPLOAD, condition))), policy)), 1)
+
+    def test_every_gate_in_the_real_app_ffi_workflow_carries_an_event_term(self) -> None:
+        document = load_real()["app-ffi-release.yml"]
+        policy = POLICIES["app-ffi-release.yml"]
+        for name, job in workflow_jobs.jobs(document).items():
+            if job.get("if") and any(publishes(step) for step in job.get("steps") or []):
+                with self.subTest(job=name):
+                    self.assertTrue(gated(job["if"], policy), f"{name}: {job['if']}")
+                    # Without its event term the same gate must be refused: it passes only through that term.
+                    ref_only = re.sub(r"\s*&&\s*\([^()]*event_name[^()]*\)|\s*&&\s*github\.event_name\s*==\s*'\w+'", "",
+                                      str(job["if"]))
+                    self.assertFalse(gated(ref_only, policy), f"{name}: {ref_only}")
+
+    def test_a_status_function_turns_the_needs_gate_off_unless_the_if_requires_that_need_succeeded(self) -> None:
+        gate = job("gate", "      - run: echo ok\n", f"    if: {PUSH_TAG}\n")
+        for condition in ("${{ !success() }}", "${{ failure() }}", "always()", "cancelled()",
+                          "success() || always()", "needs.other.result == 'success' && always()",
+                          "needs.gate.result == 'success' || always()"):
+            with self.subTest(refused=condition):
+                broken = fixture(gate + job("publish", step(UPLOAD), f"    needs: gate\n    if: {condition}\n"))
+                self.assertEqual(len(self.check(broken)), 1)
+        for condition in ("needs.gate.result == 'success'", "${{ always() && needs.gate.result == 'success' }}",
+                          "${{ !cancelled() && needs.gate.result == 'success' }}"):
+            with self.subTest(passes=condition):
+                fine = fixture(gate + job("publish", step(UPLOAD), f"    needs: gate\n    if: {condition}\n"))
+                self.assertEqual(self.check(fine), [])
+
+    def test_gh_api_writes_to_release_paths_are_publishing_in_every_form_gh_reads(self) -> None:
+        release = "repos/o/r/releases"
+        writes = [
+            f"gh api {release} -f tag_name=v1", f"gh api {release} -F draft=true", f"gh api {release} --field tag_name=v1",
+            f"gh api {release} --raw-field tag_name=v1", f"gh api {release} --input body.json",
+            f"gh api -f tag_name=v1 {release}", f"gh api {release} -ftag_name=v1", f"gh api {release} --field=tag_name=v1",
+            f"gh api {release} --raw-field=tag_name=v1", f"gh api {release} --input=body.json",
+            f"gh api {release} -X POST", f"gh api {release} -XPOST", f"gh api -X POST {release}",
+            f"gh api {release} --method POST", f"gh api {release} --method=POST", f"gh api --method=post {release}",
+            f"gh api {release}/1 -X PATCH", f"gh api {release}/1 -XPATCH", f"gh api {release}/1 --method=PATCH",
+            f"gh api {release}/1 --method PUT", f"gh api {release}/1 -X DELETE", f"gh api {release}/1 --method=DELETE",
+            "gh api repos/o/r/git/tags -f tag=v1", "gh api repos/o/r/git/refs -f ref=refs/tags/v1 -f sha=x",
+            "gh api repos/o/r/releases/assets/9 -X DELETE", "gh api repos/o/r/releases/9/assets?name=a --input a.zip",
+            f"gh api {release} -H 'Accept: x' -f tag_name=v1",
+        ]
+        reads = [f"gh api {release}", f"gh api {release}/latest", f"gh api {release} -X GET", f"gh api {release} --method=GET",
+                 f"gh api {release} -XGET -f per_page=1", f"gh api {release} --method GET -F per_page=1",
+                 f"gh api {release} -H 'Accept: x' -q .tag_name", "gh api repos/o/r/pulls -f title=x -X POST",
+                 "gh api user -f x=1"]
+        for command in writes:
+            with self.subTest(write=command):
+                steps = f"      - run: |\n          {command}\n"
+                self.assertEqual(len(self.check(fixture(job("p", steps)))), 1, command)
+                self.assertEqual(self.check(fixture(job("p", steps, f"    if: {PUSH_TAG}\n"))), [], command)
+        for command in reads:
+            with self.subTest(read=command):
+                self.assertEqual(self.check(fixture(job("p", f"      - run: |\n          {command}\n"))), [], command)
+
     def test_the_real_workflows_lose_a_gate_to_this_detector(self) -> None:
         # Mutate the real documents: remove the tag gate from one publishing job, then from one step.
         documents = load_real()
