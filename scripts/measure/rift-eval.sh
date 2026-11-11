@@ -57,7 +57,7 @@ rift() { "$rift_bin" --database "$db" "$@"; }
 echo "rift: $rift_bin"
 
 # Pinned bun (webviews/package.json devEngines), from the fleet tool cache or bun's release.
-bun_pin="$(python3 -c 'import json; print(json.load(open("'"$repo"'/webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+bun_pin="$(python3 -I "$repo/scripts/webviews_bun_version.py" "$repo/webviews/package.json")"
 for d in "$HOME/Library/Caches/cmux-ci/tools/bun-$bun_pin/bin" "$HOME/.bun/bin"; do
   [[ -x "$d/bun" && "$("$d/bun" --version)" == "$bun_pin" ]] && export PATH="$d:$PATH" && break
 done
