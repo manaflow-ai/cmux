@@ -125,6 +125,48 @@ class Judge(unittest.TestCase):
         self.assertFalse(self.judge(stamped, retry=retry)[0])
 
 
+def coloured(text):
+    """TEXT as cargo prints it to a colour terminal: each outcome and the summary's state in its own colour codes,
+    each line stamped as the job log serves it."""
+    for word, code in (("FAILED", 31), ("ok", 32)):
+        text = re.sub(rf"(\.\.\. |test result: ){word}\b",
+                      lambda m, word=word, code=code: f"{m.group(1)}\x1b[{code}m{word}\x1b[0m", text)
+    return "\n".join(f"2026-10-31T01:02:03.4567890Z {line}" for line in text.splitlines())
+
+
+class ColouredSummary(unittest.TestCase):
+    """#41329's review F2: "scripts/ci/cargo_test_verdict.py:160: the summary rewrite searches the raw line, so ANSI
+    codes around FAILED stop it matching. The flaky result drops out while its failure count stays, and judge() calls
+    a passing retry an own red. Rewrite the normalized summary, and add a fixture with inline colour codes." And
+    "strip ANSI once, at the log reader, so no parser sees raw colour"."""
+
+    # One binary, a flake and a base red in it: taking the flake out leaves `1 failed`, its one named failure.
+    HEAD = log(binary(("hub::turn_cap_tests::caps", "FAILED"), ("agent_inbox::delivers", "FAILED"),
+                      ("carried_turns::carries", "ok")))
+    RETRY = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+    BASE = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+
+    def test_a_flake_in_a_coloured_binary_leaves_its_count_matching_its_names(self):
+        head = coloured(self.HEAD)
+        self.assertIn("test result: \x1b[31mFAILED\x1b[0m. 1 passed; 2 failed;", head)
+        out = verdict.without_failures(head, {"hub::turn_cap_tests::caps"})
+        self.assertEqual([line for line in verdict.test_reds.lines_of(out) if line.startswith("test result: ")],
+                         ["test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; "
+                          "finished in 1.00s"])
+        own, notes = verdict.judge(head, coloured(self.RETRY), coloured(self.BASE), JOB)
+        self.assertFalse(own, notes)
+        self.assertEqual(sum("(flaky)" in n for n in notes), 1, notes)
+        self.assertEqual(sum("(base red)" in n for n in notes), 1, notes)
+
+    def test_the_log_reader_strips_colour_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(coloured(self.HEAD) + "\n\x1b]8;;https://example.invalid\x07link\x1b]8;;\x07\n")
+            text = verdict.read_text(path)
+        self.assertNotIn("\x1b", text)
+        self.assertIn("test result: FAILED. 1 passed; 2 failed;", text)
+
+
 def workflow_paths(workflow: str) -> dict[str, list[str]]:
     """Each trigger's `paths:` globs in WORKFLOW, read without a YAML parser."""
     found, event, inside = {}, None, False
