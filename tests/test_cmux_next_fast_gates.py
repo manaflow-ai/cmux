@@ -1155,8 +1155,8 @@ class BunInstallScript(unittest.TestCase):
         path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
         if no_timeout:
             # A host with no coreutils `timeout` (a stock macOS runner): only the tools the script and the fake use.
-            # dirname and perl: scripts/ci/timeout.sh finds itself, then runs its perl watchdog.
-            for tool in ("sed", "curl", "mktemp", "rm", "sleep", "hostname", "wc", "sh", "dirname", "perl"):
+            # bash, dirname and perl: bun-install.sh runs scripts/ci/timeout.sh, which finds itself and runs its watchdog.
+            for tool in ("sed", "curl", "mktemp", "rm", "sleep", "hostname", "wc", "sh", "bash", "dirname", "perl"):
                 found = shutil.which(tool)
                 if found:
                     (bin_dir / tool).symlink_to(found)
