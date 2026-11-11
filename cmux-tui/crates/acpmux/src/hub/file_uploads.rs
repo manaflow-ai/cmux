@@ -1182,4 +1182,67 @@ mod tests {
         let frame = 16 << 20;
         assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
     }
+
+    /// Forced lost-home races for an upload's finish (#41372 review F3): the home is replaced by
+    /// a copy of itself (as restored from the old one) once the writer passed its home check.
+    /// The finished file and its stored bytes land in the held home; the new one is never changed.
+    #[cfg(unix)]
+    mod lost_home {
+        use super::*;
+        use crate::lost_home_race_tests::{copy_tree, forced, isolated};
+
+        /// An upload begun and written whole in this daemon's home: its id.
+        fn written(bytes: &[u8]) -> String {
+            let began =
+                begin("chat-a", &json!({"fileName": "f.bin", "size": bytes.len()})).unwrap();
+            let id = began["uploadId"].as_str().unwrap().to_owned();
+            append("chat-a", &id, 0, bytes).unwrap();
+            id
+        }
+
+        fn seed(home: &Path) {
+            copy_tree(&home.with_extension("old"), home);
+        }
+
+        /// The finish's rename of `.part` to the file's name and its removal of `.meta`.
+        #[test]
+        fn an_upload_finish_held_past_its_check() {
+            isolated(
+                module_path!(),
+                "an_upload_finish_held_past_its_check",
+                |home| {
+                    let id = written(b"hello");
+                    let target = finished_path("chat-a", &id, "f.bin").unwrap();
+                    let kept = format!("uploads/chat-a/{id}/f.bin");
+                    forced(home, target, seed, Some(&kept), move || {
+                        let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
+                        let _ = finish("chat-a", &params);
+                    });
+                },
+                |_, _| {},
+            );
+        }
+
+        /// The store's link of a finished upload's bytes (`store::adopt`): its mode narrowed and
+        /// a hard link made in the store, held at the check of the store's shard folder.
+        #[test]
+        fn an_upload_store_link_held_past_its_check() {
+            isolated(
+                module_path!(),
+                "an_upload_store_link_held_past_its_check",
+                |home| {
+                    let id = written(b"hello");
+                    let hash = crate::sha256::sha256_hex(b"hello");
+                    let stored = store::stored_path(&root(), &hash).unwrap();
+                    let target = stored.parent().unwrap().to_path_buf();
+                    let kept = stored.strip_prefix(home).unwrap().to_string_lossy().into_owned();
+                    forced(home, target, seed, Some(&kept), move || {
+                        let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
+                        let _ = finish("chat-a", &params);
+                    });
+                },
+                |_, _| {},
+            );
+        }
+    }
 }
