@@ -102,7 +102,8 @@ import Testing
     func tabNavigationAndOmnibarAreOneSidebarRowTall(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
         load(preset, sidebar)
-        let row = SidebarRowTokens.current.rowHeight
+        // The row as the sidebar draws it: at Default its fill takes the gap under it (30, not 28).
+        let row = SidebarRowTokens.current.listRowHeight
         let (stripWindow, strip) = strip()
         defer { stripWindow.close() }
         let pill = try #require(strip.firstTabPillFrame)
