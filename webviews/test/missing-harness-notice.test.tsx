@@ -192,11 +192,12 @@ async function click(action: string) {
   });
 }
 
+/// Yields to the next macrotask until `check` holds: a condition, never a fixed time.
 async function until(check: () => boolean, what: string) {
-  for (let i = 0; i < 200; i += 1) {
+  for (let i = 0; i < 20_000; i += 1) {
     if (check()) return;
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
   throw new Error(`timed out waiting for ${what}: ${host.innerHTML}`);
