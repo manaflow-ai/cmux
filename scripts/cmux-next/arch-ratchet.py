@@ -738,9 +738,11 @@ def generated_allowance(old: dict, new: dict, entries: list, derivation: Derivat
     entry pays the full count and the per-commit counts (from FactsCache when warm).
     """
     counts = load_counts()
+    if not entries:
+        return {}
     since, until = record_anchor(derivation.repo, old, new, derivation.upstream_ref), new.get("measured_sha")
     before = old.get("totals") if isinstance(old.get("totals"), dict) else {}
-    if (not entries or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in (since, until))
+    if (not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in (since, until))
             or derivation.parents(since) < 0):
         return {}  # no old record to bound the commits by (a missing commit is no ancestor of anything)
     named_before = {x for e in exceptions_of(old) if isinstance(e, dict) and e.get("applied_sha")
@@ -1113,20 +1115,37 @@ def recorded_at(repo: Path, rev: str) -> str | None:
     return found if isinstance(found, str) else None
 
 
+def in_history(repo: Path, sha: str, *revs: str) -> bool:
+    """Whether commit SHA is one of the commits REVS reach (`--all`: every ref). Read from the commits REVS list, never
+    by looking SHA up: in a fleet mirror (a blob:none partial clone of about 2,500 packs) a lookup of a commit that is
+    not there asks the promisor remote for it (`upload-pack: not our ref`) and rescans every pack, past 20 s each try;
+    the listing takes 2-5 s whatever SHA is."""
+    code, out = git(repo, "rev-list", *revs)
+    return code == 0 and sha in out.split()
+
+
 def anchor_candidates(repo: Path, since: str, upstream_ref: str) -> list[tuple[str, str]]:
     """[(sha, why)] of the commits on UPSTREAM_REF a record whose measured_sha SINCE is not there may count from:
     the first upstream commit whose json records SINCE (the squash or rebase of the --update that wrote it), and
-    the merge base of SINCE with UPSTREAM_REF when SINCE is still a commit here."""
+    the merge base of SINCE with UPSTREAM_REF when SINCE is still a commit of some ref here."""
     found = []
     code, out = git(repo, "log", "--reverse", "--format=%H", f"-S{since}", upstream_ref, "--",
                     load_counts().RATCHET_JSON)
     first = next((x for x in out.split() if recorded_at(repo, x) == since), None) if code == 0 else None
     if first:
         found.append((first, "the first commit of the upstream branch whose json records it"))
-    code, meet = git(repo, "merge-base", since, upstream_ref)
-    if code == 0 and meet and meet != first:
+    meet = merge_base_of(repo, since, upstream_ref)
+    if meet and meet != first:
         found.append((meet, "where it meets the upstream branch"))
     return found
+
+
+def merge_base_of(repo: Path, since: str, upstream_ref: str) -> str | None:
+    """The merge base of SINCE with UPSTREAM_REF when SINCE is a commit some ref here reaches (in_history), else None."""
+    if not in_history(repo, since, "--all"):
+        return None
+    code, meet = git(repo, "merge-base", since, upstream_ref)
+    return meet if code == 0 and meet else None
 
 
 def unreachable_record(repo: Path, since: str | None, rev: str, upstream_ref: str) -> bool:
@@ -1135,31 +1154,31 @@ def unreachable_record(repo: Path, since: str | None, rev: str, upstream_ref: st
     measured. No upstream ref here (a fixture, a clone without the remote) checks nothing."""
     if not since or git(repo, "rev-parse", "--verify", "--quiet", f"{upstream_ref}^{{commit}}")[0] != 0:
         return False
-    return not (on_upstream(repo, since, upstream_ref)
-                or git(repo, "merge-base", "--is-ancestor", since, rev)[0] == 0)
+    return not in_history(repo, since, upstream_ref, rev)
 
 
 def valid_anchor(repo: Path, since: str, anchor: str, upstream_ref: str) -> bool:
     """Whether ANCHOR may stand in for the unreachable measured_sha SINCE: a commit on UPSTREAM_REF whose json
     records SINCE (it carries the totals measured there; a later such commit only narrows what is attributed), or
     the merge base of SINCE with UPSTREAM_REF."""
-    if not (isinstance(anchor, str) and load_counts().SHA.fullmatch(anchor) and on_upstream(repo, anchor, upstream_ref)):
+    if not (isinstance(anchor, str) and load_counts().SHA.fullmatch(anchor)
+            and in_history(repo, anchor, upstream_ref)):
         return False
-    if recorded_at(repo, anchor) == since:
-        return True
-    code, meet = git(repo, "merge-base", since, upstream_ref)
-    return code == 0 and meet == anchor
+    return recorded_at(repo, anchor) == since or merge_base_of(repo, since, upstream_ref) == anchor
 
 
 def record_anchor(repo: Path, old: dict, new: dict, upstream_ref: str) -> str | None:
-    """The commit OLD's totals count from in a push from OLD to NEW: OLD's measured_sha, or, when that commit is
-    not on UPSTREAM_REF and NEW's `reanchor` names it ({"measured_sha": OLD's, "at": anchor}), the anchor
-    --update --anchor recorded, re-checked with valid_anchor."""
+    """The commit OLD's totals count from in a push from OLD to NEW: OLD's measured_sha while it is on
+    UPSTREAM_REF; when it is not (orphaned), the anchor NEW's `reanchor` names ({"measured_sha": OLD's, "at":
+    anchor}, what --update --anchor writes) once valid_anchor re-checks it, else None (nothing bounds the
+    commits, so no generated entry counts, and the orphan is never looked up: in_history)."""
     since, moved = old.get("measured_sha"), new.get("reanchor")
-    if (isinstance(since, str) and isinstance(moved, dict) and moved.get("measured_sha") == since
-            and not on_upstream(repo, since, upstream_ref) and valid_anchor(repo, since, moved.get("at"), upstream_ref)):
+    if not isinstance(since, str) or in_history(repo, since, upstream_ref):
+        return since
+    if isinstance(moved, dict) and moved.get("measured_sha") == since and valid_anchor(repo, since, moved.get("at"),
+                                                                                       upstream_ref):
         return moved["at"]
-    return since
+    return None
 
 
 def upstream_rises(repo: Path, since: str | None, sha: str, rows: set[str], before: dict,
@@ -1242,8 +1261,9 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
             print(f"arch-ratchet: --update refused: --anchor is only for a measured_sha that is not on {upstream_ref}; "
                   f"{str(since)[:11]} is (or there is no record): rerun without --anchor")
             return 1
-        if anchor is None or not valid_anchor(repo, since, git(repo, "rev-parse", "--verify", "--quiet",
-                                                                  f"{anchor}^{{commit}}")[1], upstream_ref):
+        if anchor is not None and not counts.SHA.fullmatch(anchor):  # a ref name; a full sha is never looked up
+            anchor = git(repo, "rev-parse", "--verify", "--quiet", f"{anchor}^{{commit}}")[1] or anchor
+        if anchor is None or not valid_anchor(repo, since, anchor, upstream_ref):
             print(f"arch-ratchet: --update refused: {path.name} not written. Its measured_sha {since} is not a "
                   f"commit of {upstream_ref} (a squash or rebase orphaned the commit --update measured), so no rise "
                   "since it can be attributed" + (f"; --anchor {anchor} is not a commit of {upstream_ref} whose json "
@@ -1256,7 +1276,6 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
                 print(f"  none found: no commit of {upstream_ref} records it. Fetch {upstream_ref} and retry; failing "
                       "that, tell the Performance Lead (the record must be re-measured by hand review)")
             return 1
-        anchor = git(repo, "rev-parse", f"{anchor}^{{commit}}")[1]
         print(f"arch-ratchet: measured_sha {since[:11]} is not on {upstream_ref}: counting from {anchor[:11]} "
               "(--anchor), recorded in `reanchor`")
         reanchor, since = {"measured_sha": since, "at": anchor}, anchor

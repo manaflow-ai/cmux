@@ -1733,6 +1733,34 @@ class RatchetTests(Repo):
         self.assertEqual(code, 0, out)
         self.assertNotIn("reanchor", self.recorded())
 
+    def test_an_orphan_still_on_a_local_ref_offers_its_merge_base(self):
+        self.assertEqual(self.update()[0], 0)
+        fork = self.commit("record")
+        self.git("checkout", "--quiet", "-b", "side")
+        self.write("README", "a side branch\n")
+        side = self.commit("the branch --update measured")  # it lands squashed: side is on no upstream history
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        data = self.recorded()
+        data["measured_sha"] = side
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.commit("the squash records the side commit")
+        self.git("branch", "upstream", "HEAD")
+        candidates = [sha for sha, _ in ratchet.anchor_candidates(self.repo, side, "upstream")]
+        self.assertEqual(candidates, [self.git("rev-parse", "HEAD"), fork])
+        self.assertTrue(ratchet.valid_anchor(self.repo, side, fork, "upstream"))
+        self.assertFalse(ratchet.valid_anchor(self.repo, side, self.base, "upstream"))
+
+    def test_a_reanchor_is_ignored_while_the_old_record_is_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        old = self.recorded()
+        new = dict(old, reanchor={"measured_sha": old["measured_sha"], "at": record})
+        self.assertEqual(ratchet.record_anchor(self.repo, old, new, "upstream"), old["measured_sha"])
+        # An orphan with no valid reanchor bounds nothing (and is never looked up).
+        orphan = dict(old, measured_sha="9c4b1ccc1285b2b9078289302ea8aef7fc9122b4")
+        self.assertIsNone(ratchet.record_anchor(self.repo, orphan, old, "upstream"))
+
     def test_the_audit_counts_an_orphaned_record_from_its_recording_commit(self):
         orphan, recording, landed = self.orphaned_record()
         self.git("branch", "--force", "origin/feat-cmux-next", "upstream")
