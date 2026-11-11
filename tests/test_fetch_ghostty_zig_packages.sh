@@ -113,6 +113,23 @@ PRE_PAGE=1 run 0 0
 [ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cached gzipped page was left in the cache"
 [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a gzipped page removed a whole archive"
 
+# A failed attempt that is not an archive's fault keeps every whole archive,
+# also when the cache path has a drive letter (C:/..., a Windows runner's
+# `zig env`), which GNU tar reads as HOST:FILE: each check failed there, and
+# the cleanup removed every whole archive in p/. The cache path is relative to
+# the source, where zig runs.
+rm -rf "$TMP/count" "$TMP/src/zig-pkg" "$TMP/src/C:"; : > "$TMP/children"
+mkdir -p "$TMP/src/C:/zig/p" "$TMP/src/C:/zig/tmp"
+echo whole > "$TMP/f"; tar -czf "$TMP/src/C:/zig/p/N-whole.tar.gz" -C "$TMP" f
+status=0
+env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG CMUX_ZIG_SEED=0 PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_FAILURES=1 \
+  FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="C:/zig" \
+  CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_STALL_TIMEOUT=60 CMUX_ZIG_FETCH_SAMPLE=1 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
+  "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
+[ "$status" = 0 ] || fail "a failed attempt then a success did not pass with a drive-letter cache path"
+[ -e "$TMP/src/C:/zig/p/N-whole.tar.gz" ] || fail "a failed attempt removed a whole archive from a cache path with a drive letter"
+rm -rf "$TMP/src/C:"
+
 # A hung first attempt is stopped once it makes no progress, with its child,
 # and the second attempt succeeds.
 run 1 0

@@ -141,6 +141,21 @@ CMUX_ZIG_LOCK="$TMP/mirror.lock" "$SEED" "$TMP/mirror-cache" "$TMP/mirror-src" >
 cmp -s "$TMP/mirror-cache/p/N-m1.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/mirror-cache/p/N-one.tar.gz" "$TMP/www/one.tar.gz" \
   || fail "not mirror only, the mirror and then the upstream URLs were not both seeded"
 
+# A cache path with a drive letter, as `zig env` gives on a Windows runner
+# (C:\Users\runneradmin\AppData\Local\zig): GNU tar reads an archive argument
+# whose part before the first colon has no slash as HOST:FILE, so every check
+# failed there ("is not a whole tar archive" for all 37 packages, "Seeded 0 of
+# 37", cmux-tui run 43017313504, job 130512447393). Run from the directory that
+# holds C:/, the same path is a local one here.
+mkdir -p "$TMP/drive/C:/zig" "$TMP/drive-src" "$TMP/tree/named-1"
+echo ".{ .dependencies = .{ .inner = .{ .url = \"$base/one.tar.gz\", .hash = \"N-drive-inner\" } } }" > "$TMP/tree/named-1/build.zig.zon"
+tar -C "$TMP/tree" -czf "$TMP/www/named.tar.gz" named-1
+echo ".{ .dependencies = .{ .named = .{ .url = \"$base/named.tar.gz\", .hash = \"N-drive\" } } }" > "$TMP/drive-src/build.zig.zon"
+(cd "$TMP/drive" && "$SEED" "C:/zig" "$TMP/drive-src") > "$TMP/out" 2>&1 || fail "a seed into a cache path with a drive letter did not exit 0"
+cmp -s "$TMP/drive/C:/zig/p/N-drive.tar.gz" "$TMP/www/named.tar.gz" || fail "a package was not seeded into a cache path with a drive letter"
+cmp -s "$TMP/drive/C:/zig/p/N-drive-inner.tar.gz" "$TMP/www/one.tar.gz" \
+  || fail "the package a seeded archive names was not read when the cache path has a drive letter"
+
 # A second run downloads nothing: everything seeded is already there.
 kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""
 "$SEED" "$TMP/cache" "$TMP/src" > "$TMP/out" 2>&1 || fail "a second run failed"
