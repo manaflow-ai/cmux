@@ -277,7 +277,7 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
 
     /// The default reader reports a store the file mode denies as a file-permission denial.
     /// Skipped as root, which reads a file whatever its mode says.
-    @Test(.enabled(if: getuid() != 0))
+    @Test(.enabled(if: geteuid() != 0))
     func theDefaultReaderReportsAFileModeDenial() throws {
         let fixture = try temporaryStore(Self.storeBytes(pageSizes: [16]))
         defer { try? FileManager.default.removeItem(at: fixture.home) }
