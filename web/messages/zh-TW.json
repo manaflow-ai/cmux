@@ -509,7 +509,18 @@
         "grantedBody": "cmux 團隊已授予 {team} Team 存取權限，沒有需要管理的訂閱。",
         "seatsUsed": "已使用 {members}/{seats}",
         "overSeat": "{team} 有 {members} 位成員和 {seats} 個付費席次。席次數會跟隨成員數，訂閱會自動更新。",
-        "addSeats": "新增席次"
+        "addSeats": "新增席次",
+        "enterprise": {
+          "current": "目前方案",
+          "body": "{team} 正在使用與 cmux 團隊議定的客製方案。如需變更，請聯絡 cmux 團隊。",
+          "price": "價格",
+          "perMonth": "{amount}/月",
+          "machines": "雲端機器",
+          "pool": "共用 vCPU / 記憶體",
+          "largest": "最大機器",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "無限制"
+        }
       },
       "teamList": {
         "heading": "帳單範圍",
