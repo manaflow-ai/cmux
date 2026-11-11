@@ -48,6 +48,7 @@ extension TabDragSession {
             let size = drag.source.window?.window?.frame.size ?? drag.source.windowSize
             if let controller = services.windows.openWindow(workspaces: [id], frame: tearOffFrame(drag, at: point, size: size)) {
                 services.windows.bringToFront(controller)
+                services.windows.giveOwnSpaceIfShared(controller.state.id)
             }
         case .moveWorkspace:
             // The row-drag path: window membership, then one reorder per the
