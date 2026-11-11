@@ -6,6 +6,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_listing_text.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 

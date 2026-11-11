@@ -30,6 +30,11 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # `cloud pause-machine`, opens the Cloud page, fails unless the machine's row says "a month while paused"
 # (cmux-platform#1150's paused_hourly_rate_usd, webviews/src/pages/cloud/cost.ts), uploads the page and window
 # images as cloud-paused-price-staging and kills the machine, as the chat proof kills its own.
+# Claude login: nobody answers the start's login question in CI (cmux-cloud-start-core harness_login.rs), so the
+# chat and matrix lines pass --grant-claude-login (the launched app's own scratch cmux.json says yes to the one-time
+# consent a Release-rules build, build=published, waits for) and --login none (no login copied: Claude runs on the
+# machine's team mode, the SR2/CodeRouter gateway; a DEV build, build=tagged, takes it where it would refuse with
+# needs-login-choice, and it decides before the consent too). Both reach a Claude chat only, never a Codex one.
 on:
   workflow_dispatch:
     inputs:
@@ -430,9 +435,11 @@ jobs:
         if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
+          # --keep-app: without it a --build-only build deletes the bundle it made and prints no App path
           ./scripts/reload.sh \
             --tag "$CMUX_PROOF_TAG" \
             --build-only \
+            --keep-app "$RUNNER_TEMP/cloud-chat-proof-app/cmux DEV $CMUX_PROOF_TAG.app" \
             --auth-profile agent \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" \
             --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
@@ -472,6 +479,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --login none \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
 
       - name: Staging paused price capture
@@ -504,7 +512,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -704,6 +712,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --login none \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
 
       - name: Prod Cloud workspace matrix
@@ -717,7 +726,7 @@ jobs:
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --login none --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

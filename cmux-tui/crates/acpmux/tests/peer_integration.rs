@@ -4047,3 +4047,207 @@ async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
     ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
     assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
 }
+
+/// A relay that carries B's answers to A at `rate` bytes a second, as a saturated uplink does,
+/// and counts them.
+async fn slow_relay(port: u16, rate: u64) -> (u16, Arc<std::sync::atomic::AtomicU64>) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let down = Arc::new(AtomicU64::new(0));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let d = down.clone();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let d = d.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 16 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 || cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    d.fetch_add(n as u64, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_micros(n as u64 * 1_000_000 / rate)).await;
+                }
+            });
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut cr, &mut sw).await;
+            });
+        }
+    });
+    (relay_port, down)
+}
+
+/// A durable watch on a chat that lives on a peer reads that chat's log in pages over the link.
+/// A prompt that carried a large image sits in the log: the watch's page held it whole, the
+/// 250 ms read gave up on it over a slow link, and the watch asked for the same page again
+/// every few seconds for good, 1 MB each time (cosmic-gray to huge-blue, 2026-11-10, about
+/// 210 KB/s on a saturated uplink). The watch asks only for the kinds it reads, bounded, and
+/// moves past what the page passed over, so over a slow link it costs a few KB, once, and resolves.
+#[tokio::test]
+async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
+    use base64::Engine as _;
+    use std::sync::atomic::Ordering;
+    // B runs a chat whose prompt carried a 1.5 MB image no compression shrinks: the prompt's wire
+    // record holds it inline, as on the live daemon.
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "shot", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    while bytes.len() < 1_500_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    let image = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "what is this"},
+            {"type": "image", "mimeType": "image/png", "data": image, "name": "shot.png"}]}),
+    )
+    .await
+    .unwrap();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-bytes").await;
+    // 256 KB/s: a page holding the image takes 8 s, far past the watch's 250 ms read.
+    let (relay, down) = slow_relay(port, 256 * 1024).await;
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    // The daemon's own watch workers: the loop that reads a peer chat's pages for a watch.
+    a.start_watches();
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/shot").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/shot").is_some(), "A never listed b/shot");
+
+    let before = down.load(Ordering::SeqCst);
+    let added = ca
+        .call(method::MUX_WATCH_ADD, json!({"to": me, "sessions": ["b/shot"], "until": ["closed"]}))
+        .await
+        .unwrap();
+    eprintln!("watch: {added}");
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // A turn on B's chat wakes the watch, as the live chat's turns did; then the chat closes.
+    // The watch resolves only once its pages read through the prompt with the image to the close.
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]}),
+    )
+    .await
+    .unwrap();
+    cb.call(method::SESSION_CLOSE, json!({"sessionId": id})).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let read = down.load(Ordering::SeqCst) - before;
+    eprintln!(
+        "watch on b/shot: resolved={resolved} after {:?}, {read} bytes over the link",
+        started.elapsed()
+    );
+    assert!(resolved, "the watch never read b/shot through to its close ({read} bytes moved)");
+    assert!(read < 256 * 1024, "the watch read {read} bytes over the link");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// A durable watch with `--match` on a peer chat reads the chat's reply chunks for its text. A
+/// reply past the watch's 64 KiB page bound comes as a stub; a stub with no text read as a
+/// non-match, the watch moved past it and never woke. The serving side checks the whole text and
+/// says so, so an 80 KiB reply holding "finished" far past the stub's kept ends still wakes it.
+#[tokio::test]
+async fn a_match_watch_on_a_peer_chat_wakes_on_a_match_inside_a_large_reply() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "long", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-match").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.start_watches();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/long").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/long").is_some(), "A never listed b/long");
+    let added = ca
+        .call(
+            method::MUX_WATCH_ADD,
+            json!({"to": me, "sessions": ["b/long"], "until": ["ready"], "match": "finished"}),
+        )
+        .await
+        .unwrap();
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // The fake agent echoes the prompt as one reply chunk: 80 KiB, "finished" in its middle.
+    let text = format!("{}finished{}", "a".repeat(40 * 1024), "b".repeat(40 * 1024));
+    cb.call("session/prompt", json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    eprintln!("match watch on b/long: resolved={resolved} after {:?}", started.elapsed());
+    assert!(resolved, "the watch never saw \"finished\" in the 80 KiB reply");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
