@@ -204,6 +204,11 @@ export function NewTabPage({
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
+  // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
+  // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
+  // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
+  // the tab's folder (`projectCwd`).
+  const chatCwd = projectCwd === cwd && !isStartableProject(cwd) ? undefined : projectCwd;
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
@@ -696,7 +701,7 @@ export function NewTabPage({
         {kind === "agent" && Chips && (
           <div className="acpmux-newtab-foot">
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+              <Chips snapshot={chipSnapshot} {...(chatCwd ? { cwd: chatCwd } : {})} />
             </ComposerFoot>
           </div>
         )}
