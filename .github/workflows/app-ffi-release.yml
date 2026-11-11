@@ -334,7 +334,9 @@ jobs:
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    # !cancelled(): the placement is an ancestor, and a failed placement must
+    # not skip what follows a build that ran past it.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     continue-on-error: true
@@ -446,7 +448,9 @@ jobs:
   publish:
     name: publish release
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # !cancelled(): a failed placement (an ancestor the build runs past) must
+    # not skip the publish of a build that succeeded.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
@@ -596,7 +600,7 @@ jobs:
   repin:
     name: open the re-pin pull request
     needs: [build, publish]
-    if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10

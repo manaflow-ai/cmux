@@ -823,5 +823,70 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
         self.assertEqual(nightly[self.SMALL], ("release-compile",))
 
 
+STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
+
+
+def run_jobs(results: dict[str, str], event: str = "push") -> dict[str, str]:
+    """Which jobs of the workflow run, given the result of the jobs named in `results`, by GitHub's job-gate rule:
+    an `if` with no status function is `success() && (if)`, and success() asks that every ancestor, not only the
+    named needs, succeeded; failure() asks that one failed. A job that runs and is not in `results` succeeds."""
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    needs = {name: ([job["needs"]] if isinstance(job.get("needs"), str) else list(job.get("needs") or ()))
+             for name, job in jobs.items()}
+    outcome: dict[str, str] = {}
+
+    def ancestors(name: str) -> set[str]:
+        found: set[str] = set()
+        for parent in needs[name]:
+            found |= {parent} | ancestors(parent)
+        return found
+
+    def decide(name: str) -> str:
+        if name not in outcome:
+            for parent in needs[name]:
+                decide(parent)
+            above = [outcome[a] for a in ancestors(name)]
+            status = {"success": all(r == "success" for r in above), "failure": "failure" in above,
+                      "cancelled": False, "always": True}
+            condition = str(jobs[name].get("if", "true")).strip()
+            if condition.startswith("${{") and condition.endswith("}}"):
+                condition = condition[3:-2]
+            if not STATUS_CALL.search(condition):
+                condition = f"success() && ({condition})"
+            condition = STATUS_CALL.sub(lambda m: "true" if status[m.group(1)] else "false", condition)
+            context = {"github": {"ref": "refs/heads/feat-cmux-next", "event_name": event,
+                                  "repository_owner": "manaflow-ai"},
+                       "needs": {p: {"result": outcome[p]} for p in needs[name]}}
+            outcome[name] = results.get(name, "success") if evaluate(condition, context) else "skipped"
+        return outcome[name]
+
+    for name in jobs:
+        decide(name)
+    return outcome
+
+
+class PlacementNeverGatesThePublish(unittest.TestCase):
+    """The build runs past its placement (it only picks a runner), so nothing after the build may wait on the
+    placement either. A downstream `if` without a status function keeps the implicit success() over every
+    ancestor, placement included: a failed placement then skipped publish and repin under a green build, and the
+    FFI pin stayed red (Codex review of cmux#40734 at 2283666f, P1)."""
+
+    def test_a_failed_placement_still_publishes_and_repins_a_good_build(self):
+        for event in ("push", "workflow_dispatch"):
+            ran = run_jobs({"placement": "failure"}, event)
+            self.assertEqual(ran["build"], "success", event)
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "success", (event, job))
+
+    def test_a_failed_build_publishes_nothing(self):
+        for placement in ("success", "failure"):
+            ran = run_jobs({"placement": placement, "build": "failure"})
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "skipped", (placement, job))
+
+    def test_a_failed_publish_opens_no_repin(self):
+        self.assertEqual(run_jobs({"placement": "failure", "publish": "failure"})["repin"], "skipped")
+
+
 if __name__ == "__main__":
     unittest.main()
