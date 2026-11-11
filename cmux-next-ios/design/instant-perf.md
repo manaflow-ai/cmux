@@ -11,7 +11,14 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
 ## The rules
 
 - **Budget**: small and god each at most 3x the target. The target is the goal;
-  3x keeps shared CI runners from flaking.
+  3x keeps shared CI runners from flaking. The small case's budget is a bare
+  wall-clock number with nothing to compare against, so on a shared runner it
+  measures the runner (a GitHub macOS runner took 20 ms for the 4 ms
+  `home_list_one_row_update` target, 11-10, code unchanged). It fails the run only
+  with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
+  xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
+  `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
+  always assert.
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs

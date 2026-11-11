@@ -665,13 +665,18 @@ public final class MacHomeFeed {
     /// on cancellation, and after `cap` (a channel that goes quiet without closing
     /// never answers; Retry must come back to be tapped again).
     public func reload(cap: Duration = .seconds(15)) async {
+        await reload(cap: cap, on: ContinuousClock())
+    }
+
+    /// ``reload(cap:)`` with the cap timed on `clock` (tests pass one that moves only when told to).
+    public func reload<C: Clock<Duration>>(cap: Duration, on clock: C) async {
         refresh(relist: false, read: .all)
         guard client != nil || opening else { return }
         readWaiterCount += 1
         let id = readWaiterCount
         // task-owner: the cap of one reload; ends at the cap or with the reload's own end
         let capTask = Task { [weak self] in
-            try? await ContinuousClock().sleep(for: cap)
+            try? await clock.sleep(for: cap)
             self?.endReadWait(id)
         }
         defer { capTask.cancel() }

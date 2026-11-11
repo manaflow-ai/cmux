@@ -318,12 +318,10 @@ Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotFolderReaderTes
 Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotListingTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileAgentChatTests/DiffPrepareTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefOutboxTargetTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
-cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/HomeRetryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ConnectivityMatrixTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalHistoryTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalSessionTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalSizeClaimTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
-cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FeedRefreshTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FeedStoreChurnTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LinkProbeTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LiveTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
@@ -331,8 +329,6 @@ cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LiveTests.swift	yield-coun
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LongChatOpenLiveTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/PresenceListenerTests.swift	yield-count-poll	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalFloodTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
-cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/BoundedWaitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
-cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileNotificationsTests/PushAppGroupLaunchTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/ComposerSubmitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalBenchProbeAccountingTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalSizeClaimTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized

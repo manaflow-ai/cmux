@@ -178,7 +178,10 @@ final class WatchReply: @unchecked Sendable {
         await hub.bind(nil)
     }
 
-    @Test(arguments: ["initialize", "_acpmux/watch"])
+    /// The request's own timeout is an hour and the test's limit is a minute, so the bind
+    /// can only end in time through the cancel: a cancel that did not release the request
+    /// fails at the limit, and no wall-clock bound on a loaded runner decides the result.
+    @Test(.timeLimit(.minutes(1)), arguments: ["initialize", "_acpmux/watch"])
     func cancellingUnansweredHandshakeReleasesTheRequest(method: String) async throws {
         let (requests, sent) = AsyncStream<Void>.makeStream()
         let link = MockMacLink { _, data in
@@ -193,13 +196,11 @@ final class WatchReply: @unchecked Sendable {
         }
         let hub = AcpmuxHub()
         let channel = try await link.openChannel(service: "acpmux", args: [:])
-        let task = Task { @MainActor in await hub.bind(channel, requestTimeout: .seconds(60)) }
+        let task = Task { @MainActor in await hub.bind(channel, requestTimeout: .seconds(3600)) }
         for await _ in requests { break }
-        let start = ContinuousClock.now
         task.cancel()
         await task.value
         sent.finish()
-        #expect(start.duration(to: .now) < .seconds(2))
         #expect(!hub.isReady)
         #expect(hub.lastError != nil)
     }
