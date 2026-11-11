@@ -19,6 +19,7 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
+    | "mcp"
     | "cd"
     | "resume"
     | "login";
@@ -29,7 +30,14 @@ export type CmuxCommand = SlashCommand & {
 /// (attachments and steer included), as if cmux did not own the command.
 export const CMUX_PASS_THROUGH: unique symbol = Symbol("cmux.passThrough");
 
-const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set(["model", "fast", "context", "plan", "passThrough"]);
+const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set([
+  "model",
+  "fast",
+  "context",
+  "plan",
+  "passThrough",
+  "mcp",
+]);
 
 /// A command the harness also takes as typed: with no host to run cmux's own version, it is sent.
 export function harnessTakesToo(command: CmuxCommand): boolean {
@@ -117,6 +125,17 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashStatus",
     source: "cmux",
     action: "status",
+  },
+  // A bare /mcp shows the chat's MCP servers where cmux lists them, Session Info's Connectors, at
+  // once: like /status it sends nothing to the agent, so it never queues or steers behind a running
+  // turn (Leo, 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait
+  // behind ... they should just... go there. and run"). With arguments it is the agent's own.
+  {
+    name: "mcp",
+    description: "",
+    descriptionKey: "composer.slashMcp",
+    source: "cmux",
+    action: "mcp",
   },
   {
     name: "cd",
@@ -315,6 +334,9 @@ export function cmuxCommandRefusal(
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
+    case "mcp":
+      // `/mcp <args>` is the agent's own, sent as typed (New Tab too); a bare one needs the chat's servers.
+      return state.summary || args?.trim() ? undefined : "composer.cmuxUnavailable";
     case "cd":
       if (state.newTab) return "composer.cmuxCdNewTab";
       return !args?.trim() || cdFolder(args, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
