@@ -50,33 +50,6 @@ asset="CCmuxAppFFI.xcframework.zip"
 # naming its first line that does not match.
 pin_reader="$code/scripts/ci/app_ffi_pin.py"
 workspace_manifest=cmux-tui/Cargo.toml
-# The FFI sources (app_ffi_pin.py walk, fail-closed): cmux-app-ffi and every crate it reaches (cmux-rd-ffi pulls
-# cmux-remote-browser, which a hand list missed on 2026-10-07), each as a whole directory except its tests/, benches/
-# and examples/, plus every file outside a crate that a crate's source names (design-tokens.json, which cmux-motion's
-# build script compiles in). A file only tests read is left out only through the reviewed app_ffi_pin.py TEST_ONLY
-# list: #39027 changed bindings/rust/.cmux-resource-api.json, which only a test reads, and staled the pin on
-# 2026-11-09. Derived from the tree at HEAD in one python3 call: the crates, a line "--", then the git pathspecs (an
-# excluded directory is a `:(exclude)` pathspec).
-listed_err="$(mktemp)"
-if ! listed="$(python3 -I "$pin_reader" inputs "$root" 2>"$listed_err")"; then
-  echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$listed_err" | tail -1)" >&2
-  rm -f "$listed_err"
-  exit 1
-fi
-rm -f "$listed_err"
-crates=()
-paths=()
-section=crates
-while IFS= read -r input; do
-  [[ -n "$input" ]] || continue
-  if [[ "$input" == -- ]]; then section=paths; continue; fi
-  if [[ "$section" == crates ]]; then crates+=("$input"); else paths+=("$input"); fi
-done <<<"$listed"
-# Above the crates: the cargo configs and toolchain files cargo and rustup read in and above
-# cmux-tui/crates/cmux-app-ffi, where build-app-ffi.sh builds.
-paths+=(cmux-tui/.cargo cmux-tui/rust-toolchain cmux-tui/rust-toolchain.toml
-  cmux-tui/crates/.cargo cmux-tui/crates/rust-toolchain cmux-tui/crates/rust-toolchain.toml
-  .cargo rust-toolchain rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
 # The cmux-tui workspace manifest: while cmux-app-ffi has its own [workspace] table (cargo builds it as its own
 # workspace root, with its own [patch], [profile] and Cargo.lock), only what the crates inherit of it is an input
 # (workspace_view below; app_ffi_pin.py workspace-view). Without that table cmux-app-ffi builds in the cmux-tui
@@ -86,16 +59,42 @@ if ! own_root="$(python3 -I "$pin_reader" own-root "$root/cmux-tui/crates/cmux-a
   exit 1
 fi
 narrowed=0
-if [[ "$own_root" == yes ]]; then
-  narrowed=1
-else
-  paths+=("$workspace_manifest" cmux-tui/Cargo.lock)
-fi
+[[ "$own_root" == yes ]] && narrowed=1
+# The FFI inputs (app_ffi_pin.py walk, fail-closed): cmux-app-ffi and every crate it reaches (cmux-rd-ffi pulls
+# cmux-remote-browser, which a hand list missed on 2026-10-07), each as a whole directory except its tests/, benches/
+# and examples/, every path a scanned source names (design-tokens.json, which cmux-motion's build script compiles in),
+# the cargo configs and toolchain files above the crates, build-app-ffi.sh and the release workflow. A file only tests
+# read is left out only through the reviewed app_ffi_pin.py TEST_ONLY list: #39027 changed
+# bindings/rust/.cmux-resource-api.json, which only a test reads, and staled the pin on 2026-11-09. Each is a git
+# pathspec with :(literal) magic (an excluded directory: :(exclude,literal)), so a found path is never read as a glob
+# or as magic. list_inputs REV... reads the trees of the commits a comparison has and takes the union: a path that
+# one side names is an input even when the other side does not have it.
+list_inputs() { # list_inputs REV...: set crates and paths to the FFI inputs of the REVs' trees, or refuse
+  local listed err input section=crates
+  err="$(mktemp)"
+  if ! listed="$(python3 -I "$pin_reader" inputs "$root" "$@" 2>"$err")"; then
+    echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$err" | tail -1)" >&2
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
+  crates=()
+  paths=()
+  while IFS= read -r input; do
+    [[ -n "$input" ]] || continue
+    if [[ "$input" == -- ]]; then section=paths; continue; fi
+    if [[ "$section" == crates ]]; then crates+=("$input"); else paths+=("$input"); fi
+  done <<<"$listed"
+  if [[ "$narrowed" -eq 0 ]]; then
+    paths+=(":(literal)$workspace_manifest" ":(literal)cmux-tui/Cargo.lock")
+  fi
+}
+list_inputs HEAD
 # --list-inputs prints them and the workspace manifest (tests/app-ffi-release-paths.test.sh keeps the release
 # workflow's push paths in step with this list: a release run on any change to the manifest is cheap and safe).
 if [[ "$list_inputs" -eq 1 ]]; then
   printf '%s\n' "${paths[@]}"
-  [[ "$narrowed" -eq 1 ]] && printf '%s\n' "$workspace_manifest"
+  [[ "$narrowed" -eq 1 ]] && printf '%s\n' ":(literal)$workspace_manifest"
   exit 0
 fi
 
@@ -126,7 +125,7 @@ if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
     || { echo "error: pinned source sha $sha is not available from $remote" >&2; exit 1; }
 fi
 # What the crates inherit of the workspace manifest at REV: the manifest and the crates' Cargo.toml files at REV (the
-# crate list of HEAD; a crate whose own Cargo.toml changed is a changed input anyway).
+# crates of both compared trees, list_inputs; a crate whose own Cargo.toml changed is a changed input anyway).
 workspace_view() { # workspace_view REV
   local dir crate index=0 status=0
   local manifests=()
@@ -167,6 +166,7 @@ if [[ -n "$base_ref" ]]; then
       base_pin="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>/dev/null | awk '{print $1}' || true)"
     fi
     rm -rf "$base_dir"
+    list_inputs "$base_commit" HEAD
     if ! inputs_differ "$base_commit" HEAD && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
@@ -174,6 +174,7 @@ if [[ -n "$base_ref" ]]; then
     echo "warning: --base $base_ref is not a commit here; checking against the pin only" >&2
   fi
 fi
+list_inputs "$sha" HEAD
 drift=0
 shown=("${paths[@]}")
 git diff --quiet "$sha" HEAD -- "${paths[@]}" || drift=1

@@ -31,16 +31,21 @@
 # only other path: docs/ci/app-ffi-release.md is the runbook.
 #
 # The push paths are exactly the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
-# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs: what the
-# build reads of each crate, not its tests, scripts or READMEs);
-# scripts/cmux-next/tests/app-ffi-release-paths.test.sh keeps them equal.
+# lists (--list-inputs, scripts/ci/app_ffi_pin.py walk: each crate cmux-app-ffi
+# reaches as a whole directory except its tests/, benches/ and examples/, every path
+# a scanned source names, the cargo configs and toolchain files above the crates,
+# build-app-ffi.sh and this workflow); scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+# keeps them equal.
 name: app FFI release
 
 on:
   push:
     branches: [feat-cmux-next]
     paths:
+      - ".cargo/**"
+      - "cmux-tui/.cargo/**"
       - "cmux-tui/bindings/rust/**"
+      - "cmux-tui/crates/.cargo/**"
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-app-ffi/**"
@@ -69,14 +74,11 @@ on:
       - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/crates/cmux-terminal-prediction/**"
       - "cmux-tui/crates/cmux-window-rules/**"
-      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
-      - "cmux-tui/.cargo/**"
-      - "cmux-tui/rust-toolchain"
-      - "cmux-tui/rust-toolchain.toml"
-      - "cmux-tui/crates/.cargo/**"
       - "cmux-tui/crates/rust-toolchain"
       - "cmux-tui/crates/rust-toolchain.toml"
-      - ".cargo/**"
+      - "cmux-tui/rust-toolchain"
+      - "cmux-tui/rust-toolchain.toml"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "rust-toolchain"
       - "rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
