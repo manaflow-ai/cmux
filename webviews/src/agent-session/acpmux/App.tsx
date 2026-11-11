@@ -1747,7 +1747,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ),
       }),
   );
-  const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
+  // What a Send would start with now (the onSend Cloud branch's own words): the host checks it before it reserves.
+  const cloudReserveContext = useRef<() => { cwd?: string; harness?: string; model?: string }>(() => ({}));
+  const [cloudReservation] = useState(
+    () => new CloudComposeReservation(callNative, browserSwitchClock, undefined, () => cloudReserveContext.current()),
+  );
   const cloudComposeEligible = useRef(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
@@ -4576,6 +4580,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
+  useLayoutEffect(() => {
+    cloudReserveContext.current = () => {
+      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      return { ...("cwd" in folder ? { cwd: folder.cwd } : {}), ...heldPick(composerSnapshot) };
+    };
+  });
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
       const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);

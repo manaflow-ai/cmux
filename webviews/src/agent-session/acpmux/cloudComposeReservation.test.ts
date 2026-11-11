@@ -395,3 +395,22 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   expect(sent?.[1].reservationKey).toBeUndefined();
   expect(await answer).toEqual({ ok: true });
 });
+
+test("a reserve names the folder and agent a Send would start with, read at each reserve", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  let context: { cwd?: string; harness?: string } = { cwd: "/tmp/one", harness: "claude" };
+  const reservation = new CloudComposeReservation(
+    async (method, params) => (calls.push([method, params]), {}),
+    { now: () => 0, schedule: () => () => undefined },
+    () => "compose-1",
+    () => context,
+  );
+  reservation.selected();
+  await settle();
+  expect(calls).toEqual([["cloud.reserve", { cwd: "/tmp/one", harness: "claude", composeKey: "compose-1" }]]);
+  context = {};
+  reservation.reset();
+  reservation.selected();
+  await settle();
+  expect(calls.at(-1)).toEqual(["cloud.reserve", { composeKey: "compose-1" }]);
+});

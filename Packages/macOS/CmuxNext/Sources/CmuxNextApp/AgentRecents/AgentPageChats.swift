@@ -154,7 +154,7 @@ final class AgentPageChats {
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
                                      configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
-                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
+                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }, acpmuxHome: QuitAgents.environment(services)?.home.path, agentRefused: { await services.cloud.agentCheck.newMachineRefusal(harness: $0, model: $1, login: .init(), userID: services.cloud.auth.user?.id, teamID: services.cloud.auth.teamID, otherTeams: services.cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords != nil }) // the reserve's own machine gets the login copy (never awaited); none for a Send that will be refused
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

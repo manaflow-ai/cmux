@@ -18,9 +18,18 @@ extension CloudMoveSetup {
         case .failure(let refusal): return message(refusal)
         case .success(let found): checked = found.folder
         }
-        guard let cli, let acpmuxHome else { return nil }
-        let level = await CloudMoveCLI(binary: cli, timeout: .seconds(15)).startChatTrust(folder: checked, acpmuxHome: acpmuxHome)
-        return AgentRemoteStartRefusal.untrustedSource(level: level, folder: checked)?.userMessage
+        return await untrustedSource(checked, acpmuxHome: acpmuxHome)?.userMessage
+    }
+
+    /// This Mac's refusal of a start from `folder`, which it doesn't trust (`link start-chat trust`, read from the acpmux
+    /// at `acpmuxHome`, the one the copy reads), before any machine is reserved, claimed or made: the composer's Send and
+    /// its compose reservation, and `cloud start-session --from-folder`. Nil when trusted, or when trust can't be read
+    /// (the copy reads it again). `log` gets the level read, for the app log.
+    public func untrustedSource(_ folder: String, acpmuxHome: String?, log: (String) -> Void = { _ in }) async -> AgentRemoteStartRefusal? {
+        guard let cli, let acpmuxHome else { log("trust not read (no cmux-tui or acpmux home)"); return nil }
+        let level = await CloudMoveCLI(binary: cli, timeout: .seconds(15)).startChatTrust(folder: folder, acpmuxHome: acpmuxHome)
+        log("this Mac's trust of the folder: \(level ?? "unread") (acpmux home \(acpmuxHome))")
+        return AgentRemoteStartRefusal.untrustedSource(level: level, folder: folder)
     }
 }
 

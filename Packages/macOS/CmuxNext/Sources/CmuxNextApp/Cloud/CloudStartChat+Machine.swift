@@ -69,8 +69,9 @@ extension CloudStartChat {
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject)
-        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
-        var invocation = invocation
+        // The plan may claim the compose's reserved machine: an agent that cannot run (a used-up Claude limit) claims none, as it makes none below.
+        if start.reservationKey != nil, let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) }
+        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install)), invocation = invocation
         if let id = plan.machine, !listed.contains(id) {
             await cloud.refresh() // List a platform-reserved or project machine before attaching.
             // A remembered machine that is gone (deleted, or of another backend) is dropped, never
@@ -84,7 +85,7 @@ extension CloudStartChat {
         }
         if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
-                if let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
+                if start.reservationKey == nil, let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))

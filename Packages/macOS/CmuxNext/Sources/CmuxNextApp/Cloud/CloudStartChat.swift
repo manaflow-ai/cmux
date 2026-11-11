@@ -103,8 +103,7 @@ struct CloudStartChat {
     func run(_ start: AgentPaneCloudStart, from origin: Origin, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
         let tab = origin.tab
         guard !start.home else { return try await runHome(start, from: origin, report: report) }
-        // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
-        // the home folder or the disk's root. A page could already start a chat on this Mac in it.
+        // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never the home folder or the disk's root.
         guard let chat = origin.chat, await CloudMoveFolder.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
@@ -113,8 +112,8 @@ struct CloudStartChat {
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
-        let folderName = URL(fileURLWithPath: chat).lastPathComponent
+        if let refused = await services.cloud.move.untrustedSource(chat, acpmuxHome: QuitAgents.environment(services)?.home.path, log: { [logger = services.cloud.logger] in logger.notice("cloud start chat: \($0, privacy: .public)") }) { throw CloudMove.Failure(message: refused.userMessage) } // before any machine, the compose's reserved one included (its reserve checked it too)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
