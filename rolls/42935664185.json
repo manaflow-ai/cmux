@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42935664185",
+  "recorded_at": "2026-11-11T01:08:17Z",
+  "reason": "cmux-tui 3c74ebca0cdc changes the image's cmux-tui (pinned cce606cce2ab)",
+  "dry_run": false,
+  "cmux_tui": "3c74ebca0cdc874bb9f116a55646081e35864e69",
+  "fixes": [
+    {
+      "sha": "3c74ebca0cdc874bb9f116a55646081e35864e69",
+      "mergedAt": "2026-11-11T00:45:34Z",
+      "subject": "perf(cmux-tui): a whole-session snapshot read takes no registry lock and no state lock (#40808)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:08:17Z",
+    "snapshot_id": "sh-bf7f06847fe04cd6b483c011531c8f71",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42935664185): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "331aa5c8b69e614e9eab3d25ef3321e986c2d419",
+    "image": "cloud-native-auto-3c74ebca-42935664185-1",
+    "revision": "ci-42935664185-1",
+    "at": "2026-11-11T01:08:17Z"
+  },
+  "rolled_back": false
+}
