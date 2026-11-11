@@ -265,10 +265,11 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
           .filter(visible)
           .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
           .join(" ");
+      // In the row's order: the mode, the context ring, then the model (the ring stands left of it).
       const boxes = [
         foot.querySelector(".acpmux-access .acpmux-picker-button"),
-        foot.querySelector(".acpmux-model .acpmux-picker-button"),
         foot.querySelector(".acpmux-context-ring"),
+        foot.querySelector(".acpmux-model .acpmux-picker-button"),
       ]
         .filter((element): element is Element => element !== null)
         .map((element) => element.getBoundingClientRect());

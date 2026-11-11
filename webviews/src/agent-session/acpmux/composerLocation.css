@@ -480,6 +480,15 @@
   width: var(--acpmux-composer-chevron);
   height: var(--acpmux-composer-chevron);
 }
+/* A leading glyph that changed size keeps its old box's center, so the icon column (+, the mode's
+   shield, the folder) stays where it was: the shield drew 18 px, a location icon 14 px. The margins
+   take up the difference on each side (test/newtab-icon-column.test.ts, composer-alignment-centers). */
+:is(.acpmux-composer, .nt-composer) .acpmux-access-trigger > .acpmux-icon:first-child {
+  margin-inline: calc((18px * var(--acpmux-density) - var(--acpmux-composer-glyph)) / 2);
+}
+:is(.acpmux-composer, .nt-composer) :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
+  margin-inline: calc((14px * var(--acpmux-density) - var(--acpmux-composer-glyph)) / 2);
+}
 /* The location strip (folder, computer, environment, branch) is the composer's chrome too: the same
    glyph, the chips' text size, and a height on the density. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button,
