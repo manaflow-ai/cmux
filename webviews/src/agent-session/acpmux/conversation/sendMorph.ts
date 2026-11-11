@@ -264,18 +264,6 @@ const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
 /// 0 before `from`, 1 after `to`, linear between.
 const span = (progress: number, from: number, to: number) => Math.min(1, Math.max(0, (progress - from) / (to - from)));
 
-/// How far `row` is drawn back down the screen (px): the vertical `translate` it and each box up to
-/// `scroller` wear now (the send's glide on the thread, a tail glide on the row). O(depth) per frame.
-function drawnBack(row: HTMLElement, scroller: HTMLElement): number {
-  let back = 0;
-  for (let at: HTMLElement | null = row; at && at !== scroller; at = at.parentElement) {
-    const translate = getComputedStyle(at).translate;
-    if (!translate || translate === "none") continue;
-    back += Number.parseFloat(translate.split(" ")[1] ?? "") || 0;
-  }
-  return back;
-}
-
 /// `place`: the target's place among the row's previews, where a remounted one is found again.
 type Piece = {
   ghost: HTMLElement;
@@ -550,15 +538,9 @@ class Flight {
     const words = this.origin.words;
     const card = this.origin.card;
     this.rebind();
-    // Where the row draws them now, all read before any copy moves. The row rises on the send's
-    // glide from behind the composer (followGlide.ts `sent`): aimed at where it is drawn, a copy hung
-    // over the composer for most of the clock, longer the taller the draft (Leo, 2026-11-11: "when
-    // there's a composer thing raised then it gets sent ... it's not good"). It aims at where the
-    // row rests instead, and at where it is drawn by the end, so it lands on it with no jump.
-    const lag = this.row ? drawnBack(this.row, this.scroller) * (1 - progress) : 0;
-    const resting = (rect: Rect): Rect => ({ ...rect, top: rect.top - lag });
-    const to = this.bubble ? resting(rectOf(this.bubble)) : undefined;
-    const slots = this.copies.map((piece) => (piece.target ? resting(rectOf(piece.target)) : undefined));
+    // Where the row draws them now (it may be rising), all read before any copy moves.
+    const to = this.bubble ? rectOf(this.bubble) : undefined;
+    const slots = this.copies.map((piece) => (piece.target ? rectOf(piece.target) : undefined));
     if (to) {
       const glass = this.style === "shell" && card ? mixRect(card.rect, to, progress) : to;
       this.place(
