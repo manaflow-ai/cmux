@@ -250,9 +250,13 @@ struct PinnedPageTests {
     /// process, and a suite that runs beside this one has its own app in it: the centre's first confirmation can be
     /// that suite's. The two Cmd-W suites in one process each read, and cancelled, the other's question.
     static func closeQuestion(of services: AppServices) -> CmuxDialogCenter.Record? {
-        // The reader the Cmd-W suites had: the first confirmation of the centre, whose app ever it is (the red form).
-        _ = services
-        return CmuxDialogCenter.shared.records.first { $0.spec.identifier == "cmux.dialog.confirmation" }
+        let center = CmuxDialogCenter.shared
+        for controller in services.windows.controllers {
+            guard let window = controller.window, let id = center.dialogBlockingKeys(in: window), let record = center.record(id),
+                  record.spec.identifier == "cmux.dialog.confirmation" else { continue }
+            return record
+        }
+        return nil
     }
 
     /// The app's services on a fresh same-tree daemon, ready once the launch's restore is over and
