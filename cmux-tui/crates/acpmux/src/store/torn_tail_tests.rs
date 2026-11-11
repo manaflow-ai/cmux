@@ -4,7 +4,6 @@
 //! "logged", gone from the transcript for good.
 
 use super::*;
-use std::io::Write as _;
 
 const CHAT: &str = "chat-torn";
 
