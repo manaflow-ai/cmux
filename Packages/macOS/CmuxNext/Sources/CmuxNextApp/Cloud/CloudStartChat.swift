@@ -112,9 +112,8 @@ struct CloudStartChat {
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        if let home = QuitAgents.environment(services)?.home.path, let refused = AgentRemoteStartRefusal.untrustedSource(level: await cli.startChatTrust(folder: chat, acpmuxHome: home), folder: chat) { throw CloudMove.Failure(message: refused.userMessage) } // before any machine: a copy is trusted there only when this Mac trusts it
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
-        let folderName = URL(fileURLWithPath: chat).lastPathComponent
+        if let refused = await services.cloud.move.untrustedSource(chat, acpmuxHome: QuitAgents.environment(services)?.home.path, log: { [logger = services.cloud.logger] in logger.notice("cloud start chat: \($0, privacy: .public)") }) { throw CloudMove.Failure(message: refused.userMessage) } // before any machine, the compose's reserved one included (its reserve checked it too)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account

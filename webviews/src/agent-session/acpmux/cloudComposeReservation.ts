@@ -50,6 +50,9 @@ export class CloudComposeReservation {
     private readonly call: Native,
     private readonly clock: SwitchClock,
     private readonly newKey: () => string = () => crypto.randomUUID(),
+    /// The folder, agent and model a Send would start with now: the host refuses to reserve a machine for
+    /// a start it would refuse (a folder this Mac doesn't trust, an agent that cannot run), before any lease.
+    private readonly context: () => { cwd?: string; harness?: string; model?: string } = () => ({}),
   ) {}
 
   selected(): void {
@@ -87,7 +90,7 @@ export class CloudComposeReservation {
   private reserve(attempt: Attempt, after: Promise<unknown>): void {
     attempt.reservedAt = this.clock.now();
     attempt.ready = after
-      .then(() => this.call("cloud.reserve", { composeKey: attempt.key }))
+      .then(() => this.call("cloud.reserve", { ...this.context(), composeKey: attempt.key }))
       .then(
         () => true,
         () => false,
