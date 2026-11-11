@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43069786553",
+  "recorded_at": "2026-11-11T17:45:02Z",
+  "reason": "image inputs changed in 3b48ec6bfd593e647365f33435e90a7ea527cf0b..e467bd324c53eaa465d475a2493aa8b7d385bb9e",
+  "dry_run": false,
+  "cmux_tui": "115898a6ffab843a3089fb9733209ef70bdbd744",
+  "fixes": [
+    {
+      "sha": "e467bd324c53eaa465d475a2493aa8b7d385bb9e",
+      "mergedAt": "2026-11-11T09:36:17-08:00",
+      "subject": "Cloud image roll: detect an environment booting a stale image; journey prints machine facts (#41394)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T17:45:02Z",
+    "snapshot_id": "sh-747fe3504f2a4c838bdde280308e5930",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43069786553): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c73fadd0a25f9075ba6a6dc0e9a404f714fcd9b6",
+    "image": "cloud-native-auto-115898a6-43069786553-1",
+    "revision": "ci-43069786553-1",
+    "at": "2026-11-11T17:45:02Z"
+  },
+  "rolled_back": false
+}
