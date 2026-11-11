@@ -945,10 +945,26 @@ def full_run(
     return {}, {}, search, (), ((script, SEARCH_DOES_NOT_SETTLE, 0, "no fixed point in 20 rounds"),)
 
 
-def stale_audit_entries(root: Path, audit: dict[tuple[str, ...], str]) -> list[str]:
+def _audit_live(root: Path, key: tuple[str, ...], cwd: str | None) -> bool:
+    """Whether an audit entry matches a live call of its file when it runs from `cwd`, read by the same
+    dynamic_calls (so the same relative-path resolution) that find_misses uses for that run. With the
+    working directory unknown (None), a load the entry names cannot be resolved, so it is not stale:
+    that run is already unverifiable."""
+    path_ops, loads, calls = dynamic_calls(root, key[0], cwd)
+    if len(key) == 2:
+        return cwd is None or key[1] in loads
+    live_calls = {(c, t) for c, _, t in calls} | {(op[3], op[5]) for op in path_ops}
+    return (key[1], normal_audit_key(key)[2]) in live_calls
+
+
+def stale_audit_entries(
+    root: Path, audit: dict[tuple[str, ...], str], ran_in: dict[str, set[str | None]] | None = None
+) -> list[str]:
     """Audit entries that match nothing live: a file that is gone, no unresolved call of that kind with
     that argument text (so editing an audited call needs a fresh look), or a load the file no longer
-    makes; and entries with no reason."""
+    makes; and entries with no reason. `ran_in` maps a file to each working directory a checked run
+    reads it from (None when unknown); an entry is live when it is live from any of them. A file no
+    run reads is read from the repo root."""
     out = []
     for key, reason in sorted(audit.items()):
         rel, what = key[0], key[1]
@@ -956,10 +972,8 @@ def stale_audit_entries(root: Path, audit: dict[tuple[str, ...], str]) -> list[s
         if not (root / rel).is_file():
             out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: the file is gone, drop the entry")
             continue
-        path_ops, loads, calls = dynamic_calls(root, rel)
-        normal = normal_audit_key(key)
-        live_calls = {(c, t) for c, _, t in calls} | {(op[3], op[5]) for op in path_ops}
-        live = what in loads if len(key) == 2 else (what, normal[2]) in live_calls
+        normal_audit_key(key)  # a malformed key raises here, as before
+        live = any(_audit_live(root, key, cwd) for cwd in sorted((ran_in or {}).get(rel) or {""}, key=str))
         if not live:
             out.append(f"DYNAMIC_IMPORT_AUDIT: {label}: no call in {rel} matches it; re-check the call and the entry")
         elif not str(reason).strip():
@@ -1797,6 +1811,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     _run_lines.cache_clear()  # run steps parse once per run, never from an earlier one
     memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
+    ran_in: dict[str, set[str | None]] = {}  # file -> working directories its checked runs read it from
     for workflow, job_id, step, entries, doc, job in non_cone_sparse_steps(root):
         listed = listed_ci_scripts(entries, root)
         if not listed:
@@ -1815,6 +1830,9 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             if run not in memo:
                 memo[run] = full_run(root, run[0], run[2], run[1], frozen_audit, names, run[3], run[4])
             full[run] = memo[run]
+            closure = [run[0], *(p for p in full[run][0].values() if not p.endswith("/"))]
+            for rel in closure:
+                ran_in.setdefault(rel, set()).add(run[4])
         files = set(listed)
         for places, *_ in full.values():
             files |= _files_for(places, root)
@@ -1870,7 +1888,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
             )
         misses += [f"{prefix}{rel} unverifiable: {SEARCH_DOES_NOT_SETTLE} ({what})" for rel, what in sorted(unsettled.items())]
         misses += sorted(set(bad_paths))
-    return misses + stale_audit_entries(root, audit)
+    return misses + stale_audit_entries(root, audit, ran_in)
 
 
 # --- shell fixtures and the bash oracle -------------------------------------------------------
@@ -2496,6 +2514,48 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
+    VENDOR = {
+        "scripts/ci/vend.py": (
+            "import importlib.util\n"
+            "try:\n"
+            "    spec = importlib.util.spec_from_file_location('v', 'vendor/x.py')\n"
+            "except ImportError:\n"
+            "    spec = None\n"
+        ),
+        "scripts/ci/vendor/x.py": "",
+    }
+
+    def test_fixture_review_41012_f2_an_audit_entry_is_read_from_the_run_working_directory(self) -> None:
+        # From scripts/ci, 'vendor/x.py' is scripts/ci/vendor/x.py: the audited optional load is live,
+        # not stale (read from the repo root it named nothing).
+        audit = {("scripts/ci/vend.py", "scripts/ci/vendor/x.py"): "optional: vend.py runs without it"}
+        listed = self.block("scripts/ci/vend.py")
+        self.assertEqual(
+            self._misses(listed, run="python3 vend.py", run_env="working-directory: scripts/ci", audit=audit, more=self.VENDOR),
+            [],
+        )
+        # An unknown working directory makes the load unverifiable, never the entry stale.
+        self.assertEqual(
+            self._misses(
+                listed, run=self.block("true || cd scripts/ci", "python3 scripts/ci/vend.py"), audit=audit, more=self.VENDOR
+            ),
+            [
+                "w.yml run Check out: scripts/ci/vend.py calls importlib.util.spec_from_file_location('v', "
+                "'vendor/x.py') (line 3), which this check cannot follow; make the import static or audit it in "
+                "DYNAMIC_IMPORT_AUDIT"
+            ],
+        )
+        # A load the file no longer makes from where it runs is still stale.
+        gone = {("scripts/ci/vend.py", "scripts/ci/vendor/y.py"): "a load the file does not make"}
+        self.assertEqual(
+            self._misses(listed, run="python3 vend.py", run_env="working-directory: scripts/ci", audit=gone, more=self.VENDOR),
+            [
+                "w.yml run Check out: scripts/ci/vend.py imports scripts/ci/vendor/x.py, not in its sparse checkout",
+                "DYNAMIC_IMPORT_AUDIT: scripts/ci/vend.py scripts/ci/vendor/y.py: no call in scripts/ci/vend.py "
+                "matches it; re-check the call and the entry",
+            ],
+        )
+
     def test_fixture_fixed_sys_path_insert_joins_the_search_path(self) -> None:
         # lit.py inserts scripts/ (parents[1] of its file) and imports toplib from there.
         self.assertEqual(
@@ -2843,7 +2903,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
 
-    def test_fixture_review_41041_f1_a_step_shell_without_errexit_is_read_without_it(self) -> None:
+    def test_fixture_review_41035_f1_a_step_shell_without_errexit_is_read_without_it(self) -> None:
         # `shell: bash {0}` runs without -e: the cd may fail and the step go on in the repo root, so the
         # -c run's directory is unknown, through run_configs. GitHub's default and `shell: bash` keep -e.
         listed = self.block("scripts/ci/wentry.py", "scripts/ci/witness.py")
@@ -2917,6 +2977,19 @@ class SparseCheckoutImportTests(unittest.TestCase):
                 "w.yml run Check out: scripts/ci/mx.py calls sys.path.append(os.path.join(os.path.dirname("
                 "os.path.abspath(__file__)), 'mxvendor')) (line 4), which this check cannot follow; make the "
                 "import static or audit it in DYNAMIC_IMPORT_AUDIT"
+            ],
+        )
+
+    def test_fixture_review_41012_f1_a_cd_under_if_leaves_python_m_unverifiable(self) -> None:
+        # The reviewer's shape: the cd under `if` may or may not run, so `python -m` has no known
+        # working directory.
+        listed = self.block("scripts/ci/mx2.py", "tests/__init__.py", "tests/mxhelp.py")
+        run = self.block("if true; then cd scripts/ci; fi", "python3 -m scripts.ci.mx2")
+        self.assertEqual(
+            self._misses(listed, run=run, more=self.CWD),
+            [
+                "w.yml run Check out: scripts/ci/mx2.py runs with `python -m` from a working directory this check "
+                "cannot resolve"
             ],
         )
 
