@@ -19,6 +19,9 @@ export type PasteProbeOptions = {
   /// Waits for the person's own paste (a real Cmd-V, `debug.key {target: "page"}`) instead of making
   /// one, so the engine's read of the pasteboard counts too: times from the key down.
   real?: boolean;
+  /// With `real`: the next press in the page asks the host for the engine's own paste (`pane.edit
+  /// paste`, the composer menu's Paste), timed from then: a window that is never key takes no Cmd-V.
+  edit?: boolean;
   /// The last probe's result (or `{running: true}`), without starting one: a page call has only a
   /// few seconds to answer (CEF's DevTools evaluate), less than a probe takes.
   read?: boolean;
@@ -169,6 +172,17 @@ async function runProbe(options: PasteProbeOptions): Promise<PasteProbeResult> {
         if (event.key.toLowerCase() === "v" && event.metaKey) start = performance.now();
       };
       window.addEventListener("keydown", keyDown, true);
+      if (options.edit)
+        window.addEventListener(
+          "pointerdown",
+          () => {
+            start = performance.now();
+            void callHost("pane.edit", { command: "paste" }).catch((error: unknown) => {
+              result.edit_error = String(error);
+            });
+          },
+          { capture: true, once: true },
+        );
       window.addEventListener(
         "paste",
         (event) => {
