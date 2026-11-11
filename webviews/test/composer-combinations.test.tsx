@@ -48,8 +48,7 @@ beforeAll(async () => {
     disconnect() {}
   }
   Object.assign(dom.window, { ResizeObserver: NoResize });
-  const { proseMirrorGlobals } =
-    await import("../src/agent-session/acpmux/promptFieldTesting");
+  const { proseMirrorGlobals } = await import("../src/agent-session/acpmux/promptFieldTesting");
   Object.assign(scope, {
     ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     window: dom.window,
@@ -81,10 +80,8 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown })
-    .cmuxAcpmuxActions;
-  const { setCloudTeamForTest } =
-    await import("../src/agent-session/acpmux/cloudMachines");
+  delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+  const { setCloudTeamForTest } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudTeamForTest(undefined);
 });
 
@@ -139,25 +136,18 @@ type Cell = {
 };
 type Call = { method: string; params: Record<string, unknown> };
 
-const settle = () =>
-  act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 
 /// Renders the New Tab page as App does, with App's own New Tab chips. Every host request (the
 /// page's actions and the native host) lands in `calls`.
 async function renderPage(cell: Cell, calls: Call[]) {
   const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } =
-    await import("@tanstack/react-query");
-  const { NewTabComposerChips } =
-    await import("../src/agent-session/acpmux/App");
-  const { NewTabScreen } =
-    await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const { newTabScreenActions } =
-    await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { cloudStartFolder } =
-    await import("../src/agent-session/acpmux/cloudRun");
-  const { setCloudTeamForTest } =
-    await import("../src/agent-session/acpmux/cloudMachines");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const { cloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
+  const { setCloudTeamForTest } = await import("../src/agent-session/acpmux/cloudMachines");
   await import("../src/agent-session/acpmux/lastPick");
   const { noChat } = await import("../src/gallery/fixtures/acpmux");
   const { callNative } = await import("../src/agent-session/acpmux/callNative");
@@ -170,16 +160,12 @@ async function renderPage(cell: Cell, calls: Call[]) {
       if (method === "chat.new") return `session-${calls.length}`;
       return undefined;
     };
-  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions =
-    new Proxy(
-      {},
-      {
-        get: (_, method) =>
-          typeof method === "string" && /^(chat|cloud)\./.test(method)
-            ? record(method)
-            : undefined,
-      },
-    );
+  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
+    {},
+    {
+      get: (_, method) => (typeof method === "string" && /^(chat|cloud)\./.test(method) ? record(method) : undefined),
+    },
+  );
   setCloudTeamForTest(TEAMS[cell.team]);
 
   const actions = newTabScreenActions({
@@ -191,16 +177,9 @@ async function renderPage(cell: Cell, calls: Call[]) {
     showAllChats: () => {},
     runShell: () => {},
   });
-  const projects = Object.values(FOLDERS).filter(
-    (folder) => folder !== undefined,
-  );
+  const projects = Object.values(FOLDERS).filter((folder) => folder !== undefined);
   // App's own onCloud (App.tsx): the harness, the folder Cloud copies (cloudStartFolder) and the model.
-  const onCloud = (
-    harness: string,
-    text: string,
-    cwd: string | undefined,
-    model: string | undefined,
-  ) => {
+  const onCloud = (harness: string, text: string, cwd: string | undefined, model: string | undefined) => {
     void callNative("cloud.startChat", {
       task: text,
       harness,
@@ -245,21 +224,16 @@ async function renderPage(cell: Cell, calls: Call[]) {
 
 /// The folder chooser on the page: picks the cell's folder, or No folder.
 async function pickFolder(folder: FolderPick) {
-  const button = host.querySelector<HTMLButtonElement>(
-    ".nt-env .acpmux-project-button",
-  );
+  const button = host.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button");
   expect(button, "no folder chooser on the page").toBeTruthy();
   await act(async () => button!.click());
   await settle();
   const wanted = FOLDERS[folder];
-  const rows = [
-    ...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ];
+  const rows = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')];
   const row = wanted
     ? rows.find(
         (candidate) =>
-          candidate.textContent?.trim().startsWith(wanted.label) &&
-          !candidate.textContent?.includes("No folder"),
+          candidate.textContent?.trim().startsWith(wanted.label) && !candidate.textContent?.includes("No folder"),
       )
     : rows.find((candidate) => candidate.textContent?.includes("No folder"));
   expect(
@@ -272,19 +246,13 @@ async function pickFolder(folder: FolderPick) {
 
 /// The mode menu under the box: picks the agent's widest mode by its name.
 async function pickWidestMode(harness: Harness) {
-  const { openPicker } =
-    await import("../src/agent-session/acpmux/pickerOpeners");
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Mode"));
   await settle();
   const name = HARNESSES[harness].widestName;
-  const items = [
-    ...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-access-item"),
-  ];
+  const items = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-access-item")];
   const item = items.find((row) => row.textContent?.includes(name));
-  expect(
-    item,
-    `no "${name}" in the mode menu: ${items.map((r) => r.textContent).join(" | ")}`,
-  ).toBeTruthy();
+  expect(item, `no "${name}" in the mode menu: ${items.map((r) => r.textContent).join(" | ")}`).toBeTruthy();
   await act(async () => item!.click());
   await settle();
 }
@@ -297,18 +265,11 @@ async function send(text: string) {
       };
     }
   >(".nt-field")!;
-  for (
-    let turn = 0;
-    turn < 200 &&
-    !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]"));
-    turn++
-  )
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
     await settle();
   field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
   await settle();
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>(".nt-send")!.click(),
-  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-send")!.click());
   await settle();
   await settle();
 }
@@ -318,20 +279,14 @@ for (const harness of Object.keys(HARNESSES) as Harness[])
   for (const folder of Object.keys(FOLDERS) as FolderPick[])
     for (const mode of ["default", "widest"] as Mode[])
       for (const where of ["this-mac", "cloud"] as Where[])
-        for (const team of (where === "cloud"
-          ? ["personal", "team"]
-          : ["personal"]) as Team[])
+        for (const team of (where === "cloud" ? ["personal", "team"] : ["personal"]) as Team[])
           CELLS.push({ harness, folder, mode, where, team });
 
 const cellName = (cell: Cell) =>
   [
     HARNESSES[cell.harness].name,
-    cell.folder === "none"
-      ? "No folder"
-      : `in ${FOLDERS[cell.folder]!.cwd.replace(HOME, "~")}`,
-    cell.mode === "widest"
-      ? HARNESSES[cell.harness].widestName
-      : "default mode",
+    cell.folder === "none" ? "No folder" : `in ${FOLDERS[cell.folder]!.cwd.replace(HOME, "~")}`,
+    cell.mode === "widest" ? HARNESSES[cell.harness].widestName : "default mode",
     cell.where === "cloud" ? `Cloud (${TEAMS[cell.team].name})` : "this Mac",
   ].join(", ");
 
@@ -339,10 +294,7 @@ for (const cell of CELLS) {
   // A Cloud start carries no mode yet (CloudStart has no mode field; the Cloud machine starts in an
   // asking mode): manaflow-ai/cmux#40956 sends the pick. Until it lands these cells are listed, not run.
   if (cell.where === "cloud" && cell.mode === "widest") {
-    test.todo(
-      `${cellName(cell)}: the Cloud start carries the mode picked (#40956)`,
-      () => {},
-    );
+    test.todo(`${cellName(cell)}: the Cloud start carries the mode picked (#40956)`, () => {});
     continue;
   }
   test(cellName(cell), async () => {
@@ -356,11 +308,7 @@ for (const cell of CELLS) {
 
     if (cell.where === "cloud") {
       // Nothing starts on this Mac.
-      expect(
-        calls.filter(
-          (call) => call.method === "chat.new" || call.method === "chat.send",
-        ),
-      ).toEqual([]);
+      expect(calls.filter((call) => call.method === "chat.new" || call.method === "chat.send")).toEqual([]);
       const starts = calls.filter((call) => call.method === "cloud.startChat");
       expect(starts.length).toBe(1);
       // The agent picked, and the folder picked: copied to the machine, or its home with nothing copied.
@@ -372,18 +320,14 @@ for (const cell of CELLS) {
       else expect(starts[0]!.params).toMatchObject({ home: true });
       expect(starts[0]!.params.cwd).not.toBe(SCRATCH);
       // The account the chat runs in is the app's active one: the Where control names it before Send.
-      const where = host.querySelector<HTMLElement>(
-        '.acpmux-location-picker[data-kind="computer"] button',
-      );
+      const where = host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button');
       const named = `${where?.getAttribute("aria-label") ?? ""} ${where?.textContent ?? ""}`;
       expect(named).toContain(TEAMS[cell.team].name);
       return;
     }
 
     // This Mac: one chat starts, with the agent and folder picked, and takes the prompt.
-    const starts = calls.filter(
-      (call) => call.method === "chat.new" && call.params.deferred !== true,
-    );
+    const starts = calls.filter((call) => call.method === "chat.new" && call.params.deferred !== true);
     expect(starts.length).toBe(1);
     expect(starts[0]!.params.harness).toBe(cell.harness);
     if (folder) expect(starts[0]!.params.cwd).toBe(folder);
@@ -398,12 +342,8 @@ for (const cell of CELLS) {
       return;
     }
     // The mode pick goes to the chat that starts: the same agent, in the same folder, before the prompt.
-    expect(modes.map((call) => call.params.modeId)).toEqual([
-      HARNESSES[cell.harness].widest,
-    ]);
-    const behind = calls.filter(
-      (call) => call.method === "chat.new" && call.params.deferred === true,
-    );
+    expect(modes.map((call) => call.params.modeId)).toEqual([HARNESSES[cell.harness].widest]);
+    const behind = calls.filter((call) => call.method === "chat.new" && call.params.deferred === true);
     expect(behind.length).toBeGreaterThan(0);
     for (const start of behind) {
       expect(start.params.harness).toBe(cell.harness);
