@@ -1287,7 +1287,9 @@ def _line_commands(line: str) -> list[list[str]] | None:
 
 _LEADING_RESERVED = {"then", "do", "else", "elif", "!", "time", "if", "while", "until", "{", "}"}
 _GIVES_UP = {"eval", "source", ".", "pushd", "popd", "case", "esac", "function", "select", "coproc", "]]"}
-_EXIT_TRAPS = {"EXIT", "0", "INT", "TERM", "HUP", "QUIT", "SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"}
+# Only an exit trap runs after every python call of the step. A signal trap (INT, TERM, HUP, QUIT...)
+# runs whenever the signal comes, `kill -INT $$` included, and ERR, DEBUG and RETURN run mid-step too.
+_EXIT_TRAPS = {"EXIT", "0", "SIGEXIT"}
 _UNQUOTED_GLOB = re.compile(r"[*?\[]")
 _NOT_FOUND = object()
 _SUBSHELL_COMMAND = _Tok("word", "( ... )", "( ... )", True, 0, 0)
@@ -1426,9 +1428,12 @@ class _Shell:
             return False
         if name.text == "exec" and words:
             return False
-        if name.text == "shopt" and set(words) & {"cdable_vars", "autocd"}:
+        if name.text == "shopt" and set(words) & {"cdable_vars", "autocd", "lastpipe"}:
             return False
-        return name.text != "trap" or set(words[1:]) <= _EXIT_TRAPS or words[:1] in (["-p"], ["-l"])
+        if name.text != "trap" or words[:1] in (["-p"], ["-l"]):
+            return True
+        # Resetting (-) or ignoring ('') a signal runs nothing; any other action, only on exit.
+        return words[:1] in (["-"], [""]) or set(words[1:]) <= _EXIT_TRAPS
 
     def _outcomes(self, command: list[_Tok], cwd: str | None) -> list[tuple[str | None, bool]]:
         """A lone simple command's outcomes from `cwd`: it may succeed or fail; exit and return end
@@ -1444,7 +1449,7 @@ class _Shell:
             arg = args[0]
             plain = not arg.text.startswith("-") and "`" not in arg.raw
             if plain and (arg.quoted or not _UNQUOTED_GLOB.search(arg.raw)):
-                landed = _resolve_dir(arg.text, cwd, self.root)
+                landed = _resolve_dir(arg.text, cwd, self.root, exact=True)
         return [(landed, True), (cwd, False)]
 
     def _end_pipeline(self, background: bool = False, suppressed: bool = False) -> bool:
@@ -1675,6 +1680,9 @@ class _Shell:
         word = tok.text
         if word in ("if", "while", "until", "for"):
             self._open("block")
+            if word != "if" and self._loop_changes_dir():
+                # A pass may start where an earlier pass's cd left it: unknown all through the loop.
+                self.states = tuple((None, ok, dies) for _, ok, dies in self.states)
             self.ignore = self.ignore or word != "for"  # a condition: errexit is ignored in it
         elif word in ("fi", "done"):
             if top != "block":
