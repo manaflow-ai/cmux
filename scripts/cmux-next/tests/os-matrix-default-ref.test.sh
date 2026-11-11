@@ -11,6 +11,7 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 OS_MATRIX=${OS_MATRIX:-$ROOT/scripts/cmux-next/os-matrix.sh}
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 # Local-path submodules (case 4) need the file transport, which git >= 2.38.1 refuses by default.
 export "GIT_CONFIG_KEY_${GIT_CONFIG_COUNT}=protocol.file.allow" "GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT}=always"
