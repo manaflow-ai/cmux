@@ -50,7 +50,7 @@ PARAM_HEAD = re.compile(r"[#!]?(?:[A-Za-z_]\w*|\d+|[@*#?$!-])(?:\[[^\]]*\])?")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=")
 MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text is Unparsed, never a RecursionError
 # Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
-START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
+START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time", "coproc"}
 # Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper: its options
 # that take no argument, those that take one (-n 5, -n5, --adjustment=5), its long options whose argument is optional
 # (only as --opt=ARG), and how many operands come before the command (timeout's DURATION). A long option may be cut
@@ -73,7 +73,10 @@ WRAPPERS = {
     "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, set(), 0),
     "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), set(), 0),
 }
-KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
+KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "coproc"}  # time is in WRAPPERS
+# Reserved words this reads no command through: where one reaches a command's first word, what runs is UNRESOLVED,
+# never a command named for it and never nothing (a for or select's words, a done, fi or esac with words after it).
+UNMODELED = {"for", "select", "in", "done", "fi", "esac", "function", "case", "[[", "]]"}
 # The builtins that read NAME=value in their arguments after quote removal, as env does: export "X"=1 sets X.
 DECLARES = {"export", "declare", "typeset", "local", "readonly"}
 
@@ -238,12 +241,17 @@ class _Parser:
                     continue
                 if start:
                     end()
+                elif len(texts) == 2 and texts[0] == "coproc":
+                    cmd.words.clear()  # coproc NAME ( ... ): NAME names the coprocess; the subshell runs
+                    end()
                 elif texts:  # after a word only a function's () may follow
                     j = i + 1
                     while j < n and s[j] in " \t":
                         j += 1
                     if j >= n or s[j] != ")":
                         raise Unparsed(s)
+                    if texts[0] == "function" and len(texts) == 2:
+                        cmd.words.clear()  # function NAME (): NAME is a name, never a command
                     end()
                     i = j + 1
                     continue
@@ -259,6 +267,12 @@ class _Parser:
             if s[i:j].isdigit() and j < n and s[j] in "<>":
                 i = j  # a file descriptor's number: its redirection follows
                 continue
+            if len(texts) == 2 and texts[0] in ("function", "coproc") and not cmd.redirects and \
+                    s[i:j] in ("{", "(") and len(cmd.words) == 2:
+                # function NAME { ...; } and coproc NAME { ...; }: NAME is a name, never a command; the compound
+                # command after it is read as any other (teamleaderleo/leo-workspace#4382 review, F2).
+                cmd.words.clear()
+                end()
             texts.append(s[i:j])
             cmd.words.append(w)
             i = last_end = j
@@ -681,7 +695,8 @@ UNRESOLVED: list = _Unresolved()
 
 
 def unwrap(argv: list[str], assigned: list | None = None, where: list | None = None,
-           names: frozenset = frozenset()) -> list[str] | None:
+           names: frozenset = frozenset(), bare: frozenset | None = None,
+           through: list | None = None) -> list[str] | None:
     """The command ARGV runs and its arguments, read through NAME=value words, reserved words (!, if, do, ...) and
     the command wrappers in WRAPPERS with their options: `time -p env -i X=1 nice -n 5 mktemp t` runs
     ["mktemp", "t"]. An env -S string is split into words (_split). None when ARGV runs nothing (command -v, --help,
@@ -696,15 +711,32 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
     may be either, so the command is UNRESOLVED. After exec, and any other wrapper, NAME=value is the command's name.
     WHERE gets (index, spans) for each word returned. INDEX is the ARGV word it comes from; SPANS is None for that
     whole word, or for a word of an env -S string, per character the (start, end) range of ARGV[INDEX] it comes
-    from."""
+    from.
+
+    A bare `time` that starts the command (after reserved words, before any NAME=value or wrapper) is bash's
+    reserved word, which takes -p and nothing else: `time -f F cmd` runs the command -f. Any other time (`command
+    time`, /usr/bin/time, `X=1 time`, a quoted "time") is GNU time, with its options (teamleaderleo/leo-workspace#4380
+    review at 27a11d16, F2). It takes one -p and one --, each unquoted: `time -p -p cmd` and `time "-p" cmd` run the
+    command -p (#4434 review, F1). BARE holds the indexes of ARGV words with no quoting (all of them when None).
+    THROUGH gets the name of each wrapper read through, in order. A reserved word this reads nothing through
+    (UNMODELED) where a command starts makes it UNRESOLVED."""
     argv, k, assigns = list(argv), 0, "shell"
     origin: list = [(i, None) for i in range(len(argv))]
+    first = True  # no NAME=value and no wrapper yet: a bare time here is the reserved word
+
+    def unquoted(j: int) -> bool:  # an ARGV word with no quoting, as it is (no word of an -S string)
+        return origin[j][1] is None and (bare is None or origin[j][0] in bare)
 
     def named(j: int) -> bool:  # an ARGV word NAMES holds, as it is (no word of an -S string)
         return origin[j][1] is None and origin[j][0] in names
 
     def split_at(at: int, off: int) -> bool:
-        """Put the words of argv[at][off:] (an -S string) in its place, after argv[at]; False when env refuses it."""
+        """Put the words of argv[at][off:] (an -S string) in its place, after argv[at]; False when env refuses it, or
+        when a part of it only a run can tell ("\0": a shell expansion, $prefix) may add words or quotes to what env
+        splits (manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F1). env's own ${NAME} is no such part: env puts its
+        value in one word."""
+        if "\0" in argv[at][off:]:
+            return False
         got = _split(argv[at][off:])
         if got is None:
             return False
@@ -721,10 +753,22 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
     while k < len(argv):
         if assigns == "shell" and (argv[k] in KEYWORDS or ASSIGNMENT.match(argv[k]) and not named(k)) or \
                 assigns == "env" and "=" in argv[k]:
-            if assigned is not None and argv[k] not in KEYWORDS:
-                assigned.append((origin[k][0], argv[k], origin[k][1]))
+            if argv[k] not in KEYWORDS:
+                first = False
+                if assigned is not None:
+                    assigned.append((origin[k][0], argv[k], origin[k][1]))
             k += 1
             continue
+        if first and argv[k] == "time" and unquoted(k):
+            k += 1  # bash's reserved word: one -p, one --, and the next word is the command, whatever it is
+            if k < len(argv) and argv[k] == "-p" and unquoted(k):
+                k += 1
+            if k < len(argv) and argv[k] == "--" and unquoted(k):
+                k += 1
+            continue
+        if argv[k] in UNMODELED and unquoted(k):
+            return UNRESOLVED
+        first = False
         if assigns == "env" and "\0" in argv[k]:
             return UNRESOLVED  # "$V" may be NAME=value or the command
         base = argv[k].rsplit("/", 1)[-1]
@@ -732,6 +776,8 @@ def unwrap(argv: list[str], assigned: list | None = None, where: list | None = N
             if where is not None:
                 where.extend(origin[k:])
             return argv[k:]
+        if through is not None:
+            through.append(base)
         flags, takes, optional, operands = WRAPPERS[base]
         longs = sorted(o for o in flags | takes | optional if o.startswith("--"))
         k += 1
@@ -891,8 +937,9 @@ def resolve(text: str, cmd: Command) -> Resolved:
     argv = [value for value, _ in values]
     # A quoted "X"=1 is a command's name (or an -S string), never an assignment, whatever its value.
     names = frozenset(i for i, w in enumerate(words) if not ASSIGNMENT.match(text, w.start))
-    assigned, where = [], []
-    run = unwrap(argv, assigned, where, names)
+    bare = frozenset(i for i, w in enumerate(words) if text[w.start:w.end] == argv[i])
+    assigned, where, through = [], [], []
+    run = unwrap(argv, assigned, where, names, bare, through)
 
     def at(index: int, spans) -> Word:
         word, (_, chars) = words[index], values[index]
@@ -907,7 +954,9 @@ def resolve(text: str, cmd: Command) -> Resolved:
         return Resolved(run, [], got)
     found = [at(i, spans) for i, spans in where]
     unknown = []
-    if run[0] in DECLARES:
+    # A declaration builtin is bash's only in bash's own command position, or after command or builtin; after env,
+    # nice or any other program it is a program named export (#4419 review, F1).
+    if run[0] in DECLARES and all(b in ("command", "builtin") for b in through):
         for word, value in zip(found[1:], run[1:]):
             if value.startswith(("-", "+")) and "=" not in value:
                 continue  # an option: export -n, declare -x, declare +x
@@ -918,9 +967,16 @@ def resolve(text: str, cmd: Command) -> Resolved:
     return Resolved(found, run, got, unknown)
 
 
+def runs(text: str) -> str | None:
+    """The name of the command TEXT's first command runs (resolve()): None when it runs nothing, "?" when that
+    cannot be told."""
+    run = resolve(text, next(commands(parse(text))))
+    return "?" if run.words is UNRESOLVED else run.values[0] if run.words else None
+
+
 def assigned_names(text: str) -> list[str]:
     """The names TEXT's commands set with NAME=value words (resolve()), in order: "?" for one whose name only a run
-    can tell, or a declaration builtin's word that may be NAME=value (export "$V")."""
+    can tell, a declaration builtin's word that may be NAME=value (export "$V"), or a command that is UNRESOLVED."""
     out = []
     for cmd in commands(parse(text)):
         run = resolve(text, cmd)
@@ -928,6 +984,8 @@ def assigned_names(text: str) -> list[str]:
             name = re.sub(r"\[.*$", "", raw.split("=", 1)[0].rstrip("+"))
             out.append("?" if "\0" in name else name)
         out += ["?"] * len(run.unknown)
+        if run.words is UNRESOLVED:
+            out.append("?")  # what it sets cannot be told
     return out
 
 
@@ -1271,14 +1329,19 @@ WRAPPERS_UNSAFE = ("env -u mktemp", "env -C mktemp", "timeout mktemp", "nice -n 
 # as it splits any -S string, ${NAME} expanded; a $ without braces, or a $( ), makes env refuse it. The template words
 # inside it are exempt where they sit in the -S argument, and nothing else is.
 ENV_SPLIT = (
-    ('env -S "mktemp /tmp/$USER.XXXXXX"', False),
+    # manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F1: a shell expansion inside the -S string ($USER, $prefix) may
+    # add words and quotes to what env splits, so the command is unresolved and no template is exempt (each row
+    # here with one is True; so is an -S string inside one, whose ${NAME} the outer env fills before the inner one
+    # splits it). env's own ${NAME} is one word: 'mktemp /tmp/${USER}.XXXXXX' stays exempt.
+    ("prefix='/bin/sh -c \"'; suffix='\"'; env -S \"${prefix}/mktemp > /tmp/out.$$.XXXXXX${suffix}\"", True),
+    ('env -S "mktemp /tmp/$USER.XXXXXX"', True),
     ("env -S 'mktemp /tmp/${USER}.XXXXXX'", False),
     ("env -S'mktemp /tmp/${USER}.XXXXXX'", False),
-    ('env -iS"mktemp -d /tmp/$USER.XXXXXX"', False),
-    ('env --split-string="mktemp /tmp/$USER.XXXXXX"', False),
-    ('d=$(env -S "mktemp -d /tmp/$USER.XXXXXX")', False),
-    ('env -S "nice -n 5 mktemp /tmp/$USER.XXXXXX"', False),
-    ("env -S 'env -S \"mktemp /tmp/${USER}.XXXXXX\"'", False),
+    ('env -iS"mktemp -d /tmp/$USER.XXXXXX"', True),
+    ('env --split-string="mktemp /tmp/$USER.XXXXXX"', True),
+    ('d=$(env -S "mktemp -d /tmp/$USER.XXXXXX")', True),
+    ('env -S "nice -n 5 mktemp /tmp/$USER.XXXXXX"', True),
+    ("env -S 'env -S \"mktemp /tmp/${USER}.XXXXXX\"'", True),
     ('env -S "mktemp /tmp/$USER.XXXXXX" > /tmp/out.$$', True),
     ('env -S "mktemp /tmp/$USER.XXXXXX /tmp/out.$$"', True),
     ("env -S 'mktemp /tmp/$USER.XXXXXX'", True),
@@ -1296,6 +1359,12 @@ ENV_SPLIT = (
     # manaflow-ai/cmux-platform#1274 review, F1: a shell inside a shell runs, so bash checks it too.
     ("env -S \"bash -c 'printf x > /tmp/out.$$'\"", True),
     ("sh -c 'printf x > /tmp/out.$$'", True),
+    # teamleaderleo/leo-workspace#4380 review at 27a11d16, F2: bash's time runs -f, so the path is mktemp's argument
+    # nowhere, and no template; GNU time runs mktemp.
+    ("time -f F mktemp /tmp/$USER.XXXXXX", True),
+    ("time -o out mktemp -d /tmp/$USER.XXXXXX", True),
+    ("command time -f F mktemp /tmp/$USER.XXXXXX", False),
+    ("/usr/bin/time -f F mktemp /tmp/$USER.XXXXXX", False),
 )
 
 # Where a NAME=value word sets NAME, as bash reads it: (text, the names it sets, "?" for one whose name only a run can
@@ -1326,6 +1395,77 @@ ASSIGNMENT_WORDS = (
     ('readonly "X_T"=0; export X_T; cmd', ["X_T"]),
     ("exec X_T=0 cmd", []),
     ("time -p X_T=0 cmd", ["X_T"]),
+    # teamleaderleo/leo-workspace#4380 review at 27a11d16, F3: after exec's options too, NAME=value is the command.
+    ("exec -a name X_T=0 cmd", []),
+    ("exec -c X_T=0 cmd", []),
+    ("exec -l X_T=0 cmd", []),
+    ("exec -cl -a name X_T=0 cmd", []),
+    # manaflow-ai/cmuxterm-hq#9370 review at 4b4f59b6, F1: env's NAME=value words after its options.
+    ('env -i PATH="$PATH" X_T=0 cmd', ["PATH", "X_T"]),
+    ("env -- X_T=0 cmd", ["X_T"]),
+    ("env -u HOME X_T=0 cmd", ["X_T"]),
+    ("env -C / X_T=0 cmd", ["X_T"]),
+    ("env -S 'X_T=0 cmd'", ["X_T"]),
+    ("time X_T=0 cmd", ["X_T"]),
+    ("command time -p env X_T=0 cmd", ["X_T"]),
+    # teamleaderleo/leo-workspace#4382 review, F1: a declaration's word after quote removal and escapes.
+    ('export "X_TIMEOUT=0"; cmd', ["X_TIMEOUT"]),
+    ("export X_TIMEOUT\\=0; cmd", ["X_TIMEOUT"]),
+    ('"X_T=0" cmd', []),
+    ("X_T\\=0 cmd", []),
+    # F2: a function's body and a coprocess are commands like any other.
+    ("function f { X_TIMEOUT=0 cmd; }; f", ["X_TIMEOUT"]),
+    ("function f() { X_T=0 cmd; }; f", ["X_T"]),
+    ("function f ( ) ( X_T=0 cmd ); f", ["X_T"]),
+    ("coproc X_T=0 cmd 1>&2; wait", ["X_T"]),
+    ("coproc { X_T=0 cmd 1>&2; }; wait", ["X_T"]),
+    ("coproc NAME { X_T=0 cmd 1>&2; }; wait", ["X_T"]),
+    # #4419 review, F1: export is a declaration only where bash runs it; after env or nice it is a program.
+    ("env -S 'export X_T=0'; cmd", []),
+    ("env export X_T=0; cmd", []),
+    ("nice export X_T=0; cmd", []),
+    ("command export X_T=0; cmd", ["X_T"]),
+    ("builtin export X_T=0; cmd", ["X_T"]),
+    # #4419 review, F2: a quoted name after a word only a run can tell; env "$V" may be NAME=value or the command.
+    ('V=--; env "$V" X_"T"=0 cmd', ["V", "?"]),
+)
+
+# The command each text runs, as bash runs it (teamleaderleo/leo-workspace#4380 review at 27a11d16, F2): bash's
+# reserved word time takes -p and nothing else, so `time -f F cmd` runs a command named -f; only GNU time (command
+# time, /usr/bin/time, a time after NAME=value, a quoted "time") takes -f and -o. And exec's NAME=value is the command
+# (F3). The sweep runs bash on each row: `cmd` prints that it ran, and any other name is not found.
+RUN_WORDS = (
+    ("time cmd", "cmd"),
+    ("time -p cmd", "cmd"),
+    ("time -- cmd", "cmd"),
+    ("time -p -- cmd", "cmd"),
+    ("time -f F cmd", "-f"),
+    ("time -o out cmd", "-o"),
+    ("time -p -f F cmd", "-f"),
+    ("time --portability cmd", "--portability"),
+    ("time time -f F cmd", "-f"),
+    ("! time -f F cmd", "-f"),
+    ("if time -f F cmd; then :; fi", "-f"),
+    ("command time -f F cmd", "cmd"),
+    ("/usr/bin/time -f F cmd", "cmd"),
+    ("X=1 time -f F cmd", "cmd"),
+    ('"time" -f F cmd', "cmd"),
+    ("exec -a name X=1 cmd", "X=1"),
+    ("exec -c X=1 cmd", "X=1"),
+    ("exec -l X=1 cmd", "X=1"),
+    # #4434 review, F1: bash's time takes one unquoted -p and one unquoted --; the next word is the command.
+    ("time -p -p cmd", "-p"),
+    ('time "-p" cmd', "-p"),
+    ("time '-p' cmd", "-p"),
+    ("time \\-p cmd", "-p"),
+    ('time -p "--" cmd', "--"),
+    ('time "--" cmd', "--"),
+    ("time -- -- cmd", "--"),
+    ("time -- -p cmd", "-p"),
+    ("time -p -- -p cmd", "-p"),
+    # teamleaderleo/leo-workspace#4382 review, F1: before a command, a quoted or escaped = makes no assignment.
+    ('"X_T=0" cmd', "X_T=0"),
+    ("X_T\\=0 cmd", "X_T=0"),
 )
 
 
@@ -1476,7 +1616,6 @@ FILES = (
 # flags and the corpus calls unsafe. Real /tmp names are never touched: each /tmp in the text is moved into the folder.
 # mktemp by its name or by any path (/usr/bin/mktemp: manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F4).
 MKTEMP_WORD = re.compile(r"(?<![\w./-])(?:(?:/[\w.-]+)*/)?mktemp(?![\w.-])")
-TMPDIR_WORD = re.compile(r"(?<!\w)TMPDIR(?!\w)")
 TMP_PATH = re.compile(r"(?<![\w.])(?:/private)?/tmp(?![\w.-])")
 MKTEMP = """#!/bin/sh
 out=$(TMPDIR=%s %s "$@") || exit $?
@@ -1588,10 +1727,11 @@ def bash_processes(text: str) -> int:
 
 def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bool | None:
     """Whether bash, running TEXT in a scratch folder (each /tmp in it moved there; PATH a folder of its own, whose
-    mktemp makes its names there and logs them; TMPDIR unset, so ${TMPDIR:-...} defaults run), creates a file or folder
+    mktemp makes its names there and logs them; TMPDIR the scratch temp folder), creates a file or folder
     no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
-    no stdin (it is /dev/null). TMPDIR is a folder of the run's own, so a mktemp that is not the fake makes its name
-    there, never in the real temp folder; the script's own TMPDIR is another name, still unset. Bash runs under REAPER,
+    no stdin (it is /dev/null). TMPDIR is the scratch temp folder, the script's own included, so a mktemp that is not
+    the fake makes its name there and "$TMPDIR/x" is a scratch path, never / (manaflow-ai/cmux-platform#1286 review,
+    F1); a ${TMPDIR:-...} default does not run. Bash runs under REAPER,
     which waits for every process the run leaves; past TIMEOUT it kills each one, a setsid one included
     (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F3), and BashTimeout names TEXT. STATS, when given, gets "runs"
     (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
@@ -1618,12 +1758,14 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         # F1): env -S "bash -c '...'" failed before it ran, so the differential check never saw it.
         for tool in ("cat", "cp", "mkdir", "touch", "tee", "env", "nice", "nohup", "timeout", "stdbuf", "setsid",
                      "bash", "sh"):
-            os.symlink(shutil.which(tool), os.path.join(bindir, tool))
+            # A host without one (macOS has no setsid, timeout or stdbuf) runs a fixture that calls it as bash does
+            # there: command not found (manaflow-ai/cmuxterm-hq#9393 review at 7948495f, F2).
+            if shutil.which(tool):
+                os.symlink(shutil.which(tool), os.path.join(bindir, tool))
         open(os.path.join(work, "a"), "w").close()
         # Each mktemp is the fake by its own path, so env -i and command -p (the default PATH) never reach the real
         # one, which would make its name in the real temp folder (teamleaderleo/leo-workspace#4368 at cfd7897e, F4).
-        script = TMPDIR_WORD.sub("SHELL_TREE_TMPDIR",
-                                 MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text)))
+        script = MKTEMP_WORD.sub(os.path.join(bindir, "mktemp"), TMP_PATH.sub(tmp, text))
         if TMP_PATH.search(script.replace(root, "")) or "umask" in script:
             raise ValueError("a /tmp path or a umask is left in the script: " + script)
         with open(os.path.join(root, "script"), "w") as f:

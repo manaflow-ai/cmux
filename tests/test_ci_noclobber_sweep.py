@@ -143,6 +143,7 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
+from requires import requires  # noqa: E402
 
 SHELL_TREE_PIN = Path(__file__).resolve().parent / "shell_tree.pin"
 
@@ -438,19 +439,87 @@ class NoclobberSweep(unittest.TestCase):
             for text, want in shell_tree.ASSIGNMENT_WORDS:
                 with self.subTest(text=text):
                     self.assertEqual(shell_tree.assigned_names(text), want, "the tree")
+                    # stdout and stderr together: a coprocess's cmd writes to stderr (1>&2)
                     run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text],
                                          env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
-                                         capture_output=True, text=True, timeout=30)
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
                     got = sorted(re.findall(r"(?m)^(X\w*)=", run.stdout))
+                    want = [n for n in want if n == "?" or n.startswith("X")]  # cmd prints the X names it gets
                     named = sorted(n for n in want if n != "?")
                     self.assertEqual(len(got), len(want), f"bash set {got}")
                     self.assertTrue(set(named) <= set(got), f"bash set {got}")
         finally:
             shutil.rmtree(bindir, ignore_errors=True)
 
+    def test_a_word_runs_the_command_bash_runs(self):
+        """Review of #4380 at 27a11d16, F2 and F3: bash's reserved word time takes -p alone, so `time -f F cmd` runs
+        -f; exec's NAME=value is the command. Each row of shell_tree.RUN_WORDS is what the tree reads and what bash
+        runs: `cmd` prints that it ran, and any other command is not found. A row that runs GNU time needs it here,
+        probed by what time does (requires; #4434 review, F3)."""
+        bindir = tempfile.mkdtemp(prefix="runs-")
+        try:
+            with open(os.path.join(bindir, "cmd"), "w") as f:
+                f.write("#!/bin/sh\necho ran cmd\n")
+            os.chmod(os.path.join(bindir, "cmd"), 0o700)
+            for text, want in shell_tree.RUN_WORDS:
+                with self.subTest(text=text):
+                    self.assertEqual(shell_tree.runs(text), want, "the tree")
+                    if re.search(r'command time|/usr/bin/time|=\S* time|"time"', text):
+                        requires("gnu-time")  # skips this row alone
+                    run = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-c", text], cwd=bindir,
+                                         env={"PATH": bindir + ":/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                                         capture_output=True, text=True, timeout=30)
+                    if want == "cmd":
+                        self.assertIn("ran cmd", run.stdout, run.stderr)
+                    else:
+                        self.assertNotIn("ran cmd", run.stdout)
+                        self.assertRegex(run.stderr, re.escape(want) + r": (command )?not found")
+        finally:
+            shutil.rmtree(bindir, ignore_errors=True)
+
+    def test_tmpdir_is_the_scratch_temp_folder(self):
+        """Review of manaflow-ai/cmux-platform#1286, F1: the script's TMPDIR was renamed to a name never set, so
+        "$TMPDIR/out.$$" was /out.$$, outside the scratch folder. It is the scratch temp folder, so bash's write lands
+        there and is seen."""
+        for text in ('echo x > "$TMPDIR/out.$$"', "printf x > $TMPDIR/out", 'cd "$TMPDIR" && echo x > out'):
+            with self.subTest(text=text):
+                self.assertIs(shell_tree.bash_writes(text), True)
+
+    def test_no_fixture_changes_anything_outside_its_scratch_folder(self):
+        """Every corpus line and shell file runs in its scratch folder: after them all, the root, the real temp
+        folder (the names a fixture writes) and this checkout are as they were."""
+        fixture_name = re.compile(r"(?:out|late\d*|x)(?:[.-].*)?$|tmp\.[A-Za-z0-9]{10}")
+
+        def state() -> set:
+            seen = set()
+            for folder in ("/", "/tmp", os.environ.get("TMPDIR") or "/tmp", str(Path.home())):
+                try:
+                    seen |= {os.path.join(folder, n) for n in os.listdir(folder) if fixture_name.fullmatch(n)
+                             or folder == "/"}
+                except OSError:
+                    continue
+            status = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=all"],
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+            return seen | {"git: " + line for line in status.stdout.splitlines()}
+
+        before = state()
+        shell_tree.bash_verdicts([line for line, _ in shell_tree.corpus()] +
+                                 [text for path, text, _ in shell_tree.FILES if not path.endswith(".yml")])
+        self.assertEqual(sorted(state() - before), [])
+
+    def test_a_busy_setsid_child_is_killed_at_the_deadline(self):
+        """Review of #4380 at 27a11d16, F1: only bash's process group was killed, so a setsid child in a loop with no
+        sleep kept the run going. It is killed at the deadline with the rest."""
+        requires("setsid")
+        started = time.monotonic()
+        with self.assertRaises(shell_tree.BashTimeout):
+            shell_tree.bash_writes("setsid /bin/sh -c 'while :; do :; done'", timeout=.3)
+        self.assertLess(time.monotonic() - started, 0.6)
+
     def test_a_setsid_child_is_killed_at_the_deadline(self):
         """Review of manaflow-ai/cmuxterm-hq#9393 at 52412c22, F3: a setsid child left bash's process group, so the
         group kill missed it and the run waited for it. Every process the run leaves is killed at the deadline."""
+        requires("setsid")
         started = time.monotonic()
         with self.assertRaises(shell_tree.BashTimeout):
             shell_tree.bash_writes("setsid /bin/sleep 2", timeout=0.2)
