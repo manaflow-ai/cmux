@@ -91,7 +91,7 @@ struct StagedSegment {
 impl Drop for Staged {
     fn drop(&mut self) {
         for tmp in self.segments.iter().filter_map(|s| s.tmp.as_ref()) {
-            let _ = std::fs::remove_file(tmp);
+            let _ = crate::home_fs::remove_file(tmp);
         }
     }
 }
@@ -232,7 +232,7 @@ impl LocalStore {
             // ago opens each by its name.
             for segment in &mut staged.segments {
                 if let Some(tmp) = segment.tmp.take() {
-                    std::fs::rename(&tmp, &segment.path)?;
+                    crate::home_fs::rename(&tmp, &segment.path)?;
                 }
             }
         }

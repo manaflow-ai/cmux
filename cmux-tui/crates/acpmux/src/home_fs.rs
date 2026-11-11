@@ -139,6 +139,7 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let opened = OpenOptions::new()
             .read(true)
+            .mode(0o700)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
             .open(dir);
         let Ok(opened) = opened else { return Ok(()) };
@@ -219,7 +220,8 @@ pub(crate) fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
 
 /// `std::fs::hard_link(original, link)`: `link` becomes another name of `original`, both
 /// reached from the held home when they are below it (`linkat`, never following a symlink at
-/// `original`).
+/// `original`). The link is the same file as `original` (one inode, one mode), so it never
+/// shows its bytes under wider permissions than `original` has.
 pub(crate) fn hard_link(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
     let (original, link) = (original.as_ref(), link.as_ref());
     #[cfg(unix)]
@@ -255,15 +257,38 @@ pub(crate) fn create_dirs(dir: impl AsRef<Path>) -> io::Result<()> {
     create_dir_all(dir, 0o777)
 }
 
-/// `std::fs::create_dir(dir)` with `mode` (as `DirBuilder::mode`): one folder, its parent there
-/// already; an existing one is `AlreadyExists`.
+// The permission rule for every helper here that makes a file or folder (#41462 review F1): it
+// never shows its bytes under wider permissions than their source's, or 0600 when they have no
+// source. A file is made new (`O_EXCL`) with its mode narrowed to 0600, given its final mode on
+// the open descriptor (`fchmod`) before any byte goes in, and a temporary copy is removed on any
+// error. A folder is made 0700 at most. A hard link is the same file as its source (one inode,
+// one mode), so it is never wider than its source; a symlink's own mode is never read (access
+// goes by its target's), so it shows nothing. On Windows each file is made owner-only
+// (`owner_only::create_new`: an access list for this user alone) and each folder too
+// (`owner_only::create_dir_all`), the counterpart of 0600 and 0700.
+
+/// Mode bits a made file keeps: the permission bits, never set-id or sticky.
+#[cfg(unix)]
+const PERMISSION_BITS: u32 = 0o777;
+
+/// `std::fs::create_dir(dir)`, made 0700 at most (`mode` as `DirBuilder::mode`, narrowed to the
+/// owner's bits): one folder, its parent there already; an existing one is `AlreadyExists`.
 pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     let dir = dir.as_ref();
     #[cfg(unix)]
     {
-        unix::create_dir(dir, mode)
+        unix::create_dir(dir, mode & 0o700)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = mode;
+        held(dir)?;
+        if dir.symlink_metadata().is_ok() {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        crate::owner_only::create_dir_all(dir)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = mode;
         held(dir)?;
@@ -271,31 +296,167 @@ pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     }
 }
 
-/// `std::fs::write(path, contents)`: made or cut to nothing, then written.
-pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
+fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let mut tmp = std::ffi::OsString::from(".");
+    tmp.push(name);
+    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    Ok(path.with_file_name(tmp))
+}
+
+/// Makes `path`, which must not exist (`O_EXCL`), mode 0600 at most, then gives it `mode`
+/// (`fchmod` on the open descriptor) before any byte goes in; on Windows owner-only. Removed
+/// again if that fails.
+fn create_private(path: &Path, mode: u32) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let file = OpenOptions::new().write(true).create_new(true).mode(mode & 0o600).open(path)?;
+        if let Err(error) = file.set_permissions(std::fs::Permissions::from_mode(mode)) {
+            let _ = remove_file(path);
+            return Err(error);
+        }
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        let _ = mode;
+        held(path)?;
+        crate::owner_only::create_new(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = mode;
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+    }
+}
+
+/// Writes `bytes` to `file` (made at `path`): the first half, then the rest. A test fails the
+/// write in between (`config::seams::on_mid_write`), as a full disk would.
+fn fill(file: &mut File, path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write as _;
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?
-        .write_all(contents.as_ref())
+    let (first, rest) = bytes.split_at(bytes.len() / 2);
+    file.write_all(first)?;
+    #[cfg(test)]
+    crate::config::seams::mid_write(path)?;
+    let _ = path;
+    file.write_all(rest)
 }
 
-/// `std::fs::File::create(path)`.
+/// Puts a file in place at `to` whole: made beside it new ([`create_private`], `mode`), filled by
+/// `fill`, then renamed over `to`. On any error the temporary copy is removed and `to` is left as
+/// it was.
+fn replace_with<T>(
+    to: &Path,
+    mode: u32,
+    fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
+) -> io::Result<T> {
+    let tmp = aside(to)?;
+    let mut file = create_private(&tmp, mode)?;
+    let done = fill(&mut file, &tmp).and_then(|value| {
+        drop(file);
+        rename(&tmp, to).map(|()| value)
+    });
+    if done.is_err() {
+        let _ = remove_file(&tmp);
+    }
+    done
+}
+
+/// The mode a rewritten file keeps: an existing file's, narrowed to the owner's bits; a new
+/// file's 0600.
+fn rewritten_mode(path: &Path) -> u32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        path.symlink_metadata()
+            .ok()
+            .filter(|meta| meta.is_file())
+            .map_or(0o600, |meta| meta.permissions().mode() & 0o700)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        0o600
+    }
+}
+
+/// `std::fs::write(path, contents)`, made whole: a new copy beside it (0600, or an existing
+/// file's mode narrowed to the owner's bits) filled, then renamed over it. A failed write leaves
+/// `path` as it was and no copy behind.
+pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    let path = path.as_ref();
+    replace_with(path, rewritten_mode(path), |file, tmp| fill(file, tmp, contents.as_ref()))
+}
+
+/// `std::fs::File::create(path)`: made 0600 (an existing file narrowed to the owner's bits on
+/// the open descriptor) before it is cut to nothing and handed back to be written.
 pub(crate) fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
-    OpenOptions::new().write(true).create(true).truncate(true).open(path)
+    open_private(path.as_ref(), true)
 }
 
-/// `std::fs::copy(from, to)`: `to` made or cut to nothing, given `from`'s bytes and permissions;
-/// the bytes copied.
+/// Opens `path` to write, made 0600 when new; an existing file is narrowed to the owner's bits
+/// (`fchmod` on the open descriptor) before anything is written. `truncate`: cut to nothing,
+/// after the narrowing. On Windows a new file is made owner-only.
+fn open_private(path: &Path, truncate: bool) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let file = OpenOptions::new().write(true).create(true).mode(0o600).open(path)?;
+        let mode = file.metadata()?.permissions().mode();
+        if mode & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(mode & 0o700))?;
+        }
+        if truncate {
+            file.set_len(0)?;
+        }
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        held(path)?;
+        let file = crate::owner_only::open_rw(path)?;
+        if truncate {
+            file.set_len(0)?;
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        OpenOptions::new().write(true).create(true).truncate(truncate).mode(0o600).open(path)
+    }
+}
+
+/// `std::fs::copy(from, to)`: `to` replaced whole by a new copy of `from`'s bytes with `from`'s
+/// permissions ([`replace_with`]: made 0600 at most, given `from`'s mode before any byte goes
+/// in); the bytes copied. A failed copy leaves `to` as it was and no partial copy behind.
 pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
-    let mut source = OpenOptions::new().read(true).open(from)?;
+    let mut source = OpenOptions::new().read(true).mode(0o600).open(from)?;
     let permissions = source.metadata()?.permissions();
-    let mut target = create_file(to)?;
-    let copied = io::copy(&mut source, &mut target)?;
-    target.set_permissions(permissions)?;
-    Ok(copied)
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt as _;
+        permissions.mode() & PERMISSION_BITS
+    };
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    replace_with(to.as_ref(), mode, |target, tmp| {
+        use std::io::{Read as _, Write as _};
+        // The first block, then the rest: a test fails the copy in between.
+        let mut block = vec![0; 64 << 10];
+        let first = source.read(&mut block)?;
+        target.write_all(&block[..first])?;
+        #[cfg(test)]
+        crate::config::seams::mid_write(tmp)?;
+        let _ = tmp;
+        let rest = io::copy(&mut source, target)?;
+        #[cfg(not(unix))]
+        target.set_permissions(permissions)?;
+        Ok(first as u64 + rest)
+    })
 }
 
 /// `std::fs::set_permissions(path, permissions)`.
@@ -317,17 +478,19 @@ pub(crate) fn set_permissions(
 }
 
 /// `std::os::unix::fs::symlink(original, link)`: `link` made (`symlinkat`) naming `original` as
-/// it is written.
+/// it is written. A symlink's own mode is never read (opening it reads its target's), so it
+/// shows no bytes of its own.
 #[cfg(unix)]
 pub(crate) fn symlink(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
     unix::symlink(original.as_ref(), link.as_ref())
 }
 
 /// `std::fs::write(path, bytes)`, then synced: a copy written aside before a rename puts it in
-/// place.
+/// place. Made 0600 (an existing file narrowed to the owner's bits) before any byte goes in
+/// ([`open_private`]).
 pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write as _;
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    let mut file = open_private(path, true)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
@@ -336,7 +499,12 @@ pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
 pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
-        OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(dir)?.sync_all()
+        OpenOptions::new()
+            .read(true)
+            .mode(0o600)
+            .custom_flags(libc::O_DIRECTORY)
+            .open(dir)?
+            .sync_all()
     }
     #[cfg(not(unix))]
     {
