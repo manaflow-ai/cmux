@@ -54,3 +54,46 @@ fn a_create_is_one_commit_that_puts_the_new_workspace_first_in_the_document() {
     );
     mux.shutdown();
 }
+
+/// `top` with a stale personal order (Home's row out of first, as a sidebar-doc
+/// sync can leave it; `home_already_out_of_first_slot_does_not_block_other_moves`):
+/// the daemon puts the new row right after Home's row, and the document shows it
+/// first below Home, not after the rows the stale order lists before Home.
+#[test]
+fn a_create_under_top_is_first_in_the_document_when_home_is_not_first_in_the_personal_order() {
+    let _top = crate::user_settings::NewWorkspacePlacement::Top.set_for_test();
+    let session = Session::new("new-doc-top-stale-home");
+    let mux = session.open();
+    let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let b_key = mux.with_state(|state| {
+        state.workspaces.iter().find(|item| item.public_id.as_str() == b).unwrap().key.clone()
+    });
+    {
+        // Personal order b, Home, a; the document still shows Home, b, a.
+        let registry = mux.workspace_registry.lock().unwrap();
+        let db = registry.connection.get();
+        db.execute(
+            "UPDATE personal_workspaces
+             SET position = (SELECT MIN(position) - 1 FROM personal_workspaces)
+             WHERE workspace_key = ?1",
+            [&b_key],
+        )
+        .unwrap();
+    }
+    let ids = [home.as_str(), a.as_str(), b.as_str()];
+    assert_eq!(document_order(&mux, &ids), [home.as_str(), b.as_str(), a.as_str()]);
+    let c = empty_workspace(&mux, "c");
+    let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
+    assert_eq!(
+        document_order(&mux, &ids),
+        [home.as_str(), c.as_str(), b.as_str(), a.as_str()],
+        "the new workspace is not first below Home in the document"
+    );
+    mux.shutdown();
+}
