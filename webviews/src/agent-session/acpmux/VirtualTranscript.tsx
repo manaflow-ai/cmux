@@ -4423,6 +4423,8 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (sends === seenSends.current) return;
     seenSends.current = sends;
+    // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
+    renderRate.sent(performance.now());
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
