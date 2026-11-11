@@ -1,0 +1,9 @@
+{
+  "title": "Chief computer picker: the Computer tab of a Chief's profile, closed and open, with sample machines",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Home at the Chief", "cmux": ["action", "run", "home.show"], "wait": 5, "shot": false},
+    {"title": "The Computer tab: the Chief's computer is on the picker's face", "rpc": {"method": "debug.home.drive", "params": {"action": "chief_computer"}}, "wait": 2, "optional": "debug.home.drive is DEBUG only"},
+    {"title": "The picker's menu", "rpc": {"method": "debug.home.drive", "params": {"action": "chief_computer", "open": true}}, "wait": 2, "optional": "debug.home.drive is DEBUG only"}
+  ]
+}

@@ -157,6 +157,22 @@ extension HomeChiefSettingsView {
         }
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The picker with sample machines, the first attached and still generically named (captures).
+    public func debugShowComputers(open: Bool) {
+        cloudComputers = {
+            [.init(id: "capture-1", title: "Cloud Machine 5", isGenericName: true), .init(id: "capture-2", title: "inference-gateway"),
+             .init(id: "capture-3", title: "lease-lease_21_c6c62cab"), .init(id: "capture-4", title: "cloud-chats"),
+             .init(id: "capture-5", title: "Cloud Machine 2", isGenericName: true)]
+        }
+        namedComputers.insert("capture-1")
+        showComputer("machine:capture-1")
+        computerRow.isHidden = false
+        onResize()
+        if open { Task { @MainActor [computerPicker] in computerPicker.performClick(nil) } }
+    }
+    #endif
+
     /// Show Desktop: the attached machine's screen, live in a cmux browser (`cloud open-desktop`).
     @objc func showComputerDesktop() {
         guard let machine = attachedMachine else { return }

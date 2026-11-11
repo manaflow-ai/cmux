@@ -36,11 +36,15 @@ extension DebugHome {
     /// `debug.home.drive {action, tab?, …}`: the Messages page of Home tab `tab` (else the active
     /// window's Home) drives its list and transcript (``HomeMessagesDebug/drive(_:)``); `permalink {url}`
     /// opens a message link as the docked Home's hand-off does; `chief_name {close?}` opens the front
-    /// Chief's settings with the keyboard in its name field (the chief-rename-field tour). The native transcript is gone.
+    /// Chief's settings with the keyboard in its name field (the chief-rename-field tour); `chief_computer {open?}` shows its Computer picker with sample machines, a capture slot having no Cloud account (the chief-computer-picker tour). The native transcript is gone.
     static func drive(_ params: [String: JSONValue], services: AppServices) async -> CmuxNextSettings.JSONValue {
         if params["action"]?.stringValue == "chief_name" {
             guard let chief = HomeChiefActions.frontHome() else { return ["error": "no Chief is shown in the front window"] }
             return .object(["ok": .bool(chief.debugEditName(close: params["close"]?.boolValue == true))])
+        }
+        if params["action"]?.stringValue == "chief_computer" {
+            guard let chief = HomeChiefActions.frontHome() else { return ["error": "no Chief is shown in the front window"] }
+            return .object(["ok": .bool(chief.debugShowComputerPicker(open: params["open"]?.boolValue == true))])
         }
         if params["action"]?.stringValue == "permalink" {
             guard let link = HomeDockSelection(link: params["url"]?.stringValue ?? "") else { return ["error": "not a link"] }

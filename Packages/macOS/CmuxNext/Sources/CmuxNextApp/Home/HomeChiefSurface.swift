@@ -345,6 +345,13 @@ final class HomeChiefSurface {
         if close { self.close(); return true }
         return toggleSettings(openOnly: true) && make().view.beginEditingName()
     }
+
+    /// `debug.home.drive` chief_computer: the profile's Computer tab, its picker offering sample machines (`open`: its menu open).
+    func debugShowComputerPicker(open: Bool) -> Bool {
+        guard openProfile(.computer) else { return false }
+        make().view.debugShowComputers(open: open)
+        return true
+    }
     #endif
 }
 
