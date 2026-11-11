@@ -2032,11 +2032,6 @@ def head_runs(repo: str, sha: str, github, seen: dict) -> dict:
 # inputs: a run record that does not carry them has unknown inputs, never the same), was created after it and concluded
 # success (not skipped, neutral or cancelled). Anything less stays red. A failed job in a superseded run is still a
 # verdict and is judged as before (head_jobs).
-def superseded_name(seen: dict, sha: str, run: int) -> str:
-    """The name of cancelled RUN as the head's run list gives it (its workflow's display name)."""
-    return str((seen.get(("runs-at", sha)) or {}).get(run, {}).get("name") or run)
-
-
 def superseding_run(repo: str, sha: str, run: int, github, seen: dict) -> dict | None:
     """The later green run at SHA that supersedes cancelled RUN by the rule above; None when RUN is not a cancelled run
     the head's run list names, or no later run meets every part of it."""
@@ -2061,6 +2056,11 @@ def superseding_run(repo: str, sha: str, run: int, github, seen: dict) -> dict |
             continue
         return other
     return None
+
+
+def superseded_name(seen: dict, sha: str, run: int) -> str:
+    """The name of cancelled RUN as the head's run list gives it (its workflow's display name)."""
+    return str((seen.get(("runs-at", sha)) or {}).get(run, {}).get("name") or run)
 
 
 def run_workflow(repo: str, run: int, github, seen: dict):
@@ -2129,9 +2129,10 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                        "the verdict")
                 ignored.append(f"ignored '{superseded_name(seen, sha, run)}': its cancelled run {run} {why}")
                 ignored.extend(f"ignored '{job.get('name', '')}': its {job.get('conclusion')} job {job.get('id')} in "
-                               f"run {run} {why}" for job in run_jobs if job.get("conclusion") != "failure")
-            # A failure is a verdict whatever a later run says: only it is judged below.
-            run_jobs = [job for job in run_jobs if job.get("conclusion") == "failure"]
+                               f"run {run} {why}" for job in run_jobs if job.get("conclusion") in SUPERSEDABLE)
+            # Only its cancelled (or stale) jobs are passed over: a failure or a time-out is a verdict whatever a later
+            # run says, and is judged below as before.
+            run_jobs = [job for job in run_jobs if job.get("conclusion") not in SUPERSEDABLE]
         for job in run_jobs:
             if (job.get("status") == "completed" and job.get("conclusion") in SUPERSEDABLE
                     and (newer := superseding_check(repo, sha, job, github, seen)) is not None):
