@@ -467,13 +467,28 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         await page.locator(".acpmux-row--last-footer").waitFor({ timeout: 60_000 });
         // fixed-wait: the reply's last lines drain and its rows come to rest.
         await page.waitForTimeout(800);
+        // At rest no row keeps a clip: a tail glide's clip held under the reader's scroll and left on
+        // once the turn's fold ended hid the reply's last lines over nothing (review of cmux#41034).
+        const heldClips = await page.evaluate(
+          () =>
+            document
+              .getAnimations()
+              .filter(
+                (animation) =>
+                  animation.playState !== "finished" &&
+                  animation.playState !== "idle" &&
+                  animation.effect instanceof KeyframeEffect &&
+                  animation.effect.getKeyframes().some((frame) => "clipPath" in frame),
+              ).length,
+        );
         const report = await stop(page);
         console.log(`OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.name, ...report })}`);
         await page.close();
         expect(report.frames).toBeGreaterThan(20);
-        expect({ overlapFrames: report.overlapFrames, examples: report.examples }).toEqual({
+        expect({ overlapFrames: report.overlapFrames, examples: report.examples, heldClips }).toEqual({
           overlapFrames: 0,
           examples: [],
+          heldClips: 0,
         });
       });
 });
