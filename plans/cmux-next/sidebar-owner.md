@@ -97,6 +97,21 @@
   come (at most the 1.5 s settle). The room is unchanged from the first frame. Regression:
   `UpdatedCardFirstFrameTests.theCardDrawsNoBlankGlassBeforeItsPageReports`, webviews
   `updated-card-first-size`, `updated-card-loading-line`.
+- 2026-11-09: the workspace hover card is even left and right, with the sidebar row's corners. Lawrence (11:18 PM):
+  "right spacing is bad for the hover card, ensure padding on all sides is even, also roundness needs to match
+  roundness of the workspace row itself". With legacy scrollers the tab list kept a scroller's width though nothing
+  scrolled, so each row's fill stopped about 15 pt short of the card's right. The list now has a scroller only when it
+  scrolls; tab rows and "Show details" use `SidebarDensityTokens.rowCornerRadius`; the card's corners are concentric
+  (`WorkspaceHoverCardView.cardCornerRadius`: row radius + card edge to row fill). Regression:
+  `WorkspaceHoverCardEvenInsetTests`.
+
+- 2026-11-09: a workspace's color is a bar, not a dot before its name. Lawrence ("red dot on left feels weird", the
+  selected row "Resize Chief sandboxes"): a colored text-only workspace drew its color as a dot before its name
+  (`workspaceColors.indicatorStyle` `dot`, NEXT's default) and the dot's slot pushed that one title an icon column right.
+  The default is now classic's `leftRail`, and the bar sits in the row's leading inset (`colorRailLead` 1.5 pt in from
+  the fill) with no slot, so every title starts on the one left edge. `dot` and `fill` stay as choices. Regression:
+  `WorkspaceColorKeepsTheTitleEdgeTests`, `WorkspaceColorFillTests.aLeftRailRowsTitleStartsWithAnUncoloredRows`.
+
 - 2026-11-09: collapsing the sidebar no longer slides its + over the toolbar band. Reported (nightly
   1.0.0-nightly.4269066450801): "when the user collapses the left sidebar, the '+' (new workspace) button in the top
   titlebar/toolbar row jumps all the way to the left instead of animating; it looks weird". The titlebar row rode the
@@ -110,6 +125,27 @@
   default `sidebar.updateCard.automaticSize` (Regular) sets the label in `Typography.body` and the switch at
   `Metrics.smallIconSize`, and the card's height follows. Compact (before) and Large stay in Debug Settings.
   Regression: `UpdateReadyCardStyleTests.automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt`.
+- 2026-11-09: one optical size for every row glyph. Lawrence (screenshot 6:55 PM): the cmux app icon on "cmux-next
+  landing" looked smaller than the other icons with a wider gap before its title; the GitHub mark and the globe drew at
+  different sizes. Glyphs were fitted by their image square, so a favicon with a transparent margin drew smaller ink.
+  Every leading glyph (favicon, app icon, GitHub mark, symbol, Home's house, pin) now draws its measured ink's larger
+  side at `SidebarStyle.rowGlyphOpticalSide`, starting on the row inset (`SidebarOpticalGlyph`), so each ends at the
+  icon column's edge and keeps one gap before its title. Favicons are made a third larger, so a margined one scales
+  down, never up. Emoji keep their square. Regression: `SidebarRowGlyphOpticalSizeTests`, `SidebarOpticalGlyphTests`.
+
+- 2026-11-09: one left edge, even row padding, and a marquee that fades its left edge. Lawrence, verbatim: "left side
+  transparency is bad; home/pin icons not left aligned with 'Fix…' or traffic lights; for each workspace row, padding
+  on left/bottom/top/right should be even, on all densities". Home's house and the pins start their ink on the row
+  inset where text-only titles start (`SidebarStyle.bandGlyphX` takes the workspace rows' rule; #38061 had centered
+  them, 2-4 pt right of the titles). Rows pad their content by `SidebarStyle.contentInset`, the room a one-line row's
+  title has above its capitals and below its baseline (about 7.5 compact, 9.5 comfortable), on the left, the trailing
+  column and so top and bottom alike; the fill's gap from the sidebar edge stays `horizontalInset` (6 / 8). A text-only
+  title's hover marquee no longer slices the glyphs that leave at a hard edge: while it scrolls the mask ramps over a
+  whole fade length (`TitleFadeGeometry.scrolledMaskLocations`). Default picked: the traffic lights stay where macOS
+  draws them (about 9 pt from the edge), short of the content edge, since matching them needs fills touching the
+  sidebar edge or moving the system buttons per density. Regression: `SidebarLeadingEdgeTests`,
+  `HomePinnedRowAlignmentTests`, `SidebarIconColumnTests`, `SidebarEvenRowInsetsTests`, `TitleMarqueeLeadingFadeTests`.
+
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
@@ -2021,3 +2057,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   footer, the update card and the titlebar). `sidebar.surfaceDim.dark` and `.light` default to 0 and stay as Debug
   toggles; the Codex fills, inks, rows and headings stay. The sidebar's ground is a chrome-layer color: a change to it
   needs Leo's words (`Chrome-Look-OK:`), see the chrome pixel check.
+- 2026-11-11 (#40826, nightly one-click restart): 65a6531739d adds `sidebar.updateCard.layout` (`card`, `compact`,
+  `button`) for the Update Ready card; `card` stays the default, so the shipped look does not change until Leo picks.
+  Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
+  `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
+  nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".

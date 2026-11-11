@@ -109,11 +109,17 @@ async fn a_relay_open_with_no_answer_fails_retryably_within_the_connect_timeout(
     });
 
     let started = Instant::now();
-    let error =
-        match connect_relay_socket_once(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await {
-            Ok(_) => panic!("an unanswered relay upgrade opened"),
-            Err(error) => error.into_provider_error(),
-        };
+    let error = match connect_relay_socket_once(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    {
+        Ok(_) => panic!("an unanswered relay upgrade opened"),
+        Err(error) => error.into_provider_error(),
+    };
     assert!(started.elapsed() <= RELAY_CONNECT_TIMEOUT + Duration::from_millis(100));
     assert!(error.to_string().contains("no answer within 10000 ms"), "{error}");
     assert!(error.is_retryable_carrier_failure(), "{error}");
@@ -148,10 +154,11 @@ async fn relay_dial_bounds_fragmented_messages_and_disables_nagle() {
             .unwrap();
     });
 
-    let mut socket = match connect_relay_socket_once(&endpoint, None, MAXIMUM).await {
-        Ok(socket) => socket,
-        Err(_) => panic!("bounded relay WebSocket dial failed"),
-    };
+    let mut socket =
+        match connect_relay_socket_once(&endpoint, None, MAXIMUM, &RelayTls::default()).await {
+            Ok(socket) => socket,
+            Err(_) => panic!("bounded relay WebSocket dial failed"),
+        };
     let MaybeTlsStream::Plain(stream) = socket.get_ref() else {
         panic!("test relay did not use a plain TCP stream");
     };
@@ -219,6 +226,7 @@ async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
         "join-ticket".into(),
         64,
         Duration::from_secs(1),
+        &RelayTls::default(),
     )
     .await
     .unwrap();
@@ -264,6 +272,7 @@ async fn relay_circuit_join_timeout_is_retryable_carrier_failure() {
         "join-ticket".into(),
         64,
         Duration::from_millis(20),
+        &RelayTls::default(),
     )
     .await;
     let error = match result {
@@ -309,6 +318,7 @@ async fn retryable_relay_circuit_rejection_is_retryable_carrier_failure() {
         "join-ticket".into(),
         64,
         Duration::from_secs(1),
+        &RelayTls::default(),
     )
     .await;
     let error = match result {
@@ -337,8 +347,14 @@ async fn retryable_allocation_rejection_is_retryable_carrier_failure() {
         .await;
     });
 
-    let mut socket =
-        connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+    let mut socket = connect_relay_socket(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    .unwrap();
     let lane = LaneToken("allocation-rejection-lane".into());
     let error = match read_until_allocation(&mut socket, &lane, 7).await {
         Ok(_) => panic!("relay allocation unexpectedly succeeded"),
@@ -368,7 +384,7 @@ async fn relay_registration_timeout_is_retryable_carrier_failure() {
     };
     let credentials = RelayCredentialSource::static_ticket("registration-ticket").unwrap();
 
-    let result = authenticate_daemon_control(&config, &credentials).await;
+    let result = authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await;
     let error = match result {
         Ok(_) => panic!("relay registration unexpectedly succeeded"),
         Err(error) => error,
@@ -387,8 +403,14 @@ async fn closed_relay_control_socket_is_retryable_carrier_failure() {
         socket.close(None).await.unwrap();
     });
 
-    let mut socket =
-        connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+    let mut socket = connect_relay_socket(
+        &endpoint,
+        None,
+        MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        &RelayTls::default(),
+    )
+    .await
+    .unwrap();
     let error = read_control(&mut socket).await.unwrap_err();
     assert!(error.is_retryable_carrier_failure(), "{error}");
     server.await.unwrap();
@@ -854,7 +876,8 @@ async fn daemon_registration_refreshes_after_authentication_rejection() {
         maximum_frame_bytes: 64,
         control_timeout: Duration::from_secs(2),
     };
-    let (mut socket, lease) = authenticate_daemon_control(&config, &credentials).await.unwrap();
+    let (mut socket, lease) =
+        authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await.unwrap();
     assert_eq!(lease, 30);
     assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
     let _ = socket.close(None).await;
@@ -1272,4 +1295,178 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the deadline");
     let _ = group.close().await;
     server.abort();
+}
+
+/// A WebSocket sink that hands each message, with the (virtual) instant it was
+/// sent, to the test: the batched sender's socket with no host in the way.
+struct RecordingSink {
+    sent: mpsc::UnboundedSender<(Instant, Message)>,
+}
+
+impl Sink<Message> for RecordingSink {
+    type Error = WebSocketError;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, message: Message) -> Result<(), Self::Error> {
+        let _ = self.sent.send((Instant::now(), message));
+        Ok(())
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+fn spawn_batched_sender(
+    commands: mpsc::Receiver<RelayCircuitCommand>,
+) -> (mpsc::UnboundedReceiver<(Instant, Message)>, tokio::task::JoinHandle<()>) {
+    let (sent, messages) = mpsc::unbounded_channel();
+    let (terminal, _) = watch::channel(None);
+    let task = tokio::spawn(run_batched_relay_sender(RecordingSink { sent }, commands, terminal));
+    (messages, task)
+}
+
+fn numbered_frame(index: usize) -> Bytes {
+    Bytes::copy_from_slice(&(index as u64).to_be_bytes())
+}
+
+fn batch_frames(message: &Message) -> VecDeque<Bytes> {
+    match message {
+        Message::Binary(batch) => decode_relay_batch(batch.clone(), 1024).unwrap(),
+        other => panic!("the batched sender sent a non-batch message: {other:?}"),
+    }
+}
+
+const TYPING_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Types `2 * RELAY_BURST_SENDS` keystrokes at a typist's pace and checks each
+/// leaves alone, at the virtual instant it was queued.
+async fn type_keystrokes(
+    commands: &mpsc::Sender<RelayCircuitCommand>,
+    sent: &mut mpsc::UnboundedReceiver<(Instant, Message)>,
+    phase: &str,
+    next: &mut usize,
+) {
+    for _ in 0..2 * RELAY_BURST_SENDS {
+        tokio::time::sleep(TYPING_INTERVAL).await;
+        let queued = Instant::now();
+        commands.send(RelayCircuitCommand::Frame(numbered_frame(*next))).await.unwrap();
+        let (sent_at, message) = sent.recv().await.unwrap();
+        assert_eq!(
+            sent_at - queued,
+            Duration::ZERO,
+            "{phase}: keystroke {next} waited {:?} on the burst timer",
+            sent_at - queued
+        );
+        assert_eq!(batch_frames(&message), [numbered_frame(*next)]);
+        *next += 1;
+    }
+}
+
+/// Typed input leaves the batched sender at once: no keystroke waits on the
+/// burst timer, before a flood or after one. The clock is tokio's paused one,
+/// so any wait on `RELAY_BURST_LINGER` shows up as virtual time between the
+/// keystroke's queueing and its send, however fast or loaded the host is.
+#[tokio::test(start_paused = true)]
+async fn a_lone_keystroke_leaves_the_batched_sender_without_waiting_on_the_burst_timer() {
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    let mut next = 0;
+    type_keystrokes(&commands, &mut sent, "before a flood", &mut next).await;
+
+    // A flood builds the burst streak and lingers to fill its batches...
+    const FLOOD_FRAMES: usize = 1024;
+    let flood = tokio::spawn({
+        let commands = commands.clone();
+        let first = next;
+        async move {
+            for index in first..first + FLOOD_FRAMES {
+                commands.send(RelayCircuitCommand::Frame(numbered_frame(index))).await.unwrap();
+            }
+        }
+    });
+    let mut received = 0;
+    while received < FLOOD_FRAMES {
+        let (_, message) = sent.recv().await.unwrap();
+        for frame in batch_frames(&message) {
+            assert_eq!(frame, numbered_frame(next));
+            next += 1;
+            received += 1;
+        }
+    }
+    flood.await.unwrap();
+
+    // ...and once typing resumes, the keystrokes leave at once again.
+    type_keystrokes(&commands, &mut sent, "after a flood", &mut next).await;
+    drop(commands);
+    sender.await.unwrap();
+}
+
+/// Frames queued behind the sender share relay messages: a full queue leaves
+/// in batches of `MAX_RELAY_BATCH_FRAMES`, in order. Nothing here depends on
+/// timing; the frames are queued before the sender runs.
+#[tokio::test(start_paused = true)]
+async fn queued_frames_leave_the_batched_sender_in_shared_messages() {
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    for index in 0..RELAY_BATCH_QUEUE_FRAMES {
+        commands.try_send(RelayCircuitCommand::Frame(numbered_frame(index))).unwrap();
+    }
+    drop(commands);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    sender.await.unwrap();
+    let mut messages = 0;
+    let mut frames = Vec::new();
+    while let Ok((_, message)) = sent.try_recv() {
+        messages += 1;
+        frames.extend(batch_frames(&message));
+    }
+    assert_eq!(frames, (0..RELAY_BATCH_QUEUE_FRAMES).map(numbered_frame).collect::<Vec<_>>());
+    assert_eq!(
+        messages,
+        RELAY_BATCH_QUEUE_FRAMES.div_ceil(MAX_RELAY_BATCH_FRAMES),
+        "{RELAY_BATCH_QUEUE_FRAMES} queued frames left in {messages} messages"
+    );
+}
+
+/// A flood written while the sender runs shares relay messages too: the burst
+/// detector lingers on the paused clock, so the count is the code's, not the
+/// scheduler's.
+#[tokio::test(start_paused = true)]
+async fn a_flood_leaves_the_batched_sender_in_shared_messages() {
+    const FLOOD_FRAMES: usize = 4096;
+    let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+    let (mut sent, sender) = spawn_batched_sender(receiver);
+    for index in 0..FLOOD_FRAMES {
+        commands.send(RelayCircuitCommand::Frame(numbered_frame(index))).await.unwrap();
+    }
+    drop(commands);
+    sender.await.unwrap();
+    let mut messages = 0;
+    let mut frames = Vec::new();
+    while let Ok((_, message)) = sent.try_recv() {
+        messages += 1;
+        frames.extend(batch_frames(&message));
+    }
+    assert_eq!(frames, (0..FLOOD_FRAMES).map(numbered_frame).collect::<Vec<_>>());
+    eprintln!("flood: {FLOOD_FRAMES} frames in {messages} messages");
+    assert!(
+        messages * (MAX_RELAY_BATCH_FRAMES / 2) <= FLOOD_FRAMES,
+        "a flood of {FLOOD_FRAMES} frames left in {messages} messages"
+    );
 }

@@ -2175,10 +2175,12 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// older build left it with wider permissions.
 #[cfg(unix)]
 pub(crate) fn open_private_append(path: &Path) -> Result<File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     crate::config::refuse_lost_home(path)?;
 
-    let file = OpenOptions::new()
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the segment.
+    let file = crate::home_fs::OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o600)

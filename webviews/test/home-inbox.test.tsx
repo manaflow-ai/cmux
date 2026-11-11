@@ -7,7 +7,9 @@
 //   while the home's own chat shows a card that takes them.
 // - Two answers in one tick send one; a host that opens the chat instead keeps the row.
 // - An approval shows the command it asks about.
-// - A question, a held pair and another computer's chat have no answers here: the row opens the chat.
+// - A one-pick question's choices answer it here, as its card would (Leo, 2026-11-10: "this is
+//   unusable to respond to i necessarily have to open... this is bad ui"); they take no permission
+//   shortcut. A held pair and another computer's chat have no answers here: the row opens the chat.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
@@ -225,8 +227,11 @@ test("every other chat's ask is a row, newest first, and the current chat's is n
     "input",
   ]);
   expect(inbox.host.textContent).not.toContain("Edit App.tsx");
-  // A question and another computer's chat have no answers here; their row opens the chat.
-  expect(inbox.rowOf("Which sign-in?").querySelector(".acpmux-home-inbox-answers")).toBeNull();
+  // A question's choices answer it here; another computer's chat has none, and its row opens the chat.
+  const choices = [
+    ...inbox.rowOf("Which sign-in?").querySelectorAll('.acpmux-home-inbox-answers [data-tone="choice"]'),
+  ];
+  expect(choices.map((button) => button.textContent)).toEqual(["OAuth", "Passkeys"]);
   await act(async () => (inbox.rowOf("Release notes").querySelector(".acpmux-home-inbox-open") as HTMLElement).click());
   expect(inbox.opened).toEqual(["remote"]);
   await inbox.unmount();
@@ -256,9 +261,25 @@ test("a refused answer says so on its row, and the row answers again", async () 
   await inbox.unmount();
 });
 
+test("a question's choice answers it in place, with that option, for its chat", async () => {
+  const inbox = await mount();
+  const row = inbox.rowOf("Which sign-in?");
+  await act(async () => {
+    [...row.querySelectorAll<HTMLButtonElement>('[data-tone="choice"]')]
+      .find((b) => b.textContent === "Passkeys")!
+      .click();
+  });
+  expect(inbox.sent.map(({ sessionId, permissionId, optionId }) => [sessionId, permissionId, optionId])).toEqual([
+    ["auth", "p-auth", "Passkeys"],
+  ]);
+  await inbox.settle(0, "answered");
+  expect(inbox.host.textContent).not.toContain("Which sign-in?");
+  await inbox.unmount();
+});
+
 test("the permission shortcuts answer the first ask answerable in place, and only it", async () => {
   const inbox = await mount();
-  // The question is newest, but it has no answers here: the payment tests' row takes the keys.
+  // The question is newest, but its choices take no permission shortcut: the payment tests' row takes the keys.
   await inbox.event("cmux-acpmux-permissionDeny");
   await inbox.event("cmux-acpmux-permissionAllowOnce");
   expect(inbox.sent.map(({ optionId }) => optionId)).toEqual(["p-tests-no"]);
@@ -323,6 +344,117 @@ test("answerFromHome: answered, opened on unsupported, and any other refusal rej
   await expect(answer("refused")).rejects.toThrow();
   await expect(answer("native.invalid_request")).rejects.toThrow();
   expect(opened).toHaveLength(1);
+});
+
+test("answerFromHome: a question's choice goes as its card's reply, with its answers, to the host", async () => {
+  const question = {
+    id: "p-auth",
+    source: { harness: "claude", session: "auth", permission: "p-auth", answerOption: "p-auth-yes" },
+    items: [
+      {
+        id: "q0",
+        prompt: "Which sign-in?",
+        options: [
+          { id: "OAuth", label: "OAuth" },
+          { id: "Passkeys (Recommended)", label: "Passkeys (Recommended)" },
+        ],
+        multiSelect: false,
+        allowsOther: true,
+      },
+    ],
+    state: { kind: "pending" },
+  } as unknown as NonNullable<NeedsYouItem["question"]>;
+  const item = { sessionId: "auth", permissionId: "p-auth", question } as NeedsYouItem;
+  const calls: unknown[] = [];
+  const opened: string[] = [];
+  const answer = (fails?: string) =>
+    answerFromHome(
+      async (method, params) => {
+        calls.push([method, params]);
+        if (fails) throw new NativeError({ code: fails });
+      },
+      item,
+      { id: "Passkeys (Recommended)", label: "Passkeys (Recommended)", tone: "choice" },
+      (id) => void opened.push(id),
+    );
+  expect(await answer()).toBe("answered");
+  expect(calls[0]).toEqual([
+    "chat.asks.answer",
+    {
+      sessionId: "auth",
+      permissionId: "p-auth",
+      optionId: "p-auth-yes",
+      answers: { "Which sign-in?": "Passkeys (Recommended)" },
+    },
+  ]);
+  // A host that can't (another computer's chat, an older host) opens the chat, and so does a
+  // question it refuses (acpmux holds it in a shape the host can't send): no row is left stuck.
+  expect(await answer("unsupported")).toBe("opened");
+  expect(await answer("refused")).toBe("opened");
+  expect(opened).toEqual(["auth", "auth"]);
+  await expect(answer("native.invalid_params")).rejects.toThrow();
+});
+
+test("questionAnswers: a generic interactive ask and a question with previews open their chat", async () => {
+  const { questionAnswers } = await import("../src/agent-session/acpmux/needsYou/model");
+  const ask = (harness: string, preview?: { text: string; format: string }) =>
+    ({
+      id: "p",
+      source: { harness, session: "s", permission: "p" },
+      items: [
+        {
+          id: "q0",
+          prompt: "Pick one",
+          options: [
+            { id: "a", label: "A", ...(preview ? { preview } : {}) },
+            { id: "b", label: "B" },
+          ],
+          multiSelect: false,
+          allowsOther: false,
+        },
+      ],
+      state: { kind: "pending" },
+    }) as unknown as NonNullable<NeedsYouItem["question"]>;
+  expect(questionAnswers(ask("claude")).map((answer) => answer.id)).toEqual(["a", "b"]);
+  expect(questionAnswers(ask("acp"))).toEqual([]);
+  expect(questionAnswers(ask("claude", { text: "mock", format: "monospace" }))).toEqual([]);
+});
+
+test("replyElsewhere: an Other answer goes in the person's own words", async () => {
+  const { reply, selection } = await import("../src/agent-session/acpmux/question/model");
+  const { replyElsewhere } = await import("../src/agent-session/acpmux/homeInboxModel");
+  const question = {
+    id: "p-auth",
+    source: { harness: "claude", session: "auth", permission: "p-auth", answerOption: "p-auth-yes" },
+    items: [
+      {
+        id: "q0",
+        prompt: "Which sign-in?",
+        options: [{ id: "OAuth", label: "OAuth" }],
+        multiSelect: false,
+        allowsOther: true,
+      },
+    ],
+    state: { kind: "pending" },
+  } as unknown as Parameters<typeof reply>[0];
+  const calls: unknown[] = [];
+  const outcome = await replyElsewhere(
+    async (method, params) => void calls.push([method, params]),
+    reply(question, { selections: { q0: selection([], "  Both, OAuth first  ") } }),
+    () => undefined,
+  );
+  expect(outcome).toBe("answered");
+  expect(calls).toEqual([
+    [
+      "chat.asks.answer",
+      {
+        sessionId: "auth",
+        permissionId: "p-auth",
+        optionId: "p-auth-yes",
+        answers: { "Which sign-in?": "Both, OAuth first" },
+      },
+    ],
+  ]);
 });
 
 test("the shortcuts answer nothing here while the home's own chat shows its card, or after unmount", async () => {

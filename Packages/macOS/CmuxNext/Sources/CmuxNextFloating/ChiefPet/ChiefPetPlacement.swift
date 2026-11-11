@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Where the Chief pet sits on each screen: the origin it was last dragged
 /// to there, saved in user defaults by display, and always kept fully on
