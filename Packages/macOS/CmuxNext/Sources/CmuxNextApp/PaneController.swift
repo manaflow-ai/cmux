@@ -114,6 +114,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
 
+        view.keepsClosedPage = { [weak services] in services?.newTabSpares.keepInWindow($0) ?? false }
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare draws the context Cmd-T gives

@@ -2932,3 +2932,20 @@ The environment macos-placement already takes on a push for the same App key; pu
 Above `release-compile-revert: uses` in `.github/workflows/cmux-next.yml`.
 
 The newest tip, so the revert applies to what is there now.
+
+## note-346
+
+Above `overflow handoff` in compile-status in `.github/workflows/cmux-next.yml`.
+
+With the results service down and no fallback compile in the run (note-82), a pull request's compile-status no longer
+posts `error` and fails. On 2026-11-10 from 19:51Z that failed the job on every pull request (#38440, #40696, #40742),
+and each one waited for a person. It now posts cmux-next/compile `pending`, starting with the marker `[overflow]`, and
+ends green. The overflow compile takes the head from there: while the service is down, and for any head still pending
+with `[overflow]` after it comes back, it compiles that exact head (recipe 2, `--app --release`) and posts
+cmux-next/compile success or failure as cmux-bot, the same poster as here. It queues at its cap, dispatches a head
+once, and once more only when that run gave no verdict. A pending status is never a pass, so the gate holds the pull
+request until the verdict comes. A feat-cmux-next push with no fallback (superseded) still posts `[no-verdict]`
+`error`, since the overflow compile takes only pull request heads.
+
+`tests/test_ci_cmux_next_compile_status.py` `test_a_pull_request_with_no_fallback_hands_off_to_the_overflow_compile`
+runs the real step against a 530.

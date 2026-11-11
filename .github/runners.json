@@ -302,8 +302,7 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-base-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-batch.yml#build": {
       "class": "apple-app-build",
@@ -354,8 +353,7 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next-pr-autofix.yml#action-exports": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "class": "apple-app-build"
     },
     "cmux-next-shell-integration.yml#zsh-head-watch": {
       "class": "macos-runtime-tests",

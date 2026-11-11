@@ -1087,10 +1087,20 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
         if job.get("conclusion") == "success" and any(steps.get(name) == "success" for name in COMPILE_STEPS):
             return f"'{check['name']}' (job {link[2]})"
         break
-    # The newest cmux-next/compile its one poster made (compile_status_at): a look-alike by anyone else never passes.
-    if (compile_status_at(repo, sha, github) or {}).get("state") == "success":
+    # A cmux-next/compile success its one poster made at this exact commit (compile_pass_status_at): a look-alike by
+    # anyone else never passes, and a later no-verdict post never hides it.
+    passed, newest = compile_pass_status_at(repo, sha, github)
+    if passed is not None:
         return f"the {COMPILE_PASS_STATUS} status"
-    receipt = compile_receipt(repo, sha)
+    try:
+        receipt = compile_receipt(repo, sha)
+    except ReceiptUnreachable as down:
+        # The receipts host is down or slow (cmux#40722, 2026-11-10: "TimeoutError: The read operation timed out"):
+        # the poster's status above was the other way to know, and it holds no pass. Refused, naming both.
+        said = (f"{newest.get('state')}: {(newest.get('description') or 'no description')[:120]}" if newest
+                else "none posted")
+        raise Refused(f"{down}; and no {COMPILE_PASS_STATUS} success from its poster at {sha[:12]} (its newest: "
+                      f"{said}): neither the receipts nor the overflow compile's verdict says it compiled") from down
     if receipt is not None and receipt.get("state") == "pass":
         return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
                 f"{receipt['recipe_version']}, {receipt['configuration']})")
@@ -1241,6 +1251,33 @@ def compile_status_at(repo: str, sha: str, github) -> dict | None:
             return None
     raise Refused(f"the statuses of {sha[:12]}: {COMPILE_STATUS_PAGES} full pages hold no {COMPILE_PASS_STATUS} "
                   "from its poster; too many statuses to tell whether it has one")
+
+
+def compile_pass_status_at(repo: str, sha: str, github) -> tuple[dict | None, dict | None]:
+    """(a cmux-next/compile success its poster made at SHA that no later real verdict replaced, or None; the
+    poster's newest status at SHA, or None). Its poster posts a success only for a compile of this exact commit
+    (compile-status from the receipt, the overflow compile's poster from its run). A later post that is no verdict
+    (pending, or a COMPILE_STATUS_NO_VERDICT failure: a re-run of compile-status with the receipts host down) does not
+    undo that compile; a later real failure does. Read like compile_status_at: page by page, COMPILE_STATUS_PAGES at
+    most, and refused past them."""
+    newest = None
+    for page in range(1, COMPILE_STATUS_PAGES + 1):
+        statuses = github.json(f"repos/{repo}/commits/{sha}/statuses?per_page=100&page={page}") or []
+        if not isinstance(statuses, list):
+            raise Refused(f"the statuses of {sha[:12]} are not a list")
+        for status in statuses:
+            if not (isinstance(status, dict) and status.get("context") == COMPILE_PASS_STATUS and trusted_poster(status)):
+                continue
+            newest = newest or status
+            if status.get("state") == "success":
+                return status, newest
+            if status.get("state") in ("failure", "error") and \
+                    not COMPILE_STATUS_NO_VERDICT.match(status.get("description") or ""):
+                return None, newest  # a real verdict, newer than any pass below it
+        if len(statuses) < 100:
+            return None, newest
+    raise Refused(f"the statuses of {sha[:12]}: {COMPILE_STATUS_PAGES} full pages read without its poster's "
+                  f"{COMPILE_PASS_STATUS} verdict; too many statuses to tell whether it passed")
 
 
 def github_compile_red(repo: str, base: str, sha: str, name: str, github, down: Refused) -> str:
@@ -1590,7 +1627,10 @@ FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves the pin
-FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+# cmux-tui/bindings/rust is a crate cmux-app-ffi reaches through a Cargo path dependency (check-app-ffi-pin.sh
+# --list-inputs); the other bindings (cpp, python, rust-sidebar) are not.
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/bindings/rust/", "cmux-tui/rust-toolchain.toml",
+              "scripts/cmux-next/build-app-ffi.sh")
 # The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
 # classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
 # changing one could make the pin error print for any change, so neither rule below excuses it (review of cmux#39194,
