@@ -1298,6 +1298,16 @@ class PlacementNeverGatesThePublish(unittest.TestCase):
             with self.subTest(**results):
                 self.assertEqual(run_jobs(results)["repin"], "success")
 
+    # A run whose build was cancelled (a newer push replaced it while it waited in the build group, or a cancel by
+    # hand) re-pins too. It cannot pin its own artifact: publish-app-ffi-repin.sh ignores the build's TAG and CHECKSUM
+    # and picks the newest published release. It cannot race the newer run: the re-pin jobs run one at a time, and the
+    # newer run, still building with its re-pin to come, holds this one.
+    def test_a_run_whose_build_was_cancelled_still_re_pins(self):
+        for results in ({"build": "cancelled"}, {"placement": "failure", "build": "cancelled"},
+                        {"publish": "cancelled"}):
+            with self.subTest(**results):
+                self.assertEqual(run_jobs(results)["repin"], "success")
+
 
 if __name__ == "__main__":
     unittest.main()
