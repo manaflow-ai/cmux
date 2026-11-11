@@ -350,6 +350,9 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
     /// The first frame back: how far each row on screen is drawn from where it lies on the next
     /// frame that draws the same rows at rest, the most of them, px.
     firstOff: number;
+    /// Rows of the first frame back compared with a later frame where each rests: 0 is no reference,
+    /// and the case fails instead of reading as in place.
+    compared: number;
     gapFirst: number;
     gapRest: number;
     trace: string[];
@@ -357,18 +360,26 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
 
   /// More than a line and a half down is a block coming from above, never a row settling.
   const FELL_PX = 32;
+  /// The first frame back may hold a streamed line back as any frame does (text still revealing
+  /// grows its row, and the chase keeps a line of it); a chase held over the time away drew the rows
+  /// 79 to 150 px off.
+  const FIRST_OFF_PX = 24;
   type Away = "hidden" | "suspended" | "occluded";
   type Resize = "same" | "nudge" | "taller" | "shorter";
-  const cases: { away: Away; resize: Resize; lagging: boolean; after: boolean }[] = [];
+  const cases: { away: Away; resize: Resize; lagging: boolean; after: boolean; single: boolean }[] = [];
   for (const away of ["hidden", "suspended", "occluded"] as const)
     for (const resize of ["same", "nudge", "taller", "shorter"] as const)
-      for (const lagging of [false, true]) cases.push({ away, resize, lagging, after: true });
+      for (const lagging of [false, true]) cases.push({ away, resize, lagging, after: true, single: false });
+  // One block arrives while away and nothing else moves after it (#41252): no later move lands
+  // the chase it starts, so only its own first frame back can.
+  for (const away of ["hidden", "suspended", "occluded"] as const)
+    for (const lagging of [false, true]) cases.push({ away, resize: "same", lagging, after: true, single: true });
 
   const only = process.env.REVEAL_ONLY ? new RegExp(process.env.REVEAL_ONLY) : undefined;
   for (const [name] of engines)
-    for (const { away, resize, lagging, after } of cases)
-      if (!only || only.test(`${name} ${away} ${resize}${lagging ? " lagging" : ""}`))
-        test(`${name}, ${away}, ${resize}${lagging ? ", lagging" : ""}: rows never come down after a switch back`, async () => {
+    for (const { away, resize, lagging, after, single } of cases)
+      if (!only || only.test(`${name} ${away} ${resize}${single ? " single" : ""}${lagging ? " lagging" : ""}`))
+        test(`${name}, ${away}, ${resize}${single ? ", one block" : ""}${lagging ? ", lagging" : ""}: rows never come down after a switch back`, async () => {
           const page = await open(name);
           if (lagging) await lag(page, 40, 70);
           // A turn streams into the followed chat.
@@ -379,6 +390,8 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
           await pause(200);
           emit("in", "agent_message_chunk", chunk("Looking at both now. "));
           await words(24);
+          // fixed-wait: one block alone: what streamed comes to rest before the switch.
+          if (single) await pause(800);
           // The reader switches to another workspace while it streams.
           await page.evaluate(
             ([occluded, suspend]) =>
@@ -388,18 +401,25 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
               ),
             [away === "occluded", away === "suspended"] as const,
           );
-          for (let index = 0; index < 2; index++) {
-            toolCall(`away-${index}`, `gh run view 4295${index} --log-failed`, `Read the failed run ${index}`);
-            await pause(60);
-            toolDone(`away-${index}`);
-            await pause(60);
+          if (single) {
+            // One block, then nothing: no later move to land the chase it starts.
+            toolCall("away-one", "gh run view 42950 --log-failed", "Read the failed run");
+            // fixed-wait: a second away with no frames, as the reviewer's case.
+            await pause(1000);
+          } else {
+            for (let index = 0; index < 2; index++) {
+              toolCall(`away-${index}`, `gh run view 4295${index} --log-failed`, `Read the failed run ${index}`);
+              await pause(60);
+              toolDone(`away-${index}`);
+              await pause(60);
+            }
+            emit("in", "agent_thought_chunk", thought("Weighing what failed. "));
+            await pause(80);
+            emit("in", "agent_message_chunk", chunk("\n\nBoth runs failed on the same step. "));
+            await words(40);
+            // fixed-wait: the hidden page's commits land (its placement passes run without frames).
+            await pause(1200);
           }
-          emit("in", "agent_thought_chunk", thought("Weighing what failed. "));
-          await pause(80);
-          emit("in", "agent_message_chunk", chunk("\n\nBoth runs failed on the same step. "));
-          await words(40);
-          // fixed-wait: the hidden page's commits land (its placement passes run without frames).
-          await pause(1200);
           // The window or the sidebar changed while the chat was away: the host sizes the page while it
           // is still away, and the page draws nothing at the new size until it shows (its resize is
           // heard in the first frame back, after what it held draws; WindowRootView.show).
@@ -410,8 +430,10 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
             await pause(200);
           }
           // More of the reply lands just before the reader comes back.
-          await words(4);
-          await pause(100);
+          if (!single) {
+            await words(4);
+            await pause(100);
+          }
           // The workspace shows again at another size (the window or sidebar changed while away): the
           // host sizes the page, then shows it (WindowRootView.show).
           const follow = () =>
@@ -454,7 +476,14 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
             const w = window as unknown as {
               __raf: typeof requestAnimationFrame;
               __show: () => void;
-              __frames: { tops: [string, number][]; gap: number; scroll: number; tr: string }[];
+              __frames: {
+                tops: [string, number][];
+                sizes: [string, number, number][];
+                gap: number;
+                scroll: number;
+                tr: string;
+                at: number;
+              }[];
               __recording: boolean;
             };
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -467,9 +496,11 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
             const sample = () => {
               const view = scroller.getBoundingClientRect();
               const tops: [string, number][] = [];
+              const sizes: [string, number, number][] = [];
               let low = Number.NEGATIVE_INFINITY;
               for (const row of rowsOf()) {
                 const rect = row.getBoundingClientRect();
+                if (rect.height > 0.5) sizes.push([row.dataset.rowId!, rect.top, rect.height]);
                 if (rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom)
                   tops.push([row.dataset.rowId!, rect.top]);
                 if (rect.height > 0.5) low = Math.max(low, rect.bottom);
@@ -478,22 +509,40 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
               const floor = dock?.getBoundingClientRect().top ?? view.bottom;
               w.__frames.push({
                 tops,
+                sizes,
                 gap: floor - low,
                 scroll: scroller.scrollTop,
                 tr: thread?.style.translate || "-",
+                at: performance.now(),
               });
             };
             w.__show();
+            // Each frame is read as it paints: after its ResizeObserver deliveries, where the transcript
+            // measures its box and places the rows (a frame callback runs before them, so it read the
+            // first frame back at the size the page had before it showed). A sentinel changes size
+            // every frame, and its observer, made last, is delivered after the transcript's.
+            const sentinel = document.createElement("div");
+            sentinel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+            document.body.append(sentinel);
+            new ResizeObserver(() => {
+              if (w.__recording) sample();
+            }).observe(sentinel);
+            let wide = false;
             const loop = () =>
               w.__raf(() => {
-                sample();
+                wide = !wide;
+                sentinel.style.width = wide ? "2px" : "1px";
                 if (w.__recording) loop();
               });
             loop();
           });
           // The turn goes on after the reader is back: a call, then more of the reply, as Austin saw.
           if (after) {
-            await pause(300);
+            // fixed-wait: the first frames back settle before more lands (the rest each row of the
+            // first frame back is measured against is read before it; a busy page's chase of the text
+            // still revealing takes most of a second).
+            await pause(1200);
+            await page.evaluate(() => ((window as unknown as { __afterAt: number }).__afterAt = performance.now()));
             toolCall("back-0", "bun test", "Run the tests");
             await pause(120);
             toolDone("back-0");
@@ -506,10 +555,19 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
           const debug = Boolean(process.env.REVEAL_DEBUG);
           const seen = (await page.evaluate((debug) => {
             const w = window as unknown as {
-              __frames: { tops: [string, number][]; gap: number; scroll: number; tr: string }[];
+              __frames: {
+                tops: [string, number][];
+                sizes: [string, number, number][];
+                gap: number;
+                scroll: number;
+                tr: string;
+                at: number;
+              }[];
               __recording: boolean;
+              __afterAt?: number;
             };
             w.__recording = false;
+            const afterAt = w.__afterAt ?? Number.POSITIVE_INFINITY;
             const frames = w.__frames.map((frame) => ({ ...frame, map: new Map(frame.tops) }));
             // How far each row came down over a run of frames in which it only came down.
             let fell = 0;
@@ -534,22 +592,36 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
                 }
               }
             }
-            // The first frame back against the next frame with the same rows and nothing moving.
+            // Each row of the first frame back against the next frame that draws it at rest (no chase,
+            // where it was the frame before), before more lands after the switch back. Where a row
+            // lies in the content (its top plus the offset) less what the rows above it grew between
+            // the two frames: streamed text still revealing after the switch back grows its row, and
+            // the view following it is no misplacement; a chase's translate or an offset off the end
+            // is. Rows that never rest on screen meanwhile are left out; `compared` counts the rest,
+            // and none compared fails the case.
             const first = frames[0]!;
             let firstOff = 0;
-            const restAt = frames.findIndex(
-              (frame, index) =>
-                index > 0 &&
-                frame.tr === "-" &&
-                frame.map.size === first.map.size &&
-                [...first.map.keys()].every((id) => frame.map.has(id)) &&
-                [...frame.map].every(
-                  ([id, top]) => Math.abs((frames[index - 1]!.map.get(id) ?? Number.NaN) - top) < 0.5,
-                ),
-            );
-            if (restAt > 0)
-              for (const [id, top] of first.map)
-                firstOff = Math.max(firstOff, Math.abs(top - frames[restAt]!.map.get(id)!));
+            let compared = 0;
+            for (const [id, top] of first.map) {
+              if (id === "thinking-live") continue;
+              const restAt = frames.findIndex(
+                (frame, index) =>
+                  index > 0 &&
+                  frame.at < afterAt &&
+                  frame.tr === "-" &&
+                  frame.map.has(id) &&
+                  Math.abs((frames[index - 1]!.map.get(id) ?? Number.NaN) - frame.map.get(id)!) < 0.5,
+              );
+              if (restAt < 0) continue;
+              compared++;
+              const rest = frames[restAt]!;
+              const restTop = rest.map.get(id)!;
+              const firstSizes = new Map(first.sizes.map(([row, , height]) => [row, height]));
+              let grewAbove = 0;
+              for (const [row, rowTop, height] of rest.sizes)
+                if (rowTop < restTop - 0.5 && firstSizes.has(row)) grewAbove += height - firstSizes.get(row)!;
+              firstOff = Math.max(firstOff, Math.abs(restTop + rest.scroll - (top + first.scroll) - grewAbove));
+            }
             const trace = frames
               .slice(0, debug ? 40 : 8)
               .map(
@@ -561,17 +633,18 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
               fell: Math.round(fell * 10) / 10,
               worst,
               firstOff: Math.round(firstOff * 10) / 10,
+              compared,
               gapFirst: Math.round(first.gap),
               gapRest: Math.round(frames.at(-1)!.gap),
               trace,
             };
           }, debug)) as Seen;
-          console.log(`REVEAL_REPORT ${JSON.stringify({ engine: name, away, resize, lagging, ...seen })}`);
+          console.log(`REVEAL_REPORT ${JSON.stringify({ engine: name, away, resize, single, lagging, ...seen })}`);
           if (process.env.REVEAL_DEBUG) console.log(`REVEAL_FOLLOW before=${followBefore} after=${await follow()}`);
           const stillFollowing = await following();
           if (cdp && framesDir) {
             await cdp.send("Page.stopScreencast").catch(() => {});
-            const dir = path.join(framesDir, `${name}-${away}-${resize}`);
+            const dir = path.join(framesDir, `${name}-${away}-${resize}${single ? "-single" : ""}`);
             mkdirSync(dir, { recursive: true });
             const start = shots[0]?.at ?? 0;
             shots
@@ -601,7 +674,10 @@ await requireBrowserLane("agent-pane-reveal-in-place.test.ts", async () => {
             fell: 0,
             worst: "",
           });
-          // The first frame back draws the rows where they rest.
-          expect(seen.firstOff).toBeLessThanOrEqual(0.5);
+          // The first frame back draws the rows where they rest, measured against at least one row,
+          // and its newest line as far over the composer as at rest (not under it, no sliver).
+          expect(seen.compared).toBeGreaterThan(0);
+          expect(seen.firstOff).toBeLessThanOrEqual(FIRST_OFF_PX);
+          expect(Math.abs(seen.gapFirst - seen.gapRest)).toBeLessThanOrEqual(FIRST_OFF_PX);
         });
 });

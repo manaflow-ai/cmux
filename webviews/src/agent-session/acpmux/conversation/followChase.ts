@@ -243,6 +243,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   };
   const step = (now: number) => {
     frame = undefined;
+    // This frame came FRAMELESS_MS or more after it was asked for: the page drew nothing meanwhile
+    // (covered by another workspace), so nobody saw the chase start. It lands before this frame
+    // paints instead of sliding in from where it was held: one block that arrived while away, with
+    // nothing after it to move the rows, drew 79 px off on the first frame back (#41252).
+    if (performance.now() - askedAt > FRAMELESS_MS) {
+      stop();
+      return;
+    }
     const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
     last = now;
     const from = x;

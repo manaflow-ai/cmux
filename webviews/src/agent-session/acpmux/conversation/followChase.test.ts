@@ -377,6 +377,36 @@ test("a row that arrived holds all of its move back, then comes home on the arri
   }
 });
 
+test("a chase whose first frame comes long after it was asked for (a covered view) lands before that frame paints", () => {
+  // #41252: one block arrives while another workspace covers the chat and nothing moves after it.
+  // The page draws no frames for a second; the first one back must draw the rows home, not 79 px off.
+  const line = currentChatMetrics().lineHeight;
+  const real = performance.now.bind(performance);
+  try {
+    for (const arm of ["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])
+      for (const arrived of [false, true])
+        for (const [lateMs, glides] of [
+          [1000, false],
+          [60, true],
+        ] as const) {
+          const chase = createFollowChase(arm);
+          const { node, frame, drawn, pending } = fixture();
+          let skew = 0;
+          performance.now = () => real() + skew;
+          chase.shift(node, -132, line * 10, false, arrived);
+          expect(drawn()).toBeGreaterThan(0);
+          skew = lateMs;
+          frame();
+          // Late past FRAMELESS_MS: home, the loop ended. A busy page's frame (60 ms) still glides.
+          expect({ arm, arrived, lateMs, moving: drawn() > 0 }).toEqual({ arm, arrived, lateMs, moving: glides });
+          if (!glides) expect(pending()).toBe(0);
+          performance.now = real;
+        }
+  } finally {
+    performance.now = real;
+  }
+});
+
 test("a move that comes during an arrival's step keeps the step's end", () => {
   const line = currentChatMetrics().lineHeight;
   const chase = createFollowChase("blocks");
