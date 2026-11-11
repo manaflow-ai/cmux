@@ -87,20 +87,88 @@ on:
 permissions: {}
 
 jobs:
+  # The build's runner, as cmux-next.yml's macos-placement places a feat-cmux-next
+  # push's Release compile (side_lane_placement.py PLACEMENT=promote): an idle
+  # vars.CI_NEXT_PROMOTE_POOL runner (attempt 1 of a push only), else a free
+  # Blacksmith macOS slot, 12 vCPU then 6, ranked as a feed's compile
+  # (FRESH_JOBS), else 6 vCPU's queue while it moves. Never a side mini: the
+  # build publishes a release. On 2026-11-10 the promote pool was unset and every
+  # build queued on blacksmith-6vcpu-macos-26 behind PR CI for 11 to 66 minutes,
+  # with feat-cmux-next red until the re-pin landed. SIDE_LABEL only says the
+  # run is on the owned pools (next_macos_cascade.skipped()). A failed or
+  # skipped placement leaves the build its earlier route. Known limit: the
+  # reading is taken when the run starts, so a build that first waits in its
+  # concurrency group for an older build starts on that reading.
+  placement:
+    name: place the build
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    # The routing App's read-only key, in the environment cmux-next's placement uses.
+    environment: ci-routing-agent
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      promote_runner: ${{ steps.place.outputs.promote_runner }}
+      blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
+      blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      # The attempt that placed: a re-run of the build alone keeps attempt 1's outputs, read then.
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool read token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the build
+        id: place
+        if: steps.route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLACEMENT: promote
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
+          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          PROMOTE_LABEL: ${{ github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
+          JOBS: app-ffi-build
+          CASCADE_JOBS: app-ffi-build
+          CASCADE_RUNS: ' app-ffi-build '
+          PROMOTE_JOBS: app-ffi-build
+          FRESH_JOBS: app-ffi-build
+        run: python3 scripts/ci/side_lane_placement.py
+
   build:
     name: build xcframework
-    if: github.ref == 'refs/heads/feat-cmux-next'
-    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
-    # reserved trusted promote runners (trustedRef feat-cmux-next) that already
-    # run cmux-next.yml's Release compile and cmux-tui-artifacts' tests: minis
-    # first, Blacksmith as overflow. On Blacksmith alone the build sat queued on
-    # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
-    # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
-    # variable takes the Blacksmith label as before. Queued there, the build holds
-    # that label against pull request placements as a nightly job does (the queue
-    # janitor's reserved_queued, queue_janitor.RESERVED_POOL_WORKFLOW): run
-    # 42833220418 waited 66 minutes behind pull request jobs on 2026-11-10.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    needs: placement
+    # Runs whatever the placement did (it only picks the runner); not on a cancelled run.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
+    # The placement's route (above) when it placed this attempt. Without one
+    # (no placement, or a busy promote pool and no free Blacksmith slot),
+    # attempt 1 of a push takes vars.CI_NEXT_PROMOTE_POOL, the reserved trusted
+    # promote runners (trustedRef feat-cmux-next): on Blacksmith 12 vCPU alone
+    # the build once sat queued for 12 hours (run 39402525970, 2026-10-20). A
+    # re-run, a dispatch or an empty variable takes Blacksmith 6 vCPU. Queued
+    # on a Blacksmith label, the build holds it against pull request placements
+    # as a nightly job does (the queue janitor's reserved_queued,
+    # queue_janitor.RESERVED_POOL_WORKFLOW).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
     # cancels it; a still newer one replaces it while it waits.
@@ -266,7 +334,9 @@ jobs:
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    # !cancelled(): the placement is an ancestor, and a failed placement must
+    # not skip what follows a build that ran past it.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     continue-on-error: true
@@ -378,7 +448,9 @@ jobs:
   publish:
     name: publish release
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # !cancelled(): a failed placement (an ancestor the build runs past) must
+    # not skip the publish of a build that succeeded.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
@@ -557,11 +629,16 @@ jobs:
   repin:
     name: open the re-pin pull request
     needs: [build, publish]
-    if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh).
+    if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
+    # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
+    # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
+      actions: write
       contents: read
       checks: read
       statuses: read
@@ -651,3 +728,16 @@ jobs:
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
+
+      # A failed or timed-out re-pin starts app-ffi-repin.yml, which re-pins the newest published release:
+      # another run's re-pin may have held for this one (publish-app-ffi-repin.sh), and without this no job
+      # re-pins until the next FFI push or pin merge. Needs actions: write. A dispatched app-ffi-repin.yml
+      # run does not start another, so a re-pin that keeps failing runs once more, not in a loop. A run cancelled
+      # by hand also starts one re-pin: harmless, a re-pin of the newest published release.
+      - name: Start the re-pin workflow when this re-pin failed
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next

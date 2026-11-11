@@ -255,8 +255,12 @@ struct ChatComposer: View {
                 if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, collapsed ? 6 : 8)
-            .padding(.top, collapsed ? 6 : 0)
+            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
+            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
+            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
+            // keeps its 44 pt targets and grows with Dynamic Type.
+            .padding(.bottom, collapsed ? 2 : 8)
+            .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
@@ -448,12 +452,13 @@ struct ChatComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
             Image(systemName: "waveform")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: 36, height: 36)
-                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .background(style.fillColor, in: .circle)
                 .padding(4)
                 .contentShape(.circle)
                 .padding(-4)
@@ -890,6 +895,31 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+/// How the composer's voice button is drawn (CMUX-39). One filled circle per composer, as
+/// in ChatGPT's: alone (no draft) the voice button is the primary control and keeps its
+/// filled circle; beside Stop it is secondary, a plain glyph at the weight of the plus.
+/// Voice mode on is always the accent circle, so its state stays visible.
+struct ComposerVoiceStyle: Equatable {
+    let primaryIsVisible: Bool
+    let active: Bool
+
+    enum Fill: Equatable { case accent, neutral, plain }
+
+    var isFilled: Bool { active || !primaryIsVisible }
+
+    var fill: Fill {
+        if active { return .accent }
+        return isFilled ? .neutral : .plain
+    }
+
+    var fillColor: Color {
+        switch fill {
+        case .accent: .cmuxMobileAccent
+        case .neutral: .cmuxMobileFill
+        case .plain: .clear
+        }
     }
 }
 #endif

@@ -266,6 +266,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RunResult, "workspace_id");
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "commands");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "disk");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "hook_queue");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "journal_followers");
@@ -309,6 +310,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Workspace, "name_revision");
     try expectExplicitNullRejected(protocol.Workspace, "name_source");
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
+    try expectExplicitNullRejected(protocol.WorkspaceFirstTabBrowser, "activate");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");
+    try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "first_tab");
 }
