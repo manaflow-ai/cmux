@@ -682,6 +682,12 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_concurrency.py
 
+      # One queued run per cron or maintenance workflow; nightly, DEV, promote, release and publish
+      # workflows never gain cancel-in-progress or a shared cron group (docs/ci/cron-concurrency.md).
+      - name: Check cron workflows keep one queued run and delivery builds are never deduped
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cron_concurrency.py
+
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
       - name: Warn about workflows that can flood the queue
