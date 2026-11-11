@@ -244,6 +244,24 @@ public struct BrowserInstalledBrowserDetector {
             ]
         }
 
+        // Safari's cookie store lives in its sandbox container (or, before the sandbox, in
+        // ~/Library/Cookies), outside the data root. When one of those is the only trace of
+        // Safari there is no root to hang a profile on, and a candidate with no profile has
+        // nothing to import from. Offer the default profile at the root Safari would use: the
+        // cookie reader resolves a default profile to those stores, not to the profile's root.
+        if bestProfiles.isEmpty,
+           descriptor.id == "safari",
+           !artifactHits.isEmpty,
+           let rootPath = candidateRootPaths.first {
+            bestProfiles = [
+                InstalledBrowserProfile(
+                    displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
+                    rootURL: homeDirectoryURL.appendingPathComponent(rootPath, isDirectory: true),
+                    isDefault: true
+                )
+            ]
+        }
+
         return (
             dataRootURL: bestRootURL,
             family: bestFamily,
