@@ -124,7 +124,7 @@ pub(crate) const OVERRIDE_HINT: &str =
     "; to copy it anyway, run the same command with --allow-large";
 
 /// `folder` with this Mac's home as `~`.
-fn shown(folder: &Path) -> String {
+pub(crate) fn shown(folder: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     match home.as_deref().and_then(|home| folder.strip_prefix(home).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
@@ -261,6 +261,15 @@ pub(crate) fn check_plain(folder: &Path) -> Result<(), TooLarge> {
         Err(error) => error.downcast::<TooLarge>().map_or(Ok(()), Err),
         Ok(_) => Ok(()),
     }
+}
+
+/// Runs `run` with a copy's limits at `bytes` and `files` on this thread (other modules' tests).
+#[cfg(test)]
+pub(crate) fn with_test_limits<T>(bytes: u64, files: u64, run: impl FnOnce() -> T) -> T {
+    TEST_LIMITS.with(|limits| limits.set(Some((bytes, files))));
+    let out = run();
+    TEST_LIMITS.with(|limits| limits.set(None));
+    out
 }
 
 #[cfg(test)]

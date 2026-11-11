@@ -107,6 +107,20 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
         (setup.state.as_deref(), setup.started_at, setup.has_script),
         (Some("running"), Some(2.0), Some(true))
     );
+    // A machine the plan found (or a reservation it bound) is not this send's to delete.
+    assert!(!plan.made_for_send);
+    for made in [
+        json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}}),
+    ] {
+        let (answer, object) = parse(&output(&made.to_string(), "", 0));
+        assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");
+    }
+    let (answer, object) = parse(&output(
+        &json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": false}}).to_string(),
+        "",
+        0,
+    ));
+    assert!(!start_chat_plan(answer, object.as_ref()).1.made_for_send);
     let (answer, object) =
         parse(&output("{\"ok\":true,\"new_name\":\"n\",\"create_key\":\"c\"}", "", 0));
     let (answer, plan) = start_chat_plan(answer, object.as_ref());
@@ -300,6 +314,10 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    // The folder check before any machine: its own bound, never a copy's 30 minutes.
+    let preflight = call(json!({"verb": "start-chat-preflight", "local": "/Users/me/Projects"}));
+    assert_eq!(preflight.args, ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]);
+    assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(

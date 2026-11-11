@@ -213,6 +213,12 @@
 .acpmux-cloud-ask__button[data-role="default"] { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 16%, transparent); }
 .acpmux-cloud-ask__button[data-role="default"]:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 24%, transparent); }
 .acpmux-cloud-ask__button:disabled { opacity: .55; }
+/* A folder too big to copy (CloudStartView `TooBigActions`): the repositories inside it, one click each, then
+   another folder or none. The ask's own buttons and caption; repository names in the mono face, cut at the end. */
+.acpmux-cloud-too-big { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.acpmux-cloud-too-big__label { color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acpmux-cloud-too-big__repos { margin-top: 0; }
+.acpmux-cloud-too-big__repo { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace); }
 .acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
 .acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
 /* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */

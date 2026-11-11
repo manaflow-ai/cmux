@@ -92,6 +92,73 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onSignIn: async () => undefined,
       },
     },
+    "folder-too-big-repos": {
+      note: "A parent of many repositories, too big to copy, refused before any machine: each repository inside it starts the same prompt there, or start with no folder. No Retry.",
+      props: {
+        start: {
+          ...begun,
+          folder: "Projects",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/Projects",
+            repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map((name) => ({
+              name,
+              path: `/Users/me/Projects/${name}`,
+            })),
+            more: false,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "folder-too-big-more": {
+      note: "More repositories inside than the card lists: Pick a folder joins them.",
+      props: {
+        start: {
+          ...begun,
+          folder: "src",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/src",
+            repos: Array.from({ length: 24 }, (_, index) => ({
+              name: `service-${String(index + 1).padStart(2, "0")}`,
+              path: `/Users/me/src/service-${index + 1}`,
+            })),
+            more: true,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "folder-too-big-plain": {
+      note: "A plain folder too big to copy with no repository inside: the limit, Pick a folder, Start without a folder.",
+      props: {
+        start: {
+          ...begun,
+          folder: "Downloads",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/Downloads is too big to copy to a Cloud machine (at least 20 GB in 1,204 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+          tooBig: { folder: "~/Downloads", repos: [], more: false },
+        },
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
     "spend-cap": {
       note: "The team's spending cap refused the machine: an admin can raise it; Run on This Mac sends the same prompt here.",
       props: {

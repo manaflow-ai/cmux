@@ -77,7 +77,66 @@ export type CloudStartProgress = {
   /// nothing waits on the person: the card says so. The composer is open throughout a start and what
   /// is typed moves to the chat as a draft. It holds until the start ends.
   stalled?: true;
+  /// A folder too big to copy that is not a git repository (`cloud_folder_too_big`, the host's check before
+  /// any machine): the card says why and offers the repositories inside it, another folder or none.
+  tooBig?: CloudFolderTooBig;
 };
+
+/// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
+export type CloudFolderTooBig = {
+  /// The folder as the person reads it (`~/Projects`).
+  folder: string;
+  /// The git working copies right inside it, by name below it (`cmux`, `work/api`), each a one-click start.
+  repos: { name: string; path: string }[];
+  /// More repositories than `repos` names.
+  more: boolean;
+};
+
+/// The most repositories the card offers, as the host bounds them (cmux-tui `preflight::MAX_REPOS`).
+const MAX_TOO_BIG_REPOS = 24;
+
+/// The host's details of a `cloud_folder_too_big`, each field checked; the card's words for it.
+export function cloudFolderTooBig(details: unknown): { tooBig: CloudFolderTooBig; message: string; machineMade: boolean } {
+  const record = asRecord(details) ?? {};
+  const folder = typeof record.folder === "string" && record.folder ? sliceWhole(record.folder, 160) : "";
+  const repos = (Array.isArray(record.repos) ? record.repos : [])
+    .map((repo) => asRecord(repo))
+    .filter(
+      (repo): repo is Record<string, unknown> =>
+        Boolean(repo) &&
+        typeof repo?.name === "string" &&
+        repo.name.length > 0 &&
+        typeof repo.path === "string" &&
+        repo.path.startsWith("/"),
+    )
+    .slice(0, MAX_TOO_BIG_REPOS)
+    .map((repo) => ({ name: sliceWhole(repo.name as string, 120), path: repo.path as string }));
+  const bytes = number(record.bytes);
+  const files = number(record.files);
+  const size =
+    bytes !== undefined && files !== undefined
+      ? translate("cloudStartup.folderSize", { size: folderSizeText(bytes), files: files.toLocaleString() })
+      : bytes !== undefined
+        ? folderSizeText(bytes)
+        : "?";
+  const named = folder || "~";
+  const message = repos.length
+    ? translate("cloudStartup.folderTooBigRepos", { folder: named, size })
+    : translate("cloudStartup.folderTooBig", { folder: named, size });
+  return {
+    tooBig: { folder: named, repos, more: record.more === true },
+    message,
+    machineMade: record.machineMade === true,
+  };
+}
+
+/// `bytes` as the copy's limit words it (cmux-tui size_cap `size`): GB of 1024³, one decimal under 100 GB; MB under 1 GB.
+export function folderSizeText(bytes: number): string {
+  const gb = 1024 ** 3;
+  if (bytes >= 100 * gb) return `${Math.round(bytes / gb)} GB`;
+  if (bytes >= gb) return `${(Math.round((bytes / gb) * 10) / 10).toString()} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
 
 /// What a start asks (AgentPaneCloudAsk): its first Claude login, the one-time login copy consent, Codex's
 /// Mac sign-in consent, Codex's device code. The host words it; the card draws it and answers with the
@@ -430,6 +489,20 @@ export function cloudStartEnded(
   if (spend) {
     const { signingIn: _s, ask: _a, retryable: _r, ...rest } = current;
     return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
+  }
+  // A folder too big to copy (the host's check before any machine): no Retry, the folder's way on instead.
+  if (answer.code === "cloud_folder_too_big") {
+    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, stalled: _st, ...rest } = current;
+    const tooBig = cloudFolderTooBig(answer.details);
+    return {
+      ...rest,
+      state: "failed",
+      code: answer.code,
+      message: tooBig.message,
+      tooBig: tooBig.tooBig,
+      // Refused before any machine: no step ran. One the copy refused after all had its machine deleted.
+      ...(tooBig.machineMade ? {} : { refusedHere: true }),
+    };
   }
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.

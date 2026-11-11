@@ -42,6 +42,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: a folder
+//!   in git goes on; a plain one past the copy's limits is refused with `copy.too_large`, naming
+//!   the git working copies right inside it (`repos`) to start in instead ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -54,6 +57,7 @@
 
 mod ledger;
 mod pick;
+mod preflight;
 mod project;
 mod reservations;
 mod spare_warm;
@@ -78,6 +82,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
+cmux link start-chat preflight --local FOLDER\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
@@ -161,6 +166,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "preflight" => flags.one("--local").map(preflight::run),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
             reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
