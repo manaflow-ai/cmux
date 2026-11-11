@@ -14,7 +14,7 @@ const inPlace = () => {
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 };
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
 });
 
 const call = (id: string) => ({
