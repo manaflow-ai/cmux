@@ -356,7 +356,21 @@ class NoclobberSweep(unittest.TestCase):
                      "t=`mktemp -d`; cp x /tmp/y.$$.XXXXXX", "x=$(echo mktemp /tmp/a.$$.XXXXXX)",
                      'd=$(mktemp -d "/tmp/x.$$.XXXXXX',  # unclosed: a line it cannot parse exempts nothing
                      'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX") && cp a /tmp/run.$$',
-                     "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)"):
+                     "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)",
+                     # Review of manaflow-ai/cmux#41306, F1: an inner template's span shifted the outer one's; F2: a
+                     # whole template word exempted the substitution inside it (shell read by token masking).
+                     'mktemp "$(mktemp /tmp/$USER.XXXXXX).XXXXXX"; echo > /tmp/out.$$',
+                     'mktemp "/tmp/$(printf secret > /tmp/out.$$)x.XXXXXX"',
+                     # Review of teamleaderleo/leo-workspace#4346, F1: the same overlap with the write on the outer
+                     # mktemp; of manaflow-ai/cmuxterm-hq#9338: XXXXXX only inside substitutions made the word a
+                     # template, masked whole; of leo-workspace#4346, F2: code() cut the line at a quoted #.
+                     'mktemp "$(mktemp /tmp/a.XXXXXX).XXXXXX" > /tmp/out.$$',
+                     'mktemp "$(printf /tmp/a.XXXXXX)$(printf secret > /tmp/out.$$)"',
+                     "printf '%s' 'foo # bar' > /tmp/out.$$",
+                     # Review of manaflow-ai/cmux#41306 (block at 1f84d085): the outer word's template is only inside
+                     # its substitution, and the write is on the outer mktemp; an unbalanced ) is not shell, so it
+                     # exempts nothing.
+                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)"):
             self.assertTrue(flagged(code(line)), line)
 
     def test_an_app_name_excuses_only_app_names(self):
