@@ -881,10 +881,13 @@ fn a_cloud_verb_waiting_for_allow_says_so() {
     let params = json!({ "action": "cloud fork-machine" });
     let waiting = json!({ "ran": true, "created": [], "result": {
         "pending": true, "awaiting": "allow", "source_machine_id": "vm-abc",
-        "text": "Waiting for you to allow “Fork Cloud Machine” in the cmux window. Nothing changes until you do.",
+        "text": "Waiting for your answer in the cmux window: “Fork Cloud Machine”. Nothing changes until you answer.",
     }});
     let text = waiting_line(&params, &waiting).unwrap();
-    assert!(text.starts_with("Waiting for you to allow “Fork Cloud Machine”"), "{text}");
+    assert!(
+        text.starts_with("Waiting for your answer in the cmux window: “Fork Cloud Machine”."),
+        "{text}"
+    );
     // Still working with nothing to ask: the field table, with its `pending: true`.
     let working = json!({ "result": { "pending": true, "source_machine_id": "vm-abc" } });
     assert!(waiting_line(&params, &working).is_none());

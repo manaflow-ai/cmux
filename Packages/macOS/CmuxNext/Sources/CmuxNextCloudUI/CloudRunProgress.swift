@@ -2,20 +2,22 @@ public import CmuxNextActions
 import Foundation
 
 /// How far one Cloud run a CLI, MCP or script caller waits on got. A run that outlasts its wait answers
-/// `pending` and keeps going; while the person's Allow sheet (``CloudChangeRequest``) is up, that answer
-/// says so (`awaiting: "allow"` and a sentence), and a failure after it, which no caller hears any more,
-/// goes to the person (``lateFailure(_:label:)``). Before, `cmux vm fork` from an agent waited on that
+/// `pending` and keeps going; while the person is asked to allow it (``CloudChangeRequest``'s sheet, a
+/// create's sidebar card), that answer says so (`awaiting: "allow"` and a sentence), and a failure after
+/// it, which no caller hears any more, goes to the person (``lateFailure(_:label:)``). Before, `cmux vm fork` from an agent waited on that
 /// sheet, answered a bare `pending` (`ran true`, `created []`), and ended unseen when the sheet went:
 /// no machine and no word of why (2026-11-11).
 @MainActor public final class CloudRunProgress {
     /// The progress of the run this task belongs to (none: nobody reads it).
     @TaskLocal public static var current: CloudRunProgress?
-    /// The asked action's title while its Allow sheet is up.
+    /// The title of what the person is asked to allow, while it is asked.
     public private(set) var awaitingAllow: String?
     /// The last action this run asked the person about.
     public private(set) var asked: String?
     /// The caller has the `pending` answer: what happens next, only the person hears.
     public private(set) var answeredPending = false
+    /// The run's outcome shows on its own (a create's progress page): a late failure needs no notice.
+    public private(set) var outcomeShown = false
 
     public init() {}
 
@@ -26,7 +28,16 @@ import Foundation
         try await Self.$current.withValue(self) { try await body() }
     }
 
-    /// `ask`'s answer, with `title`'s Allow sheet marked up while it is asked.
+    /// `ask`'s answer, with the current run (if any) marked as asking the person about `title` meanwhile.
+    public static func asking(_ title: String, _ ask: @MainActor () async -> Bool) async -> Bool {
+        guard let current else { return await ask() }
+        return await current.asking(title, ask)
+    }
+
+    /// From now on the run's outcome shows on its own: ``lateFailure(_:label:)`` answers nil.
+    public func showsItsOutcome() { outcomeShown = true }
+
+    /// `ask`'s answer, with this run marked as asking the person about `title` meanwhile.
     public func asking(_ title: String, _ ask: @MainActor () async -> Bool) async -> Bool {
         asked = title
         awaitingAllow = title
@@ -50,13 +61,13 @@ import Foundation
     /// The notice of a failure (`reason`) that came after the `pending` answer, naming the asked action (else
     /// `label`); nil while the caller still waits, since the caller hears the failure itself.
     public func lateFailure(_ reason: String, label: String) -> ActionWorkFailure? {
-        guard answeredPending else { return nil }
+        guard answeredPending, !outcomeShown else { return nil }
         return ActionWorkFailure(refusal: .unavailable, reason: Self.lateFailureText(asked ?? label, reason))
     }
 
-    /// "Waiting for you to allow “Fork Cloud Machine” in the cmux window. Nothing changes until you do."
+    /// "Waiting for your answer in the cmux window: “Fork Cloud Machine”. Nothing changes until you answer."
     public nonisolated static func awaitingAllowText(_ title: String) -> String {
-        String(format: String(localized: "cloud.run.awaitingAllow", defaultValue: "Waiting for you to allow “%@” in the cmux window. Nothing changes until you do.",
+        String(format: String(localized: "cloud.run.awaitingAllow", defaultValue: "Waiting for your answer in the cmux window: “%@”. Nothing changes until you answer.",
                               table: "Cloud", bundle: .module), title)
     }
 

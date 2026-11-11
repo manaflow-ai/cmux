@@ -37,8 +37,6 @@ public struct CloudChangeRequest {
     /// run's ``CloudRunProgress`` says so, so a caller's `pending` answer names what it waits for.
     @MainActor public func allowed(_ title: String, in window: NSWindow?) async -> Bool {
         guard let window else { return false }
-        let ask = { @MainActor in await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == Self.accept }
-        guard let progress = CloudRunProgress.current else { return await ask() }
-        return await progress.asking(title, ask)
+        return await CloudRunProgress.asking(title) { await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == Self.accept }
     }
 }

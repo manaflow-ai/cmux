@@ -196,7 +196,7 @@ extension CloudPresenter {
                                          chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }, stopAsking: (@MainActor () async -> Void)? = nil) async -> Bool {
         let (intro, lines) = createLines(prompt)
         if case .agentRequest(let machine) = prompt, let asks {
-            return window != nil ? await CloudCreateRequestAsk.ask(asks, intro: intro, lines: lines, asker: machine.askedBy, present: chatOpen, stopAsking: stopAsking) : false
+            return window != nil ? await CloudRunProgress.asking(CloudStrings.createConfirmTitle) { await CloudCreateRequestAsk.ask(asks, intro: intro, lines: lines, asker: machine.askedBy, present: chatOpen, stopAsking: stopAsking) } : false
         }
         // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
         guard let window else { return false }
