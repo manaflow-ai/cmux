@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "54c78f5ea1048134d8e8ddbd14333936ae3935d54545d2859bf031121b4716d6";
+pub const ir_sha256 = "3d42509344ba83f31bc5ed0a033e69b79449e5b5ff6cae5e5a1ef3c56ade7849";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2034,6 +2034,29 @@ pub const SendExpectAgent = struct {
     session: wire.Field([]const u8) = .absent,
 };
 
+pub const ServerStatsCommandConnections = struct {
+    accepted: u64,
+    kind: []const u8,
+    refused: u64,
+};
+
+pub const ServerStatsCommandRow = struct {
+    count: u64,
+    hist: []const u64,
+    kind: []const u8,
+    max_ns: u64,
+    name: []const u8,
+    total_ns: u64,
+};
+
+pub const ServerStatsCommands = struct {
+    connections: []const ServerStatsCommandConnections,
+    hist_bounds_ns: []const u64,
+    name_limit: u64,
+    names: u64,
+    rows: []const ServerStatsCommandRow,
+};
+
 pub const ServerStatsConnections = struct {
     accepted: u64,
     active: u64,
@@ -2249,6 +2272,7 @@ pub const ServerStatsResourceProjection = struct {
 };
 
 pub const ServerStatsResult = struct {
+    commands: ?ServerStatsCommands = null,
     connections: ServerStatsConnections,
     disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
@@ -2263,6 +2287,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "commands",
         "disk",
         "hook_queue",
         "journal_followers",
@@ -3547,10 +3572,49 @@ pub const Workspace = struct {
     };
 };
 
+pub const WorkspaceFirstTabBrowser = struct {
+    activate: ?bool = null,
+    cols: wire.Field(u16) = .absent,
+    engine: []const u8,
+    favicon_url: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
+    profile_id: wire.Field([]const u8) = .absent,
+    rows: wire.Field(u16) = .absent,
+    title: wire.Field([]const u8) = .absent,
+    url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "activate",
+    };
+};
+
+pub const WorkspaceFirstTab = union(enum) {
+    browser: WorkspaceFirstTabBrowser,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .browser => |payload| try wire.encodeTagged(allocator, "kind", "browser", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "kind");
+        if (std.mem.eql(u8, tag_value, "browser")) {
+            return .{ .browser = try wire.decodeLeaky(WorkspaceFirstTabBrowser, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
 pub const WorkspaceMutationResult = struct {
     changed: ?bool = null,
     /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
     closed_ids: ?[]const []const u8 = null,
+    /// create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.
+    first_tab: ?JsonValue = null,
     generation: []const u8,
     index: u64,
     key: []const u8,
@@ -3562,6 +3626,7 @@ pub const WorkspaceMutationResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "changed",
         "closed_ids",
+        "first_tab",
     };
 };
 
@@ -6001,6 +6066,8 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 pub const CreateWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    /// The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.
+    first_tab: wire.Field(WorkspaceFirstTab) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
@@ -6017,6 +6084,9 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+            .fields = &.{
+                .{ .name = "first_tab", .since = null, .capability = "workspace-first-tab-v1" },
+            },
         },
         request,
     );
@@ -7668,6 +7738,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
+    /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
+    workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "activate",
@@ -7686,6 +7758,7 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .capability = "frontend-browser-tabs-v1",
             .fields = &.{
                 .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+                .{ .name = "workspace", .since = null, .capability = "frontend-browser-tab-workspace-v1" },
             },
         },
         request,

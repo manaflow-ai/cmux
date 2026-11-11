@@ -201,6 +201,12 @@
   --glass-material-depth:
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
+  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the same
+     two steps at about half the reach and half the dark (Leo 2026-11-06, the composer: "Is there a
+     way to make this less glass, or maybe less shadow? ... Probably just a little bit more subtle."). */
+  --glass-material-depth-composer:
+    0 6px 18px -8px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 28%, transparent)),
+    0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent));
 }
 /* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
 @media not (prefers-reduced-transparency: reduce) {

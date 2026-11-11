@@ -50,6 +50,12 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `link start-chat plan`'s refusal of the platform's Cloud table (cmux-platform#1192): the
+    /// same send may pass later (a busy machine, a rate limit, an outage), so the card offers
+    /// Retry; false for a cap or any line that does not say.
+    pub retryable: bool,
+    /// With `retryable`, a rate limit's window in seconds: a Retry before it meets the limit again.
+    pub retry_after_s: Option<u64>,
 }
 
 impl Answer {
@@ -141,6 +147,8 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        retryable: boolean(&object, "retryable").unwrap_or(false),
+        retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
     };
     (answer, Some(object))
 }

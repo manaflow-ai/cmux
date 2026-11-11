@@ -175,7 +175,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
-        let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = contentHost.isHolding, row = held ? nil : tabRowSharer // held: the row is the strip's (S1B)
+        let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = content.map { contentHost.placesInHold($0) } ?? false, row = content.map { contentHost.keepsOutOfTabRowInHold($0) } ?? false ? nil : tabRowSharer // held: a key hold's area places a terminal's host or a browser's chrome (and the Home, which keeps its size: the row stays the strip's); any other content lays out here in each frame
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
@@ -191,7 +191,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, !contentHost.isHolding, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+        if launchImageView != nil, !held, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
@@ -205,7 +205,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
-        if hostsContent, !contentHost.isHolding, let content {
+        if hostsContent, !held, let content {
             let resized = content.frame != contentHost.bounds
             if resized { content.frame = contentHost.bounds }
             // Content shown before the pane had its size (a restored selected
@@ -219,7 +219,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
                 content.layoutSubtreeIfNeeded()
             }
         }
-        // A chat shown at the frame it was parked at (`install`) follows the host again; during a hold, from the landing on.
+        // A chat shown at the frame it was parked at (`install`) follows the host again.
         if !held, hostsContent, let content, content.autoresizingMask.isEmpty, content is PaneParkableContent {
             content.autoresizingMask = [.width, .height]
         }
@@ -296,9 +296,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     /// of content: a browser's toolbar sits inside it, as a terminal does.
     private func applyCornerRadius() { contentHost.setCornerRadius(paneFramesContent ? contentCornerRadius : 0) }
 
-    /// FRAME OWNER S1: a key resize holds only the content area; the strip lays out at the pane's rect in each frame. In a band, or
-    /// beside a page whose tools are in the tab row (S1B: the page shown now, at this width; S5/S6), it holds whole.
-    var paneMotionHoldArea: PaneContentAreaView? { isBandActive || tabRowSharer?.drawsInTabRow(room: bounds.width - toolbarWidth(shown: shownStripHeight, sharing: true)) == true ? nil : contentHost }
+    var paneMotionHoldArea: PaneContentAreaView? { contentHost.holdArea(for: content, drawsInTabRow: tabRowSharer?.drawsInTabRow(room: bounds.width - toolbarWidth(shown: shownStripHeight, sharing: true)) == true) } // a key resize holds nothing of the pane, a band browser and a tab-row chat too: the area tells the hold to the producers in it; the stated exception (the Home, `PaneKeyResizeHeld`) is the area's to decide
     /// The page shown now that may share the tab row: in the content area, under a strip on top, not in a browser's band.
     private var tabRowSharer: PaneTabRowSharing? { barPosition == .top && !isBandActive && !hidesStrip && hostsContent && shownStripHeight > 0 ? content as? PaneTabRowSharing : nil }
 

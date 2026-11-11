@@ -365,7 +365,7 @@ impl Mux {
             let selected = if let Some(index) = index.filter(|index| *index < len) {
                 index
             } else if let Some(delta) = delta {
-                ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize
+                ring_step(ws.active_screen, delta, len)
             } else {
                 ws.active_screen
             };
@@ -402,7 +402,7 @@ impl Mux {
             let selected = if let Some(index) = index.filter(|index| *index < len) {
                 index
             } else if let Some(delta) = delta {
-                ((state.active_workspace as isize + delta).rem_euclid(len as isize)) as usize
+                ring_step(state.active_workspace, delta, len)
             } else {
                 state.active_workspace
             };

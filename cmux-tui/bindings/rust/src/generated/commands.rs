@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 54c78f5ea1048134d8e8ddbd14333936ae3935d54545d2859bf031121b4716d6.
+// cmux-tui mux protocol 12, IR 3d42509344ba83f31bc5ed0a033e69b79449e5b5ff6cae5e5a1ef3c56ade7849.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1586,6 +1586,9 @@ pub struct CreateWorkspaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    /// The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub first_tab: Optional<T::WorkspaceFirstTab>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2550,6 +2553,9 @@ pub struct NewFrontendBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     pub url: String,
+    /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -4790,6 +4796,9 @@ impl CmuxClient {
     }
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
+        if !request.first_tab.is_missing() {
+            self.require_capability_field("create-workspace", "workspace-first-tab-v1")?;
+        }
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
     }
 
@@ -5173,6 +5182,9 @@ impl CmuxClient {
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
         if !request.split.is_missing() {
             self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;
+        }
+        if !request.workspace.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-workspace-v1")?;
         }
         self.execute(&NEW_FRONTEND_BROWSER_TAB_METADATA, &request)
     }

@@ -9313,6 +9313,59 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/first_tab": {
+        "ty": "tagged_union|object",
+        "nullable": true,
+        "values": [
+          "browser"
+        ]
+      },
+      "/first_tab/activate": {
+        "ty": "boolean"
+      },
+      "/first_tab/cols": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/engine": {
+        "ty": "string",
+        "required": true
+      },
+      "/first_tab/favicon_url": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"browser\""
+        ]
+      },
+      "/first_tab/owner": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/profile_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/rows": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/url": {
+        "ty": "string",
+        "required": true
+      },
       "/key": {
         "ty": "string",
         "nullable": true
@@ -10531,6 +10584,10 @@
       "/url": {
         "ty": "string",
         "required": true
+      },
+      "/workspace": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:new-pane": {
@@ -13288,6 +13345,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -16692,6 +16752,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -18830,6 +18893,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -19691,6 +19757,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20080,6 +20149,77 @@
     },
     "response:send-key": {},
     "response:server-stats": {
+      "/data/commands": {
+        "ty": "object"
+      },
+      "/data/commands/connections": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/connections/*": {
+        "ty": "object"
+      },
+      "/data/commands/connections/*/accepted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/connections/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/connections/*/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/name_limit": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*": {
+        "ty": "object"
+      },
+      "/data/commands/rows/*/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/hist": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*/hist/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/rows/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/max_ns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/total_ns": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/connections": {
         "ty": "object",
         "required": true
