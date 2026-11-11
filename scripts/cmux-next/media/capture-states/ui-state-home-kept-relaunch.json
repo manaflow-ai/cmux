@@ -60,12 +60,13 @@
       "wait": 2
     },
     {
-      "title": "After the relaunch: the fixture over the same cache folder, every transcript read held (the owner never answers)",
+      "title": "After the relaunch: a new fixture tab over the same cache folder (not the restored, ungated one), every transcript read held (the owner never answers)",
       "rpc": {
         "method": "debug.home_native_fixture.open",
         "params": {
           "cache": "keep",
-          "transcript": "loading"
+          "transcript": "loading",
+          "new": true
         }
       },
       "wait": 1.5,
