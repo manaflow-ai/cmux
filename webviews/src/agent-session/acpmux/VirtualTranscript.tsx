@@ -209,6 +209,8 @@ import {
 
 /// A store subscription that hears nothing (Jump up off: the unread state is not read).
 const NO_SUBSCRIPTION = () => () => {};
+/// With Jump up off, the unread view it would read: one constant, so a scroll reads no unread state.
+const NO_UNREAD = () => undefined;
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
@@ -5261,7 +5263,11 @@ function TranscriptView({
   // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
   // first while it is unread, else the newer of their last prompt and where they last stopped.
   // With Jump up off nothing here reads the unread state, so no change of it draws the transcript.
-  const unreadView = useSyncExternalStore(jumpUpOn ? subscribeUnread : NO_SUBSCRIPTION, readUnread, readUnread);
+  const unreadView = useSyncExternalStore(
+    jumpUpOn ? subscribeUnread : NO_SUBSCRIPTION,
+    jumpUpOn ? readUnread : NO_UNREAD,
+    jumpUpOn ? readUnread : NO_UNREAD,
+  );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   const jumpUp = jumpButton && jumpUpOn;
