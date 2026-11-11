@@ -104,6 +104,8 @@ impl<T> SignaledMutex<T> {
     ) -> SignaledMutexGuard<'a, T> {
         let waited = waited_from.elapsed();
         self.stats.acquired(site, waited, blocker);
+        #[cfg(test)]
+        REGISTRY_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
@@ -440,6 +442,18 @@ thread_local! {
     static STATE_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
 }
 
+#[cfg(test)]
+thread_local! {
+    static REGISTRY_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many times this thread has taken the workspace registry lock (test hook): a test proves a read never takes
+/// the writer's lock by counting, with no timing (REGISTRY WAL, the snapshot read).
+#[cfg(test)]
+pub(crate) fn registry_locks_taken_on_this_thread() -> u64 {
+    REGISTRY_LOCKS_TAKEN.with(Cell::get)
+}
+
 /// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
 /// lock by counting, with no timing (TYPING UNDER LOAD F4).
 #[cfg(test)]
@@ -548,7 +562,8 @@ impl StateMutex {
     }
 
     /// The state lock if it is free now (the accept loop, which never waits
-    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
+    /// for it, and the snapshot reader that builds, `resource_api/committed_snapshot.rs`).
+    /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         let site = std::panic::Location::caller();

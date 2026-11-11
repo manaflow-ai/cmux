@@ -87,12 +87,12 @@ pub(super) struct HelloGate {
 }
 
 /// The raw commands a page-bound credential's connection may send, by page:
-/// the Channels and Messages pages read and write the local conversations
-/// and hear their events. Every other page gets none (its `cmux.protocol/2`
-/// allow list only).
+/// the Channels page reads and writes the local conversations and hears
+/// their events. Every other page gets none (its `cmux.protocol/2` allow
+/// list only).
 fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
     match page {
-        "home-channels" | "home-messages" => &[
+        "home-channels" => &[
             "identify",
             "set-client-info",
             "subscribe",
@@ -406,3 +406,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]
 mod untrusted_mint_tests;
+
+#[cfg(all(test, unix))]
+#[path = "connection_panic_tests.rs"]
+mod connection_panic_tests;

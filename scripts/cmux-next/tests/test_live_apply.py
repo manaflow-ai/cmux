@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import live_apply  # noqa: E402
 
-VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
+VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 # A module the app's live code build does not patch (docs/cmux-next/live-code.md: CmuxNextApp only).
 PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
 SHELL = "Prototypes/ViewShell/Sources/ViewShell/Badge.swift"

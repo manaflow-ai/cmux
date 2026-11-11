@@ -214,6 +214,9 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            committed_snapshots: crate::resource_api::CommittedSnapshots::open(
+                registry.session_journal_database_path().as_deref(),
+            ),
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
@@ -292,6 +295,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_before_commit: Mutex::new(None),
             #[cfg(test)]
+            browser_adopt_before_rollback: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             state_commit_after_apply: Mutex::new(None),
@@ -299,6 +304,8 @@ impl Mux {
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            journal_stream_before_ring_switch: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
