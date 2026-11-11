@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42963712804",
+  "recorded_at": "2026-11-11T05:09:59Z",
+  "reason": "cmux-tui e0f6c5ac973c changes the image's cmux-tui (pinned 514107dfeb34)",
+  "dry_run": false,
+  "cmux_tui": "e0f6c5ac973ca5917d8f8257f77eadd6b060e680",
+  "fixes": [
+    {
+      "sha": "a20baccf45dc72a7f188832ea59fbe26daabaa1c",
+      "mergedAt": "2026-11-10T20:50:47-08:00",
+      "subject": "cmux-tui-core: agent hooks save the roster snapshot once per 512 journal records, not per hook"
+    },
+    {
+      "sha": "a209f53fcf40c2b7037c63415219b29031ab6ede",
+      "mergedAt": "2026-11-10T20:50:45-08:00",
+      "subject": "cmux-tui-core: test that agent hooks do not rewrite the roster snapshot one by one"
+    },
+    {
+      "sha": "e8350c11da4d246f885c31ad4861f58ca97af1f0",
+      "mergedAt": "2026-11-10T20:50:45-08:00",
+      "subject": "cmux-tui: bench-restart.py --sample profiles every restart, one file each"
+    },
+    {
+      "sha": "0725fce2d566f0b91ef9f5843517aad8e8ded1a3",
+      "mergedAt": "2026-11-10T20:50:44-08:00",
+      "subject": "cmux-tui-core: a restart sizes the Kitty budget for every surviving host before the first adopts"
+    },
+    {
+      "sha": "7976a25d90833c9eed50aa969b903e79eaab81a2",
+      "mergedAt": "2026-11-10T20:50:42-08:00",
+      "subject": "cmux-tui: test that a restart adopts every terminal without a Kitty budget wait"
+    },
+    {
+      "sha": "21c61bb5e712dfb4194b2a99b494defa60fd4600",
+      "mergedAt": "2026-11-10T20:50:40-08:00",
+      "subject": "cmux-tui-core: an apps.json from a newer build is kept"
+    },
+    {
+      "sha": "f782e3212de1bec5ad7f6c9c0482650fa79264ba",
+      "mergedAt": "2026-11-10T20:50:40-08:00",
+      "subject": "cmux-tui-core: a launch key file with a newer field keeps its keys"
+    },
+    {
+      "sha": "436132c3dd1d7f5ca04d39aa7a709efb7123df81",
+      "mergedAt": "2026-11-10T20:50:39-08:00",
+      "subject": "cmux-tui-core: test that an apps.json from a newer build is kept"
+    },
+    {
+      "sha": "448d61798517e7cf0be30241e96fa47742eac10b",
+      "mergedAt": "2026-11-10T20:50:39-08:00",
+      "subject": "cmux-tui-core: test that a launch key file with a newer field keeps its keys"
+    },
+    {
+      "sha": "9c70ba523a55b2aac2e715e6ca895f300dcedf61",
+      "mergedAt": "2026-11-10T20:50:39-08:00",
+      "subject": "cmux-tui: committed registry reads run side by side on a small reader pool"
+    },
+    {
+      "sha": "0462a4b657939b56a9fee9f4ba2b4dbdf3dc027f",
+      "mergedAt": "2026-11-10T20:50:38-08:00",
+      "subject": "cmux-tui: a reply moves its payload into its JSON value instead of copying it"
+    },
+    {
+      "sha": "cbfaa5cf277a45c894072e4994b50c1ec892a72a",
+      "mergedAt": "2026-11-10T20:50:37-08:00",
+      "subject": "cmux-tui: a request line is parsed into a JSON value once on the frame path"
+    },
+    {
+      "sha": "0386cd9e4cfa39962aeb07b3530b683d96b85c1e",
+      "mergedAt": "2026-11-10T20:50:36-08:00",
+      "subject": "cmux-tui: concurrent list-workspaces reads share one tree build"
+    },
+    {
+      "sha": "5d1fe27561599524d91f95f368694446446c2569",
+      "mergedAt": "2026-11-10T20:50:35-08:00",
+      "subject": "acpmux daemon: a log line never makes the thread that logs it wait"
+    },
+    {
+      "sha": "1b686ae880c34ebf5e938243ebae5bf26bc9e7f7",
+      "mergedAt": "2026-11-10T20:50:34-08:00",
+      "subject": "acpmux daemon: red test, a log output that takes no bytes stops the daemon's answers"
+    },
+    {
+      "sha": "704a267d50922653947dc499c9295a64083dc9b4",
+      "mergedAt": "2026-11-10T20:50:33-08:00",
+      "subject": "acpmux catalog: log a failed refresh with the catalog unlocked"
+    },
+    {
+      "sha": "d67aa6fab726f59a51e1cea52aa911fd67a4a453",
+      "mergedAt": "2026-11-10T20:50:31-08:00",
+      "subject": "acpmux catalog: red test, a stuck log write holds the catalog lock that every request reads"
+    },
+    {
+      "sha": "c9b3ffd9888de546cbdb1f2209aec8fa54792a44",
+      "mergedAt": "2026-11-10T20:50:30-08:00",
+      "subject": "acpmux last: stop reading back once the replies asked for are whole"
+    },
+    {
+      "sha": "e7078b319c05b68a463a0288eb6b398eba1ad383",
+      "mergedAt": "2026-11-10T20:50:29-08:00",
+      "subject": "cmux-chat-index: chat-roots.json keeps the roots a newer build wrote"
+    },
+    {
+      "sha": "5b894af4d6eb7549df18b46bef9f66d684c80398",
+      "mergedAt": "2026-11-10T20:50:28-08:00",
+      "subject": "cmux-chat-index: test that chat-roots.json keeps the roots a newer build wrote"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T05:09:59Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
