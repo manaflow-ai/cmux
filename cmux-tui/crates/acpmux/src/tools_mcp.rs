@@ -187,8 +187,10 @@ fn pick<'a>(servers: &'a [Served], params: &mut Value) -> Result<&'a Served, Str
 pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
     // Stdin may stay open after the agent died (`parent_watch.rs`).
     crate::parent_watch::exit_with_parent();
+    // The writer and the calls under way: cancelled when the client closes stdin.
+    let tasks = cmux_scope::Scope::new("tools-mcp");
     let (tx, mut rx) = mpsc::channel::<Value>(64);
-    let writer = tokio::spawn(async move {
+    tasks.spawn_until_cancelled("tools-mcp-writer", async move {
         let mut out = tokio::io::stdout();
         while let Some(message) = rx.recv().await {
             let mut line = message.to_string();
@@ -199,7 +201,12 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
         }
     });
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    while let Some(line) = lines.next_line().await? {
+    let ended = loop {
+        let line = match lines.next_line().await {
+            Ok(Some(line)) => line,
+            Ok(None) => break Ok(()),
+            Err(e) => break Err(e.into()),
+        };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
@@ -238,7 +245,7 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             _ => {
                 // A card waits on the person: the next request is read meanwhile.
                 let (tx, call) = (tx.clone(), (served.call)(served.session.clone(), params));
-                tokio::spawn(async move {
+                tasks.spawn_until_cancelled("tools-mcp-call", async move {
                     let result = call.await;
                     let _ = tx.send(response(&id, result)).await;
                 });
@@ -246,12 +253,12 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             }
         };
         let _ = tx.send(response(&id, reply)).await;
-    }
+    };
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connection with it.
     drop(tx);
-    writer.abort();
-    Ok(())
+    tasks.close(std::time::Duration::ZERO).await;
+    ended
 }
 
 fn response(id: &Value, result: Value) -> Value {
