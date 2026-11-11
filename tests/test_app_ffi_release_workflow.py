@@ -114,17 +114,20 @@ class PublishJob(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             bin_dir, state, work = temp_path / "bin", temp_path / "state", temp_path / "work"
-            for path in (bin_dir, state, work / "assets"):
+            # The job downloads into ${{ runner.temp }}/assets (RUNNER_TEMP is `temp`), not into its workspace.
+            assets = temp_path / "assets"
+            work.mkdir()
+            for path in (bin_dir, state, assets):
                 path.mkdir(parents=True)
             executable(bin_dir / "gh", FAKE_GH)
             executable(bin_dir / "curl", FAKE_CURL)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            archive = work / "assets/CCmuxAppFFI.xcframework.zip"
+            archive = assets / "CCmuxAppFFI.xcframework.zip"
             archive.write_bytes(b"xcframework bytes")
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (work / "assets/CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
-            (work / "assets/SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
-            (work / "assets/SOURCE_SHA").write_text(SHA + "\n")
+            (assets / "CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
+            (assets / "SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
+            (assets / "SOURCE_SHA").write_text(SHA + "\n")
             if existing:
                 (state / "release").mkdir()
                 (state / "release/CCmuxAppFFI.xcframework.zip").write_bytes(archive.read_bytes())

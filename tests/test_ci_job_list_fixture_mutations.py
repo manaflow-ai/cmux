@@ -45,7 +45,7 @@ reader, PRE_FIX_ONLY swaps back only that reader, so the fixture is shown to nee
 keychain-making script only named as text (a step name, a comment, an env value) makes no keychain: 29 fixtures.
 Two more (Codex, #40846 F2): a release-signer script, or `signing-keychain.sh create`, only named as text (a comment,
 an echo or printf, a quoted string, a heredoc body) is no invocation; both read through the keychain guard's one
-invocation detector (invocations()): 31 fixtures.
+invocation detector (must_run()): 31 fixtures.
 
 The SIGNING_JOBS cap fixture has no pre-fix reader to swap in: its fix added the classification and changed no
 reader (the owned pick is read with the same dotted() and NEEDS_OUTPUT as before), so its only pre-fix is the guard

@@ -90,7 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner_variables  # noqa: E402
 import workflow_jobs  # noqa: E402
-from shell_invocations import invocations  # noqa: E402,F401  (re-exported for the guards below)
+from shell_invocations import must_run  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -617,8 +617,9 @@ def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
 
 
 def invoked_programs(step: dict) -> list[str]:
-    """The programs one step's `run:` invokes (invocations())."""
-    return [words[0] for words in invocations(str(step.get("run", "")))]
+    """The programs one step's `run:` certainly runs (must_run()): a command inside a substitution, behind an eval,
+    a function or an unlexable tail is not credited, so the guards refuse a step that only maybe runs a script."""
+    return [words[0] for words in must_run(str(step.get("run", "")))]
 
 
 def _certificate_steps(job: dict) -> list[dict]:
@@ -629,7 +630,7 @@ def _certificate_steps(job: dict) -> list[dict]:
 def script_made_keychain(job: dict) -> str | None:
     """The KEYCHAIN_MAKING_SCRIPTS script that a step reading the Developer ID certificate runs (its moved step
     scripts already inline), if any. Only a command of that step's `run:` that invokes the script counts
-    (invocations()): a step name, a comment, an env value, an echo, a heredoc body or another step that only
+    (must_run()): a step name, a comment, an env value, an echo, a heredoc body or another step that only
     mentions it makes no keychain."""
     for step in _certificate_steps(job):
         for program in invoked_programs(step):
@@ -640,7 +641,7 @@ def script_made_keychain(job: dict) -> str | None:
 
 def release_pool_signer(job: dict) -> str | None:
     """Rule 8: the release-signer script the job hands the Developer ID certificate to, read from the step that
-    reads APPLE_CERTIFICATE_BASE64 (any form) and invokes it (invocations()); None when no such step runs one. A
+    reads APPLE_CERTIFICATE_BASE64 (any form) and invokes it (must_run()); None when no such step runs one. A
     comment, echo, printf, quoted string or heredoc body that only names the script is no signer."""
     found = {program for step in _certificate_steps(job) for program in invoked_programs(step)
              if RELEASE_SIGNER_SCRIPT.fullmatch(program)}
@@ -648,10 +649,10 @@ def release_pool_signer(job: dict) -> str | None:
 
 
 def makes_managed_keychain(job: dict) -> bool:
-    """Rule 3: some step runs `scripts/ci/signing-keychain.sh create` (invocations()), not only names it."""
+    """Rule 3: some step runs `scripts/ci/signing-keychain.sh create` (must_run()), not only names it."""
     return any(words[0] == "scripts/ci/signing-keychain.sh" and words[1:2] == ["create"]
                for step in job.get("steps") or [] if isinstance(step, dict)
-               for words in invocations(str(step.get("run", ""))))
+               for words in must_run(str(step.get("run", ""))))
 
 
 def inline_keychain(job: dict) -> bool:
@@ -790,6 +791,10 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
             ("second heredoc body", [{**CERTIFICATE_STEP, "run": f"cat <<A <<'B' > next.txt\nfirst\nA\n./{script}\nB\n./sign.sh"}]),
             # hq#9150: a quoted `;` is an argument, not a command break, so the script after it is still text.
             ("quoted semicolon", [{**CERTIFICATE_STEP, "run": f"echo \";\" ./{script}\n./sign.sh"}]),
+            ("argument after a substitution", [{**CERTIFICATE_STEP, "run": f"echo $(true) ./{script}\n./sign.sh"}]),
+            ("argument after backticks", [{**CERTIFICATE_STEP, "run": f"echo `true` ./{script}\n./sign.sh"}]),
+            ("run inside a substitution", [{**CERTIFICATE_STEP, "run": f"x=$(./{script})\n./sign.sh"}]),
+            ("run by eval", [{**CERTIFICATE_STEP, "run": f"eval ./{script}\n./sign.sh"}]),
             ("trailing comment", [{**CERTIFICATE_STEP, "run": f"./sign.sh # then ./{script}"}]),
             ("another step", [{**CERTIFICATE_STEP, "run": "./sign.sh"}, {"name": "Notarize", "run": f"./{script}"}])):
         mentioned = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
@@ -839,7 +844,18 @@ def release_pool_signer_mention_fixture_failures(documents: dict[str, dict]) -> 
                       ("echo", f"echo ./{signer} app\n./sign.sh"),
                       ("printf", f"printf '%s\\n' ./{signer}\n./sign.sh"),
                       ("quoted string", f"./sign.sh --note \"./{signer}\""),
-                      ("heredoc body", f"cat <<'EOF' > plan.txt\n./{signer} app\nEOF\n./sign.sh")):
+                      ("heredoc body", f"cat <<'EOF' > plan.txt\n./{signer} app\nEOF\n./sign.sh"),
+                      # Codex (#40846 F2): a substitution makes the rest of the simple command an argument; and a
+                      # signer the detector cannot be sure of (inside a substitution, behind eval or `bash -c`) is
+                      # not credited, so the step is refused rather than passed with no keychain.
+                      ("argument after a substitution", f"echo $(true) ./{signer}\n./sign.sh"),
+                      ("argument after a nested substitution", f"echo $(echo $(true)) ./{signer}\n./sign.sh"),
+                      ("argument after backticks", f"echo `true` ./{signer}\n./sign.sh"),
+                      ("argument after a process substitution", f"cat <(true) ./{signer}\n./sign.sh"),
+                      ("run inside a substitution", f"x=$(./{signer} app)\n./sign.sh"),
+                      ("run by eval", f"eval ./{signer} app\n./sign.sh"),
+                      ("run by bash -c", f"bash -c './{signer} app'\n./sign.sh"),
+                      ("defined as a function", f"{signer.split('/')[-1].split('.')[0]}() {{ true; }}\n./{signer} app\n./sign.sh")):
         job = {"runs-on": "ubuntu-24.04", "steps": [{**CERTIFICATE_STEP, "run": run}]}
         found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", job), label)
                  if "Developer ID certificate" in why or "release-pool signer" in why]
