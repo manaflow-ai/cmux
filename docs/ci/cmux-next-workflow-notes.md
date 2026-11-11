@@ -63,6 +63,13 @@ path dependencies) and the release must be built from them. Here on
 Linux it runs on every push and pull request: in swift test a newer
 push replaced the waiting job, so tip runs rarely reached it.
 
+On a push the check runs with `--stale-grace 7200`: an FFI commit's release
+can only be built from that pushed commit, so the pin is behind the sources
+after every FFI push until `app-ffi-release.yml` publishes and pins it. A pin
+behind for less than two hours passes with a note; one behind for longer
+fails, because then the release or the re-pin did not happen. Before, every
+FFI commit left the tip red for 30 to 240 minutes (2026-11-11).
+
 On a pull request the base's copy of the check and of its pin reader
 (the merge commit's first parent), extracted outside the checkout,
 judges a fresh worktree of the merge commit (--tree), with only
@@ -252,6 +259,16 @@ and hands off (note-82, note-83). The wait blocks on the endpoint
 40 min from the job's start, each read hard-bounded by `timeout` to what is left; a missing result (404) is
 read again 30 s later, inside that bound. The terminal post comes before the
 App token's hour ends (it is minted just before the wait).
+
+A refused status post (`post()`, the same function in compile-status and compile-status-handoff) prints GitHub's
+answer (`HTTP 403: {"message":...}`) and waits out a rate limit: a 403 or 429 that says so waits its Retry-After or
+primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to 600 s;
+a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
+post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
+limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
+was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
+line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
+`test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
 gate does not admit. The job checks nothing out: no pull request code runs beside the token.
@@ -1772,6 +1789,15 @@ Above `same-tree-cmux-tui: if` in `.github/workflows/cmux-next.yml`.
 A superseded push reports nothing (its newer head is tested); a pull
 request's cold tree is named in path_route's summary, skipped here.
 
+A same-tree run dispatched with `same_tree_state=failed` reads the tree's
+publish record (its `completion.json` on R2, keyed by the tree key its
+reason names) before it reports red: a tree published since dispatches the
+ready tree jobs and marks the stale statuses pending. A re-run keeps the
+dispatch inputs, so before this a re-run repeated the old verdict forever
+(cmux#40449, run 43009515785). A red it does report leaves a `reported`
+tree wait marker, so the key's next publication re-dispatches every tier it
+reported (`scripts/ci/cmux_next_same_tree_failed.py`).
+
 ## note-178
 
 Above `swift-canary-fleet: if` in `.github/workflows/cmux-next.yml`.
@@ -2802,6 +2828,9 @@ Above `crash-ends-app` in `.github/workflows/cmux-next.yml`.
 
 The crash gate runs in cmux-scheme-compile on the app that job built. This
 job is its check: red when a crash froze the app instead of ending it.
+A push's compile that a newer push replaced while it waited for its
+concurrency group is no red here: the newer push's run carries the verdict
+(scripts/ci/needs_verdict.py SUPERSEDED_RULE).
 
 ## note-327
 
