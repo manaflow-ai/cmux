@@ -350,14 +350,9 @@ struct CloudMove {
         let up = await session.linkUp(within: CloudStartSession.connectWait)
         if let failure = session.resumeFailure { throw Failure(message: failure, retry: .move(machineID: session.machineID)) }
         guard up, session.daemon.connection != nil, AgentTabStore.registryHost(of: session.daemon) != nil else {
-            throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
+            throw Failure(message: CloudMoveStrings.notConnected(session.machine.title, because: session.linkEnded == nil ? nil : session.linkRefusal.reason), retry: .move(machineID: session.machineID))
         }
         return session
-    }
-
-    /// Why `session` did not connect, in the person's words.
-    static func notConnected(_ session: CloudMachineSession) -> String {
-        CloudMoveStrings.notConnected(session.machine.title)
     }
 
     /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal

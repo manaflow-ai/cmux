@@ -103,10 +103,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
 
     /// `carrier serve`'s refusal before its ready line, after which it exits (#37278). A path it could not
     /// claim (a live serve's socket or another file there) is `bad_request` naming that path, exit 64: another
-    /// cmux serving the machine. `ticket` (exit 2: no API URL or credential) and `handshake` (exit 5: no device
-    /// key) keep the dial's wording.
+    /// cmux serving the machine. `ticket` (exit 2: no API URL or credential) keeps the dial's wording.
+    /// `handshake` (exit 5: no device key, such as a Keychain that refused it) is the helper refusing to
+    /// start: every new serve reads the same key the same way, so a wait ends on it rather than starting
+    /// serve again and again (a DEV build's Cloud chat showed "Thinking" while each serve failed, 2026-11-10).
     public static func serveStartError(code: String, detail: String?, socket: String) -> CloudLinkError {
         if code == "bad_request", let detail, detail.contains(socket) { return socketTaken }
+        if code == "handshake" { return .helperRefused(code: code, message: detail.map { "\(code): \($0)" } ?? "") }
         return linkError(code: code, detail: detail)
     }
 
@@ -129,6 +132,9 @@ public struct CloudCarrierDial: Equatable, Sendable {
         switch error as? CloudLinkError {
         case .failed(let code, let message)?:
             return .init(code: code, message: message.isEmpty ? text : message, retryable: code != "bad_request")
+        case .helperRefused(let code, let message)?:
+            // Asking again starts a helper that refuses the same way: only the person's Retry, after a fix, helps.
+            return .init(code: code, message: message.isEmpty ? text : message, retryable: false)
         case .disconnected(let reason)? where reason == "relay":
             return .init(code: "relay", message: text, retryable: true)
         case .notUp(let state)? where state == "parked_timeout":

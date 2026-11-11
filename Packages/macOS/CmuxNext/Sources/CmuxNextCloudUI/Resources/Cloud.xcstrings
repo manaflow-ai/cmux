@@ -10135,6 +10135,137 @@
         "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося перенести чат на цей Mac. Повторіть спробу; якщо помилка не зникає, запустіть `cmux cloud diagnostics`. Причина: %@"}},
         "vi": {"stringUnit": {"state": "translated", "value": "Không thể chuyển cuộc trò chuyện sang máy Mac này. Hãy thử lại; nếu vẫn lỗi, chạy `cmux cloud diagnostics`. Lý do: %@"}}
       }
+    },
+    "cloud.move.notConnectedBecause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ didn't connect: %2$@. Retry when that's fixed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتصل %1$@: %2$@. أعد المحاولة بعد إصلاح ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ se nije povezala: %2$@. Pokušaj ponovo kad se to popravi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ oprettede ikke forbindelse: %2$@. Prøv igen, når det er rettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat keine Verbindung hergestellt: %2$@. Versuche es erneut, wenn das behoben ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no se conectó: %2$@. Vuelve a intentarlo cuando se haya resuelto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne s'est pas connectée : %2$@. Réessayez une fois le problème résolu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non si è connessa: %2$@. Riprova quando è risolto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ に接続できませんでした: %2$@。解決してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនបានភ្ជាប់ទេ៖ %2$@។ សូមព្យាយាមម្តងទៀតនៅពេលបញ្ហានោះត្រូវបានដោះស្រាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 연결하지 못했습니다: %2$@. 문제를 해결한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ koblet ikke til: %2$@. Prøv igjen når det er fikset."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie połączyła się: %2$@. Spróbuj ponownie po rozwiązaniu problemu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não se conectou: %2$@. Tente novamente quando isso for corrigido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не подключилась: %2$@. Повторите попытку, когда это будет исправлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ เชื่อมต่อไม่ได้: %2$@ ลองอีกครั้งเมื่อแก้ไขแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bağlanamadı: %2$@. Sorun giderildiğinde yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не підключилася: %2$@. Повторіть спробу, коли це буде виправлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không kết nối được: %2$@. Hãy thử lại khi đã khắc phục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 未能连接：%2$@。解决后请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 未能連線：%2$@。解決後請重試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
