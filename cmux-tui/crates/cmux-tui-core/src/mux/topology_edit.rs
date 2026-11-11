@@ -285,6 +285,7 @@ impl Mux {
                 entity,
                 workspace_revision: None,
                 transaction: None,
+                mutation: None,
             }
         };
         self.emit(MuxEvent::TreeDelta(renamed));
@@ -335,6 +336,7 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                     transaction: None,
+                    mutation: None,
                 })
             })()
         };

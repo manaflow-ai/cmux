@@ -197,14 +197,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
-/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
-/// power loss keeps each acknowledged commit. Unit tests open hundreds of
-/// throwaway registries in one process and never cut power: there, a plain
-/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
-/// result they check, while F_FULLFSYNC serialized the device across all test
-/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
-/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
-/// integration test's daemon, keep F_FULLFSYNC.
+/// The registry runs with `synchronous=NORMAL` in WAL mode
+/// (`wal_durability.rs`): a commit is in the WAL when it returns, which a
+/// crash, kill or restart of the daemon keeps; only a power loss or kernel
+/// panic can take acknowledged commits back, always a suffix. `fullfsync`
+/// makes the syncs SQLite still does (each WAL checkpoint, and the close)
+/// flush the device cache on macOS (F_FULLFSYNC), so a checkpoint never
+/// copies frames into the database before they are on the disk. Unit tests
+/// open hundreds of throwaway registries in one process and never cut power:
+/// there, a plain fsync keeps every ordering and restart result they check,
+/// while F_FULLFSYNC serialized the device across all test threads
+/// (notification_reads_survive_restart_and_eviction_prunes_them: 19.3 s on a
+/// fleet Mac, 0.18 s on Linux). Daemon binaries, including every integration
+/// test's daemon, keep F_FULLFSYNC.
 #[cfg(not(test))]
 const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
 #[cfg(test)]
@@ -3560,6 +3565,15 @@ impl WorkspaceRegistry {
             true,
             Some(&write),
         )
+    }
+
+    /// `(origin, mutation_id)` of the event at `revision`, if there is one.
+    pub fn event_mutation(&self, revision: u64) -> anyhow::Result<Option<(String, String)>> {
+        let Ok(revision) = i64::try_from(revision) else { return Ok(None) };
+        let db = self.connection.get();
+        let mut statement =
+            db.prepare("SELECT origin, mutation_id FROM workspace_events WHERE revision = ?1")?;
+        Ok(statement.query_row([revision], |row| Ok((row.get(0)?, row.get(1)?))).optional()?)
     }
 
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {

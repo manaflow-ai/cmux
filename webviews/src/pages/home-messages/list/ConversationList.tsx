@@ -6,11 +6,7 @@
 //
 // - A click selects and opens (the message box takes the keyboard); Command-, Shift- and
 //   Control-clicks only select. Up and Down move the selection through the tiles, then the rows;
-//   Return opens it; Command-F searches. A letter typed in the list goes to the message box, as the
-//   native Home routed it (pageCommands.ts `followTyping`), not to a search.
-// - After the conversations, the team members with no DM yet; a search lists the matching people
-//   under "Teammates". Choosing one starts the DM.
-// - A two-finger swipe on a row shows its actions (swipe.ts): Mark as Read or Unread, Delete.
+//   Return opens it. Typing a letter in the list starts a search, as does Command-F.
 // - A drag moves a pinned tile to another place, drops a row into the grid (pinning it there), or
 //   takes a tile out of the grid (unpinning it). Tiles move to their new places together.
 // - A right-click (or Shift-F10 on the list) opens the row's menu: Pin or Unpin, Mark as Read or
@@ -22,21 +18,18 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
-import type { HeaderMetrics, HostMenuItem } from "../types";
-import { headerControls, headerLayout, headerSizes, listMetrics, ROW, type Rect } from "./layout";
-import { ListRow, PinnedTile, SwipeStrip, TeammateRow, type ItemEvents, type Modifiers } from "./ListItems";
-import { neighbor, placePinned, type ListItem, type ListModel, type TeammateItem } from "./model";
-import { SWIPE_END_MS, swipeActions, swipeBy, swipeEnd, type SwipeAction, type SwipeState } from "./swipe";
+import type { HostMenuItem } from "../types";
+import { headerLayout, listMetrics, ROW, type Rect } from "./layout";
+import { ListRow, PinnedTile, type ItemEvents, type Modifiers } from "./ListItems";
+import { neighbor, placePinned, type ListItem, type ListModel } from "./model";
 
 /** Three looks of the same list (the gallery's variants); `messages` is the one the page uses. */
 export type ListLook = "messages" | "accent" | "quiet";
@@ -78,12 +71,6 @@ export interface ConversationListProps {
   requests?: number;
   onOpenRequests?(): void;
   look?: ListLook;
-  /** The header's sizes at the sidebar's density and text size (absent: Compact, default text). */
-  header?: HeaderMetrics;
-  /** The header's band and its controls changed (the band's empty space moves the window). */
-  onHeaderBand?(band: Rect, controls: Rect[]): void;
-  /** A teammate with no DM yet was chosen (their participant id): the DM starts. */
-  onStartTeammate?(person: string): void;
 }
 
 /** The draft row's id (the New Message page's). */
@@ -91,8 +78,6 @@ export const DRAFT_ROW = "home.newMessage";
 const DRAG_THRESHOLD = 4;
 const OVERSCAN = 600;
 const SCROLL_QUANTUM = 64;
-/** The search's "Teammates" header row. */
-const SECTION_HEIGHT = 28;
 
 interface Drag {
   id: string;
@@ -109,15 +94,7 @@ export function ConversationList(props: ConversationListProps) {
   const { t, format } = strings;
   const metrics = useMemo(() => listMetrics(width), [width]);
   const [searchFocused, setSearchFocused] = useState(false);
-  const sizes = useMemo(() => headerSizes(props.header), [props.header]);
-  const header = headerLayout(width, searchFocused || query !== "", props.windowControls, unreadOnly, sizes);
-  // The band and its controls go to the host only when they change.
-  const bandKey = JSON.stringify([width, header.listTop, headerControls(header)]);
-  const onHeaderBand = props.onHeaderBand;
-  useEffect(() => {
-    const [w, top, controls] = JSON.parse(bandKey) as [number, number, Rect[]];
-    onHeaderBand?.({ x: 0, y: 0, width: w, height: top }, controls);
-  }, [bandKey, onHeaderBand]);
+  const header = headerLayout(width, searchFocused || query !== "", props.windowControls, unreadOnly);
   const scroller = useRef<HTMLDivElement | null>(null);
   const search = useRef<HTMLInputElement | null>(null);
   const [view, setView] = useState({ top: 0, height: 800 });
@@ -147,18 +124,9 @@ export function ConversationList(props: ConversationListProps) {
   // The rows: the draft row first, then the conversations (a row dragged into the grid leaves them).
   const rows = drag && !drag.fromGrid && drag.index !== null ? model.rows.filter((r) => r.id !== drag.id) : model.rows;
   const rowStart = pinnedHeight + (draft ? metrics.rowHeight : 0);
-  // The people with no DM yet come after the rows (a search's under their section's header).
-  const people = model.people ?? [];
-  const section = model.peopleSection && people.length > 0;
-  const peopleStart = rowStart + rows.length * metrics.rowHeight + (section ? SECTION_HEIGHT : 0);
-  const contentHeight = peopleStart + people.length * metrics.rowHeight;
+  const contentHeight = rowStart + rows.length * metrics.rowHeight;
   const first = Math.max(0, Math.floor((view.top - OVERSCAN - rowStart) / metrics.rowHeight));
   const last = Math.min(rows.length, Math.ceil((view.top + view.height + OVERSCAN - rowStart) / metrics.rowHeight));
-  const firstPerson = Math.max(0, Math.floor((view.top - OVERSCAN - peopleStart) / metrics.rowHeight));
-  const lastPerson = Math.min(
-    people.length,
-    Math.ceil((view.top + view.height + OVERSCAN - peopleStart) / metrics.rowHeight),
-  );
   const selectedRow = selected === undefined ? -1 : rows.findIndex((row) => row.id === selected);
 
   // The visible window follows the scroll position in steps (a render per step, not per frame).
@@ -199,59 +167,6 @@ export function ConversationList(props: ConversationListProps) {
       element.scrollTop = box.bottom - element.clientHeight;
     // Only a new selection scrolls (a drag or a width change leaves the scroll position alone).
   }, [selected]); // oxlint-disable-line react-hooks/exhaustive-deps
-
-  // A row's swipe (swipe.ts): the wheel's horizontal steps move it; a quiet wheel ends the gesture.
-  const [swipe, setSwipe] = useState<SwipeState | null>(null);
-  // The row settling after a release (open, closed): it moves to its place with the rows' timing.
-  const [settling, setSettling] = useState<string | null>(null);
-  const swipeEndTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const swipeRef = useRef<SwipeState | null>(null);
-  swipeRef.current = swipe;
-  const actionsFor = (item: ListItem) => swipeActions(item.unread, canPin, !!props.onDelete);
-  const runSwipe = (action: SwipeAction, id: string) => {
-    setSettling(id);
-    setSwipe(null);
-    if (action === "delete") props.onDelete?.(id);
-    else if (action === "read") props.onMarkRead(id);
-    else props.onMarkUnread(id);
-  };
-  const endSwipe = () => {
-    swipeEndTimer.current = undefined;
-    const current = swipeRef.current;
-    const item = current ? byId.get(current.id) : undefined;
-    if (!current || !item) return setSwipe(null);
-    const end = swipeEnd(current, width, actionsFor(item));
-    setSettling(current.id);
-    if (end.run) runSwipe(end.run, current.id);
-    else setSwipe(end.state);
-  };
-  useEffect(() => () => clearTimeout(swipeEndTimer.current), []);
-  const closeSwipe = () => {
-    if (!swipeRef.current) return;
-    clearTimeout(swipeEndTimer.current);
-    swipeEndTimer.current = undefined;
-    setSettling(swipeRef.current.id);
-    setSwipe(null);
-  };
-  const onWheel = (event: ReactWheelEvent) => {
-    const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
-    const current = swipeRef.current;
-    if (!horizontal) {
-      // A scroll closes an open row (not one still under the fingers).
-      if (current && swipeEndTimer.current === undefined) closeSwipe();
-      return;
-    }
-    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-list-row]");
-    const id = current && swipeEndTimer.current !== undefined ? current.id : target?.dataset.listRow;
-    const item = id ? byId.get(id) : undefined;
-    if (!item || metrics.compact || query.trim() !== "" || drag) return;
-    const start = current?.id === item.id ? current : { id: item.id, offset: 0, open: false };
-    setSettling(null);
-    // Fingers to the right move the row right (the wheel's deltaX is the other way).
-    setSwipe(swipeBy(start, -event.deltaX, width, actionsFor(item)));
-    clearTimeout(swipeEndTimer.current);
-    swipeEndTimer.current = setTimeout(endSwipe, SWIPE_END_MS);
-  };
 
   const fetchMenu = (id: string) => {
     if (!props.hostMenu || id === DRAFT_ROW) return;
@@ -335,12 +250,6 @@ export function ConversationList(props: ConversationListProps) {
       scroller.current?.focus({ preventScroll: true });
     },
     onPointerDown(id: string, fromGrid: boolean, event: ReactPointerEvent) {
-      if (swipeRef.current) {
-        // A press anywhere but on an action closes the open row (and is no click on it).
-        if (swipeRef.current.id === id) suppressClick.current = true;
-        closeSwipe();
-        return;
-      }
       if (event.button !== 0 || !canPin || id === DRAFT_ROW || query !== "" || unreadOnly) return;
       const element = scroller.current;
       if (!element) return;
@@ -378,8 +287,12 @@ export function ConversationList(props: ConversationListProps) {
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
       event.preventDefault();
       search.current?.focus();
+    } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.trim()) {
+      // Typing in the list starts a search, as a source list's type-select would.
+      event.preventDefault();
+      props.onQuery(query + event.key);
+      search.current?.focus();
     }
-    // A letter goes on to the page, which hands it to the message box (`followTyping`).
   };
 
   const onSearchKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -413,29 +326,12 @@ export function ConversationList(props: ConversationListProps) {
   const menuItems = menuItem ? rowMenu(menuItem, props, hostItems.get(menuItem.id) ?? [], strings) : [];
 
   const filtered = query.trim() !== "" || unreadOnly;
-  const empty = filtered && model.pinned.length === 0 && model.rows.length === 0 && people.length === 0;
-  const startTeammate = (person: TeammateItem) => props.onStartTeammate?.(person.person.id);
-  const swiped = swipe ? byId.get(swipe.id) : undefined;
-  const swipedRow = swiped ? rows.findIndex((row) => row.id === swiped.id) : -1;
-  const swipeLabels = {
-    read: t("sidebar.menu.markRead"),
-    unread: t("sidebar.menu.markUnread"),
-    delete: t("sidebar.menu.delete"),
-  };
+  const empty = filtered && model.pinned.length === 0 && model.rows.length === 0;
   const tileFor = (id: string) => byId.get(id);
   const lifted = drag ? byId.get(drag.id) : undefined;
 
   return (
-    <nav
-      className={`hm-list look-${look}${metrics.compact ? " compact" : ""}`}
-      aria-label={t("home.list.title")}
-      style={
-        {
-          "--hm-header-text-step": `${sizes.textStep}px`,
-          "--hm-chip-padding": `${sizes.chipPadding}px`,
-        } as CSSProperties
-      }
-    >
+    <nav className={`hm-list look-${look}${metrics.compact ? " compact" : ""}`} aria-label={t("home.list.title")}>
       <div className="hm-header" style={{ height: header.listTop }}>
         {(header.search.width > 0 || !header.compact) && (
           <label
@@ -525,7 +421,6 @@ export function ConversationList(props: ConversationListProps) {
           aria-activedescendant={selected !== undefined && byId.has(selected) ? `hm-item-${selected}` : undefined}
           onKeyDown={onListKey}
           onContextMenuCapture={onContextMenuCapture}
-          onWheel={onWheel}
         >
           <div className="hm-content" style={{ height: contentHeight }}>
             {shownPinned.map((id, index) => {
@@ -592,43 +487,9 @@ export function ConversationList(props: ConversationListProps) {
                   separator={index < rows.length - 1 && index !== selectedRow && index + 1 !== selectedRow}
                   events={events}
                   dragging={isLifted}
-                  swipeX={swipe?.id === item.id ? swipe.offset : 0}
-                  settling={settling === item.id}
                 />
               );
             })}
-            {swipe && swiped && swipedRow >= 0 && swipe.offset !== 0 && (
-              <SwipeStrip
-                top={rowStart + swipedRow * metrics.rowHeight}
-                height={metrics.rowHeight}
-                offset={swipe.offset}
-                open={swipe.open}
-                settling={settling === swipe.id}
-                actions={swipe.offset > 0 ? actionsFor(swiped).leading : actionsFor(swiped).trailing}
-                labels={swipeLabels}
-                onAction={(action) => runSwipe(action, swiped.id)}
-              />
-            )}
-            {section && (
-              <div
-                className="hm-section-head"
-                role="presentation"
-                style={{ transform: `translateY(${peopleStart - SECTION_HEIGHT}px)`, height: SECTION_HEIGHT }}
-              >
-                {t("home.list.teammates")}
-              </div>
-            )}
-            {people.slice(firstPerson, lastPerson).map((person, offset) => (
-              <TeammateRow
-                key={person.id}
-                item={person}
-                top={peopleStart + (firstPerson + offset) * metrics.rowHeight}
-                height={metrics.rowHeight}
-                compact={metrics.compact}
-                avatar={metrics.compact ? metrics.compactAvatar : ROW.avatar}
-                onPick={startTeammate}
-              />
-            ))}
             {lifted && !drag?.fromGrid && drag?.index !== null && (
               <PinnedTile
                 item={lifted}
