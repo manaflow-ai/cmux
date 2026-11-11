@@ -50,18 +50,24 @@ struct HoverCardSeparateSourcesTests {
         // Every card window this test made closes: the shown one and those still fading out.
         defer { coordinator.dismiss(.action); ([coordinator.panel] + coordinator.retiring).forEach { $0?.closeAfterTest() } }
 
-        coordinator.pin(target("ws:a", in: window), from: sidebar)
-        let sidebarCard = try #require(coordinator.cardWindow)
+        // The test holds the card windows weakly: a strong hold here kept a faded-out window alive and
+        // counted it as a leak in `singleCardViolations` (the coordinator had let it go). Each pin drains
+        // its autoreleased AppKit references, as a run-loop turn does in the app.
+        autoreleasepool { coordinator.pin(target("ws:a", in: window), from: sidebar) }
+        weak var sidebarCard = coordinator.cardWindow
+        try #require(sidebarCard != nil)
         // Within one source the card is the same window: it slides from row to row.
-        coordinator.pin(target("ws:b", in: window), from: sidebar)
+        autoreleasepool { coordinator.pin(target("ws:b", in: window), from: sidebar) }
         #expect(coordinator.cardWindow === sidebarCard)
 
-        coordinator.pin(target("tab:a", in: window), from: strip)
-        let stripCard = try #require(coordinator.cardWindow)
+        autoreleasepool { coordinator.pin(target("tab:a", in: window), from: strip) }
+        weak var stripCard = coordinator.cardWindow
+        try #require(stripCard != nil)
         #expect(stripCard !== sidebarCard, "the sidebar's card flew to the tab strip")
         #expect(coordinator.isShowing(HoverTargetID("tab:a")))
 
-        coordinator.pin(target("tab:b", in: window), from: otherStrip)
+        autoreleasepool { coordinator.pin(target("tab:b", in: window), from: otherStrip) }
+        #expect(coordinator.cardWindow != nil)
         #expect(coordinator.cardWindow !== stripCard, "one pane's tab card flew to another pane's strip")
         #expect(coordinator.singleCardViolations().isEmpty, "\(coordinator.singleCardViolations())")
     }
