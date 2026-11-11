@@ -27,6 +27,8 @@ per replay. A red the first replay passed that another one fails by name is a wa
 change's: the base both passed and failed it. cmux#41254 (run 43006460063) was charged with the webkit stream-row
 overlap test because attempt 2's one base replay passed it (overlapFrames 0); attempt 3's failed it (overlapFrames 1).
 A file red without naming the test (a timeout) says nothing about it; a missing or unreadable file names nothing.
+Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake: with no first
+result, or a first replay that timed out, the red stays the change's.
 ci-web.yml replays the files of the reds a compare would still charge, at most two more times (its base_again).
 
 --new-files prints, one a line, the file of each red this compare would charge to the change (the part of a
@@ -38,6 +40,13 @@ retries a red file alone and counts its pass, but only while its retry budget la
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
 the re-run, stays the change's.
+
+A step red on both sides is the base's only when its head failure names nothing the base's does not (cmux#41458):
+run_ci_guards.py --results writes each red step's output beside the results (`<results>.failures.json`), and a head
+failure that names a test, file or item the base failure does not (#41351's new unwired test in "Validate every
+workflow guard is wired", already red on the base for two others, job 130668132153) is the change's. Run-to-run
+noise (numbers, temp paths, shas) is left out. When the head has that output and either side has none for the step,
+it cannot be told, and the step is the change's. Results without it (the webview tests) compare by name.
 
 --red-steps prints, one a line, each step red on the head (a red "<step> :: <check>" names its step), and exits 0.
 cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
@@ -57,6 +66,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -88,6 +98,34 @@ CHECK_SEPARATOR = " :: "  # run_ci_guards.py's "<step> :: <check>" entries
 
 def red_steps(head: dict[str, bool]) -> list[str]:
     return sorted({step.split(CHECK_SEPARATOR, 1)[0] for step, ok in head.items() if not ok})
+
+
+def load_failures(results: str) -> dict[str, list[str]] | None:
+    """run_ci_guards.py's red steps' output lines beside RESULTS ({step: [line]}), or None when it wrote none."""
+    try:
+        found = json.loads(Path(results + ".failures.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(found, dict):
+        return None
+    return {str(k): [str(line) for line in v] for k, v in found.items() if isinstance(v, list)}
+
+
+# What a failure names, without what differs from run to run: temp paths, shas and hex ids, then every number.
+_TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
+_HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
+_NUMBER = re.compile(r"\d+")
+_NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
+
+
+def failure_names(lines: list[str]) -> set[str]:
+    """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
+    names: set[str] = set()
+    for line in lines:
+        line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
+        names.update(name.strip(".:-") for name in _NAME.findall(line))
+    names.discard("")
+    return names
 
 
 def main(argv: list[str]) -> int:
@@ -132,11 +170,18 @@ def main(argv: list[str]) -> int:
         return 1 if red else 0
     base = load(argv[1])
     if base is None:
-        print(f"no base results in {argv[1]}: every red step counts as this change's")
+        # Not on stdout under --new-files: ci-web.yml reads every stdout line there as a file to re-run.
+        print(f"no base results in {argv[1]}: every red step counts as this change's",
+              file=sys.stderr if new_files else sys.stdout)
         base = {}
     red = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
-    # Another base replay that fails the step by name: the base passed and failed it, so it flakes there.
-    flapped = {step for step in red if any(found.get(step) is False for found in again)}
+    # Another base replay that fails the step by name: the base passed and failed it, so it flakes there. Only when the
+    # first replay passed it (by name, or its whole file): a missing first result, or a file that timed out there,
+    # says nothing, and a later red alone would turn "no base result is the change's" into a pass (#41414 review).
+    def first_passed(step: str) -> bool:
+        return base[step] is True if step in base else base.get(test_file(step)) is True
+
+    flapped = {step for step in red if first_passed(step) and any(found.get(step) is False for found in again)}
     new = [step for step in red if step not in flaky and step not in flapped]
     flaked = [step for step in red if step in flaky or step in flapped]
     if new_files:
@@ -157,6 +202,23 @@ def main(argv: list[str]) -> int:
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
     old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)
+    # A step red on both sides is the base's only when its head failure names nothing the base's does not
+    # (cmux#41458). With the runner's failure output on the head, a step either side has none for cannot be told
+    # apart, and is the change's. Results with no failure output (webview tests, named one test a line) keep the name.
+    head_failures, base_failures = load_failures(argv[0]), load_failures(argv[1])
+    named_new: dict[str, list[str]] = {}
+    if head_failures is not None:
+        for step in old:
+            if CHECK_SEPARATOR in step:
+                continue  # a check is its own item, compared by name
+            if base_failures is None or step not in head_failures or step not in base_failures:
+                named_new[step] = []
+            else:
+                extra = failure_names(head_failures[step]) - failure_names(base_failures[step])
+                if extra:
+                    named_new[step] = sorted(extra)
+        old = [step for step in old if step not in named_new]
+        new = sorted(new + list(named_new))
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
@@ -167,6 +229,10 @@ def main(argv: list[str]) -> int:
         print(f"::warning title={label} {where}::{step}")
     for step in new:
         print(f"::error title={label} red on this change::{step}")
+    for step, extra in named_new.items():
+        print(f"{step}: red on the base too, but " + (
+            "its head failure names what the base's does not: " + ", ".join(extra[:20])
+            if extra else "its failures cannot be compared, so it is not excused"))
     for kind, steps in (("new", new), ("base", old), ("flaky", flaked)):
         for step in steps:
             print(red_step_line(label, kind, step))
