@@ -3,7 +3,9 @@
 //! segments. An owner stages the sealed segments and builds a new registry
 //! without the output in the background (Phase A); the next owner start
 //! finishes it with the journal tail, renames it into place and keeps the
-//! old file as `.pre-output-cleanup`, which the start after that removes.
+//! old file as `.pre-output-cleanup`. The start after that gives the old file
+//! its second name, `.kept-before-cleanup`; it goes after 7 days and 3 full
+//! starts.
 //!
 //! Output rows are seeded with SQLite into a registry the daemon created
 //! (this branch still journals output, but a seed gives fixed counts); the
@@ -695,13 +697,36 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     owner.stop();
     assert!(previous.is_file(), "the previous registry stays through the swap launch");
 
-    // The start after a full start on the new registry removes the old file.
+    // The start after a full start on the new registry ends the rollback
+    // window: the old file gets its second name and stays, and no rebuild
+    // runs beside it.
+    let kept = sidecar(&prepared.registry, ".kept-before-cleanup");
     let owner = Owner::start(&dir.0, session, "after-swap", &[]);
-    owner.wait_for_log("output cleanup: removed the previous registry");
-    assert!(!previous.exists());
+    owner.wait_for_log("output cleanup: the previous registry is kept as");
+    owner.wait_for_log("output cleanup: no rebuild in this start");
+    assert!(!previous.exists(), "the old file keeps the name that a start puts back");
+    assert!(kept.is_file(), "the old file is gone after one full start");
     let (_, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed");
     assert!(!owner.log_text().contains("output cleanup: staging"), "the cleanup runs once");
+    owner.stop();
+
+    // The third full start, and then a start 8 days after the swap (the
+    // owner's clock is ahead): only that one removes the kept file.
+    Owner::start(&dir.0, session, "third-start", &[]).stop();
+    assert!(kept.is_file(), "the kept file went before its 7 days");
+    let eight_days_ms = (8 * 24 * 60 * 60 * 1_000_u64).to_string();
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "eight-days-later",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_CLOCK_AHEAD_MS", &eight_days_ms)],
+    );
+    owner.wait_for_log("output cleanup: removed the previous registry");
+    assert!(!kept.exists());
+    let (_, reason) = read_journal(&owner.socket());
+    assert_eq!(reason, "completed");
+    assert_eq!(workspaces(&owner), prepared.workspaces, "the session without the kept file");
     owner.stop();
 }
 

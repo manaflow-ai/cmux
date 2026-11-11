@@ -223,6 +223,21 @@ fn reducer_cursor(connection: &Connection, reducer: &str, version: u32) -> anyho
     })
 }
 
+/// The `meta` key prefix of a saved reducer state that a start could not
+/// load and kept as it was ([`WorkspaceRegistry::keep_unloaded_reducer_state`]).
+const KEPT_REDUCER_STATE_PREFIX: &str = "journal_reducer_kept.";
+
+/// How many reducer states are kept that way: a range of the `meta` key.
+pub(crate) fn kept_reducer_states(connection: &Connection) -> anyhow::Result<u64> {
+    // The prefix with its last character raised by one ends the key range.
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM meta WHERE key >= ?1 AND key < ?2",
+        params![KEPT_REDUCER_STATE_PREFIX, "journal_reducer_kept/"],
+        |row| row.get(0),
+    )?;
+    Ok(u64::try_from(count).unwrap_or(0))
+}
+
 impl WorkspaceRegistry {
     pub(crate) fn journal_retention_floor(&self) -> anyhow::Result<u64> {
         journal_retention_floor(&self.connection.get())
@@ -243,7 +258,7 @@ impl WorkspaceRegistry {
     /// is no saved state to keep).
     pub(crate) fn keep_unloaded_reducer_state(&self, reducer_id: &str) -> anyhow::Result<bool> {
         let db = self.connection.get();
-        let kept_key = format!("journal_reducer_kept.{reducer_id}");
+        let kept_key = format!("{KEPT_REDUCER_STATE_PREFIX}{reducer_id}");
         db.execute(
             "INSERT INTO meta(key, value)
              SELECT ?1, value FROM meta WHERE key = ?2

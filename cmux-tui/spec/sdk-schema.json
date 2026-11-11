@@ -6526,6 +6526,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "registry_cleanup": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRegistryCleanup"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6538,7 +6546,8 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
-    "journal_followers is present only when the request names it in include."
+    "journal_followers is present only when the request names it in include.",
+    "registry_cleanup is present only when the request names it in include and the session keeps its registry on disk."
    ]
   },
   "ServerStatsHookQueue": {
@@ -7567,6 +7576,101 @@
     "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
     "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
     "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
+   ]
+  },
+  "ServerStatsRegistryKeptFile": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "swapped_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "kept_until_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "full_starts": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "full_starts_left": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "name is the file name beside the registry: workspace-registry.sqlite3.pre-output-cleanup until one full start on the rebuilt registry, then workspace-registry.sqlite3.kept-before-cleanup.",
+    "swapped_at_ms is when the rebuild replaced the file, in milliseconds since the Unix epoch; null when that is not known, and the file then stays.",
+    "kept_until_ms is 7 days after swapped_at_ms: the first time the file can go.",
+    "full_starts counts the full starts since the rebuild; the file stays through full_starts_left more. It goes at the first start after both conditions."
+   ]
+  },
+  "ServerStatsRegistryCleanup": {
+   "kind": "object",
+   "fields": {
+    "kept_file": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRegistryKeptFile"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "kept_raw": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kept_file is the whole registry from before the last rebuild, while it is beside the new one; null when none is. No start reads it, and no rebuild runs while it is there.",
+    "kept_raw counts the saved reducer states that a start could not load after journal retention deleted records; each is kept as it was in meta journal_reducer_kept.<reducer>.",
+    "error is null unless the registry could not be read; kept_raw is then 0."
    ]
   },
   "GuestUrlOpenResult": {
@@ -18466,7 +18570,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers, registry_cleanup); unknown names are ignored."
    ]
   },
   "paste-image": {

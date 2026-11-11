@@ -288,6 +288,13 @@ impl Mux {
         Some(crate::diagnostics::read_disk_usage(database_path, &mut cache))
     }
 
+    /// The `server-stats` `registry_cleanup` section; `None` for a registry
+    /// that is not on disk.
+    pub fn registry_cleanup_stats(&self) -> Option<crate::diagnostics::RegistryCleanupSnapshot> {
+        let database_path = self.journal_kernel.database_path()?;
+        Some(crate::diagnostics::read_registry_cleanup(database_path))
+    }
+
     /// Resource projection and commit spans, see
     /// [`crate::diagnostics::ResourceProjectionStats`].
     pub fn resource_projection_stats(&self) -> crate::diagnostics::ResourceProjectionSnapshot {

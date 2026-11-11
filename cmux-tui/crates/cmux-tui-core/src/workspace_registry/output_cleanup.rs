@@ -25,9 +25,10 @@
 //!   any records a stopped catch-up left unpacked, over `SWAP_TAIL_LIMIT`
 //!   records defers the swap), every other table copied,
 //!   a check, and the rename over the registry. The old file stays as
-//!   `workspace-registry.sqlite3.pre-output-cleanup` until the next start
-//!   that opens the new registry. A start that swaps used to build the whole
-//!   journal here and took minutes on a large registry.
+//!   `workspace-registry.sqlite3.pre-output-cleanup` until one full start
+//!   on the new registry, then as `.kept-before-cleanup` for at least 7
+//!   days and 3 full starts (`backup.rs`). A start that swaps used to build
+//!   the whole journal here and took minutes on a large registry.
 //!
 //! The same pass drops the `personal.session.put` records a later put of
 //! the same session superseded ([`session_puts`] says which and why no
@@ -88,10 +89,10 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+pub(crate) use backup::{HeldBackup, backup_held, held_backup};
 pub(super) use backup::{
-    finish_pending_rollback, note_full_start, refuse_open_beside_backup,
-    remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
-    rollback_possible,
+    finish_pending_rollback, keep_or_remove_previous_registry, note_full_start,
+    refuse_open_beside_backup, restore_interrupted_swap, roll_back_swap, rollback_possible,
 };
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 #[cfg(test)]
@@ -109,6 +110,8 @@ pub(crate) const DONE_META_KEY: &str = "output_cleanup_v2";
 pub(crate) const V1_DONE_META_KEY: &str = "output_cleanup_v1";
 const STAGING_SUFFIX: &str = ".output-cleanup";
 const PREVIOUS_SUFFIX: &str = ".pre-output-cleanup";
+/// The file a swap replaced, after the rollback window (`backup.rs`).
+const KEPT_SUFFIX: &str = ".kept-before-cleanup";
 /// Written when a swap failed for a reason other than free space; no later
 /// start stages this registry again until the file is removed.
 const FAILED_SUFFIX: &str = ".output-cleanup-failed";
@@ -152,6 +155,10 @@ pub(crate) fn staging_path(db_path: &Path) -> PathBuf {
 
 pub(crate) fn previous_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, PREVIOUS_SUFFIX)
+}
+
+pub(crate) fn kept_path(db_path: &Path) -> PathBuf {
+    sidecar_path(db_path, KEPT_SUFFIX)
 }
 
 pub(crate) fn failed_path(db_path: &Path) -> PathBuf {

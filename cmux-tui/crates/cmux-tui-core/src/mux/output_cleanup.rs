@@ -12,6 +12,8 @@
 //! would leave the file at its size, and it deletes none of them while this
 //! worker can still rebuild ([`Mux::journal_rebuild_possible`]). A rebuild
 //! that is refused, skipped or fails ends that: the pass deletes in place.
+//! So does a start beside the file that the last swap replaced: no worker
+//! runs while that file is kept (at least 7 days and 3 full starts).
 
 use super::*;
 use crate::workspace_registry::output_cleanup::{
@@ -178,7 +180,7 @@ impl Mux {
     /// True while the cleanup worker of this start can still rebuild the
     /// registry at a retention floor: the retention pass then leaves a run
     /// that is worth a rebuild to it.
-    pub(super) fn journal_rebuild_possible(&self) -> bool {
+    pub(crate) fn journal_rebuild_possible(&self) -> bool {
         self.output_cleanup.rebuild_possible.load(Ordering::Acquire)
     }
 
@@ -222,6 +224,17 @@ impl Mux {
             eprintln!(
                 "cmux-tui: output cleanup: skipped; an earlier attempt failed (see {})",
                 failed_path(&db_path).display()
+            );
+            return Ok(());
+        }
+        // The file that the last swap replaced is still beside the registry
+        // (`output_cleanup/backup.rs`): the swap of a new rebuild would
+        // replace it. No worker in this start, so the retention pass deletes
+        // in place (`rebuild_possible` stays false).
+        if output_cleanup::backup_held(&db_path) {
+            eprintln!(
+                "cmux-tui: output cleanup: no rebuild in this start; the registry that the last \
+                 swap replaced is still kept beside this one"
             );
             return Ok(());
         }

@@ -19,6 +19,10 @@ const DISK: &str = "disk";
 /// and whether they keep the rows left out at rest
 /// (`mux::JournalFollowersSnapshot`).
 const JOURNAL_FOLLOWERS: &str = "journal_followers";
+/// The optional section that shows the file the last registry rebuild
+/// replaced, while it is kept, and the reducer states that did not load
+/// (`diagnostics::RegistryCleanupSnapshot`).
+const REGISTRY_CLEANUP: &str = "registry_cleanup";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -40,6 +44,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
             .flatten(),
         disk: wants(DISK).then(|| mux.disk_usage_stats()).flatten(),
         journal_followers: wants(JOURNAL_FOLLOWERS).then(|| mux.journal_followers_stats()),
+        registry_cleanup: wants(REGISTRY_CLEANUP).then(|| mux.registry_cleanup_stats()).flatten(),
     }
 }
 

@@ -318,14 +318,15 @@ fn a_rebuild_at_a_floor_leaves_a_small_registry_that_every_reader_reads() {
     mux.shutdown();
     drop(mux);
 
-    // The rule: the first open after one full start removes the backup.
+    // The rule: the first open after one full start ends the rollback
+    // window. The old file gets its second name and stays; no start reads it.
     let mux = open(&root.0);
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while previous.exists() && Instant::now() < deadline {
-        std::thread::yield_now();
-    }
-    assert!(!previous.exists(), "the backup stays after a full start on the new registry");
-    assert_eq!(&roster_state(&mux, terminal), roster, "the roster without the backup");
+    assert!(!previous.exists(), "the old file keeps the name that a start puts back");
+    assert!(
+        kept_path(db_path).is_file(),
+        "the old file is gone after one full start on the new registry"
+    );
+    assert_eq!(&roster_state(&mux, terminal), roster, "the roster beside the kept file");
     mux.shutdown();
 }
 
@@ -388,15 +389,19 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     assert!(mux.settle_agent_roster_for_test());
     mux.shutdown();
     drop(mux);
-    // The second full start: it removes the backup of the first swap.
+    // The second full start: the rollback window is over, and the file of
+    // the first swap is kept under its second name. No rebuild worker runs
+    // beside it, in this start or the next one.
     let mux = open(&root.0);
     let roster = roster_state(&mux, terminal);
-    let previous = previous_path(db_path);
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while previous.exists() && Instant::now() < deadline {
-        std::thread::yield_now();
-    }
-    assert!(!previous.exists(), "the backup of the first swap stays after a full start");
+    let kept_file = kept_path(db_path);
+    assert!(!previous_path(db_path).exists(), "the file of the first swap keeps its first name");
+    assert!(kept_file.is_file(), "the file of the first swap is gone after 2 full starts");
+    assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the kept file");
+    mux.shutdown();
+    drop(mux);
+    let mux = open(&root.0);
+    assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the kept file");
     mux.shutdown();
     drop(mux);
     assert!(second_floor > *floor);
@@ -410,6 +415,28 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
         StageOutcome::Built,
         "no second rebuild ran at the floor {second_floor}"
     );
+    // A second swap would leave a second old file: it waits while the file
+    // of the first swap is kept (3 full starts are counted, the 7 days are
+    // not over).
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(staging_path(db_path).is_file(), "the second swap ran beside the kept file");
+    assert!(!previous_path(db_path).exists(), "the second swap ran beside the kept file");
+    assert!(kept_file.is_file(), "the kept file went before its 7 days");
+    assert_eq!(records_after(db_path, second_floor, head), kept);
+    // 8 days later: this open removes the kept file (3 full starts and 7
+    // days), and it still does not swap.
+    let later = crate::workspace_registry::session_journal::unix_epoch_ms().unwrap()
+        + 8 * 24 * 60 * 60 * 1_000;
+    super::backup::NOW_MS_FOR_TEST.with(|now| now.set(Some(later)));
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    super::backup::NOW_MS_FOR_TEST.with(|now| now.set(None));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while kept_file.exists() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(!kept_file.exists(), "the kept file stays after 7 days and 3 full starts");
+    assert!(staging_path(db_path).is_file(), "the staged work was lost");
+    // The start after that swaps.
     drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
     assert!(!staging_path(db_path).exists(), "the staging file stays");
     assert!(previous_path(db_path).is_file(), "the first rebuilt file is not kept as the backup");
@@ -737,6 +764,51 @@ fn retention_leaves_a_run_worth_a_rebuild_to_the_rebuild() {
         pruned_through, 0,
         "retention deleted in place a run of {old_run} records that is worth a rebuild"
     );
+}
+
+/// While the file that a swap replaced is kept beside the registry, no start
+/// runs a rebuild worker (its swap would replace the kept file with a newer
+/// and smaller one), and retention deletes in place. The start after the
+/// file went runs the worker again.
+#[test]
+fn no_rebuild_worker_runs_beside_a_kept_file_and_one_runs_after() {
+    let root = Root::new("held");
+    let mux = open(&root.0);
+    let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    assert!(mux.journal_rebuild_possible(), "the fixture is wrong: no worker with no kept file");
+    mux.shutdown();
+    drop(mux);
+    std::fs::write(kept_path(&db_path), b"the registry before the last swap").unwrap();
+
+    let mux = open(&root.0);
+    assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the kept file");
+    let old_run = old_run_below_the_retention_floor(&mux);
+    for _ in 0..24 {
+        if mux.journal_pruned_through().unwrap() >= old_run {
+            break;
+        }
+        mux.run_journal_maintenance_for_test();
+    }
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    assert!(!mux.journal_rebuild_possible(), "a rebuild worker started beside the kept file");
+    mux.shutdown();
+    drop(mux);
+    assert!(
+        pruned_through >= old_run,
+        "retention deleted through {pruned_through} beside the kept file; the old run ends at \
+         {old_run}"
+    );
+    assert!(!staging_path(&db_path).exists(), "a rebuild was staged beside the kept file");
+    assert_eq!(
+        std::fs::read(kept_path(&db_path)).unwrap(),
+        b"the registry before the last swap",
+        "a start changed the kept file"
+    );
+
+    std::fs::remove_file(kept_path(&db_path)).unwrap();
+    let mux = open(&root.0);
+    assert!(mux.journal_rebuild_possible(), "no rebuild worker runs after the kept file went");
+    mux.shutdown();
 }
 
 /// The rebuild is not the only way down: when no rebuild can run in this

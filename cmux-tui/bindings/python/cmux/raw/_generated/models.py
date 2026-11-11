@@ -1766,6 +1766,25 @@ class ServerStatsLocks:
 
 
 @dataclass(frozen=True)
+class ServerStatsRegistryCleanup:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryCleanup'
+    error: Union[str, None]
+    kept_file: Union[ServerStatsRegistryKeptFile, None]
+    kept_raw: int
+
+
+@dataclass(frozen=True)
+class ServerStatsRegistryKeptFile:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryKeptFile'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    full_starts: int
+    full_starts_left: int
+    kept_until_ms: Union[int, None]
+    name: str
+    swapped_at_ms: Union[int, None]
+
+
+@dataclass(frozen=True)
 class ServerStatsRegistryLock:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryLock'
     contended_acquisitions: int
@@ -1811,6 +1830,7 @@ class ServerStatsResult:
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
     journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
+    registry_cleanup: Union[ServerStatsRegistryCleanup, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -6609,6 +6629,8 @@ __all__ = [
     'ServerStatsLockSiteDetail',
     'ServerStatsLockStall',
     'ServerStatsLocks',
+    'ServerStatsRegistryCleanup',
+    'ServerStatsRegistryKeptFile',
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',

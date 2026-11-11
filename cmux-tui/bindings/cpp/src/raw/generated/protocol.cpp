@@ -10807,6 +10807,172 @@ Result<ServerStatsLocks> Codec<ServerStatsLocks>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ServerStatsRegistryCleanup>::encode(const ServerStatsRegistryCleanup& value) {
+    (void)value;
+    Json::Object object;
+    if (value.error) {
+        auto encoded = encode_value(*value.error);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("error", std::move(encoded).value());
+    } else {
+        object.emplace("error", Json(nullptr));
+    }
+    if (value.kept_file) {
+        auto encoded = encode_value(*value.kept_file);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kept_file", std::move(encoded).value());
+    } else {
+        object.emplace("kept_file", Json(nullptr));
+    }
+    auto encoded_kept_raw = encode_value(value.kept_raw);
+    if (!encoded_kept_raw) return std::move(encoded_kept_raw).error();
+    object.emplace("kept_raw", std::move(encoded_kept_raw).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsRegistryCleanup> Codec<ServerStatsRegistryCleanup>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsRegistryCleanup result{};
+    const Json* field_error = value.find("error");
+    if (!field_error) {
+        return make_error(ErrorCode::decode, "missing required field 'error'");
+    }
+    if (field_error) {
+        if (field_error->is_null()) {
+            result.error.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_error);
+            if (!decoded) return std::move(decoded).error();
+            result.error = std::move(decoded).value();
+        }
+    }
+    const Json* field_kept_file = value.find("kept_file");
+    if (!field_kept_file) {
+        return make_error(ErrorCode::decode, "missing required field 'kept_file'");
+    }
+    if (field_kept_file) {
+        if (field_kept_file->is_null()) {
+            result.kept_file.reset();
+        } else {
+            auto decoded = decode_value<ServerStatsRegistryKeptFile>(*field_kept_file);
+            if (!decoded) return std::move(decoded).error();
+            result.kept_file = std::move(decoded).value();
+        }
+    }
+    const Json* field_kept_raw = value.find("kept_raw");
+    if (!field_kept_raw) {
+        return make_error(ErrorCode::decode, "missing required field 'kept_raw'");
+    }
+    if (field_kept_raw) {
+        auto decoded = decode_value<std::uint64_t>(*field_kept_raw);
+        if (!decoded) return std::move(decoded).error();
+        result.kept_raw = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsRegistryKeptFile>::encode(const ServerStatsRegistryKeptFile& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_full_starts = encode_value(value.full_starts);
+    if (!encoded_full_starts) return std::move(encoded_full_starts).error();
+    object.emplace("full_starts", std::move(encoded_full_starts).value());
+    auto encoded_full_starts_left = encode_value(value.full_starts_left);
+    if (!encoded_full_starts_left) return std::move(encoded_full_starts_left).error();
+    object.emplace("full_starts_left", std::move(encoded_full_starts_left).value());
+    if (value.kept_until_ms) {
+        auto encoded = encode_value(*value.kept_until_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kept_until_ms", std::move(encoded).value());
+    } else {
+        object.emplace("kept_until_ms", Json(nullptr));
+    }
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    if (value.swapped_at_ms) {
+        auto encoded = encode_value(*value.swapped_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("swapped_at_ms", std::move(encoded).value());
+    } else {
+        object.emplace("swapped_at_ms", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ServerStatsRegistryKeptFile> Codec<ServerStatsRegistryKeptFile>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsRegistryKeptFile result{};
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_full_starts = value.find("full_starts");
+    if (!field_full_starts) {
+        return make_error(ErrorCode::decode, "missing required field 'full_starts'");
+    }
+    if (field_full_starts) {
+        auto decoded = decode_value<std::uint64_t>(*field_full_starts);
+        if (!decoded) return std::move(decoded).error();
+        result.full_starts = std::move(decoded).value();
+    }
+    const Json* field_full_starts_left = value.find("full_starts_left");
+    if (!field_full_starts_left) {
+        return make_error(ErrorCode::decode, "missing required field 'full_starts_left'");
+    }
+    if (field_full_starts_left) {
+        auto decoded = decode_value<std::uint64_t>(*field_full_starts_left);
+        if (!decoded) return std::move(decoded).error();
+        result.full_starts_left = std::move(decoded).value();
+    }
+    const Json* field_kept_until_ms = value.find("kept_until_ms");
+    if (!field_kept_until_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'kept_until_ms'");
+    }
+    if (field_kept_until_ms) {
+        if (field_kept_until_ms->is_null()) {
+            result.kept_until_ms.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_kept_until_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.kept_until_ms = std::move(decoded).value();
+        }
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    const Json* field_swapped_at_ms = value.find("swapped_at_ms");
+    if (!field_swapped_at_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'swapped_at_ms'");
+    }
+    if (field_swapped_at_ms) {
+        if (field_swapped_at_ms->is_null()) {
+            result.swapped_at_ms.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_swapped_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.swapped_at_ms = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsRegistryLock>::encode(const ServerStatsRegistryLock& value) {
     (void)value;
     Json::Object object;
@@ -11170,6 +11336,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("locks", std::move(encoded).value());
     }
+    if (value.registry_cleanup) {
+        auto encoded = encode_value(*value.registry_cleanup);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_cleanup", std::move(encoded).value());
+    }
     auto encoded_registry_lock = encode_value(value.registry_lock);
     if (!encoded_registry_lock) return std::move(encoded_registry_lock).error();
     object.emplace("registry_lock", std::move(encoded_registry_lock).value());
@@ -11241,6 +11412,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsLocks>(*field_locks);
         if (!decoded) return std::move(decoded).error();
         result.locks = std::move(decoded).value();
+    }
+    const Json* field_registry_cleanup = value.find("registry_cleanup");
+    if (field_registry_cleanup) {
+        auto decoded = decode_value<ServerStatsRegistryCleanup>(*field_registry_cleanup);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_cleanup = std::move(decoded).value();
     }
     const Json* field_registry_lock = value.find("registry_lock");
     if (!field_registry_lock) {

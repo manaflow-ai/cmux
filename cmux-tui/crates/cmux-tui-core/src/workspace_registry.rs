@@ -2635,7 +2635,7 @@ impl WorkspaceRegistry {
                 registry.output_cleanup_swapped =
                     swapped || output_cleanup::rollback_possible(&db_path);
                 if !registry.output_cleanup_swapped {
-                    output_cleanup::remove_previous_registry_when_started(&db_path);
+                    output_cleanup::keep_or_remove_previous_registry(&db_path);
                 }
                 Ok(registry)
             }
@@ -2661,8 +2661,9 @@ impl WorkspaceRegistry {
     /// Opens the registry and builds the owner from it with `load`. When this
     /// start swapped in a cleaned registry (output cleanup) and `load` fails,
     /// the previous registry is put back under the session locks and `load`
-    /// runs once more on it. A full start after a swap is recorded, so the
-    /// next start removes the previous file.
+    /// runs once more on it. A full start after a swap is recorded: the next
+    /// start ends the rollback window and keeps the previous file under its
+    /// second name (`output_cleanup/backup.rs`).
     pub(crate) fn open_with<T>(
         root: &Path,
         session_name: &str,

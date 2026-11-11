@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0. */
+/* cmux-tui mux protocol 12, IR 54c78f5ea1048134d8e8ddbd14333936ae3935d54545d2859bf031121b4716d6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8f7c38cfe306dacf10763a16c8b540a144ad4c48ef14d76c58f729ee5f0f8ee0" as const;
+export const SDK_IR_SHA256 = "54c78f5ea1048134d8e8ddbd14333936ae3935d54545d2859bf031121b4716d6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2786,7 +2786,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, journal_followers, registry_cleanup); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -11953,6 +11953,101 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsRegistryCleanup": {
+    "additional_properties": false,
+    "constraints": [
+      "kept_file is the whole registry from before the last rebuild, while it is beside the new one; null when none is. No start reads it, and no rebuild runs while it is there.",
+      "kept_raw counts the saved reducer states that a start could not load after journal retention deleted records; each is kept as it was in meta journal_reducer_kept.<reducer>.",
+      "error is null unless the registry could not be read; kept_raw is then 0."
+    ],
+    "fields": {
+      "error": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kept_file": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsRegistryKeptFile"
+        }
+      },
+      "kept_raw": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsRegistryKeptFile": {
+    "additional_properties": false,
+    "constraints": [
+      "name is the file name beside the registry: workspace-registry.sqlite3.pre-output-cleanup until one full start on the rebuilt registry, then workspace-registry.sqlite3.kept-before-cleanup.",
+      "swapped_at_ms is when the rebuild replaced the file, in milliseconds since the Unix epoch; null when that is not known, and the file then stays.",
+      "kept_until_ms is 7 days after swapped_at_ms: the first time the file can go.",
+      "full_starts counts the full starts since the rebuild; the file stays through full_starts_left more. It goes at the first start after both conditions."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "full_starts": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "full_starts_left": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kept_until_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "swapped_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsRegistryLock": {
     "additional_properties": false,
     "constraints": [
@@ -12181,7 +12276,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
       "disk is present only when the request names it in include and the session keeps its registry on disk.",
-      "journal_followers is present only when the request names it in include."
+      "journal_followers is present only when the request names it in include.",
+      "registry_cleanup is present only when the request names it in include and the session keeps its registry on disk."
     ],
     "fields": {
       "connections": {
@@ -12230,6 +12326,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsLocks"
+        }
+      },
+      "registry_cleanup": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsRegistryCleanup"
         }
       },
       "registry_lock": {

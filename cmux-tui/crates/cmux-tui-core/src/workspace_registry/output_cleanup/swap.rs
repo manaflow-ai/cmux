@@ -28,9 +28,9 @@ use super::build::{
 use super::stage::{open_existing_staging, state, state_u64};
 use super::{
     DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
-    failed_for_this_build, file_len, free_space_refusal, is_temporary, mebibytes, previous_path,
-    remove_if_present, remove_staging, staged_bytes_refusal, staging_path, start_floor,
-    write_failure_marker,
+    failed_for_this_build, file_len, free_space_refusal, is_temporary, kept_path, mebibytes,
+    previous_path, remove_if_present, remove_staging, staged_bytes_refusal, staging_path,
+    start_floor, write_failure_marker,
 };
 use crate::platform;
 
@@ -74,6 +74,17 @@ pub(crate) fn swap_at_open(db_path: &Path, verify_open: VerifyOpen<'_>) -> bool 
     }
     if failed_for_this_build(db_path) {
         let _ = remove_staging(db_path);
+        return false;
+    }
+    // One kept file at a time (`backup.rs`): a swap now would leave a second
+    // one beside it. No worker stages while a file is kept, so this is a
+    // staging file from before that rule; it waits.
+    if kept_path(db_path).exists() {
+        eprintln!(
+            "cmux-tui: output cleanup: swap deferred: the registry that the last swap replaced \
+             is still kept as {}",
+            kept_path(db_path).display()
+        );
         return false;
     }
     let started = Instant::now();
@@ -339,6 +350,10 @@ struct CommittedSwap {
     head: u64,
     /// Records the start packed (after `from`).
     tail_kept: u64,
+    /// The floor the file was built at: the journal through it is not in the
+    /// file (0: no run was left out). Absent in a record of an earlier build.
+    #[serde(default)]
+    floor: Option<u64>,
 }
 
 /// The registry file's length and modification time, with no WAL beside it
@@ -387,6 +402,24 @@ fn finish_committed(
             &staging_path(db_path),
             OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
         )?;
+        // The start that finishes the swap can be of another build than the
+        // one that committed it (an update between the kill and this start),
+        // with a lower floor: the same rule as before the build.
+        let source = open_registry_database_read_only(db_path)?;
+        source.busy_timeout(Duration::from_secs(5))?;
+        if let Some((built_floor, floor)) = built_above_start_floor(&staged, &source, swap)? {
+            // Both files stay and the owner starts on the registry, which has
+            // every record. The new file is of no use to a later start (this
+            // owner writes the registry, so its stamp no longer names it):
+            // the cleanup worker replaces it when it builds again.
+            eprintln!(
+                "cmux-tui: output cleanup: the swap an earlier start committed was built without \
+                 the journal through {built_floor} and this start reads it after {floor}; it is \
+                 not installed, the registry is unchanged"
+            );
+            return Ok(Swap::NotReady);
+        }
+        drop(source);
         verify(&staged, registry_id, swap, &mut steps)?;
         let count = |sql: &str| -> anyhow::Result<u64> {
             Ok(u64::try_from(staged.query_row(sql, [], |row| row.get::<_, i64>(0))?)?)
@@ -414,6 +447,35 @@ fn finish_committed(
         largest_tables: String::new(),
         steps: steps.line(),
     }))
+}
+
+/// `Some((built floor, floor of this start))` when the committed new registry
+/// `staged` left out records that this start reads from `source`, the
+/// registry it was built from. A record of an earlier build names no floor:
+/// the floor is then what the new file says is gone, when that is more than
+/// the registry itself says.
+fn built_above_start_floor(
+    staged: &Connection,
+    source: &Connection,
+    swap: &CommittedSwap,
+) -> anyhow::Result<Option<(u64, u64)>> {
+    use super::super::journal_retention::journal_pruned_through;
+    let built_floor = match swap.floor {
+        Some(floor) => floor,
+        None => {
+            let gone = journal_pruned_through(staged)?;
+            if gone > journal_pruned_through(source)? { gone } else { 0 }
+        }
+    };
+    if built_floor == 0 {
+        return Ok(None);
+    }
+    // A floor that cannot be read is floor 0, as before the build.
+    let floor = start_floor(source).unwrap_or_else(|error| {
+        eprintln!("cmux-tui: output cleanup: could not read the retention floor: {error:#}");
+        0
+    });
+    Ok((built_floor > floor).then_some((built_floor, floor)))
 }
 
 /// The staged segments still describe the registry's archive: its last
@@ -645,7 +707,7 @@ fn build_in(
         )?;
     }
     let done = format!("{{\"at_ms\":\"{}\",\"kept\":\"{kept}\"}}", unix_epoch_ms()?);
-    let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept };
+    let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept, floor: Some(cut) };
     let swap_json = serde_json::to_string(&swap)?;
     for (key, value) in [
         (DONE_META_KEY, done.as_str()),
