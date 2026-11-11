@@ -26,8 +26,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The daemon's bound (`git_lane::MAX_READ_RUNS`): git reads that run at one time.
@@ -202,6 +202,18 @@ fn daemon() -> PathBuf {
     socket
 }
 
+/// A daemon with a state directory (the diff comments need one), and its mux.
+fn persistent_daemon(name: &str) -> (PathBuf, Arc<Mux>) {
+    let dir = fixture().dir.join(unique("state"));
+    let socket = fixture().dir.join(format!("{}.sock", unique("m")));
+    let name = format!("git-lane-{name}-{}", std::process::id());
+    let mux = Mux::open_persistent(name, SurfaceOptions::default(), &dir).unwrap();
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    // The daemon lives as long as the test process.
+    std::mem::forget(mux.clone());
+    (socket, mux)
+}
+
 /// One connection: requests go out without a wait for their replies.
 struct Connection {
     writer: UnixStream,
@@ -274,6 +286,22 @@ impl Connection {
     fn answered(&self, id: &str) -> bool {
         self.seen.iter().any(|reply| reply["id"] == json!(id))
     }
+
+    /// Whether the daemon closed the connection in `wait`.
+    fn closed_in(&mut self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        loop {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
+            let left = left.max(Duration::from_millis(1));
+            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
+            let mut line = String::new();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return true,
+                Ok(_) => {}
+                Err(_) => return false,
+            }
+        }
+    }
 }
 
 /// The person's case: the warm `git.diff` of a hidden chat runs for seconds,
@@ -329,14 +357,16 @@ fn git_lane_a_git_status_behind_held_and_queued_git_diffs_is_answered_while_they
         let params = json!({"path": repo, "scope": "uncommitted", "context_lines": number + 4});
         app.send(&format!("d{number}"), "git.diff", params);
     }
-    wait_for("each diff place held", || gate.active() >= LONG_GIT_RUNS);
+    // A `git diff` child of each: a diff also runs other git children before
+    // it, which the gate does not hold.
+    wait_for("each diff place held", || gate.runs_of("diff") >= LONG_GIT_RUNS);
 
     let asked = Instant::now();
     app.send("status", "git.status", json!({"path": repo}));
     let status = app.reply_in(&json!("status"), Duration::from_secs(10));
     let status_ms = asked.elapsed().as_millis();
     let diffs_early = (0..DIFFS).filter(|number| app.answered(&format!("d{number}"))).count();
-    let held = gate.active();
+    let held = gate.runs_of("diff");
 
     gate.release("hold-diff");
     for number in 0..DIFFS {
@@ -486,12 +516,7 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
 #[test]
 fn git_lane_a_mutation_keeps_its_place_in_its_connections_order() {
     let (repo, gate) = repository("order");
-    let dir = fixture().dir.join(unique("state"));
-    let socket = fixture().dir.join(format!("{}.sock", unique("m")));
-    let name = format!("git-lane-order-{}", std::process::id());
-    let mux = Mux::open_persistent(name, SurfaceOptions::default(), &dir).unwrap();
-    server::serve(mux.clone(), Some(socket.clone())).unwrap();
-    std::mem::forget(mux);
+    let (socket, _mux) = persistent_daemon("order");
     let mut app = Connection::open(&socket);
 
     gate.hold("hold-diff");
@@ -572,4 +597,150 @@ fn git_lane_a_client_that_ends_its_writes_still_gets_its_git_reply() {
 
     let status = cli.reply(&json!("status"));
     assert_eq!(status["ok"], true, "git.status failed: {status}");
+}
+
+/// The lane is one queue for the whole daemon, so a CLI's `git.status` on a
+/// connection of its own comes behind the app's diffs. They are long reads
+/// and the place for short reads is free: it is answered while they are held.
+/// The time it prints is of a stand-in git on a small repository and an idle
+/// machine: a lower bound.
+#[test]
+fn git_lane_a_git_status_of_another_connection_is_answered_while_the_apps_git_diffs_are_held() {
+    const DIFFS: usize = 24;
+    const ASKS: usize = 20;
+    let (repo, gate) = repository("cli");
+    let socket = daemon();
+    let mut app = Connection::open(&socket);
+    let mut cli = Connection::open(&socket);
+
+    gate.hold("hold-diff");
+    for number in 0..DIFFS {
+        let params = json!({"path": repo, "scope": "uncommitted", "context_lines": number + 4});
+        app.send(&format!("d{number}"), "git.diff", params);
+    }
+    wait_for("a diff held", || gate.runs_of("diff") >= 1);
+    // The lane holds 3 diffs in git. A daemon that runs a connection's git
+    // on its reader holds 1: the wait for 3 has an end of its own.
+    let all_held = Instant::now() + Duration::from_secs(3);
+    while gate.runs_of("diff") < LONG_GIT_RUNS && Instant::now() < all_held {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let held = gate.runs_of("diff");
+
+    let mut waits = Vec::new();
+    let mut unanswered = 0;
+    for number in 0..ASKS {
+        let id = format!("s{number}");
+        let asked = Instant::now();
+        cli.send(&id, "git.status", json!({"path": repo}));
+        match cli.reply_in(&json!(id), Duration::from_secs(10)) {
+            Some(status) => {
+                waits.push(asked.elapsed());
+                assert_eq!(status["ok"], true, "git.status {number} failed: {status}");
+            }
+            None => unanswered += 1,
+        }
+    }
+    let diffs_early = (0..DIFFS).filter(|number| app.answered(&format!("d{number}"))).count();
+
+    gate.release("hold-diff");
+    for number in 0..DIFFS {
+        let diff = app.reply(&json!(format!("d{number}")));
+        assert_eq!(diff["ok"], true, "git.diff {number} failed: {diff}");
+    }
+    waits.sort_unstable();
+    let ms = |index: usize| waits.get(index).map_or(-1.0, |wait| wait.as_secs_f64() * 1000.0);
+    eprintln!(
+        "git-lane: a git.status of another connection while the app has {DIFFS} git.diff \
+         ({held} held in git, the rest waiting): {} of {ASKS} answered while they were held: min \
+         {:.1} ms, p50 {:.1} ms, max {:.1} ms",
+        waits.len(),
+        ms(0),
+        ms(waits.len() / 2),
+        ms(waits.len().saturating_sub(1)),
+    );
+    assert_eq!(diffs_early, 0, "a git.diff answered while its git was held");
+    assert_eq!(unanswered, 0, "a git.status of another connection waited for the app's diffs");
+}
+
+/// A daemon that shuts down (an update, a logout) or hands its session over
+/// refuses each line it reads after that as "not executed", so the client
+/// sends it again to the next daemon. A git request that still waits for a
+/// place then has not run either: it gets the same refusal and never starts.
+#[test]
+fn git_lane_a_git_request_that_waits_when_the_shutdown_begins_is_refused_and_does_not_run() {
+    let (repo, gate) = repository("fence");
+    let (socket, mux) = persistent_daemon("fence");
+    let mut app = Connection::open(&socket);
+
+    gate.hold("hold-diff");
+    app.send("diff", "git.diff", json!({"path": repo, "scope": "uncommitted"}));
+    gate.wait_held();
+    let comment = json!({"filePath": "a.txt", "message": "after the fence"});
+    app.send("save", "diff.comments.save", json!({"root": repo, "comment": comment}));
+    app.send("list", "diff.comments.list", json!({"root": repo}));
+    // The reader took both: its later ping is answered.
+    app.ping(9);
+    app.reply(&json!(9));
+
+    mux.request_daemon_shutdown();
+    gate.release("hold-diff");
+    let diff = app.reply(&json!("diff"));
+    let save = app.reply(&json!("save"));
+    let list = app.reply(&json!("list"));
+
+    assert_eq!(diff["ok"], true, "the git.diff that ran before the shutdown failed: {diff}");
+    for (name, reply) in [("diff.comments.save", &save), ("diff.comments.list", &list)] {
+        assert_eq!(reply["ok"], false, "{name} started after the shutdown began: {reply}");
+        assert_eq!(reply["error"]["code"], "operation.failed", "{name}: {reply}");
+        assert_eq!(
+            reply["error"]["details"]["reason"], "daemon_handoff_pending",
+            "{name}: {reply}"
+        );
+    }
+}
+
+/// A connection that breaks has no reader for its replies, so its reads that
+/// wait are dropped. A mutation that waits is work the daemon took: it still
+/// runs, as it did when the reader ran each line it read.
+#[test]
+fn git_lane_a_mutation_that_waits_when_its_connection_breaks_still_runs() {
+    let (repo, gate) = repository("broken");
+    let (socket, _mux) = persistent_daemon("broken");
+    let mut app = Connection::open(&socket);
+
+    gate.hold("hold-diff");
+    app.send("diff", "git.diff", json!({"path": repo, "scope": "uncommitted"}));
+    gate.wait_held();
+    let comment = json!({"filePath": "a.txt", "message": "kept after the break"});
+    app.send("save", "diff.comments.save", json!({"root": repo, "comment": comment}));
+    app.ping(9);
+    app.reply(&json!(9));
+    // Not UTF-8: the daemon cannot read this line and ends the connection as
+    // a broken one, while the save waits for the diff before it.
+    app.writer.write_all(b"\xff\n").unwrap();
+    let closed = app.closed_in(Duration::from_secs(5));
+    gate.release("hold-diff");
+
+    let mut other = Connection::open(&socket);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let saved = loop {
+        let id = unique("l");
+        other.send(&id, "diff.comments.list", json!({"root": repo}));
+        let list = other.reply(&json!(id));
+        assert_eq!(list["ok"], true, "diff.comments.list failed: {list}");
+        let comments = list["result"]["comments"].as_array().map_or(0, Vec::len);
+        if comments == 1 {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    eprintln!(
+        "git-lane: a save that waited when its connection broke (closed by the daemon: \
+         {closed}): saved: {saved}"
+    );
+    assert!(saved, "a diff.comments.save the daemon took was dropped when its connection broke");
 }

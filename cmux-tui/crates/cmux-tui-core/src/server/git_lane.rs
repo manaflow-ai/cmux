@@ -231,7 +231,7 @@ impl<J> Schedule<J> {
     }
 
     /// Takes the requests of `client` that wait.
-    fn take_queued(&mut self, client: u64) -> Vec<J> {
+    fn take_waiting_reads(&mut self, client: u64) -> Vec<J> {
         let (taken, kept): (Vec<_>, Vec<_>) =
             std::mem::take(&mut self.queue).into_iter().partition(|entry| entry.client == client);
         self.queue = kept.into();
@@ -449,7 +449,7 @@ impl GitLane {
     /// Drops the git requests of `client` that wait: its connection broke,
     /// so nobody reads their replies. The ones that run end by themselves.
     pub(super) fn abandon(&self, client: u64) {
-        let dropped = self.schedule.lock().recover_poison().take_queued(client);
+        let dropped = self.schedule.lock().recover_poison().take_waiting_reads(client);
         self.changed.notify_all();
         drop(dropped);
     }
@@ -565,13 +565,29 @@ mod tests {
         schedule.push(1, Class::ShortRead, "waits of 1");
         schedule.push(2, Class::ShortRead, "waits of 2");
         assert!(schedule.busy(1));
-        assert_eq!(schedule.take_queued(1), ["waits of 1"]);
+        assert_eq!(schedule.take_waiting_reads(1), ["waits of 1"]);
         assert_eq!(schedule.queued(1), 0);
         assert!(schedule.busy(1), "its run still runs");
         let run = run_of(&schedule, 1);
         schedule.finish(run);
         assert!(!schedule.busy(1));
         assert_eq!(started(&mut schedule), ["waits of 2"]);
+    }
+
+    #[test]
+    fn a_broken_connections_waiting_mutation_stays_and_runs_in_its_turn() {
+        let mut schedule = Schedule::default();
+        schedule.push(1, Class::LongRead, "diff");
+        assert_eq!(started(&mut schedule), ["diff"]);
+        schedule.push(1, Class::Mutation, "commit");
+        schedule.push(1, Class::ShortRead, "status after");
+        assert!(started(&mut schedule).is_empty(), "the commit waits for the diff before it");
+        // Connection 1 breaks: nobody reads its replies, but the daemon took its commit.
+        assert_eq!(schedule.take_waiting_reads(1), ["status after"]);
+        assert_eq!(schedule.queued(1), 1, "the commit still waits");
+        let diff = run_of(&schedule, 1);
+        schedule.finish(diff);
+        assert_eq!(started(&mut schedule), ["commit"]);
     }
 
     #[test]
