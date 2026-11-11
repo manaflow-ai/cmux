@@ -3464,6 +3464,8 @@ class RollupsFromNeeds(unittest.TestCase):
 
 
 HQ = "manaflow-ai/cmuxterm-hq"
+# The log reader base_red_excuse.py runs and cmuxterm-hq and leo-workspace vendor whole (SingleSourceLogReader).
+FAILED_STEPS_LOG = ROOT / "scripts/ci/failed_steps_log.py"
 SKILLS_YML = """
 on: {pull_request: {}}
 jobs:
@@ -7697,24 +7699,11 @@ class FailingStepLogOnly(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
-    # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
-    # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
-    # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
-    VENDORED_FINGERPRINT = "4fa56d9a188f4792111ea17fd85ac3f1e32e17a0e4c64e35f7825a41030dc241"
-
-    def test_the_code_vendored_into_base_red_watch_is_pinned(self):
-        import hashlib
-        import inspect
-        parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "STEP_START", "SECTION_RED")]
-        parts += [str(excuse.STEP_OWNERS_MAX_LINES)]
-        parts += [inspect.getsource(getattr(excuse, name))
-                  for name in ("lines_of", "_stamp_time", "step_owners", "failed_steps_log")]
-        parts += [repr(excuse.STEP_NAMES_UNKNOWN)]  # the sentinel step_owners requires when no workflow is read
-        self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
-                         "step_owners or failed_steps_log changed: copy them to cmuxterm-hq "
-                         "tools/fleet-reconcilers/failed_steps_log.py "
-                         "and leo-workspace tools/failed_steps_log.py, and update the fingerprint in all three")
+    def test_the_reader_base_red_watch_vendors_is_this_scripts_own(self):
+        # scripts/ci/failed_steps_log.py is the source cmuxterm-hq and leo-workspace copy whole (SingleSourceLogReader,
+        # VendoredCopies): this script reads lines through it, never a copy of its own.
+        for name in ("lines_of", "step_owners", "failed_steps_log", "STEP_NAMES_UNKNOWN", "STAMP"):
+            self.assertIs(getattr(excuse, name), getattr(excuse.steps_log, name), name)
 
     def adjacent_steps(self):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
@@ -9558,7 +9547,9 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
     """failed_view is the one reader of a job log for every comparator, head and base alike, and the Codex repro of
     #40542's seventh BLOCK is refused."""
 
-    SOURCE = (ROOT / "scripts/ci/base_red_excuse.py").read_text()
+    # base_red_excuse.py with failed_steps_log.py, whose step_owners and failed_steps_log it runs as its own: the scan
+    # reads both, so code moved to the vendored file is scanned the same.
+    SOURCE = (ROOT / "scripts/ci/base_red_excuse.py").read_text() + "\n\n" + FAILED_STEPS_LOG.read_text()
     NEXT_BATCH = (ROOT / "scripts/ci/next_batch.py").read_text()
 
     def test_codex_repro_a_passing_steps_failing_test_never_hides_a_new_error(self):
@@ -9862,6 +9853,139 @@ class IsolatedUnpackedRun(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, said)
         self.assertNotIn("ModuleNotFoundError", said)
         self.assertEqual(proc.stdout.splitlines(), [str((self.ci / "risk_tier.py").resolve()), "True"])
+
+
+SHARED_BLOCK = re.compile(r"^# Every line boundary of a log:.*?^ANSI = re\.compile\(.*?\n", re.M | re.S)
+
+
+class SingleSourceLogReader(unittest.TestCase):
+    """scripts/ci/failed_steps_log.py is the one log reader base_red_excuse.py and both base-red-watch copies run
+    (dep-fleet-6's review of #41390: "Make cmux scripts/ci the source, and give hq tools/fleet-reconcilers and LW tools
+    a byte copy each"). It stands alone, and its line boundaries and escapes are test_reds.py's (#41390's review F1)."""
+
+    def test_it_imports_only_the_standard_library_and_reads_no_sibling(self):
+        text = FAILED_STEPS_LOG.read_text()
+        stdlib = set(sys.stdlib_module_names) | {"__future__"}
+        imported = set()
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add((node.module or "").split(".")[0])
+        self.assertEqual(imported - stdlib, set())
+        self.assertNotIn("__file__", text)
+
+    def test_its_line_boundaries_and_escapes_are_test_reds_byte_for_byte(self):
+        here = SHARED_BLOCK.search(FAILED_STEPS_LOG.read_text())
+        there = SHARED_BLOCK.search((ROOT / "scripts/ci/test_reds.py").read_text())
+        self.assertIsNotNone(here)
+        self.assertIsNotNone(there)
+        self.assertEqual(here.group(), there.group())
+        self.assertEqual(excuse.steps_log.ANSI.pattern, excuse.test_reds.ANSI.pattern)
+        self.assertEqual(excuse.steps_log.LINE_BOUNDARIES, excuse.test_reds.LINE_BOUNDARIES)
+        self.assertIs(excuse.ANSI, excuse.test_reds.ANSI)
+
+    def test_its_line_boundaries_are_what_splitlines_splits_on(self):
+        splits = {chr(point) for point in range(0x110000) if len(f"a{chr(point)}b".splitlines()) == 2}
+        self.assertEqual(set(excuse.steps_log.LINE_BOUNDARIES), splits)
+
+    def test_no_escape_spans_a_line_boundary(self):
+        for boundary in [*excuse.steps_log.LINE_BOUNDARIES, "\r\n"]:
+            with self.subTest(boundary=repr(boundary)):
+                text = f"\x1b]0;title{boundary}test a::new ... FAILED"
+                self.assertEqual(excuse.steps_log.ANSI.sub("", text).splitlines(), ["", "test a::new ... FAILED"])
+                self.assertIn("test a::new ... FAILED", excuse.lines_of(text))
+
+
+class HeaderlessBunFailureStaysInItsPlacedStep(unittest.TestCase):
+    """dep-fleet-6's review: "same-step headerless FAIL ownership ... Add a headerless same-step FAIL row there." A
+    placed log (failed_steps_log.step_owners) whose failing step prints a bun failure with no file header and the
+    wrapper's `FAIL file` for it: the failure is that step's and named, never an unnamed one, alone or after a passing
+    step that ran the same file; identical head and base logs are a base red. A truly silent `FAIL file` stays
+    unnamed, and is refused."""
+
+    PASSING_RUN = ("bun test v1.3.0", "test/a.test.ts:", "(pass) a > ok [1.00ms]", " 1 pass", " 0 fail")
+    HEADERLESS = ("bun test v1.3.0", "error: boom", "(fail) a > bad [1.00ms]", " 0 pass", " 1 fail",
+                  "FAIL test/a.test.ts (exit 1)")
+    SILENT = ("bun test v1.3.0", "error: Cannot find module './gone'", " 0 pass", " 0 fail",
+              "FAIL test/a.test.ts (exit 1)")
+
+    def judged(self, job, text):
+        github = FakeGitHub()
+        github.jobs = {1: job, 2: dict(copy.deepcopy(job), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: text, 2: text}
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_its_failure_is_named_in_its_step_alone_or_after_a_passing_step(self):
+        for name, passing in (("alone", ("ok: refused as expected",)), ("after a passing step", self.PASSING_RUN)):
+            with self.subTest(name):
+                job, text = view_case(passing, self.HEADERLESS)
+                view = excuse.failed_view(job, text, base=False, **UNKNOWN)
+                found = excuse.owned_unnamed(excuse.test_reds.read(text), view)
+                self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+                read = excuse.test_reds.read(excuse.view_text(view))
+                self.assertEqual(read.records, [(0, 1, "failed", "a > bad")])
+                self.assertNotIn("(pass) a > ok", excuse.view_text(view))
+                self.assertIn("excused 'cmux-next static checks'", self.judged(job, text))
+
+    def test_a_silent_fail_line_is_still_unnamed_and_refused(self):
+        job, text = view_case(self.PASSING_RUN, self.SILENT)
+        with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
+            self.judged(job, text)
+
+
+class VendoredCopies(unittest.TestCase):
+    """Each byte copy of failed_steps_log.py names the cmux commit it was copied at (its failed_steps_log.pin, `cmux=SHA
+    sha256=HEX`): where this host can read a copy (FAILED_STEPS_LOG_<HQ|LW>_ROOT, a checkout, or the host's mirror of
+    that repository), it must equal this file at that commit, and its pin's sha256 must be its own. A copy edited
+    there, or a pin naming another file, fails here; each repository's own test checks its copy against its pin."""
+
+    COPIES = {
+        "cmuxterm-hq": ("FAILED_STEPS_LOG_HQ_ROOT", "manaflow-ai/cmuxterm-hq.git", "tools/fleet-reconcilers/"),
+        "leo-workspace": ("FAILED_STEPS_LOG_LW_ROOT", "teamleaderleo/leo-workspace.git", "tools/"),
+    }
+
+    @staticmethod
+    def read_copy(env, mirror, folder):
+        """(copy bytes, pin text) of one repository's copy, or None when this host cannot read a pinned one."""
+        root = os.environ.get(env)
+        if root:
+            base = Path(root) / folder
+            if (base / "failed_steps_log.pin").is_file():
+                return (base / "failed_steps_log.py").read_bytes(), (base / "failed_steps_log.pin").read_text()
+            return None
+        git_dir = Path.home() / "Projects/.wt-mirrors" / mirror
+        if not git_dir.is_dir():
+            return None
+        for ref in ("refs/remotes/origin/main", "refs/heads/main"):
+            shown = [subprocess.run(["git", f"--git-dir={git_dir}", "show", f"{ref}:{folder}{name}"],
+                                    capture_output=True, timeout=30) for name in ("failed_steps_log.py",
+                                                                                  "failed_steps_log.pin")]
+            if all(done.returncode == 0 for done in shown):
+                return shown[0].stdout, shown[1].stdout.decode()
+        return None
+
+    def test_every_readable_copy_is_this_file_at_its_pin(self):
+        import hashlib
+        read = 0
+        for repo, (env, mirror, folder) in self.COPIES.items():
+            with self.subTest(repo=repo):
+                found = self.read_copy(env, mirror, folder)
+                if found is None:
+                    continue
+                copy_bytes, pin_text = found
+                pin = dict(item.split("=", 1) for item in pin_text.split() if "=" in item)
+                self.assertRegex(pin.get("cmux", ""), r"^[0-9a-f]{40}$", pin_text)
+                self.assertEqual(hashlib.sha256(copy_bytes).hexdigest(), pin.get("sha256"),
+                                 f"{repo}'s copy is not the file its pin names: copy failed_steps_log.py from cmux again")
+                here = subprocess.run(["git", "-C", str(ROOT), "show", f"{pin['cmux']}:scripts/ci/failed_steps_log.py"],
+                                      capture_output=True, timeout=30)
+                if here.returncode != 0:
+                    continue  # the pinned commit is not in this checkout
+                read += 1
+                self.assertEqual(copy_bytes, here.stdout, f"{repo}'s copy differs from cmux {pin['cmux']}")
+        if not read:
+            self.skipTest("no pinned copy readable here (set FAILED_STEPS_LOG_HQ_ROOT or FAILED_STEPS_LOG_LW_ROOT)")
 
 
 class LoadedModuleList(unittest.TestCase):

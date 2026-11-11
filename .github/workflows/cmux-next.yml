@@ -256,6 +256,7 @@ on:
       - tests/test_next_batch_groups.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
+      - scripts/ci/failed_steps_log.py
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
@@ -364,6 +365,7 @@ on:
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
+      - scripts/ci/failed_steps_log.py
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**

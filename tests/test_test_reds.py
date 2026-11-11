@@ -1877,6 +1877,25 @@ class BunFileOwnershipStaysInItsStep(unittest.TestCase):
         self.assertEqual(found.unnamed, ["FAIL test/a.test.ts (exit 1)"])
         self.assertEqual([r for r in found.records if r[2] == "unnamed"], [(2, 1, "unnamed", "FAIL test/a.test.ts (exit 1)")])
 
+    def test_a_headerless_failure_and_its_fail_line_in_one_step_are_that_steps_named_failure(self):
+        # dep-fleet-6: "Add a headerless same-step FAIL row": the step's `(fail)` names the failure its own `FAIL file`
+        # closes, so the failure is that step's, named, and the marker is no unnamed failure.
+        job = log(*step("bun one"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
+
+    def test_a_passing_step_then_a_headerless_failure_and_its_fail_line_in_the_next(self):
+        # The mirror: the earlier step passed (no `##[error]`, the next step followed), so none of its lines are read,
+        # and the next step's headerless failure is its own and named.
+        job = log(*step("bun one"), *self.PASSING_RUN, *step("bun two"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertEqual(reds.red_steps(job)[1:], [reds.lines_of(log(*self.HEADERLESS, self.ERROR))])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
+
 
 def growth(call, small, large, repeats=3, min_seconds=0.005):
     """CALL(LARGE)'s best CPU time over CALL(SMALL)'s, each sample repeating the call until it takes MIN_SECONDS (the
@@ -1934,6 +1953,7 @@ def rewrite_case(seed: int) -> dict:
     expected_unnamed: list[list] = []
     failure_lines: list[str] = []
     never: set = set()
+    shapes: list[str] = []  # each step's: "passed", or its bun kind ("headerless" when a run of it printed no header)
     ERROR = "##[error]Process completed with exit code 1."
 
     def noisy(text: str) -> str:
@@ -1991,6 +2011,7 @@ def rewrite_case(seed: int) -> dict:
                       " 0 pass", " 2 fail"]
             never |= {f"tests::passing_{tag}", f"test/a.test.ts > a > passing_{tag}"}
             out += output(lines)
+            shapes.append("passed")
             continue
         for block in range(rng.randint(1, 3)):
             runner = rng.choice(("cargo", "pytest", "swift"))
@@ -2013,10 +2034,14 @@ def rewrite_case(seed: int) -> dict:
             failure_lines.append(shown)
         # One kind of bun run per step, so which file a `FAIL file` line closes is never ambiguous within the step.
         kind = rng.choice(("none", "named", "named", "pass", "silent"))
+        shapes.append(kind)
         if kind == "named":
             for run in range(rng.randint(1, 2)):
                 title = f"a > {tag}_bun_{run}"
                 headed = rng.random() < 0.5
+                if not headed:
+                    # A headerless failure and the `FAIL file` that closes it, in one step: that step's, named.
+                    shapes[-1] = "headerless"
                 shown = f"(fail) {title} [1.00ms]"
                 lines += ["bun test v1.3.0", *(["test/a.test.ts:"] if headed else []), "error: boom", shown,
                           " 0 pass", " 1 fail", *([] if headed else ["FAIL test/a.test.ts (exit 1)"])]
@@ -2033,7 +2058,7 @@ def rewrite_case(seed: int) -> dict:
         expected_failed.append(names)
         expected_unnamed.append(unnamed)
     return {"raw": log(*out), "failed": expected_failed, "unnamed": expected_unnamed, "lines": failure_lines,
-            "never": never}
+            "never": never, "shapes": shapes}
 
 
 def rewrite_violations(seed: int) -> list[str]:
@@ -2087,6 +2112,11 @@ class LogRewritesKeepEveryFailure(unittest.TestCase):
             self.assertIn(piece, raw)
         for boundary in SPLITLINES_BOUNDARIES:  # an escape ended by each of the reader's line boundaries
             self.assertIn("\x1b]0;title" + boundary, raw, repr(boundary))
+        # dep-fleet-6's headerless same-step FAIL row, both ways: a step that opens the log with it, and one after a
+        # passing step.
+        shapes = [rewrite_case(seed)["shapes"] for seed in range(200)]
+        self.assertTrue(any(shape[0] == "headerless" for shape in shapes))
+        self.assertTrue(any(("passed", "headerless") == pair for shape in shapes for pair in zip(shape, shape[1:])))
 
 
 class ReadOncePerLog(unittest.TestCase):

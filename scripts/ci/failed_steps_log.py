@@ -1,0 +1,193 @@
+"""A red job's log without its passing steps' lines (failed_steps_log), and the one owner of a log line's step
+(step_owners): what base_red_excuse.py compares and quotes, and what cmuxterm-hq's and leo-workspace's base-red-watch
+quote and name files from, so none of them reads a passing step's expected stderr as the red
+(cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md).
+
+This file is the source; base_red_excuse.py uses it, never a copy. Standard library only, so another repository vendors
+it whole: cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and leo-workspace tools/failed_steps_log.py are byte
+copies, each beside a failed_steps_log.pin naming the cmux commit it was copied at and its sha256. Each repository's
+test fails when its copy's sha256 is not its pin's, and cmux's tests/test_base_red_excuse.py (VendoredCopies) fails when
+a copy it can read differs from this file at its pinned commit. A change lands here, then is copied with a new pin.
+"""
+from __future__ import annotations
+
+import bisect
+import re
+from datetime import datetime, timedelta
+
+# Every line boundary of a log: exactly what str.splitlines() splits on (\r\n is \r then \n), the split every reader
+# of lines uses (test_reds.py's log_lines, lines_of and unjudged; failed_steps_log.py's lines_of and step_owners). No
+# escape spans one. test_reds.py and failed_steps_log.py each hold this block, byte for byte: readers elsewhere load
+# test_reds.py alone, and failed_steps_log.py is vendored whole. tests/test_base_red_excuse.py's SingleSourceLogReader
+# fails when the two differ.
+LINE_BOUNDARIES = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+# A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
+# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or a line boundary, whichever comes first:
+# a body that ran to the log's last ST deleted every line between two titles, a new failure with them, and the judge
+# excused it (cmux#41382's review F1); one that ran across a bare CR deleted the failure line splitlines() puts after
+# it (#41390's review F1). One opened on a line and closed on a later one is cut at each line's end, its stray BEL or
+# ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes. A CSI's bytes
+# (0x20-0x7E) hold no boundary.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b" + LINE_BOUNDARIES + r"]*(?:\x07|\x1b\\)?|\\)|\x07")
+STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+
+
+def lines_of(log: str) -> list[str]:
+    """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
+    found = []
+    for line in log.replace("\ufeff", "").splitlines():  # a log section can open with a BOM; strip() keeps it
+        parts = line.split("\t", 2)
+        # `gh run view --log` prefixes each line with job and step columns.
+        # The job-log API does not; preserve tabs in raw command output.
+        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
+        found.append(ANSI.sub("", STAMP.sub("", text)).strip())
+    return found
+
+
+# The line the runner opens each step's section of a job log with, after "Set up job" (the log's first lines): `Run
+# <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
+# `Post job cleanup.` for a post step. "Complete job" opens with no such line.
+STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
+
+
+def _stamp_time(value) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
+# A live runner annotation: `##[error]` at the start of a line, outside the group in which the runner echoes the
+# step's script (the group its `##[group]Run ...` header opens, proven by step_owners; every other line is live). A
+# continue-on-error step that failed is a success to the jobs API, but its section still has its `##[error]` lines and
+# the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads like one (`expected:
+# Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth Codex BLOCK, F1).
+SECTION_RED = re.compile(r"^##\[error\]")
+# Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
+STEP_OWNERS_MAX_LINES = 2_000_000
+
+
+class StepNamesUnknown:
+    """STEP_NAMES_UNKNOWN: what a caller of step_owners passes as STEP_NAMES when it cannot read which of the job's
+    steps its workflow names (workflow_step_names could not prove it). A choice made at the call site: step_owners and
+    every reader of it take STEP_NAMES as a required keyword, so no caller forgets the workflow (#40542's Codex F1 at
+    221c7e4d: next_batch's expand_job never read it, and a named "Run package tests (...)" step's red, the same on
+    the base, was keyed as new)."""
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "STEP_NAMES_UNKNOWN"
+
+
+STEP_NAMES_UNKNOWN = StepNamesUnknown()
+
+
+def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | None, str]]:
+    """Each line of LOG as (line, the index of the step of JOB that printed it or None, its status) when the log maps
+    one to one onto the steps that ran (the jobs API's steps[], by number, without skipped ones), AMBIGUOUS for every
+    line when it does not. The one owner of a line's step: failed_steps_log, signature, step_lines and every caller of
+    theirs read lines through it. A comment shows every line but PASSED ones; an excuse refuses a log with any
+    AMBIGUOUS line (judge, package_tests, quarantined_only) and takes a base's FAILED lines alone as evidence.
+
+    The runner opens every step's section with one STEP_START line ("Set up job", whose lines come first, and
+    "Complete job", which shares the last section, print none). A one-to-one mapping is never inferred from counts or
+    times alone: six reviews of cmux#40542, hq#8936 and LW#4177 found logs where they balance out (a composite action's
+    inner `Run` line or a step's own `::group::Run` line standing in for a silent step's missing one, and a
+    continue-on-error composite's diagnostic then dropped as a passing step's). The log is placed only when there is
+    exactly one STEP_START line per step and each one is that step's own header, by both of:
+    - its stamp falls within that step's [started_at, completed_at + 1s) and no other step's that can print one (the
+      metadata keeps whole seconds; "Set up job" and "Complete job" are the runner's and print none), so only that
+      step can have printed it;
+    - its text fits the step's name: an unnamed `run:` or `uses:` step's name is its header (`Run
+      actions/checkout@v6` opens with `##[group]Run actions/checkout@v6`), a post step (`Post ...`) opens with
+      `Post job cleanup.` and no other step does, and a named step's header (`Run <its script's first line>`) cannot
+      be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
+      silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
+      Whether a step is unnamed is the workflow's to say, never its name's: STEP_NAMES (workflow_step_names, from the
+      workflow at the job's head) says True for a step with a `name:` (only its stamp places it, so "Run package
+      tests (...)" may open with `Run set -euo pipefail`, #40542's sixth Codex BLOCK) and False for one with none
+      (its header must be its name). A step it does not name is unproven: a name that starts with "Run " is then
+      taken for an unnamed step's, whose header must be it.
+    STEP_NAMES is workflow_step_names' answer, {step number: whether its workflow step has a `name:`}, or
+    STEP_NAMES_UNKNOWN; anything else is a TypeError.
+    Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
+    is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
+    SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
+    and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
+    (#40542's fourth Codex BLOCK, F2)."""
+    if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
+        raise TypeError(f"step_names must be workflow_step_names' answer or STEP_NAMES_UNKNOWN, not {step_names!r}")
+    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
+    lines = log.splitlines()
+    unknown = [(line, None, AMBIGUOUS) for line in lines]
+    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in steps):
+        steps.sort(key=lambda step: step["number"])
+    if len(steps) < 2 or len(lines) > STEP_OWNERS_MAX_LINES:
+        return unknown
+    texts = lines_of(log)
+    starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
+    if len(starts) != len(steps) - 2:
+        return unknown
+    windows = []
+    for step in steps:
+        start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
+        windows.append((start, end + timedelta(seconds=1)) if start is not None and end is not None and end >= start
+                       else None)
+    if None in windows:
+        return unknown
+    opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
+    for k, n in enumerate(starts, 1):
+        name = str(steps[k].get("name") or "")  # step-name: validate
+        header = texts[n].removeprefix("##[group]")
+        # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
+        named = proven.get(steps[k].get("number"))
+        if header == "Post job cleanup." or name.startswith("Post "):
+            if not (header == "Post job cleanup." and name.startswith("Post ")):
+                return unknown
+        elif (named is False or (named is not True and name.startswith("Run "))) and header != name:
+            return unknown
+        parts = lines[n].replace("\ufeff", "").split("\t", 2)
+        stamp = STAMP.match(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else parts[0])
+        at = _stamp_time(stamp.group()) if stamp else None
+        if at is None or not windows[k][0] <= at < windows[k][1]:
+            return unknown
+        # The windows holding AT: those opened at or before it less those closed at or before it.
+        if bisect.bisect_right(opened, at) - bisect.bisect_right(closed, at) != 1:
+            return unknown
+    bounds = [0, *starts, len(lines)]
+    found = []
+    for k in range(len(bounds) - 1):
+        section = range(bounds[k], bounds[k + 1])
+        if steps[k].get("conclusion") != "success":
+            status = FAILED
+        elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
+            status = AMBIGUOUS
+        else:
+            # Every line is live but the runner's echo of the step's script and env: the group its own `##[group]Run
+            # ...` header opens, up to its `##[endgroup]` with no other group opened before it. A post step's
+            # `Post job cleanup.`, a group that is not the header's, or a header group with no end skips nothing
+            # (#40542's fifth Codex BLOCK: a post step's own `##[group]` hid its `##[error]` line).
+            live = bounds[k]
+            if k and texts[bounds[k]].startswith("##[group]Run "):
+                for n in range(bounds[k] + 1, bounds[k + 1]):
+                    if texts[n].startswith("##[group]"):
+                        break
+                    if texts[n] == "##[endgroup]":
+                        live = n + 1
+                        break
+            status = ERRORED if any(SECTION_RED.match(texts[n]) for n in range(live, bounds[k + 1])) else PASSED
+        found += [(lines[n], k, status) for n in section]
+    return found
+
+
+def failed_steps_log(job: dict, log: str, *, step_names) -> str:
+    """LOG without the lines of JOB's passing steps: its FAILED, ERRORED and AMBIGUOUS lines (step_owners). A job
+    runs many steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative
+    cases print "pinned license manifest digest changed" and pass. 2026-11-10: cmux#40369's static checks failed only
+    in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641, 42820590433),
+    and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
+    is kept: what is shown of a red never hides its evidence."""
+    return "\n".join(line for line, _, status in step_owners(job, log, step_names=step_names) if status != PASSED)
