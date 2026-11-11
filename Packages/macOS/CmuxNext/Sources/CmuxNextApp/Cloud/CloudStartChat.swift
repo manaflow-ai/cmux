@@ -108,8 +108,7 @@ struct CloudStartChat {
     func run(_ start: AgentPaneCloudStart, from origin: Origin, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
         let tab = origin.tab
         guard !start.home else { return try await runHome(start, from: origin, report: report) }
-        // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
-        // the home folder or the disk's root. A page could already start a chat on this Mac in it.
+        // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never the home folder or the disk's root.
         guard let chat = origin.chat, await CloudMoveFolder.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
@@ -118,6 +117,7 @@ struct CloudStartChat {
         guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        if let home = QuitAgents.environment(services)?.home.path, let refused = AgentRemoteStartRefusal.untrustedSource(level: await cli.startChatTrust(folder: chat, acpmuxHome: home), folder: chat) { throw CloudMove.Failure(message: refused.userMessage) } // before any machine: a copy is trusted there only when this Mac trusts it
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
