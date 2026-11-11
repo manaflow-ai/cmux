@@ -29,6 +29,9 @@ fn wire_name_round_trips_through_serde() {
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
         "palette.rank",
+        "chat.list",
+        "chat.mark_read",
+        "chat.pin",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

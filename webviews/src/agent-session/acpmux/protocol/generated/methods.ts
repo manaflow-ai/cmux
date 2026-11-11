@@ -42,6 +42,7 @@ export interface AcpmuxRequests {
   "_acpmux/view": { params: ViewParams; result: Done };
   "_acpmux/typing": { params: TypingParams; result: Done };
   "_acpmux/markUnread": { params: SessionRef; result: Done };
+  "_acpmux/markRead": { params: SessionRef; result: Done };
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/register": { params: unknown; result: unknown };
@@ -392,6 +393,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/view", kind: "request", acp: false, typed: true },
   { name: "_acpmux/typing", kind: "request", acp: false, typed: true },
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/markRead", kind: "request", acp: false, typed: true },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/register", kind: "request", acp: false, typed: false },

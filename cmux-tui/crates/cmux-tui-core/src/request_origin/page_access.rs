@@ -399,6 +399,11 @@ const fn access(operation: Op) -> Access {
         // through its allow list (page-router.json: home-channels reads
         // palette.rank).
         | Op::PaletteRank
+        // The person's ACP chats (chat.list, chat.mark_read, chat.pin): for apps and
+        // the app, never a page unless its allow list names one.
+        | Op::ChatList
+        | Op::ChatMarkRead
+        | Op::ChatPin
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
