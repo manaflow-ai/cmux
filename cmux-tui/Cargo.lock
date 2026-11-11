@@ -39,6 +39,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
@@ -1850,6 +1851,15 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-scope"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
