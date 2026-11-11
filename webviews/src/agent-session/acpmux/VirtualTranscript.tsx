@@ -206,6 +206,11 @@ import {
 const LIVE_RESIZE_MS = 120;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
+/// The thread's class while a live drag flows its rows (conversation.css): the rows sit in normal
+/// flow from their placed range, and the browser rewraps them at each width.
+const FLOW_CLASS = "acpmux-thread--flow";
+/// With FLOW_CLASS while the view follows the latest row: the rows are anchored at its bottom.
+const FLOW_END_CLASS = "acpmux-thread--flow-end";
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
 
@@ -543,7 +548,14 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // The gap under it as a margin for a flowing drag (`FLOW_CLASS`), where the rows sit in flow.
+      style={
+        {
+          top: integralTop,
+          marginTop: placedTop - integralTop,
+          "--acpmux-row-gap": `${gapBelow}px`,
+        } as React.CSSProperties
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -1631,7 +1643,16 @@ function TranscriptView({
   /// A live resize (a divider or window edge dragged): the box's width changed again within
   /// LIVE_RESIZE_MS of its last change. Each frame of it measures only the rows around the view
   /// (layoutConversation `resizing`); the whole chat is measured once, when the width holds.
-  const liveResize = useRef<{ at: number; live: boolean; timer?: ReturnType<typeof setTimeout> }>({
+  /// `flow`: the row width the rows were placed at when the drag began to flow. While it is set the
+  /// mounted rows sit in normal flow (`FLOW_CLASS`) and the browser lays them out at each new width
+  /// as it does a web page; React places nothing until the width holds (Leo, 2026-11-11: "the
+  /// dragging responsiveness is slow for agent chat but fast for browser hmmm").
+  const liveResize = useRef<{
+    at: number;
+    live: boolean;
+    timer?: ReturnType<typeof setTimeout>;
+    flow?: number;
+  }>({
     at: Number.NEGATIVE_INFINITY,
     live: false,
   });
@@ -1934,7 +1955,10 @@ function TranscriptView({
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
   const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
-  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
+  // While a drag flows the rows keep the width they were placed at: nothing is estimated or placed
+  // again until the width holds (`liveResize.flow`).
+  const scaledRowWidth =
+    liveResize.current.flow ?? transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
@@ -2232,6 +2256,9 @@ function TranscriptView({
       typeof ResizeObserver === "undefined"
         ? undefined
         : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+            // A flowing drag's rows rewrap every frame at a width they were not placed at: their
+            // heights are read once, when the width holds (`endFlow`).
+            if (liveResize.current.flow !== undefined) return;
             const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
             const measure = () => {
               for (const target of targets) reportRow(target);
@@ -2334,6 +2361,8 @@ function TranscriptView({
     // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
     // Read the dirty rows together, then apply the existing pre-paint placement correction.
     // No frame/task deferral, and no scan of the mounted window or full transcript.
+    // A flowing drag keeps them for the render that ends it: a height read now is at another width.
+    if (liveResize.current.flow !== undefined) return;
     const measures = pendingMeasures.current;
     pendingMeasures.current = new Map();
     for (const measure of measures.values()) measure();
@@ -2450,9 +2479,11 @@ function TranscriptView({
         clearTimeout(live.timer);
         live.timer = setTimeout(() => {
           live.live = false;
+          if (live.flow !== undefined) endFlow();
           // Settle whatever left a partial layout, even a step that came late enough to end the drag.
-          if (lastEstimate.current?.partial) settleResize();
+          else if (lastEstimate.current?.partial) settleResize();
         }, LIVE_RESIZE_MS);
+        if (live.live && live.flow === undefined) startFlow();
       }
       widthRef.current = nextWidth;
       setWidth(nextWidth);
@@ -2462,6 +2493,40 @@ function TranscriptView({
       if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
       if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth + nextLane;
     };
+    // A live drag's rows go into normal flow from where they were placed, so the browser rewraps
+    // them at each width in its own layout pass, with no React pass and no height read. Anchored at
+    // the latest row's bottom while the view follows it, else at the first mounted row's top.
+    // Only a single mounted range with nothing riding a fold: anything else is placed as before.
+    const startFlow = () => {
+      const placed = lastPlaced.current;
+      const threadNode = thread.current;
+      if (!placed || !threadNode || placed.held.length > 0 || placed.last <= placed.first) return;
+      if (foldRide.current?.riding || placed.partial) return;
+      if (threadNode.querySelectorAll(":scope > .acpmux-row").length !== placed.last - placed.first) return;
+      const geometry = placed.layout.geometry;
+      const style = threadNode.style;
+      const end = followingRef.current;
+      style.setProperty(
+        end ? "--acpmux-flow-end" : "--acpmux-flow-start",
+        `${THREAD_TOP + (end ? geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1) : geometry.topAt(placed.first))}px`,
+      );
+      threadNode.classList.add(FLOW_CLASS);
+      threadNode.classList.toggle(FLOW_END_CLASS, end);
+      liveResize.current.flow = rowWidthRef.current;
+    };
+    // The width held: the rows leave the flow and are placed at it, measured before the frame paints,
+    // in this one task (no frame draws them at their old places at the new width).
+    const endFlow = () => {
+      liveResize.current.flow = undefined;
+      const threadNode = thread.current;
+      threadNode?.classList.remove(FLOW_CLASS, FLOW_END_CLASS);
+      threadNode?.style.removeProperty("--acpmux-flow-end");
+      threadNode?.style.removeProperty("--acpmux-flow-start");
+      // A row whose width comes back to the one it was placed at renders nothing new: read it anyway.
+      if (threadNode)
+        for (const row of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row")) reportRowRef.current(row);
+      flushSync(settleResize);
+    };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
@@ -2470,7 +2535,13 @@ function TranscriptView({
     });
     observer.observe(node);
     measure(false);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (liveResize.current.flow !== undefined) {
+        liveResize.current.flow = undefined;
+        thread.current?.classList.remove(FLOW_CLASS, FLOW_END_CLASS);
+      }
+    };
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
