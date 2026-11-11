@@ -814,7 +814,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mark = probe_mark();
-        let out = std::process::Command::new("sh")
+        let out = cmux_process::Command::new("sh")
             .arg("-c")
             .arg(probe_command(&mark))
             .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
