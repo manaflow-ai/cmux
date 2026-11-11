@@ -950,9 +950,10 @@ def mask_shas(text: str) -> str:
 
 
 # A file's name in an error line, after its directories: a name with an extension that starts with a letter (so a time
-# or a version is never one). Only the name keeps its digits; a directory may be a run's own (DerivedData's hashed
-# folder), so its digits are masked as before.
-FILE_NAME = re.compile(r"(?:(?<=/)|(?<![\w/.+-]))[\w+-][\w.+-]*\.[A-Za-z][A-Za-z0-9]*(?![\w/])")
+# or a version is never one), ending a whole path component: no name character, slash or name-continuing dot after it
+# ("run123.build" inside "run123.build-extra/" is a directory's prefix, not a file: Codex on #41172, F1). Only the name
+# keeps its digits; a directory may be a run's own (DerivedData's hashed folder), so its digits are masked as before.
+FILE_NAME = re.compile(r"(?:(?<=/)|(?<![\w/.+-]))[\w+-][\w.+-]*\.[A-Za-z][A-Za-z0-9]*(?![\w+/-]|\.[\w/])")
 
 
 def normalise_error(text: str) -> str:

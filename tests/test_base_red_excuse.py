@@ -9227,6 +9227,17 @@ class GuardCrashIsNotItsFinding(unittest.TestCase):
         self.assertIn("the guard itself failed", said[0])
 
 
+    def test_a_directory_that_looks_like_a_file_name_keeps_its_digits_masked(self):
+        """Codex on #41172, F1: "run123.build" inside "run123.build-extra/" was read as a file name, so the run's own
+        directory kept its digits and the same error on two runs stopped matching. A file name ends its path
+        component; the real file's digits still count."""
+        def line(run, name="A1.swift"):
+            return f"##[error]/tmp/{run}.build-extra/Sources/{name}:12:3: error: cannot find 'x' in scope"
+        self.assertEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run456")))
+        self.assertNotEqual(excuse.normalise_error(line("run123")), excuse.normalise_error(line("run123", "A2.swift")))
+        self.assertNotEqual(excuse.normalise_error("##[error]tests/test_1.py: weakened."),
+                            excuse.normalise_error("##[error]tests/test_2.py: weakened."))
+
 class StepFixture:
     """FixedOnBaseByStep's fixture, shared with DerivedStatusByParts (a mixin, so neither runs the other's tests)."""
     JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
