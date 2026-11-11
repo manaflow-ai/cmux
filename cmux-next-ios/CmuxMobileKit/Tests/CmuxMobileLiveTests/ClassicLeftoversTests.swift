@@ -175,7 +175,9 @@ import Testing
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
         let next = ["cmux.chat.display.v1", "cmux.chief.chatColors.v1", "cmux.chief.textZoom.v1",
-                    "cmux.screenSharing.defaults", "cmux.screenSharing.scope"]
+                    "cmux.screenSharing.defaults", "cmux.screenSharing.scope",
+                    "cmux.conversation.autoTranslate.c39c6f72", "cmux.conversation.textFontSize",
+                    "cmux.mobile.debug.forceRebuildKeyboardDock.v1"]
         for key in next { defaults.set("kept", forKey: key) }
         defaults.set("x", forKey: "cmux.notifications.deviceTokenHex")
 

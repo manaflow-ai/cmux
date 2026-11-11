@@ -167,13 +167,19 @@ fn is_classic_keychain_service(bundle_id: &str, service: &str) -> bool {
 }
 
 /// Keys cmux-next-ios owns: never removed. Besides `cmuxMobile.` and `cnx.`, NEXT
-/// keeps settings under `cmux.`: chat display (`cmux.chat.display.v1`), Chief
-/// colors and text size (`cmux.chief.chatColors.v1`, `cmux.chief.textZoom.v1`) and
-/// screen sharing (`cmux.screenSharing.defaults`, `cmux.screenSharing.scope`).
-/// These namespaces win over every classic rule.
+/// keeps settings under `cmux.`, its own and those of the shared packages it links
+/// (CmuxMobileKit/Package.swift): chat display (`cmux.chat.display.v1`), Chief
+/// colors and text size (`cmux.chief.chatColors.v1`, `cmux.chief.textZoom.v1`),
+/// screen sharing (`cmux.screenSharing.defaults`, `cmux.screenSharing.scope`),
+/// CmuxConversation's drafts, text size and auto-translate choices
+/// (`cmux.conversation.draft.*`, `cmux.conversation.textFontSize`,
+/// `cmux.conversation.autoTranslate.<conversation>`) and CmuxMobileSupport's
+/// keyboard dock switch. These win over every classic rule.
 fn is_next_defaults_key(key: &str) -> bool {
-    const NEXT_NAMESPACES: [&str; 5] = ["cmuxMobile.", "cnx.", "cmux.chat.", "cmux.chief.", "cmux.screenSharing."];
-    NEXT_NAMESPACES.iter().any(|p| key.starts_with(p))
+    const NEXT_NAMESPACES: [&str; 6] =
+        ["cmuxMobile.", "cnx.", "cmux.chat.", "cmux.chief.", "cmux.screenSharing.", "cmux.conversation."];
+    const NEXT_KEYS: [&str; 1] = ["cmux.mobile.debug.forceRebuildKeyboardDock.v1"];
+    NEXT_KEYS.contains(&key) || NEXT_NAMESPACES.iter().any(|p| key.starts_with(p))
 }
 
 /// Settings namespaces only the classic app writes (ios/, Packages/iOS and
@@ -181,7 +187,7 @@ fn is_next_defaults_key(key: &str) -> bool {
 /// settings in; several hold per-Mac, per-account or per-team keys, so they are
 /// matched as a namespace. Never the whole `cmux.` prefix: NEXT keeps settings
 /// there too (see `is_next_defaults_key`).
-const CLASSIC_DEFAULTS_NAMESPACES: [&str; 13] = [
+const CLASSIC_DEFAULTS_NAMESPACES: [&str; 12] = [
     // Task composer, templates, feed, terminal and debug settings, remote flags,
     // paired-Mac backup and recovery, workspace snapshots, haptics, scrollback.
     "cmux.mobile.",
@@ -195,8 +201,6 @@ const CLASSIC_DEFAULTS_NAMESPACES: [&str; 13] = [
     "cmux.terminal.toolbar.",
     "cmux.terminal.accessory.",
     "cmux.terminal.zoom.",
-    // Conversation drafts and text size.
-    "cmux.conversation.",
     // Debug and diagnostics switches.
     "cmux.debug.",
     "cmux.diagnostics.",
@@ -397,14 +401,19 @@ mod tests {
         assert_eq!(plan.kept, 3);
     }
 
-    /// The `cmux.` settings NEXT itself writes today (ChatPolishActions,
-    /// ChiefChatColors, ChiefTextZoom, ScreenSharingPreferences).
-    const NEXT_CMUX_DEFAULTS: [&str; 5] = [
+    /// The `cmux.` settings NEXT writes today: its own (ChatPolishActions,
+    /// ChiefChatColors, ChiefTextZoom, ScreenSharingPreferences) and those of the
+    /// shared packages it links (CmuxConversation, CmuxMobileSupport).
+    const NEXT_CMUX_DEFAULTS: [&str; 9] = [
         "cmux.chat.display.v1",
         "cmux.chief.chatColors.v1",
         "cmux.chief.textZoom.v1",
         "cmux.screenSharing.defaults",
         "cmux.screenSharing.scope",
+        "cmux.conversation.autoTranslate.c39c6f72",
+        "cmux.conversation.draft.chief.c39c6f72",
+        "cmux.conversation.textFontSize",
+        "cmux.mobile.debug.forceRebuildKeyboardDock.v1",
     ];
 
     #[test]
@@ -424,7 +433,7 @@ mod tests {
         let mut want = classic_defaults();
         want.sort();
         assert_eq!(plan.defaults_deletes, want);
-        assert_eq!(plan.kept, 6);
+        assert_eq!(plan.kept, 10);
     }
 
     #[test]
