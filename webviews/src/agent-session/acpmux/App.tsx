@@ -305,6 +305,7 @@ import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import {
   quoteInReply,
+  quoteMarkdown,
   setQuoteReplySink,
   setSelectionActionSinks,
 } from "./conversation/selectionReplyModel";
@@ -6677,7 +6678,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The app's pasteboard, as the right-click menu's copies; the page's clipboard without a host.
         copy: (text) => void postNative("pane.copyText", { text }).catch(() => copyText(text)),
         // The right-click menu's Attach selection as context: a chip in the composer, the draft kept.
-        addToChat: (text) => void callNative("chat.attachSelection", { text }).catch(() => undefined),
+        // Where the chat's composer is not there to take a chip (a subagent pane's composer, or a
+        // Sandboxed receipt or handoff review in its place), the text goes as Quote in Reply does,
+        // which those keep, so it is never dropped.
+        addToChat: (text) => {
+          const composer = subagentQuote.current ? null : composerHandle.current;
+          const attachment = composer ? transcriptSelectionAttachment(text) : undefined;
+          if (composer && attachment) {
+            composer.attach(attachment);
+            composer.focus();
+          } else quoteReply(quoteMarkdown(text));
+        },
         // `/side <prompt>`'s path, asked about the quote, from any selection (selectionSideChat.ts).
         askInSideChat: (text) =>
           void askSelectionInSideChat(text, selectionChat.current.snapshot, selectionChat.current.sidePlace, {
@@ -6686,7 +6697,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             t: translate,
           }),
       }),
-    [notices],
+    [notices, quoteReply],
   );
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);

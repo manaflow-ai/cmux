@@ -173,7 +173,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   );
 
   if (!enabled || !target) return null;
-  // Glyphs alone where the labels would cover someone else's words (selectionReplyPlace step 7).
+  // Glyphs alone where the labels would cover someone else's words (selectionReplyPlace steps 7 and 8).
   const compact = placed?.compact === true;
   const hidden = placed === null;
   const labelled = current === "chip" && !compact;

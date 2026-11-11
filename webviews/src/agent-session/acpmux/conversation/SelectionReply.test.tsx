@@ -386,3 +386,28 @@ test("a backward multi-line drag: spots near its end are measured there, not nea
   // Over the selected line between, nearest the end.
   expect(place).toEqual({ left: 364, top: 166 });
 });
+
+// #40948: the bar holds four actions, so its glyphs alone are four squares (112 x 28), not one.
+// Review on #40975: steps 1 to 6 tried the labelled bar only, so in dense text the compact bar
+// had one spot (over the selection's own words) and hid where it did not fit.
+const BAR = { width: 330, height: 28, compact: 112 };
+test("the four-glyph bar takes a free spot near the end before hiding: a nearby gap too short for the labels", () => {
+  // Lines every 22 px; the two under the selection's line start at x 300, so x 100 to 300 under it
+  // is free: too short for the labelled bar (330), long enough for the glyphs (112).
+  const text: Rect[] = [rest(400)];
+  for (let k = -9; k <= 20; k += 1) if (k !== 0) text.push(row(200 + 22 * k, 820, k === 1 || k === 2 ? 300 : 100));
+  const place = selectionReplyPlace(at(400), BAR, PANE, probeOf(text));
+  expect(place).toEqual({ left: 300 - 6 - 112, top: 228, compact: true });
+  const box = { left: place!.left, top: place!.top, right: place!.left + 112, bottom: place!.top + 28 };
+  for (const rect of text) expect(hit(box, rect)).toBe(false);
+});
+
+test("in text with no free spot at all, the four-glyph bar still shows, just over the selection's end", () => {
+  const text: Rect[] = [];
+  for (let k = -5; k <= 5; k += 1) if (k !== 0) text.push(row(200 + 26 * k));
+  text.push(rest(100, 400), rest(450));
+  const place = selectionReplyPlace(at(450, 400), BAR, PANE, probeOf(text));
+  expect(place).toEqual({ left: 450 - 56, top: 200 - 28 - 6, compact: true });
+  // A selection out of view still hides it.
+  expect(selectionReplyPlace(at(450, 400), BAR, { width: 1040, height: 190 }, probeOf(text))).toBeUndefined();
+});

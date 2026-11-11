@@ -3,6 +3,10 @@
 // the row the text sits in, so it is offered on every selection: the right-click menu's Open in
 // Side Chat shows only on a row of a finished turn the chat can fork from (messageMenu.ts
 // `messageMenuTarget`). Where no side chat can open, it says why instead of doing nothing.
+// The side chat is asked "Explain this." about the quote at once, as `/side <prompt>` sends its
+// prompt (the right-click menu's Ask About This drafts the same words in this chat's composer).
+// It forks the chat through its latest turn (or as it is, mid-turn), never the turn the text is
+// in, and a subagent pane's selection forks the chat the subagent belongs to.
 import { sideChatRefusal, type SideChatPlace } from "../header/sideChatRow";
 import { type Translate } from "../i18n";
 import type { AcpmuxSnapshot } from "../model";
@@ -28,7 +32,7 @@ export function askSelectionInSideChat(
 ): boolean {
   const { t, notice } = host;
   if (!chat.sessionId || place === undefined) {
-    notice(t("composer.cmuxSideUnavailable"));
+    notice(t("message.selectionSideUnavailable"));
     return false;
   }
   const refusal = sideChatRefusal(chat, place);

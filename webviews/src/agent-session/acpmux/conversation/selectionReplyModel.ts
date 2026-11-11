@@ -241,8 +241,11 @@ export function unselectedTextProbe(doc: Document, range: Range): TextProbe {
 ///   5. Over the selection's own last words, centred on its last line: the person's own text
 ///      (`own-end` ends at the selection's end, `own-start` starts at its last line's start).
 ///   6. A free spot up to three lines away.
-///   7. The chip's glyphs alone (`compact`: `size.compact` wide, else a square the chip's height)
-///      over the selection's own last words, for a last line shorter than the chip in dense text.
+///   7. The chip's glyphs alone (`compact`). A single glyph (a square the chip's height) goes over
+///      the selection's own last words, for a last line shorter than the chip in dense text; a bar
+///      of several (`size.compact` wide) tries steps 1 to 6 again at that width.
+///   8. A bar of several glyphs with no free spot at all: just over the selection's end, on top of
+///      other text, so its actions are always there (#40948).
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
   size: { width: number; height: number; compact?: number },
@@ -277,10 +280,10 @@ export function selectionReplyPlace(
   const line = (end.top + end.bottom - height) / 2;
   const under = end.bottom + gap;
   const step = Math.max(end.bottom - end.top, height / 2);
-  const ownX = wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - width;
-  /// The rows `from` to `to` lines past those next to the last line, each measured once across the
-  /// bounds: the spots that start or end at a gap's edge and cross no text there, nearest first.
-  const rows = (from: number, to: number): [number, number][] => {
+  /// The rows `from` to `to` lines past those next to the last line for a chip `w` wide, each
+  /// measured once across the bounds: the spots that start or end at a gap's edge and cross no
+  /// text there, nearest first.
+  const rows = (w: number, from: number, to: number): [number, number][] => {
     const spots: { x: number; y: number; far: number }[] = [];
     for (let k = from; k <= to; k += 1)
       for (const y of [end.top - height - gap - k * step, under + k * step]) {
@@ -288,31 +291,54 @@ export function selectionReplyPlace(
         const band = probe({ left, right, top: y, bottom: y + height });
         const xs = [
           left,
-          right - width,
-          end.right - width / 2,
-          ...band.flatMap((rect) => [rect.right + gap, rect.left - gap - width]),
+          right - w,
+          end.right - w / 2,
+          ...band.flatMap((rect) => [rect.right + gap, rect.left - gap - w]),
         ];
         for (const x of xs) {
-          const box = { left: x, top: y, right: x + width, bottom: y + height };
-          if (x < left || x + width > right || band.some((rect) => crosses(box, rect))) continue;
-          spots.push({ x, y, far: Math.abs(x + width / 2 - end.right) + Math.abs(y - line) });
+          const box = { left: x, top: y, right: x + w, bottom: y + height };
+          if (x < left || x + w > right || band.some((rect) => crosses(box, rect))) continue;
+          spots.push({ x, y, far: Math.abs(x + w / 2 - end.right) + Math.abs(y - line) });
         }
       }
     return spots.sort((a, b) => a.far - b.far).map(({ x, y }) => [x, y]);
   };
-  function* candidates(): Generator<[number, number, number?]> {
-    yield [target.left - width / 2, target.top - height - gap];
-    if (end.right + gap + width <= right) yield [end.right + gap, line];
-    yield [end.right - width / 2, under];
-    yield* rows(0, wrap === "farther" ? FARTHER : 0);
-    yield [ownX, line];
-    if (wrap !== "farther") yield* rows(1, FARTHER);
-    const glyphs = Math.min(size.compact ?? height, width);
-    yield [wrap === "own-start" ? ownX : end.right - glyphs, line, glyphs];
+  /// Steps 1 to 6 for a chip `w` wide.
+  function* spots(w: number): Generator<[number, number, number]> {
+    const ownX = wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - w;
+    yield [target.left - w / 2, target.top - height - gap, w];
+    if (end.right + gap + w <= right) yield [end.right + gap, line, w];
+    yield [end.right - w / 2, under, w];
+    for (const [x, y] of rows(w, 0, wrap === "farther" ? FARTHER : 0)) yield [x, y, w];
+    yield [ownX, line, w];
+    if (wrap !== "farther") for (const [x, y] of rows(w, 1, FARTHER)) yield [x, y, w];
+  }
+  // The glyphs alone (a square the chip's height unless `size.compact` says): no wider than the chip.
+  const glyphs = Math.min(size.compact ?? height, width);
+  function* candidates(): Generator<[number, number, number]> {
+    yield* spots(width);
+    // Step 7: the labels would cover someone's words wherever the chip goes: the glyphs alone,
+    // through the same spots (a bar of several glyphs is wider than one square).
+    if (glyphs < width && glyphs > height) yield* spots(glyphs);
+    else {
+      const ownX = wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - glyphs;
+      yield [ownX, line, glyphs];
+    }
   }
   for (const [x, y, w] of candidates()) {
     const place = accept(x, y, w);
     if (place) return place;
+  }
+  // Step 8, a bar of several glyphs only (#40948: its actions always show): no spot is free of
+  // other text, so it goes just over the selection's end (else under it) on top of that text,
+  // in view and in the bounds, rather than hide every action.
+  if (glyphs < width && glyphs > height) {
+    const cx = Math.max(left, Math.min(end.right - glyphs / 2, right - glyphs));
+    for (const y of [end.top - height - gap, under]) {
+      const cy = Math.max(top + EDGE, Math.min(y, bottom - EDGE - height));
+      if (cx >= left - 0.5 && cx + glyphs <= right + 0.5 && cy >= top && cy + height <= bottom)
+        return { left: cx, top: cy, compact: true };
+    }
   }
   return undefined;
 }

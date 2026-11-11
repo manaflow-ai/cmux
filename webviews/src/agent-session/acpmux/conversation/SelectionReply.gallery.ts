@@ -310,7 +310,7 @@ export default agentPaneEntry({
     "chip-short-mid": {
       ...variant(
         "chip",
-        "Two words mid-paragraph in a dense reply: every spot near holds text, so the bar is its glyphs alone over the selected words.",
+        "Two words mid-paragraph in a dense reply: every spot near holds text, so the bar is its four glyphs alone, just over the selection's end.",
         shortMid,
         chat(denseRows),
       ),

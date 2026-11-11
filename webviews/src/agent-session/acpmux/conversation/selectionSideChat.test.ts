@@ -76,7 +76,7 @@ test("Ask in side chat in a working chat forks it as it is now", () => {
 test("where no side chat can open, it says why instead of doing nothing", () => {
   const quick = host();
   expect(askSelectionInSideChat("x", chat(), undefined, quick.host)).toBe(false);
-  expect(quick.notices).toEqual([translate("composer.cmuxSideUnavailable")]);
+  expect(quick.notices).toEqual([translate("message.selectionSideUnavailable")]);
   const empty = host();
   expect(askSelectionInSideChat("x", chat({ rows: [] }), "local", empty.host)).toBe(false);
   expect(empty.notices).toEqual([translate("notice.forkNothingYet")]);
