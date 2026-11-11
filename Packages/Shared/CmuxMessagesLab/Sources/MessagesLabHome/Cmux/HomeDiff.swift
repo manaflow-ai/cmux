@@ -53,7 +53,8 @@ struct HomeDiff: Equatable {
         // The first page of a chat whose view opened before it came (a chat picked in the list) shows at
         // once at its newest message, as Messages does: as receives its rows slid up into place, which
         // reads as the chat scrolling to the bottom (the user, 2026-11-03). That holds for messages that
-        // arrive while the page is read too (`opening`). My own sends still fly in.
+        // arrive while the page is read too (`opening`). My own sends are in the projection already
+        // (none of them slides or flies in: the pane has no entry motion, issue 41529).
         if old.isEmpty || opening, new.contains(where: { oldIndex[$0.key] == nil && aliases[$0.key] == nil }) {
             d.rebuild = true; return d
         }

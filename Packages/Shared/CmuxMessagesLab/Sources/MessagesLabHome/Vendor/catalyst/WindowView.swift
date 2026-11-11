@@ -127,6 +127,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
     }
     var drawsChrome = true { didSet { chrome.drawsTrafficLights = drawsChrome } }
+    /// cmux (https://github.com/manaflow-ai/cmux/issues/41529): false: no entry motion in the transcript. A new
+    /// message, stream, typing row or receipt shows in its final place with its final opacity in the commit that
+    /// adds it; the rows it moves move at once; a send does not fly from the field. A received text slid down over
+    /// the picture above it while it faded in. The pane host turns it off; MessagesLab's own harness keeps it.
+    var entryMotion = true
 
     init(store: Store) {
         self.store = store
@@ -1088,6 +1093,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
         }
+        // cmux (issue 41529): without entry motion every row change lands at once, as a stream's text append does.
+        if !entryMotion { animate = false }
         RowCell.inPaging = paging
         defer { RowCell.inPaging = false }
         let send: Bool = { if case .send = action { return true }; return false }()
@@ -1203,7 +1210,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         phase("layoutPass")
         // A field height change from the draft (typing, an attachment) moves the rows at once, on
         // the field's frame (Messages: one frame, no in-between frame); a send's collapse animates.
-        let fieldSteps: Bool = { switch action { case .setDraft, .attach, .removeDraftAttachment: return true; default: return false } }()
+        // cmux (issue 41529): without entry motion a send's field collapse moves the rows at once too.
+        let fieldSteps: Bool = { switch action { case .setDraft, .attach, .removeDraftAttachment: return true; default: return !entryMotion } }()
         if animate && rowsChange || compose.fieldRect != oldField && !fieldSteps {
             animateRows(action, el, begin: begin, rowsDelay: rowsDelay, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
                         newOffset: newOffset, state: state, old: old)
@@ -1224,7 +1232,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph). A draft
         // changes no thread row (the view is centered, not placed on the field): no rebuild per key.
         if !draft { rebuildThread(state, at: t) }
-        if send, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
+        // cmux (issue 41529): without entry motion the sent row shows in place; nothing flies from the field.
+        if send, entryMotion, let m = state.conversation.messages.last, m.senderId == state.me { startMorph(m, from: oldField, begin: begin) }
         // Paging changes rows far from the viewport: visible cells keep their
         // content and window position, so they need no new configuration.
         phase("morph+thread")
@@ -2463,7 +2472,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // cmux: a reply still flying to this copy keeps it hidden until the landing (startMorph, landMorphs).
             if morphs[spec.key] != nil { v.layer.opacity = 0; continue }
             // cmux: Reduce Motion: the thread view opens, grows and changes branch at once.
-            if still { continue }
+            // cmux (issue 41529): without entry motion a new reply shows in place and the rows it moves jump there.
+            if still || !entryMotion { continue }
             if drilled { ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.18) }
             // cmux (scrawl 1792645422027): the view is centered, so a new reply moved every row up by half its height
             // in one frame. The rows that stay glide there (the open's flight); a new row fades in.
