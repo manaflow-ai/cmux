@@ -1636,7 +1636,11 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
     let mut chunk = vec![0u8; 64 * 1024];
     while end > 0 {
         let start = end.saturating_sub(chunk.len() as u64);
-        let part = &mut chunk[..(end - start) as usize];
+        // `end - start` is at most the chunk length, so `get_mut` always finds the part.
+        let want = usize::try_from(end - start)?;
+        let Some(part) = chunk.get_mut(..want) else {
+            anyhow::bail!("torn-tail read of {want} bytes is past its {} byte chunk", chunk.len());
+        };
         reader.seek(SeekFrom::Start(start))?;
         reader.read_exact(part)?;
         if let Some(at) = part.iter().rposition(|b| *b == b'\n') {
