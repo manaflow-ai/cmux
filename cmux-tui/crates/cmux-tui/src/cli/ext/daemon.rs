@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 use super::super::GlobalArgs;
 use super::Field as _;
 
-/// How long one request may take to answer.
-pub(super) const REQUEST_DEADLINE: Duration = Duration::from_secs(15);
+/// How long one request may take to answer: the daemon request floor the app and the CLI use
+/// (`run::NOT_RUN_DEADLINE_FLOOR`), so a loaded daemon that still answers is not reported as gone.
+pub(super) const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
 
 /// What woke the dev loop.
 #[derive(Debug)]

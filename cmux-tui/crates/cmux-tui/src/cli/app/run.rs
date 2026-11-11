@@ -44,8 +44,10 @@ pub(in crate::cli) fn insert_run_key(
 }
 
 /// The shortest wait between not-run retries, whatever `retry_after_ms` says.
+// timeout: a retry pause's floor, not a deadline; the retries run until `not_run_deadline`
 const MIN_RETRY_WAIT: Duration = Duration::from_millis(10);
 /// The longest wait before one retry.
+// timeout: a retry pause's cap, not a deadline; the retries run until `not_run_deadline`
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(2);
 
 /// The least time a not-run refusal is asked again for, whatever the request's own timeout: the app's

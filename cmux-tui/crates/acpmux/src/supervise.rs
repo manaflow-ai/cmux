@@ -22,6 +22,7 @@ use tokio::time::Instant;
 pub(crate) const MAX_RESTARTS: usize = 5;
 pub(crate) const WINDOW: Duration = Duration::from_secs(60);
 /// The wait before the first restart; it doubles with each panic still inside the window.
+// timeout: a restart backoff's first step, not a deadline; nothing gives up when it passes
 const FIRST_WAIT: Duration = Duration::from_millis(100);
 
 /// Why the daemon must stop for a restart, once a supervised task could not go on.

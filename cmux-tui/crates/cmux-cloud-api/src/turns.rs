@@ -61,6 +61,7 @@ pub(crate) struct Pace {
 
 impl Pace {
     const fn new(deadline: Duration) -> Self {
+        // short-gate: the pause between same-key retries, not a limit; each call retries until its own deadline
         Pace { pause: Duration::from_secs(2), deadline }
     }
 }

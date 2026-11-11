@@ -37,10 +37,12 @@ pub(super) const DEBOUNCE: Duration = Duration::from_millis(120);
 /// build stops with a build error instead of holding the loop.
 pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// How long the daemon may take to pick up a copied change.
-const PICKUP_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the daemon may take to pick up a copied change: a reload on a loaded machine still
+/// counts, as a daemon request does (`daemon::REQUEST_DEADLINE`).
+const PICKUP_DEADLINE: Duration = Duration::from_secs(30);
 
 /// How long the load check may take (the daemon's own trial waits 5 s).
+// timeout: a hang breaker over the daemon's own 5 s trial, which answers apps-mount-failed itself
 const PROBE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Package files copied per reload (a runaway folder costs no more).

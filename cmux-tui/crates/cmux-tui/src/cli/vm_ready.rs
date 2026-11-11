@@ -35,6 +35,7 @@ const CONFIG_LOG: &str = "/home/cmux/.cmux/machine-config/setup.log";
 pub(super) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const MAX_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
 /// Between two reads of the machine or its status file.
+// timeout: the pause between polls, not a deadline; the wait's limit is DEFAULT_TIMEOUT or --timeout
 const POLL: Duration = Duration::from_secs(3);
 
 /// `vm new`'s words, split: the app's create words, and how long to wait.

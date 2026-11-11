@@ -17,12 +17,16 @@ use super::{GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, safe_to_
 /// notes; a 5 s control-plane read answers or fails before a note helps.
 const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;
 /// No note for a wait shorter than this.
+// timeout: when the first progress note prints; the wait itself goes on
 const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
+// timeout: the interval between progress notes; the wait itself goes on
 const NOTE_EVERY: Duration = Duration::from_secs(5);
 /// The first wait before a new connection after the app dropped one; each next wait doubles, up to
 /// [`RECONNECT_MAX_WAIT`], until the request's deadline (`run::not_run_deadline`): an app restarting
 /// its control server takes as long as it takes, never a fixed two tries.
+// timeout: a reconnect backoff's first step, not a deadline
 const RECONNECT_FIRST_WAIT: Duration = Duration::from_millis(200);
+// timeout: a reconnect backoff's cap, not a deadline
 const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);
 /// How long after a dropped connection the app's socket may stay missing or refusing, retried with the doubling
 /// waits above, before the app counts as quit: a control server that restarts slowly still heals, and a quit app
