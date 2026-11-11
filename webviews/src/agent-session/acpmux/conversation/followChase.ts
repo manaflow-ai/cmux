@@ -247,7 +247,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     // (covered by another workspace), so nobody saw the chase start. It lands before this frame
     // paints instead of sliding in from where it was held: one block that arrived while away, with
     // nothing after it to move the rows, drew 79 px off on the first frame back (#41252).
-    if (performance.now() - askedAt > FRAMELESS_MS) {
+    if (performance.now() - askedAt >= FRAMELESS_MS) {
       stop();
       return;
     }
@@ -427,7 +427,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (thread && thread !== node) stop();
       // No frame ran since one was asked for FRAMELESS_MS ago: nobody sees the chase, so the rows
       // move at once, and what it held lands with them. One frame running again ends it.
-      if (frameless || (frame !== undefined && performance.now() - askedAt > FRAMELESS_MS)) {
+      if (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS)) {
         stop();
         thread = node;
         if (!frameless) {
