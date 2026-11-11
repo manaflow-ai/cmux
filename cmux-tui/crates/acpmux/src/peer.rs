@@ -246,6 +246,9 @@ pub struct Peer {
     /// The pending keys whose frame `serve` wrote to the live link: when the link drops, only
     /// these may have run on the peer; every other request waiting fails as not sent.
     on_wire: OnWire,
+    /// Requests whose client cancelled them after they went to the peer (`request_cancel.rs`):
+    /// their late answers are dropped on purpose and logged.
+    cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
@@ -511,6 +514,7 @@ impl Peer {
             next_id: AtomicI64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             on_wire: Default::default(),
+            cancelled: Default::default(),
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
@@ -1508,11 +1512,12 @@ impl Peer {
         }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
-        let _forget = ForgetPending {
+        let mut forget = ForgetPending {
             pending: self.pending.clone(),
             on_wire: self.on_wire.clone(),
             prompts: self.prompts.clone(),
             key: Some(key.clone()),
+            cancel: None,
         };
         // The link it was admitted on went down before it was registered: `run`
         // already failed what waited, and the next link drops its frame, so a
@@ -1545,9 +1550,18 @@ impl Peer {
             self.switch_retry.lock_or_recover().insert(key.clone(), (line.clone(), tag));
             ForgetRetry { peer: self, key: key.clone() }
         });
+        // Its client may cancel it from here: the peer hears `$/cancel_request` for it on the
+        // same link, when it says it takes one (an older peer ignores the notification).
+        let cancel = self.lists(crate::request_cancel::FEATURE).then(|| PeerCancel {
+            out: self.out.clone(),
+            epoch: tag,
+            id,
+            method: m.to_owned(),
+            cancelled: self.cancelled.clone(),
+        });
         let frame = Outbound { epoch: tag, key: Some(key), line };
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => forget.cancel = cancel,
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
@@ -2602,7 +2616,10 @@ impl Peer {
                             let tx = self.pending.lock().await.remove(&key);
                             self.on_wire.lock_or_recover().remove(&key);
                             self.dual_keys.lock_or_recover().remove(&key);
-                            let Some(tx) = tx else { continue };
+                            let Some(tx) = tx else {
+                                self.cancelled.lock_or_recover().take_late(&key, "peer");
+                                continue;
+                            };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
                             // A watch sent with `initialize` waits for the handshake to read that
                             // reply, and the changes after it wait with it (`paged`).
@@ -3314,6 +3331,17 @@ struct ForgetPending {
     on_wire: OnWire,
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     key: Option<String>,
+    /// Set once its frame is queued to a peer that takes `$/cancel_request`.
+    cancel: Option<PeerCancel>,
+}
+
+/// What a request queued to the peer needs to cancel it there (`request_cancel.rs`).
+struct PeerCancel {
+    out: mpsc::Sender<Outbound>,
+    epoch: u64,
+    id: i64,
+    method: String,
+    cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
 }
 
 /// Drops a bound request's line from `switch_retry` once its caller has its answer or left.
@@ -3331,6 +3359,23 @@ impl Drop for ForgetRetry<'_> {
 impl Drop for ForgetPending {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else { return };
+        // Its client cancelled it while the peer still owed the answer: the peer is told on the
+        // link it went out on (a later link never carries it), and the answer is dropped.
+        if let Some(cancel) = self.cancel.take()
+            && crate::request_cancel::requested()
+            && self.pending.try_lock().map_or(true, |map| map.contains_key(&key))
+        {
+            cancel.cancelled.lock_or_recover().remember(key.clone(), cancel.method);
+            let note = crate::rpc::Message::notification(
+                method::CANCEL_REQUEST,
+                json!({"requestId": cancel.id}),
+            );
+            let _ = cancel.out.try_send(Outbound {
+                epoch: cancel.epoch,
+                key: None,
+                line: note.to_line(),
+            });
+        }
         self.on_wire.lock_or_recover().remove(&key);
         self.prompts.lock_or_recover().remove(&key);
         if let Ok(mut map) = self.pending.try_lock() {
@@ -3467,6 +3512,64 @@ mod link_epoch_tests {
         .expect("a prompt on a dead link must not wait");
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+
+    /// A forwarded request its client cancels (`request_cancel.rs`): the peer hears
+    /// `$/cancel_request` for its id on the link it went out on, nothing waits on it any more,
+    /// and its id is kept so the late answer is dropped on purpose.
+    #[tokio::test]
+    async fn a_cancelled_request_tells_the_peer_and_waits_for_nothing() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        assert_eq!(peer.pending_requests().await, 1);
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        let note = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let note: Value = serde_json::from_str(&note.line).unwrap();
+        assert_eq!(note["method"], method::CANCEL_REQUEST);
+        assert_eq!(note["params"]["requestId"], request["id"]);
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+        let key = request["id"].to_string();
+        assert!(peer.cancelled.lock_or_recover().take_late(&key, "peer"), "its answer is dropped");
+    }
+
+    /// A peer that does not list the feature hears nothing more: an older daemon.
+    #[tokio::test]
+    async fn an_older_peer_gets_no_cancel_frame() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none());
+        assert!(tokio::time::timeout(Duration::from_millis(200), out.recv()).await.is_err());
+        assert_eq!(peer.pending_requests().await, 0);
     }
 
     /// Review of #24797 at 45ab6b1: lending was on for a plain `ws://` peer on another host, so

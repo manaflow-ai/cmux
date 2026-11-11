@@ -222,6 +222,92 @@ struct Pending {
     /// Answers that arrived with nobody waiting (a replayed answer to a
     /// request of the previous daemon); `await_response` takes them.
     orphans: std::collections::VecDeque<(String, Result<Value, RpcError>)>,
+    /// Requests whose client cancelled them (`request_cancel.rs`): their answers, which may
+    /// still come, are dropped on purpose and logged, never taken as orphans.
+    cancelled: crate::request_cancel::Cancelled,
+}
+
+impl Pending {
+    /// The waiter of answer `id`; None when nobody waits, and a cancelled request's late answer
+    /// is then dropped and logged.
+    fn take(&mut self, id: &Id) -> Option<oneshot::Sender<Result<Value, RpcError>>> {
+        let k = key(id);
+        let tx = self.map.remove(&k);
+        if tx.is_none() {
+            self.cancelled.take_late(&k, "agent");
+        }
+        tx
+    }
+}
+
+/// Where a cancelled request's `$/cancel_request` goes: the ACP agent's stdin, or its host.
+/// A translated harness (Claude stream-json, Codex app-server) has no such message.
+enum CancelSink {
+    Direct(mpsc::Sender<(String, Option<Fence>)>),
+    Hosted(Arc<crate::agent_host::link::Link>),
+    None,
+}
+
+/// A request to the agent that its client may cancel (`request_cancel.rs`): dropped before its
+/// answer under a cancel, it forgets its pending entry at once, remembers the id so the late
+/// answer is dropped on purpose, and tells the agent with `$/cancel_request`. Dropped for any
+/// other reason it does what it did before: nothing.
+struct Abandoned {
+    pending: Arc<Mutex<Pending>>,
+    sink: CancelSink,
+    id: i64,
+    method: String,
+    armed: bool,
+}
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        if !self.armed || !crate::request_cancel::requested() {
+            return;
+        }
+        let k = key(&Value::from(self.id));
+        let method = std::mem::take(&mut self.method);
+        let forget = move |p: &mut Pending| {
+            p.map.remove(&k);
+            p.cancelled.remember(k, method);
+        };
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        match self.pending.try_lock() {
+            Ok(mut p) => forget(&mut p),
+            Err(_) => {
+                if let Some(rt) = &runtime {
+                    let pending = self.pending.clone();
+                    rt.spawn(async move { forget(&mut *pending.lock().await) });
+                }
+            }
+        }
+        let note = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": self.id}),
+        );
+        match &self.sink {
+            CancelSink::Direct(tx) => {
+                if let Err(mpsc::error::TrySendError::Full(item)) =
+                    tx.try_send((note.to_line(), None))
+                    && let Some(rt) = &runtime
+                {
+                    let tx = tx.clone();
+                    rt.spawn(async move {
+                        let _ = tx.send(item).await;
+                    });
+                }
+            }
+            CancelSink::Hosted(link) => {
+                if let Some(rt) = &runtime {
+                    let link = link.clone();
+                    rt.spawn(async move {
+                        let _ = link.line(note.to_value()).await;
+                    });
+                }
+            }
+            CancelSink::None => {}
+        }
+    }
 }
 
 const ORPHAN_ANSWERS: usize = 64;
@@ -903,8 +989,11 @@ impl ChildAgent {
         } = spawned;
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<(String, Option<Fence>)>(256);
-        let pending =
-            Arc::new(Mutex::new(Pending { map: HashMap::new(), orphans: Default::default() }));
+        let pending = Arc::new(Mutex::new(Pending {
+            map: HashMap::new(),
+            orphans: Default::default(),
+            cancelled: Default::default(),
+        }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Arc::new(Mutex::new(child)),
@@ -1145,7 +1234,7 @@ impl ChildAgent {
                     for msg in msgs {
                         match msg {
                             Message::Response { id, result, error } => {
-                                let tx = pending.lock().await.map.remove(&key(&id));
+                                let tx = pending.lock().await.take(&id);
                                 if let Some(tx) = tx {
                                     let _ = tx.send(match error {
                                         Some(e) => Err(e),
@@ -1519,7 +1608,7 @@ impl ChildAgent {
                     }
                     // Immediate local answer: feed it back as if claude replied.
                     if let Message::Response { id, result, error } = reply
-                        && let Some(tx) = self.pending.lock().await.map.remove(&key(&id))
+                        && let Some(tx) = self.pending.lock().await.take(&id)
                     {
                         let _ = tx.send(match error {
                             Some(e) => Err(e),
@@ -1547,7 +1636,7 @@ impl ChildAgent {
             }
             match m {
                 Message::Response { id, result, error } => {
-                    if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
+                    if let Some(tx) = self.pending.lock().await.take(&id) {
                         let _ = tx.send(match error {
                             Some(e) => Err(e),
                             None => Ok(result.unwrap_or(Value::Null)),
@@ -1635,6 +1724,17 @@ impl ChildAgent {
         self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
     }
 
+    /// Where a cancelled request's `$/cancel_request` goes ([`Abandoned`]).
+    fn cancel_sink(&self) -> CancelSink {
+        if let Some(h) = &self.hosted {
+            CancelSink::Hosted(h.link())
+        } else if self.translator.is_some() || self.codex.is_some() {
+            CancelSink::None
+        } else {
+            CancelSink::Direct(self.stdin_tx.clone())
+        }
+    }
+
     /// Send a request and wait for its response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.request_with_hook(method, params, None, || {}).await
@@ -1680,6 +1780,13 @@ impl ChildAgent {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        let mut abandoned = Abandoned {
+            pending: self.pending.clone(),
+            sink: self.cancel_sink(),
+            id,
+            method: method.to_owned(),
+            armed: true,
+        };
         let msg = Message::request(id, method, params);
         let answer = async {
             // Dropped before its message is handed on (a turn that ends first): it is cut, so
@@ -1722,6 +1829,7 @@ impl ChildAgent {
             answer = answer => answer,
             () = cut => Err(RpcError::internal(FENCE_CUT)),
         };
+        abandoned.armed = false;
         if answer.is_err() {
             // Not written by now, it never is: its answer is not awaited.
             if let Some(f) = fence {
@@ -2080,7 +2188,11 @@ impl ChildAgent {
             map.insert(key(&id), tx);
             responses.push(rx);
         }
-        let pending = Arc::new(Mutex::new(Pending { map, orphans: Default::default() }));
+        let pending = Arc::new(Mutex::new(Pending {
+            map,
+            orphans: Default::default(),
+            cancelled: Default::default(),
+        }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Arc::new(Mutex::new(None)),
@@ -2316,7 +2428,7 @@ impl ChildAgent {
                         let mut p = self.pending.lock().await;
                         if let Some(tx) = p.map.remove(&key(&id)) {
                             let _ = tx.send(answer);
-                        } else {
+                        } else if !p.cancelled.take_late(&key(&id), "agent host") {
                             if p.orphans.len() >= ORPHAN_ANSWERS {
                                 p.orphans.pop_front();
                             }
