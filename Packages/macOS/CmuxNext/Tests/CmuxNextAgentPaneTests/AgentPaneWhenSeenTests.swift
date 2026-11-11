@@ -15,9 +15,10 @@ struct AgentPaneWhenSeenTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private static func view() throws -> AgentPaneView {
+    private static func view(session: String? = nil) throws -> AgentPaneView {
         _ = NSApplication.shared
-        return try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(URL(filePath: "/dev/null"))))
+        let model = AgentPaneModel(host: NoHost(), sessionId: session)
+        return try #require(AgentPaneView(model: model, source: .bundled(URL(filePath: "/dev/null"))))
     }
 
     /// A few turns of the main actor, for work owed to a later turn.
@@ -54,5 +55,18 @@ struct AgentPaneWhenSeenTests {
         #expect(ran == 0, "the work ran in the turn that asked")
         await Self.turns()
         #expect(ran == 1)
+    }
+
+    /// A session's work goes to the panes that show it, and runs once though two of them show.
+    @Test func aSessionsWorkRunsOnceInThePanesThatShowIt() async throws {
+        let views = try [Self.view(session: "chat-a"), Self.view(session: "chat-a"), Self.view(session: "chat-b")]
+        for view in views { view.shownPushes.isHidden = { _ in false } }
+        var ran = 0
+
+        views.whenSeen(session: "chat-a", "diffWarm") { ran += 1 }
+        await Self.turns()
+
+        #expect(ran == 1)
+        #expect(views[2].shownPushes.owedNames.isEmpty, "another chat's pane owes the work")
     }
 }

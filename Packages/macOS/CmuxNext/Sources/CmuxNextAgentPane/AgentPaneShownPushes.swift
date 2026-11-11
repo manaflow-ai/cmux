@@ -71,3 +71,43 @@ import AppKit
         view.addSubview(probe)
     }
 }
+
+extension AgentPaneView {
+    /// Runs `work` once while someone can see this pane: on a later turn when it shows now, else
+    /// when it shows. Work of the same `name` still owed is replaced, so only the newest runs. For
+    /// work whose result only a person at this chat uses (the diff warm of a turn's end): as Chrome
+    /// holds the work of a page that is not shown, a chat behind another tab asks nothing of the
+    /// session host for it.
+    public func whenSeen(_ name: String, _ work: @escaping @MainActor () -> Void) {
+        shownPushes.push(name, to: self) { _ in work() }
+    }
+}
+
+extension Sequence<AgentPaneView> {
+    /// Runs `work` once when someone can see one of these panes that shows acpmux session
+    /// `session`: on a later turn when one shows now, else when the first of them shows
+    /// (``AgentPaneView/whenSeen(_:_:)``). A session with no pane owes nothing.
+    ///
+    /// The diff warm of a turn's end goes through here: about 50 agents that end turns in bursts
+    /// each ran a full-patch `git.diff` nobody waited for, in front of the git reads of the view
+    /// the person looked at.
+    @MainActor public func whenSeen(session: String, _ name: String, _ work: @escaping @MainActor () -> Void) {
+        let owed = AgentPaneOwedOnce(work)
+        for view in self where view.model.sessionId == session {
+            view.whenSeen(name) { owed.run() }
+        }
+    }
+}
+
+/// One piece of work owed to several panes of one chat: the first pane seen runs it.
+@MainActor private final class AgentPaneOwedOnce {
+    private var work: (@MainActor () -> Void)?
+
+    init(_ work: @escaping @MainActor () -> Void) { self.work = work }
+
+    func run() {
+        let owed = work
+        work = nil
+        owed?()
+    }
+}
