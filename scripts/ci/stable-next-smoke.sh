@@ -11,6 +11,8 @@
 # Environment: DMG, EXPECT_SHA256, SIGNED (true|false), RUNNER_TEMP, GITHUB_OUTPUT.
 set -euo pipefail
 : "${DMG:?}" "${EXPECT_SHA256:?}" "${SIGNED:?}" "${RUNNER_TEMP:?}"
+# Absolute: console-session.sh starts the journey in GITHUB_WORKSPACE, not here (run 42918010143).
+DMG="$(cd "$(dirname "$DMG")" && pwd)/$(basename "$DMG")"
 
 actual="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 [ "$actual" = "$EXPECT_SHA256" ] || { echo "the DMG is $actual, the sign job made $EXPECT_SHA256" >&2; exit 1; }

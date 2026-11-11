@@ -326,7 +326,12 @@ fn offered_skills(skills: &[crate::slash_skills::SlashSkill]) -> Vec<Value> {
                     format!("plugin:{plugin}")
                 }
             };
-            let description: String = s.skill.description.chars().take(SKILL_DESCRIPTION_CHARS).collect();
+            let description: String = s
+                .skill
+                .description
+                .chars()
+                .take(SKILL_DESCRIPTION_CHARS)
+                .collect();
             json!({"name": s.skill.name, "description": description, "source": source})
         })
         .collect()
