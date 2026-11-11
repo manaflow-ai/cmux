@@ -50,19 +50,19 @@ public struct CloudMachineRoute: Sendable {
     /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
     /// start's failure, its reason as the start card shows it, with a retry on the same machine.
     ///
-    /// `hasMachineBuild` answers whether this app has a machine build of its own to install. An app without
-    /// one (a DEV build of a commit whose machine build is not published) cannot update any machine, so a
-    /// machine whose software predates the report (``Verdict/unsupported``) starts the chat on the software
-    /// its image came with instead of refusing every start. It is asked only after that refusal.
-    public func prepare(hasMachineBuild: @escaping @Sendable () async -> Bool,
-                        _ update: @escaping @Sendable () async -> Void) async throws {
+    /// A machine whose software predates the report (``Verdict/unsupported``) is not refused: the app's update
+    /// never moves a machine back, so a machine on a newer build than this app's that still lacks the report
+    /// (an image ahead of a DEV build's branch), or an app with no machine build to install, could never pass
+    /// and every start on a new machine ended here. Its chat starts on the software the image came with; a
+    /// machine that does report and is not routed is still refused.
+    public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
             try await afterUpdate(update)
         } catch let refused as Refused {
-            if refused.verdict == .unsupported, await !hasMachineBuild() {
-                logger.info("cloud start chat: this app has no machine build to install; \(machineID ?? "", privacy: .public) starts on its image's software")
+            if refused.verdict == .unsupported {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update; starting on its image's software")
                 return
             }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })

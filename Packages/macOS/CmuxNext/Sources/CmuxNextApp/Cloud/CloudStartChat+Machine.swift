@@ -106,7 +106,7 @@ extension CloudStartChat {
             invocation.arguments["machine"] = .string(created.machineID)
         }
         let session = try await CloudMove(services: services).machine(invocation, pick: pick), id = session.machineID
-        try await CloudMachineRoute(api: cloud.machineAPI, machineID: id).prepare(hasMachineBuild: { await cli.hasMachineBuild() }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
+        try await CloudMachineRoute(api: cloud.machineAPI, machineID: id).prepare { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
         return (session, plan)
     }
 
