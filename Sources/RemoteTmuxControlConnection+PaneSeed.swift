@@ -97,8 +97,6 @@ extension RemoteTmuxControlConnection {
         releasePendingPaneSeedBytes(completed.retainedByteCount)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
         defer { completePaneSeedLifecycle(paneId: paneId, seedID: seedID) }
-        // A pause that came in while this catch-up waited on tmux starts the next one.
-        defer { if completed.dropsPreCaptureOutput, catchUpRequested { catchUpAfterFallingBehind() } }
         guard completed.isCaptureInstalled else {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
@@ -139,7 +137,8 @@ extension RemoteTmuxControlConnection {
     ///
     /// The capture replies queue behind the backlog in the stream, so the parser still reads
     /// through it, but nothing else is done with the dropped bytes. Only one catch-up runs
-    /// at a time; a pause during one is kept in ``catchUpRequested`` and starts the next.
+    /// at a time; a pause during one is kept in ``catchUpRequested``, and
+    /// ``startRequestedCatchUp()`` starts it when the last catch-up seed is gone.
     func catchUpAfterFallingBehind() {
         guard connectionState == .connected, enterReceived,
               !isCatchingUpAfterFallingBehind else { return }
@@ -282,6 +281,7 @@ extension RemoteTmuxControlConnection {
         deferredPaneVisibleRepaints.formIntersection(livePanes)
         pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        startRequestedCatchUp()
     }
 
     func discardPendingPaneSeeds(paneId: Int) {
@@ -293,6 +293,7 @@ extension RemoteTmuxControlConnection {
         deferredPaneVisibleRepaints.remove(paneId)
         pendingReconnectPaneIDs.removeAll { $0 == paneId }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+        startRequestedCatchUp()
     }
 
     private func completePaneSeedLifecycle(paneId: Int, seedID: UUID) {
@@ -309,6 +310,7 @@ extension RemoteTmuxControlConnection {
             pendingReconnectSeedIDs.insert(followUpSeedID)
         }
         resolveReconnectSeed(seedID)
+        startRequestedCatchUp()
     }
 
     private func startDeferredPaneVisibleRepaintIfNeeded(paneId: Int) -> UUID? {

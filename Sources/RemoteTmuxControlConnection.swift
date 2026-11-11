@@ -871,6 +871,13 @@ final class RemoteTmuxControlConnection {
         catchUpAfterFallingBehind()
     }
 
+    /// Starts a catch-up that was requested while another one waited on tmux, once none does.
+    /// Every way a seed leaves ``pendingPaneSeeds`` (finished, cancelled, its pane gone, or its
+    /// window dropped from the topology) ends here, so the request cannot outlive the catch-up.
+    func startRequestedCatchUp() {
+        if catchUpRequested { catchUpAfterFallingBehind() }
+    }
+
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
     /// can't grow it without limit. Keeps the tail (the most recent, where the
     /// failure reason is).

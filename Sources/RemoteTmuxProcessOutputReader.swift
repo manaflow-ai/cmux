@@ -34,10 +34,16 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// The process exited; reads continue until the pipe is empty, then the stream ends.
     private var draining = false
     private var closed = false
-    /// How many times reading stopped at a bound. The main-actor consumer reads it after every
-    /// chunk, before the next queued chunk is parsed, so it needs a synchronous read from another
-    /// thread: an actor would cost an await per chunk, and a marker sent through `stream` would
-    /// queue behind the very backlog it reports. Hence one unfair lock around one integer.
+    /// How many times reading stopped at a bound, read by the consumer after every chunk.
+    ///
+    /// The consumer is the connection's ingest loop on the main actor, and a `for await` over
+    /// buffered chunks does not suspend between them. So a pause delivered to the main actor (a
+    /// callback, a main-actor task) would run only after the whole backlog was parsed, which is
+    /// exactly what the catch-up exists to avoid, and a marker sent through `stream` would queue
+    /// behind that backlog too. Making this an actor property would work, at the cost of two
+    /// executor hops per chunk on the hottest path to read a value that changes a few times per
+    /// flood. The queue writes it and the consumer reads it synchronously; an unfair lock around
+    /// one integer is the cheapest correct bridge (`Atomic` needs macOS 15; cmux supports 14).
     private let pauses = OSAllocatedUnfairLock(initialState: 0)
 
     /// The number of times the consumer fell a full bound behind. A consumer that

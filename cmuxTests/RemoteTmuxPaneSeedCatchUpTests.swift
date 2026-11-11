@@ -156,4 +156,32 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(!fixture.connection.catchUpRequested)
         #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
     }
+
+    /// The last catch-up seed can also leave without finishing: its pane disappears and tmux
+    /// answers the capture with "can't find pane". A pause kept during that catch-up still has
+    /// to start the next one.
+    @Test func aPauseDuringACatchUpSurvivesItsLastSeedFailing() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))
+        )
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        let firstSeed = try #require(fixture.connection.pendingPaneSeeds[7]?.first?.id)
+        let capture = try #require(fixture.connection.pendingCommandKindsForTesting.first {
+            if case let .capturePane(paneId, token) = $0 { return paneId == 7 && token == firstSeed }
+            return false
+        })
+
+        fixture.connection.failPaneSeedCommand(capture, errorLines: ["can't find pane: %7"])
+
+        #expect(!fixture.connection.catchUpRequested, "the pause during the catch-up was dropped")
+        let next = try #require(fixture.connection.pendingPaneSeeds[7]?.first)
+        #expect(next.id != firstSeed)
+        #expect(next.dropsPreCaptureOutput)
+    }
 }
