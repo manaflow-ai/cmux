@@ -256,5 +256,10 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "live-line-times": "labelled" };
+  try {
+    expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
 });

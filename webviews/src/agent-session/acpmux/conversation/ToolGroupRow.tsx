@@ -20,6 +20,7 @@ import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
+import { RunScroll } from "./RunScroll";
 import { useT } from "../i18n";
 import {
   callDisclosureKeys,
@@ -393,10 +394,13 @@ export function ToolGroupRow({
   // A call in the group the reader opened, before or after it was grouped, keeps the group open when
   // its run finishes; a choice inside the group pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
+  // Its thoughts' ids, as `entryNodes` numbers them: closing the group forgets their open choices.
+  const thoughts = items.filter((item) => !item.tool).map((_, n) => thoughtId(n));
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true, {
     inherits,
     members,
     closedBy,
+    thoughts,
   });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
@@ -497,15 +501,17 @@ export function ToolGroupRow({
                     ]}
               </div>
             ) : (
-              <StepList
-                id={detailsId}
-                disclosureKey={disclosureKey}
-                entries={entries}
-                items={items}
-                kind={kind}
-                thoughtId={thoughtId}
-                defer={byClick}
-              />
+              <RunScroll running={running}>
+                <StepList
+                  id={detailsId}
+                  disclosureKey={disclosureKey}
+                  entries={entries}
+                  items={items}
+                  kind={kind}
+                  thoughtId={thoughtId}
+                  defer={byClick}
+                />
+              </RunScroll>
             )}
           </div>
         </FoldPin.Provider>

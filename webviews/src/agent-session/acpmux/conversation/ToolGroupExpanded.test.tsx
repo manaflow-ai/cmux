@@ -437,9 +437,14 @@ test("an opened mixed run keeps a command's returned image and printed screensho
   const container = await render(<ToolRows row={row} sessionId="mixed-capture" />);
   await act(async () => container.querySelector<HTMLButtonElement>("button.cv-tool")!.click());
   const steps = container.querySelector("[data-mixed-tool-steps]")!;
-  // As base draws a run's command (ToolRow): its images show under its row, opened or not.
+  // Closed, a command's images are one small image at its row's edge; opened, the strip under it
+  // (Lucas, 2026-11-11), as the Codex app's rows draw them.
+  expect(steps.querySelector(".cv-tool-images")).toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).not.toBeNull();
+  await act(async () => steps.querySelector<HTMLButtonElement>('button[data-tool-id="capture-shell"]')!.click());
   const strip = steps.querySelector(".cv-tool-images");
   expect(strip).not.toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).toBeNull();
   expect(strip!.querySelector(`img[src="${shot}"]`)).not.toBeNull();
 });
 

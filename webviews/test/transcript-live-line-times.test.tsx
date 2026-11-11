@@ -1,9 +1,10 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 // The live line never says two bare durations side by side (Leo's capture, 2026-11-07, of
 // "python3 - <<'EOF' 3s · 21s · 549 tokens": nothing said which time was the step's and which the
-// turn's). By default each is named, "step 3s · turn 21s"; the gallery's
-// agent-pane.live-line-times compares that with the turn's clock alone and with the step's time
-// alone, the turn's on hover (liveLineTimes.experiment.ts).
+// turn's). By default the line has one clock, the turn's, as the Codex app's has (Lucas, 2026-11-11, on
+// "Thinking 372ms · turn 5s"); the Labelled arm names each, "step 3s · turn 21s"; the gallery's
+// agent-pane.live-line-times compares them with the step's time alone, the turn's on hover
+// (liveLineTimes.experiment.ts).
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
@@ -38,14 +39,23 @@ const drawn = (props: Parameters<typeof Thinking>[0]) =>
 
 const finished = { doing: "python3 - <<'EOF'", doingShell: false, done: true, doneMs: 3_000 } as const;
 
-test("a finished step's time and the turn's clock are each named, never two bare durations", () => {
+test("by default the line says one clock, the turn's: no step time and no summed thinking beside it", () => {
+  expect(drawn({ thoughtMs: 372 })).toContain("Thinking 21s");
+  expect(drawn({ thoughtMs: 372 })).not.toContain("372ms");
+  expect(drawn({ thoughtMs: 372 })).not.toContain("turn");
+  expect(drawn(finished)).not.toContain("3s");
+});
+
+test("Labelled: a finished step's time and the turn's clock are each named, never two bare durations", () => {
+  scope.cmuxExperiments = { "live-line-times": "labelled" };
   const text = drawn(finished);
   expect(text).toContain("step 3s");
   expect(text).toContain("turn 21s");
   expect(text).not.toMatch(/\b3s · 21s\b/);
 });
 
-test("the summed thinking beside Thinking stays bare; only the turn's clock is named", () => {
+test("Labelled: the summed thinking beside Thinking stays bare; only the turn's clock is named", () => {
+  scope.cmuxExperiments = { "live-line-times": "labelled" };
   expect(drawn({ thoughtMs: 8_000 })).toContain("Thinking 8s · turn 21s");
 });
 

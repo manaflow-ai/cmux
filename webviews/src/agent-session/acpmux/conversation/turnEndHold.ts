@@ -47,10 +47,12 @@ export function foldsToHold(
     // the first click (cmux#33300).
     const ownRun = messageRunRowId(row.id);
     const runKey = openRunKeyOf(before, row.id);
-    for (const key of hiddenRowFolds(rows, drawn, index)) {
-      // A turn's "Worked for" always closes when the turn ends, in view or not (Lucas, 2026-11-11:
-      // "the Worked for should ALWAYS collapse when the turn has ended", as Codex).
-      if (key.startsWith(`${WORKED}-`)) continue;
+    const keys = hiddenRowFolds(rows, drawn, index);
+    // A turn's "Worked for" always closes when the turn ends, in view or not (Lucas, 2026-11-11:
+    // "the Worked for should ALWAYS collapse when the turn has ended", as Codex). A row it hides holds
+    // nothing then: a message run held open under it would show open the next time Worked opens.
+    if (keys.some((key) => key.startsWith(`${WORKED}-`))) continue;
+    for (const key of keys) {
       const hold = key === ownRun && runKey !== undefined ? runKey : key;
       if (!folds.has(hold)) held.add(hold);
     }

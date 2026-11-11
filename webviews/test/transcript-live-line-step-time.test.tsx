@@ -104,7 +104,14 @@ test("thinking that streamed under a second says its time; one dated chunk has n
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
   expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
+  // The Labelled arm names both times; the default says the turn's clock alone (liveLineTimes.experiment.ts).
+  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 32s");
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "live-line-times": "labelled" };
+  try {
+    expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
   const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
   expect(single.thoughtMs).toBeUndefined();
   expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");

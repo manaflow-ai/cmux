@@ -2921,13 +2921,43 @@ pre.cv-math-source {
 :root[data-transcript-note-gap="roomy"] {
   --cv-note-gap: var(--cv-turn-gap);
 }
-/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
-   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
-   own their horizontal overflow below. */
+/* An opened run's calls draw at their full height inside it; a long run's own scroll box is
+   `.cv-run-scroll` around it (RunScroll.tsx), and with the `inline` arm they stay in the
+   transcript's one scroll. Opened shell/output bodies own their horizontal overflow below. */
 .cv-tool-run {
   max-height: none;
   overflow: visible;
   overscroll-behavior: auto;
+}
+/* A long opened run as the Codex app draws it (runScroll.experiment.ts; Lucas, 2026-11-11): 14
+   lines tall, scrolled on its own, faded one line deep at the top and bottom where more is hidden
+   (`data-fade-top`, `data-fade-bottom`, RunScroll.tsx). A short run is its own height, unfaded. */
+.cv-run-scroll {
+  --cv-run-fade-top: 0px;
+  --cv-run-fade-bottom: 0px;
+  max-height: calc(var(--cv-tool-row-height) * 14);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+}
+.cv-run-scroll[data-fade-top] {
+  --cv-run-fade-top: var(--cv-tool-row-height);
+}
+.cv-run-scroll[data-fade-bottom] {
+  --cv-run-fade-bottom: var(--cv-tool-row-height);
 }
 .cv-tool {
   all: unset;

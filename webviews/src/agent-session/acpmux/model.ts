@@ -1555,7 +1555,7 @@ const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
-  row.kind === "activity" || row.kind === WORKED || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+  row.kind === "activity" || isWorkedLine(row) || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
@@ -1585,8 +1585,11 @@ export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined)
   prev.kind !== WORKED &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
+/// A turn's "Worked for" line, or the running turn's "Working for" over its work (turns.ts
+/// `shapeLiveTurn`), which keeps its place and room.
+const isWorkedLine = (row: AcpmuxRow) => row.kind === WORKED || (row.kind === WORKING && row.below !== true);
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
-  row.kind === WORKED
+  isWorkedLine(row)
     ? MARK_WORKED
     : isEditCard(row)
       ? MARK_CARD
@@ -2293,7 +2296,8 @@ function fallbackRowHeight(
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
   // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
-  if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
+  // The running turn's "Working for" over its work keeps the "Worked for" line's box (WorkingFor.tsx).
+  if (row.kind === WORKED || row.kind === WORKING) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.

@@ -497,3 +497,28 @@ test("a turn's Worked for, closed or opened, closes the lines the reader opened 
   expect(lineNamed(container, /^Ran 2 commands$/)!.getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector('button[data-tool-id="c0"]')!.getAttribute("aria-expanded")).toBe("true");
 });
+
+test("closing a run line closes a thought the reader opened in it", async () => {
+  const thought: AcpmuxActivity = {
+    kind: "thought",
+    text: "Check the retry path before the cap. ".repeat(6),
+    startedAt: 1_000,
+    endedAt: 9_000,
+  };
+  const items = [command("c1", "git pull"), thought, command("c2", "git status"), read("c3", "notes.md")];
+  const container = await mount(<ToolRows row={run("r1", items)} sessionId="thought-reset" />);
+  await open(container, /^Ran 2 commands and read a file$/);
+  const toggle = () => container.querySelector<HTMLButtonElement>("button.cv-step-thought")!;
+  await click(container, "button.cv-step-thought");
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  const runLine = lineNamed(container, /^Ran 2 commands and read a file$/)!;
+  await act(async () => runLine.click());
+  await act(async () => runLine.click());
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a turn's fold leaves out its edit calls: the edited-files card under the answer draws them too", () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Fix it" });
+  const rows = [user("u1"), run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test")])];
+  expect([...turnInsideIds(rows, "worked-u1")].sort()).toEqual(["c1", "r1"]);
+});

@@ -41,6 +41,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
+import { liveTurnClock } from "./liveTurnClock.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
 import { inboxCounts } from "./inboxNotice";
@@ -2187,8 +2188,23 @@ function shapeLiveTurn(
   const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
   // The line is the turn's last row, made fresh here.
   if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
-  return shaped;
+  // Only once the person's turn has work, which its end folds under "Worked for" in this place: a
+  // turn of only a reply ends with no fold line, and a line drawn over it would leave and move the
+  // reply up. Work the agent started on its own after an ended stretch (its summary in the turn) or
+  // in the background has no prompt of its own to stand under.
+  if (experimentArm(liveTurnClock) !== "top") return shaped;
+  if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return shaped;
+  if (!drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
+  // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
+  // the bottom says only what the agent does now, "Thinking", with no clock.
+  const line = shaped.at(-1);
+  if (line?.kind === THINKING) line.untimed = true;
+  return [{ id: workingHeaderId(user.id), version: 1, at, kind: WORKING }, ...shaped];
 }
+
+/// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
+export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
 
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
 /// no stop, nothing to resume or continue.
@@ -2698,10 +2714,14 @@ export function toggleTurnFold(
 
 /// The rows and calls inside the turn of "Worked for" `id`, its prompt and steers left out: what the
 /// fold draws, whose lines the reader may have opened (transcriptDisclosureModel.ts
-/// `forgetInsideTurn`). Empty when `id` is not a turn's fold.
+/// `forgetInsideTurn`). Empty when `id` is not a turn's fold. An edit call is left out: the turn's
+/// edited-files card under its answer, outside the fold, draws the same calls under the same keys,
+/// so forgetting them would close a diff the reader opened there.
 export function turnInsideIds(rows: readonly AcpmuxRow[], id: string): Set<string> {
   const ids = new Set<string>();
   if (!id.startsWith(`${WORKED}-`)) return ids;
+  const edit = (kind: string | undefined) =>
+    kind === "edit" || kind === "delete" || kind === "move" || kind === "fileChange";
   const { key } = turnFoldKeys(rows, id);
   const start = rows.findIndex((row) => `${WORKED}-${row.id}` === (key ?? id));
   for (let at = start + 1; start >= 0 && at < rows.length; at += 1) {
@@ -2709,7 +2729,7 @@ export function turnInsideIds(rows: readonly AcpmuxRow[], id: string): Set<strin
     if (opensTurn(row) && !isUnsent(row)) break;
     if (row.kind === "user") continue;
     ids.add(row.id);
-    for (const item of row.items ?? []) if (item.tool?.id) ids.add(item.tool.id);
+    for (const item of row.items ?? []) if (item.tool?.id && !edit(item.tool.kind)) ids.add(item.tool.id);
   }
   return ids;
 }

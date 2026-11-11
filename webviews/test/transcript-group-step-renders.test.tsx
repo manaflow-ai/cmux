@@ -90,9 +90,9 @@ test("a streaming call draws again alone; its 12 siblings and the thoughts stay 
   ];
   await draw(items, 1);
   expect(host.querySelectorAll(".cv-steps .cv-step").length).toBe(15);
-  // The leading thought shows open, in full; the merged one is one closed line.
-  expect(host.querySelector(".cv-step.is-lead .cv-step-thought__body")?.textContent).toContain("retry loop");
-  expect(host.querySelectorAll('.cv-step-thought[aria-expanded="false"]').length).toBe(1);
+  // Every thought is one closed line, the leading one too (Lucas, 2026-11-11).
+  expect(host.querySelector(".cv-step.is-lead .cv-step-thought__body")).toBeNull();
+  expect(host.querySelectorAll('.cv-step-thought[aria-expanded="false"]').length).toBe(2);
   expect(new Set(drawn).size).toBe(13);
 
   let builds = 0;

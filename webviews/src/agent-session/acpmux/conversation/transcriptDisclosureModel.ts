@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { type TranscriptView } from "./transcriptView";
+import { forgetThoughtChoices } from "./thoughtChoices";
 
 /**
  * Disclosure state for transcript details. Rows are virtualized, so the state cannot live in a
@@ -122,9 +123,11 @@ function forgetInside(
   notify();
 }
 
-/// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat.
+/// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat,
+/// its thoughts too (`<row id>:thought:<n>`, thoughtChoices.ts).
 export function forgetInsideTurn(sessionId: string | undefined, ids: ReadonlySet<string>): void {
   forgetInside(sessionId || DEFAULT_SESSION, ids, Infinity, undefined, true);
+  if (ids.size > 0) forgetThoughtChoices((id) => namesOne(id, ids));
 }
 
 function read(sessionId: string, key: string): boolean | undefined {
@@ -218,6 +221,8 @@ export type DisclosureLinks = {
   /// on this one (`closedOver`): a run's line whose groups they closed one by one while the turn ran,
   /// or a group line whose run's line they closed.
   closedBy?: readonly string[];
+  /// The ids of the thoughts the fold draws (thoughtChoices.ts): closing it forgets their open choices.
+  thoughts?: readonly string[];
 };
 
 const NO_LINKS: DisclosureLinks = {};
@@ -243,6 +248,7 @@ export function useTranscriptDisclosure(
   const down = (links.passesDown ?? NONE).join("\n");
   const held = (links.members ?? NONE).join("\n");
   const by = (links.closedBy ?? NONE).join("\n");
+  const thoughts = (links.thoughts ?? NONE).join("\n");
   const current = useCallback(
     () =>
       openedOver(sessionId, key, from) ||
@@ -256,17 +262,18 @@ export function useTranscriptDisclosure(
       const next = typeof value === "function" ? value(current()) : value;
       // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
       // (an edits group in a run), never itself, the run around it or the lines that take its place.
+      if (!next && thoughts !== "") {
+        const inside = new Set(thoughts.split("\n"));
+        forgetThoughtChoices((id) => inside.has(id));
+      }
       if (!next && held !== "")
         forgetInside(
           sessionId,
           new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
           level(key),
-          new Set([
-            key,
-            ...(from ? from.split("\n") : []),
-            ...(down ? down.split("\n") : []),
-            ...(by ? by.split("\n") : []),
-          ]),
+          // The group lines this one splits back into are its other form, never its children; an
+          // edits group drawn inside a run is a child (it is not in `passesDown`), so it is forgotten.
+          new Set([key, ...(down ? down.split("\n") : []), ...(by ? by.split("\n") : [])]),
         );
       // A run's line the reader set takes the place of the group lines it hands down to: one they had
       // set takes the same choice, so a run line they closed never reopens as its group's line when the
@@ -276,7 +283,7 @@ export function useTranscriptDisclosure(
         for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
       save(sessionId, key, next);
     },
-    [sessionId, key, current, down, from, held, by],
+    [sessionId, key, current, down, held, by, thoughts],
   );
   return [open, setOpen];
 }

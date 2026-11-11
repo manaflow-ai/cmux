@@ -3,8 +3,9 @@
 // <<'EOF' 3s · 21s · 549 tokens": a held finished step's own time and the turn's clock, two bare
 // durations. The line no longer holds a finished step (it reads Thinking the moment a call
 // completes), so the two times left are the turn's summed thinking beside "Thinking" and the turn's
-// clock. The `live-line-times` arms: the turn's clock named, "Thinking 8s · turn 21s" (shipped); the
-// turn's clock alone; the thinking time alone with the turn's on hover. With no thoughts yet the
+// clock. The `live-line-times` arms: the turn's clock named, "Thinking 8s · turn 21s"; the turn's
+// clock alone (shipped, as the Codex app's line: Lucas, 2026-11-11); the thinking time alone with the
+// turn's on hover. With no thoughts yet the
 // line reads "Thinking 21s", the turn's clock beside the word, never named "turn" (Leo, 2026-11-09:
 // "when thinking dont add the turn").
 // Tests: webviews/test/transcript-live-line-times.test.tsx, transcript-live-line-call-done.test.tsx.
@@ -61,7 +62,7 @@ export default componentEntry<Props>({
   variants: {
     labelled: {
       props: { arm: "labelled" },
-      note: 'Shipped: "Thinking 8s · turn 21s · 549 tokens", the thinking time beside its word, the turn\'s clock named.',
+      note: '"Thinking 8s · turn 21s · 549 tokens", the thinking time beside its word, the turn\'s clock named.',
     },
     "no-thoughts": {
       props: { arm: "labelled", thoughts: false },
@@ -69,7 +70,7 @@ export default componentEntry<Props>({
     },
     "turn-only": {
       props: { arm: "turn" },
-      note: 'The turn\'s clock alone: "Thinking 21s", which reads as that long a think.',
+      note: "Shipped: the turn's clock alone, \"Thinking 21s\", as the Codex app's live line has one clock.",
     },
     "step-hover": {
       props: { arm: "hover" },
