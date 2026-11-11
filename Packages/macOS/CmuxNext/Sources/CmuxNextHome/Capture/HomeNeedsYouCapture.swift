@@ -157,7 +157,10 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
             (state.client, state.clientSource) = (fd, source)
             return true
         }
-        guard first else { return close(fd) }
+        guard first else {
+            close(fd)
+            return
+        }
         source.setEventHandler { [weak self] in self?.readable(fd) }
         source.setCancelHandler { close(fd) }
         source.resume()
