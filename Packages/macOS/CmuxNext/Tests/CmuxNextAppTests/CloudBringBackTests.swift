@@ -627,7 +627,7 @@ struct CloudBringBackTests {
             try? await local.closeTabs([blank.surface], endTerminals: false, reason: .sessionEnd)
         }
         _ = try await CloudStartChat(services: services).open(start, from: origin, on: machine, cwd: copied.1.chat,
-                                                             tabKey: tabKey, targetPane: try #require(pane.resourceID?.rawValue), cli: cli,
+                                                             tabKey: tabKey,
                                                              copy: .init(machineID: machine.machineID, host: host, session: "", harness: "claude",
                                                                          localRoot: trip.project.path, localChat: chat.path,
                                                                          remoteFolder: copied.1.folder, remoteChat: copied.1.chat))

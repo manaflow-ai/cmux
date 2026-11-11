@@ -5,9 +5,10 @@ import CmuxNextCompat
 import os
 
 /// A Cloud chat start whose machine can't clone the folder from its git remote (cmux-tui
-/// `link start-chat copy --on-seed-refusal ask` answering `seed_refused`): the person is asked
-/// before the whole folder is copied instead, with cmux-tui's reason and what the copy would send.
-/// A silent copy of a 12.8 GB folder ran a 16 GB machine's disk out ("Broken pipe").
+/// `link start-chat copy --on-seed-refusal ask` answering `seed_refused`): the whole folder is copied
+/// instead, with no question (2026-11-10: "instead of this dialog, let's just automatically do it").
+/// Only a copy above ``askAboveBytes`` asks first, with cmux-tui's reason and what the copy would send:
+/// a silent copy of a 12.8 GB folder ran a 16 GB machine's disk out ("Broken pipe").
 public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public static let code = "seed_refused"
     public static let copyButton = "copy"
@@ -23,6 +24,10 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public let fallbackCode: String?
     /// For ``needsGitHub``: the cmux GitHub App's install page, which Connect GitHub opens.
     public let installURL: URL?
+    /// The bytes the copy would send; nil when cmux-tui could not read the folder's size.
+    public let copyBytes: Int64?
+    /// A copy up to this size goes without a question; a larger one asks first (a 12.8 GB copy filled a 16 GB machine's disk).
+    public static let askAboveBytes: Int64 = 8_000_000_000
 
     /// The person's answer to the dialog.
     public enum Choice: Equatable, Sendable { case copy, connectGitHub, cancel }
@@ -34,6 +39,7 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         self.machine = machine
         fallbackCode = answer.fallbackCode
         installURL = answer.fallbackCode == Self.needsGitHub ? answer.installURL.flatMap(URL.init(string:)) : nil
+        copyBytes = answer.copyBytes
     }
 
     public var spec: CmuxDialogSpec {
@@ -46,9 +52,9 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
             identifier: Self.identifier)
     }
 
-    /// `copy` asking first (`.ask`); a refused seed asks the person in `window` and copies only on their
-    /// Copy (`.copy`). Their Cancel, a dismissal or no window throws `declined(reason)`. The whole folder
-    /// never goes silently: a 12.8 GB copy ran a 16 GB machine's disk out.
+    /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. Only a copy
+    /// above ``askAboveBytes`` asks the person in `window` first: their Cancel, a dismissal or no window throws
+    /// `declined(reason)`. A 12.8 GB copy ran a 16 GB machine's disk out.
     @MainActor public static func copying<Copied>(machine: String, in window: @MainActor () -> NSWindow?, declined: (String) -> any Error,
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         try await copying(machine: machine, ask: { await $0.choice(in: window()) }, open: { _ = NSWorkspace.shared.openInForeground($0) },
@@ -64,6 +70,7 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
         Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info(
             "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public)")
+        guard refused.asksFirst else { return try await copy(.copy) }
         switch await ask(refused) {
         case .copy: return try await copy(.copy)
         case .connectGitHub:
@@ -72,6 +79,9 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         case .cancel: throw declined(refused.message)
         }
     }
+
+    /// Whether the copy is too large to make unasked. A copy whose size cmux-tui could not read goes unasked.
+    public var asksFirst: Bool { (copyBytes ?? 0) > Self.askAboveBytes }
 
     /// The person's pick; ``Choice/cancel`` for Cancel, a dismissal or no window to ask in.
     @MainActor public func choice(in window: NSWindow?) async -> Choice {

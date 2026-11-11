@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CryptoKit
 import Foundation
 public import CmuxNextWakeups
 
@@ -330,5 +331,27 @@ public struct CloudMachineWorkspace {
         try beforeCreate()
         guard let id = await create() else { throw notConnected() }
         return (id, true)
+    }
+
+    /// A Cloud chat start's own workspace (`CloudStartChat`, `cmux link start-chat`): the chat is its one tab, made with
+    /// it, and no terminal is ever made for it. It is never the machine's first workspace (``first(in:notConnected:listedElsewhere:beforeCreate:create:)``):
+    /// that one holds the starter shell (the image's, or the terminal a plain workspace create opens), which showed as a
+    /// second tab beside the chat. Its key is the start's (``chatKey(tabKey:)``): `create` makes it with the chat as its
+    /// first tab; a retry that finds it listed only `open`s the chat in it again (keyed, so the same tab), and makes nothing.
+    public static func chat<Tab>(tabKey: String, in store: DaemonStore, within limit: Duration = .milliseconds(CloudMoveCore.deadlines.workspaceTreeMs),
+                                 notConnected: @autoclosure () -> any Error, open: (WorkspaceHandle) async throws -> Tab,
+                                 create: (WorkspaceKey) async throws -> Tab) async throws -> (key: WorkspaceKey, tab: Tab, created: Bool) {
+        guard await live(store, within: limit) else { throw notConnected() }
+        let key = chatKey(tabKey: tabKey)
+        if let listed = store.workspaces.first(where: { $0.key == key }) { return (key, try await open(listed.handle), false) }
+        return (key, try await create(key), true)
+    }
+
+    /// The workspace key of the chat start `tabKey`: a UUID (version 5 layout) of its SHA-256, the same for every retry.
+    public nonisolated static func chatKey(tabKey: String) -> WorkspaceKey {
+        var bytes = Array(SHA256.hash(data: Data("cmux-cloud-chat-workspace\u{0}\(tabKey)".utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return WorkspaceKey(rawValue: (NSUUID(uuidBytes: bytes) as UUID).uuidString.lowercased())
     }
 }

@@ -879,6 +879,16 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## A Cloud chat's workspace is a plain row with a cloud mark (2026-11-10)
+
+User 2026-11-10, of a Cloud chat under a collapsible "lease-lease_21_c6c…" header with "workspace-1" beneath: no
+machine group, ever, and the machine's name nowhere in the sidebar. In the one list a Cloud machine has no header
+(`keepsHeaderInOneList` keeps one only for a remote group a person made); its workspaces are ordinary rows, each with
+a small cloud glyph (`IconName.cloud`, tertiary-secondary ink, the indicator size) right after the name, which gives
+up room for it. The row names no machine (no mark, no `machineLabel`; VoiceOver says "Cloud"); a status the person
+must act on is still said. `sidebar.groupByComputer` still heads each computer. This takes back the Cloud header of
+#28051 (2026-11-04). Tests: `SidebarCloudMachineHeaderTests`, `SidebarCloudRowLookTests`. Coordinated with a590 by note.
+
 ## An agent driving the screen or a browser shows on its row (2026-11-08)
 
 Lawrence 2026-11-07: "i think the computer use/browser use indiciator in workspaces needs to be better".
@@ -2000,3 +2010,6 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `digest` (one line per area, opens in place), `chips` (area filter chips), `headline` (top three at full size, then
   See all changes) and `ledger` (one line per change, area label once). `sections` stays the default until Lawrence
   picks. Tests: updated-notes-looks. Sidebar-Look: Lawrence 2026-11-09, "make and show me more versions of this ui".
+- 2026-11-10 (cloud-multiplayer): a Cloud machine's workspaces lose their machine header and machine name in the one
+  list; each row draws a cloud mark after its name. Sidebar-Look: Cloud rows are top-level rows with a cloud mark
+  after the name; no Cloud machine header.
