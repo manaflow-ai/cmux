@@ -183,13 +183,54 @@ def once_per_judgement(kind: str, key: Callable[..., tuple] | None = None):
     return wrap
 
 
+# gh api's flags that take a value (gh help api); a value is never read as the method, a field or the endpoint.
+GH_API_FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field")
+GH_API_VALUE_FLAGS = ("-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview")
+
+
 def gh_read(args: list[str]) -> bool:
-    """Whether gh ARGS only reads: `gh api` with no other method than GET (a GraphQL query included), or `gh run view`."""
+    """Whether gh ARGS only reads, by the HTTP method gh sends (review of cmux#41312 at 67c48fb7, F1): `gh run view`;
+    `gh api` with an explicit GET (its fields are query parameters); `gh api` with no method and no body, which gh
+    sends as GET; or a GraphQL query. Any other explicit method writes, a field or --input with no method is gh's
+    POST, and a GraphQL mutation, a query from a file or stdin, or a call with no query writes. Only a read is kept
+    for the judgement (read_once), so a write always goes out."""
     if args[:2] == ["run", "view"]:
         return True
-    if args[:1] != ["api"] or any(arg in ("-X", "--method") or arg.startswith("--method=") for arg in args):
+    if args[:1] != ["api"]:
         return False
-    return not (args[1:2] == ["graphql"] and any(arg.startswith("query=mutation") for arg in args))
+    method, fields, body, endpoint = None, [], False, None
+    rest = iter(args[1:])
+    for arg in rest:
+        if arg in ("-X", "--method"):
+            method = next(rest, "")
+        elif arg.startswith("--method="):
+            method = arg.partition("=")[2]
+        elif arg.startswith("-X"):
+            method = arg[2:]
+        elif arg in GH_API_FIELD_FLAGS:
+            fields.append(next(rest, ""))
+        elif arg.startswith(("--field=", "--raw-field=")):
+            fields.append(arg.partition("=")[2])
+        elif arg.startswith(("-f", "-F")) and not arg.startswith("--"):
+            fields.append(arg[2:])
+        elif arg == "--input":
+            body = True
+            next(rest, None)
+        elif arg.startswith("--input="):
+            body = True
+        elif arg in GH_API_VALUE_FLAGS:
+            next(rest, None)
+        elif not arg.startswith("-") and endpoint is None:
+            endpoint = arg
+    if endpoint == "graphql":
+        queries = [field.partition("=")[2] for field in fields if field.startswith("query=")]
+        if body or len(queries) != 1 or (method is not None and method.upper() not in ("GET", "POST")):
+            return False
+        text = queries[0].lstrip()
+        return not text.startswith(("mutation", "@")) and text != "-"
+    if method is not None:
+        return method.upper() == "GET"
+    return not fields and not body
 
 
 def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
@@ -732,7 +773,9 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # scripts/ci/cua_signed_host_check.py ends a red run with `FAIL: <why>` and then only the runner's generic exit-code
 # annotation, so 'signed host admission' had no error line to compare, and its base red on cmux#37855 (the same
 # "signed app pid N never kept an accepted host connection" on base run 42383535506) could not be matched.
-JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: ")}
+# cmuxterm-hq's 'Skill policy tests' runs shell tests that end a red the same way (`FAIL: plist content`, hq#9249's
+# LaunchAgent step): with no line of its own to compare, its inherited red had nothing to match on any base.
+JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: "), "Skill policy tests": re.compile(r"^FAIL: ")}
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
@@ -4681,8 +4724,16 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s"), and since
+# its units it carries the step's CPU first (", cpu 1.0 s, 30.0 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, cpu [\d.]+ s)?(?:, [\d.]+ s)?\)$")
+# Since ws_check_run.py splits a step into its units (a suite each, a big suite in shards), each unit prints its own
+# group and result line labelled "STEP [UNIT]" ("... [test_ws_deploy_swap.py]", "... [test_lane_place.py 2/4]"), while
+# WS_CHECK_RESULT's `failed` names the STEP alone. Read as only "ws-check step FAILED: STEP (exit", every red split into
+# units was refused "has no 'ws-check step FAILED: STEP' line" though the log held it (leo-workspace#4322 at aa928f1c,
+# run 43011639090: `every other tools/test_*.py ... [test_ws_deploy_swap.py]`; #4297 at 7c9ae719, run 42997255537).
+WS_CHECK_UNIT = r"(?: \[[^\]\n]+\])?"
+WS_CHECK_SHARD = re.compile(r" \d+/\d+$")  # "[test_lane_place.py 2/4]": a big suite's shard
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -4788,14 +4839,25 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
-        end = next((n for n in range(at - 1, -1, -1) if lines[n].startswith(f"ws-check step FAILED: {step} (exit ")),
-                   None)
-        if end is None:
+        # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
+        # each read in its own group; the step's tests and lines are every red unit's together.
+        result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
+        ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
+        if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
+        tests, printed = set(), set()
         try:
-            steps[step] = ws_check_step(lines, end, step)
+            for end, unit in ends:
+                red = ws_check_step(lines, end, step + unit)
+                # A test is named with its unit's suite ("[test_new.py] test_check (__main__.FastForward.test_check)"):
+                # every suite runs as __main__, so two suites' same-named tests read alike and one's red on the base
+                # excused the other's on the head (cmux#41298 F1). A shard number ("2/4") is dropped, since shards move.
+                suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
+                tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
+                printed |= red["lines"]
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
     return "fail", dict(found, steps=steps)
 
 
@@ -5646,6 +5708,77 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
     return run, view, signature(view), step_errors(view)
 
 
+# A stacked child (hq#9249, 2026-11-11): a child PR into a lane branch that is itself an open PR's head (hq#9226's
+# lane/rerun-guard-fixed-on-base) has no run of the lane branch on base to compare with: the lane branch is only ever
+# run as its own PR's pull_request runs. So every red the child inherited from the parent's stale base was refused as
+# "no lane/... run of its workflow has a verdict" ('Skill policy tests', the LaunchAgent test #9236 fixed on main,
+# red on hq#9249 at a0f7212f and on its parent's head d755d38b alike). Such a base is judged by its parent PR's checks
+# at the parent's current head, with the same identity-keyed comparison as any base verdict. Sound because the parent
+# is gated again before it reaches its own base: nothing lands without CI, and a red the parent has too is not the
+# child's. Only one open same-repo PR headed by the base branch, whose head is the branch's tip, is that parent: none
+# or several judge as before; a branch that moved past its PR's head, or a parent head with no completed run of the
+# workflow carrying the job, refuses. A green parent job means the red is the child's own.
+INTEGRATION_BRANCHES = frozenset({"main", "feat-cmux-next"})
+
+
+class StackedParent(NamedTuple):
+    number: int
+    head: str  # the parent PR's head sha, which is the base branch's tip
+
+
+def stacked_parent(repo: str, base: str, github, cache: dict) -> StackedParent | None:
+    """The open PR of REPO headed by lane branch BASE (StackedParent), read once per judge into CACHE; None when BASE
+    is an integration branch or heads no open PR, or several. Refused when the branch's tip is not that PR's head."""
+    key = ("stacked-parent", repo, base)
+    if key in cache:
+        return cache[key]
+    cache[key] = None
+    if base in INTEGRATION_BRANCHES:
+        return None
+    owner = repo.split("/", 1)[0]
+    listed = github.json(f"repos/{repo}/pulls?head={owner}:{base}&state=open&per_page=100")
+    pulls = [pull for pull in (listed if isinstance(listed, list) else [])
+             if isinstance(pull, dict) and pull.get("state") == "open"
+             and (pull.get("head") or {}).get("ref") == base
+             and ((pull.get("head") or {}).get("repo") or {}).get("full_name") == repo]
+    if len(pulls) != 1:
+        return None
+    pull = pulls[0]
+    head = str((pull.get("head") or {}).get("sha") or "")
+    tip = str(((github.json(f"repos/{repo}/branches/{base}") or {}).get("commit") or {}).get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or head != tip:
+        raise Refused(f"{base} is the head of open PR #{pull.get('number')}, but its tip {tip[:12] or '(unread)'} is "
+                      f"not that PR's head {head[:12] or '(unread)'}: the branch moved, so the parent's checks are "
+                      "not its verdict; re-check once the parent's head has run")
+    cache[key] = StackedParent(int(pull.get("number") or 0), head)
+    return cache[key]
+
+
+def stacked_parent_runs(repo: str, workflow, parent: StackedParent, github, base_runs: dict) -> None:
+    """BASE_RUNS[WORKFLOW]: the completed runs of WORKFLOW at PARENT's head (its pull_request or push runs), newest
+    first, in place of the base branch's own (list_base_runs then reads nothing)."""
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?head_sha={parent.head}&per_page=100")
+    base_runs[workflow] = sorted(
+        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+         if isinstance(run, dict) and run.get("head_sha") == parent.head
+         and run.get("event") in ("pull_request", "push") and run.get("status") == "completed"
+         and run.get("conclusion") != "skipped"),
+        key=lambda run: run.get("created_at") or "", reverse=True)
+
+
+def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts):
+    """VERDICTS (base_verdicts' (run, job) pairs) at PARENT's head only, so no older run of the branch (a dispatch,
+    say) stands in; Refused when there is none: the parent's head has no completed verdict for job NAME."""
+    found = [(run, job) for run, job in verdicts if tested_sha(run) == parent.head]
+    if not found:
+        raise Refused(f"'{name}': {base} is PR #{parent.number}'s head; its head {parent.head[:12]} has no completed "
+                      "run of this workflow with a verdict for it to compare with; re-check once it has")
+    if found[0][1].get("conclusion") != "failure":
+        raise Refused(f"'{name}' passed on {base}'s PR #{parent.number} at its head {parent.head[:12]} (run "
+                      f"{found[0][0].get('id')}): the red is this PR's own; fix it on this head")
+    return iter(found)
+
+
 def one_judgement(function):
     """FUNCTION (judge) run in one judgement's read memo (JUDGEMENT_READS): every source is read once, however many
     excuse paths ask it. A judgement inside another (a derived status's parts) shares the outer one's."""
@@ -5774,9 +5907,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (per_test := got.per_test(workflow_info)) is not None:
             audit.append(per_test)
             continue
+        if (parent := stacked_parent(repo, base, github, run_reads)) is not None:
+            # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
+            stacked_parent_runs(repo, workflow, parent, github, base_runs)
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
+        if parent is not None:
+            verdicts = stacked_parent_verdicts(name, base, parent, verdicts)
+            audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
+                         "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
         base_workflow = workflow  # the workflow whose run gives the base verdict
         if ((caller := base_caller(repo, base, workflow_info, name)) is not None
