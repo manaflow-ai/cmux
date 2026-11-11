@@ -224,13 +224,8 @@ const detailOf = (row: HTMLElement) => row.querySelector(".acpmux-quick-value")?
 const cols = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
 const colRows = () => [...(cols()?.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]') ?? [])];
 const colName = (row: HTMLElement) => row.querySelector(".acpmux-cols-name")?.textContent ?? "";
-/// The provider a row's tooltip names: the part before its model id, which the tooltip ends with
-/// (Lawrence 2026-11-05: a hover names the model's id).
-const colProvider = (row: HTMLElement) => {
-  const parts = row.title.split(" · ").slice(1);
-  if (/^[a-z0-9~][\w.~:\-/[\]]*$/.test(parts.at(-1) ?? "")) parts.pop();
-  return parts.at(-1) ?? "";
-};
+/// The provider a row lands, which it names to assistive tech (its tooltip is the model's name alone).
+const colProvider = (row: HTMLElement) => row.getAttribute("aria-description") ?? "";
 const colTab = (name: string) =>
   cols()!.querySelector<HTMLElement>(`.acpmux-cols-tab[role="tab"][aria-label="${name}"]`);
 

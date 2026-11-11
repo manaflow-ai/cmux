@@ -351,6 +351,37 @@ test("a chat on Ultracode carries Extra High to a model that has it", async () =
   expect(calls.picks[0]).toMatchObject({ id: "codex-Nova", effort: "xhigh" });
 });
 
+test("a Claude Code model shown but not picked lists Ultracode, and its pick lands it", async () => {
+  // Lucas 2026-11-11: Ultracode showed only once the model was picked. Its harness offers it on every
+  // model that runs Extra High (QuickFamily.ultracode), so a highlighted model lists it too.
+  const sonnet = model("claude", "Sonnet", { efforts: ["low", "high", "xhigh"], defaultEffort: "high" });
+  const nova = model("codex", "Nova", { efforts: ["low", "high", "xhigh"], defaultEffort: "low" });
+  const calls = await openMenu(
+    [
+      { ...claude, ultracode: true, models: [...claude.models, sonnet] },
+      { ...codex, models: [...codex.models, nova] },
+      gemini,
+    ],
+    "medium",
+  );
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
+  expect(calls.picks).toEqual([]);
+  expect(levels().map((level) => level.name)).toEqual(["Ultracode", "Extra High", "High", "Low"]);
+  const ultracode = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find(
+    (node) => node.textContent === "Ultracode",
+  )!;
+  await click(ultracode);
+  expect(calls.picks.at(-1)).toMatchObject({ id: "claude-Sonnet", effort: "ultracode" });
+  // A harness that does not offer it lists none, Extra High or not.
+  await click(tab("Codex"));
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Nova").hasAttribute("data-hl")).toBe(true);
+  expect(levels().map((level) => level.name)).not.toContain("Ultracode");
+});
+
 test("another model, then a level, then Fast each land at once, the level kept with Fast", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));

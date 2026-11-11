@@ -167,11 +167,19 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 25%, transparent);
 }
 
-/* Stable proportions between the columns as the menu grows to fit its names. Each column keeps
-   its own vertical scroll; a name past the menu's cap wraps, and the row's tooltip names its id. */
+/* The rail keeps its width and the effort column takes one width for every model: the widest row any
+   model's column can show (a level and its check, a provider, Fast and its switch; QuickModelColumns
+   sets --acpmux-cols-tune-fit, effortColumnWidth), never stretched and never moving as the highlight
+   does (Lucas 2026-11-11), up to a most width where a long provider name ends in an ellipsis. Before
+   that is measured it fits the shown rows. The models column takes the rest, so a longer name or a drag
+   on the edge changes only it. Each column keeps its own vertical scroll; a cut name's tooltip names
+   it in full. */
+.acpmux-cols.ui-popup { --acpmux-cols-tune-most: 12em; }
 .acpmux-cols-body {
   display: grid;
-  grid-template-columns: var(--acpmux-cols-rail-width) minmax(0, 1.45fr) minmax(0, 1fr);
+  grid-template-columns:
+    var(--acpmux-cols-rail-width) minmax(0, 1fr)
+    var(--acpmux-cols-tune-fit, fit-content(var(--acpmux-cols-tune-most)));
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -491,3 +499,65 @@
 }
 .acpmux-cols-resize:hover::after,
 .acpmux-cols-resize[data-dragging]::after { opacity: 1; }
+
+/* The level and Fast a search named (QuickModelColumns `named`): lit as a highlighted row, so the path
+   Enter lands reads at a glance. */
+.acpmux-cols-tune .acpmux-cols-row[data-named]:not([data-hl]) {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+
+/* --acpmux-cols-mark is the star button's box. */
+.acpmux-cols.ui-popup { --acpmux-cols-mark: 1.5385em; }
+.acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row { position: relative; }
+
+/* Check after the name (Lucas's reference, 2026-11-11): the chosen model's check follows its name
+   inline; the star ends the row and shows only under the pointer, amber when starred (Lucas: "only show
+   star on hover"). The name keeps its own width, so the check sits on it; the check's auto end margin
+   pushes the star to the row's end. */
+.acpmux-cols .acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row > :is(.acpmux-cols-name, .acpmux-cols-text) {
+  flex: 0 1 auto;
+}
+.acpmux-cols .acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row > .acpmux-cols-check {
+  order: 1;
+  flex: 0 0 auto;
+  width: auto;
+  margin-inline-end: auto;
+  color: var(--agent-muted);
+}
+/* The star takes no room: it draws at the row's end. Where the name and check leave no room for it
+   (QuickModelColumns markStarRoom, data-star-cover), it takes the check's place under the pointer, or the
+   name fades out under it on a row with no check. */
+.acpmux-cols .acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row > .acpmux-cols-star {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: calc(var(--acpmux-cols-inline) - 0.3077em);
+  margin: 0;
+  translate: 0 -50%;
+}
+/* Too narrow for the check after the name and the star: the check moves to the row's end, the star's
+   own place, and the star takes it under the pointer (Lucas 2026-11-11: "the checkmark and the star are
+   on the same place"). The name ends before that place. */
+.acpmux-cols .acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row[data-star-cover="check"] > .acpmux-cols-check {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: calc(var(--acpmux-cols-inline) - 0.3077em);
+  width: var(--ds-control-icon);
+  margin: 0;
+  translate: 0 -50%;
+}
+.acpmux-cols .acpmux-cols-list:not(.acpmux-cols-tune) .acpmux-cols-row[data-star-cover="check"] > :is(.acpmux-cols-name, .acpmux-cols-text) {
+  margin-inline-end: var(--acpmux-cols-mark);
+}
+.acpmux-cols .acpmux-cols-row[data-star-cover="check"]:is(:hover, :has([data-popup-open])) > .acpmux-cols-check {
+  visibility: hidden;
+}
+.acpmux-cols .acpmux-cols-row[data-star-cover="name"]:is(:hover, :has([data-popup-open])) > :is(.acpmux-cols-name, .acpmux-cols-text) {
+  mask-image: linear-gradient(to left, transparent 0 var(--acpmux-cols-mark), #000 calc(var(--acpmux-cols-mark) + 0.6154em));
+}
+.acpmux-cols .acpmux-cols-star[data-on] {
+  color: var(--agent-status-warning, var(--agent-warning, var(--agent-text)));
+}
+.acpmux-cols .acpmux-cols-star[data-on] svg path { fill: currentColor; }
+.acpmux-cols .acpmux-cols-row:not(:hover, :has([data-popup-open])) .acpmux-cols-star {
+  opacity: 0;
+}
