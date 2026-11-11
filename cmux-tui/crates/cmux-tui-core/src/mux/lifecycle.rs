@@ -52,6 +52,8 @@ impl Mux {
     }
 
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
+        // The close is applied: a closed terminal has no live facts.
+        self.terminal_live.forget(terminal_id);
         let pending_cleanup = {
             let mut registry = self.workspace_registry.lock().unwrap();
             registry.purge_agent_hook_pending_for_terminal(terminal_id)

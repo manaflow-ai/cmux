@@ -195,6 +195,9 @@ impl Mux {
             removed
         };
         for surface in removed {
+            if let Some(terminal) = surface.terminal_public_id() {
+                self.terminal_live.forget(terminal);
+            }
             surface.kill();
             self.emit(super::MuxEvent::SurfaceExited(surface.id, None));
         }

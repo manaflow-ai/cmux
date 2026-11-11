@@ -151,6 +151,9 @@ impl Mux {
             })
         };
         if let Some(runtime) = runtime {
+            if let Some(public_id) = runtime.terminal_public_id() {
+                self.terminal_live.forget(public_id);
+            }
             runtime.kill();
         }
         Ok(())

@@ -128,13 +128,16 @@ pub(super) fn register_terminal_runtime_checked(
 /// exit and explicit close share this path so multiview teardown cannot leave
 /// a reverse catalog entry or a secondary placement behind. The runtime is
 /// optional because restored topology exists before host adoption.
+///
+/// `state` can be a projection of a close plan that does not commit, so
+/// nothing outside it changes here: the terminal's entry in the live log
+/// goes where the close is applied (`Mux::purge_terminal_side_tables`).
 pub(super) fn remove_terminal_content_from_state(
     mux: &Mux,
     state: &mut State,
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.remove_catalog_terminal(terminal_id);
-    mux.terminal_live.forget(terminal_id);
     let mut targets =
         state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec();
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
