@@ -199,8 +199,8 @@ struct CloudAPIClientRunTests {
                                      tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_stack_now" },
                                      session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
         let daemon = sandbox(dropCreates: 1)
-        let api = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
-        _ = try await api.runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
+        let sender = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
+        _ = try await sender.runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
         let sessions = daemon.requests.map { $0["classic"] as? [String: Any] }
         #expect(sessions.allSatisfy { $0?["team"] as? String == "team_stack" && $0?["api"] as? String == "https://classic.standin.invalid" })
         #expect(daemon.requests.allSatisfy { $0["team"] as? String == "team_cmux" && $0["refresh"] == nil }, "the daemon's own call is unchanged")
