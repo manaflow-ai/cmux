@@ -261,22 +261,48 @@ pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Opt
 }
 
 /// What the process gives a start: the caller's terminal (only when the
-/// command routes to the caller's own session), folder, shell and default
-/// launcher.
+/// command routes to the caller's own session), the terminal it may run in
+/// on another route, folder, shell and default launcher.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct Env {
     pub caller_terminal: Option<String>,
+    /// `CMUX_TUI_TERMINAL_ID` of a command that `--session` or `--socket`
+    /// routes to a session not known to be the caller's (no
+    /// `CMUX_TUI_SOCKET` or `CMUX_MUX_SOCKET` names it).
+    // Red commit: only the tests read this seam until start and resume use it.
+    #[allow(dead_code)]
+    pub unconfirmed_caller: Option<UnconfirmedCaller>,
     pub cwd: Option<String>,
     pub shell: String,
     pub default_launcher: Option<String>,
 }
 
+/// The caller's terminal on a route not known to be the caller's session.
+// Red commit: only the tests read these fields until start and resume use them.
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) struct UnconfirmedCaller {
+    /// `CMUX_TUI_TERMINAL_ID`.
+    pub terminal: String,
+    /// The `--session` name, else the `--socket` path, for messages.
+    pub session: String,
+}
+
 impl Env {
     fn of_process(global: &GlobalArgs) -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        let terminal = var("CMUX_TUI_TERMINAL_ID");
+        let routed = wire::routes_to_caller_session(global);
+        let session = global
+            .session
+            .clone()
+            .or_else(|| global.socket.as_ref().map(|socket| socket.display().to_string()))
+            .unwrap_or_default();
         Self {
-            caller_terminal: var("CMUX_TUI_TERMINAL_ID")
-                .filter(|_| wire::routes_to_caller_session(global)),
+            caller_terminal: terminal.clone().filter(|_| routed),
+            unconfirmed_caller: terminal
+                .filter(|_| !routed)
+                .map(|terminal| UnconfirmedCaller { terminal, session }),
             cwd: std::env::current_dir().ok().map(|dir| dir.display().to_string()),
             shell: launch::shell_from(var("SHELL").as_deref()),
             default_launcher: var(launch::DEFAULT_LAUNCHER_ENV),
