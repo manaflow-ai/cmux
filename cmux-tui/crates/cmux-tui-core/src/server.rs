@@ -1461,6 +1461,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// `workspace-first-tab-v1`: the workspace's first tab, made in the
+        /// same request (`{kind: "browser", url, engine, ...}`).
+        #[serde(default)]
+        first_tab: Option<frontend_browser_history::FirstTabParams>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
