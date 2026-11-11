@@ -41,8 +41,8 @@ struct HomeMessagesR6AgentTests {
             return startRefusal
         }
 
-        var skills: Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal> = .success([])
-        func slashSkills() async -> Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal> {
+        var skills: Result<[HomeChiefSlashSkill]?, HomeMessagesChiefRefusal> = .success([])
+        func slashSkills() async -> Result<[HomeChiefSlashSkill]?, HomeMessagesChiefRefusal> {
             calls.append("skills")
             return skills
         }
@@ -83,10 +83,17 @@ struct HomeMessagesR6AgentTests {
         let chief = FakeChief()
         chief.skills = .success([HomeChiefSlashSkill(name: "triage", description: "Sort the inbox", source: "chief")])
         let answer = try await turn(chief).call("chief.skills", conversation, userGesture: false)
-        #expect(answer == .object(["skills": .array([.object([
-            "name": .string("triage"), "description": .string("Sort the inbox"), "source": .string("chief"),
-        ])])]))
+        #expect(answer == .object([
+            "skills": .array([.object([
+                "name": .string("triage"), "description": .string("Sort the inbox"), "source": .string("chief"),
+            ])]),
+            "listed": .bool(true),
+        ]))
         #expect(chief.calls == ["skills"])
+        // A hosted Chief lists none at all: the page shows no list, not a failure.
+        chief.skills = .success(nil)
+        #expect(try await turn(chief).call("chief.skills", conversation, userGesture: false)
+            == .object(["skills": .array([]), "listed": .bool(false)]))
         chief.skills = .failure(HomeMessagesChiefRefusal("the Chief is not running"))
         do {
             _ = try await turn(chief).call("chief.skills", conversation, userGesture: false)

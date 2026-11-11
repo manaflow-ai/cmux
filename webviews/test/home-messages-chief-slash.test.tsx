@@ -106,7 +106,7 @@ function skillHost(answer: unknown | Error) {
   return { host, calls };
 }
 
-async function renderChief(container: HTMLElement, host: PageClient) {
+async function renderChief(container: HTMLElement, host: PageClient, history?: () => string[]) {
   const skills = new ChiefSkills(host, "c1");
   await act(async () => {
     root = createRoot(container);
@@ -116,6 +116,7 @@ async function renderChief(container: HTMLElement, host: PageClient) {
         sendEnabled
         onSend={async () => true}
         chief={{ working: false, continueAvailable: false, onStop: () => {}, onContinue: () => {}, skills }}
+        {...(history ? { history } : {})}
       />,
     );
   });
@@ -202,4 +203,65 @@ test("a malformed row is left out, never the list", () => {
     { name: "ok", description: "", source: "chief" },
   ]);
   expect(parseChiefSkills(null)).toEqual([]);
+});
+
+test("a message ↑ brought back that is a skill keeps ↑ for history: no list", async () => {
+  const container = installDom();
+  const { host, calls } = skillHost(SKILLS);
+  const { field, key, rows } = await renderChief(container, host, () => ["/triage", "older message"]);
+  await key("ArrowUp");
+  expect(field.value()).toBe("/triage");
+  expect(rows()).toEqual([]);
+  expect(calls).toEqual([]);
+  await key("ArrowUp");
+  expect(field.value()).toBe("older message");
+});
+
+test("a path shows no loading or failed row", async () => {
+  const container = installDom();
+  const host = {
+    call: () => new Promise(() => {}),
+    subscribe: () => Promise.reject(new Error("none")),
+    handle: () => () => {},
+  } as unknown as PageClient;
+  const { type } = await renderChief(container, host);
+  await type("/");
+  expect(container.querySelector(".mt-slash-status")?.textContent).toBe(strings.t("home.compose.slash.loading"));
+  await type("usr/bin");
+  expect(container.querySelector(".mt-slash-menu")).toBeNull();
+});
+
+test("a Chief that lists no skills (hosted) shows nothing and is not asked again", async () => {
+  const container = installDom();
+  const { host, calls } = skillHost({ skills: [], listed: false });
+  const { field, type } = await renderChief(container, host);
+  await type("/");
+  expect(container.querySelector(".mt-slash-menu")).toBeNull();
+  await act(async () => field.writeText("", 0, 0));
+  await settle();
+  await type("/");
+  expect(calls.length).toBe(1);
+});
+
+test("a fresh / reads the list again while the old one shows", async () => {
+  const container = installDom();
+  let answer: unknown = SKILLS;
+  const calls: number[] = [];
+  const host = {
+    call: async () => {
+      calls.push(1);
+      return answer;
+    },
+    subscribe: () => Promise.reject(new Error("none")),
+    handle: () => () => {},
+  } as unknown as PageClient;
+  const { field, type, rows } = await renderChief(container, host);
+  await type("/");
+  expect(rows().length).toBe(4);
+  answer = { skills: [...SKILLS.skills, { name: "new-skill", description: "Added later", source: "chief" }] };
+  await act(async () => field.writeText("", 0, 0));
+  await settle();
+  await type("/");
+  expect(calls.length).toBe(2);
+  expect(rows()).toContain("/new-skill");
 });

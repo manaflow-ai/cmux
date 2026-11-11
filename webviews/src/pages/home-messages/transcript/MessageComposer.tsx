@@ -24,6 +24,7 @@
 import type { PrepareFile } from "./prepareAttachment";
 import {
   useEffect,
+  useId,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -58,7 +59,13 @@ import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { quoteMarkdown } from "../../home-channels/quoteSelection";
 import type { ComposerTarget } from "../composerHandoff";
 import { AttachmentDrafts } from "./attachmentDrafts";
-import { chiefSkillMatches, skillCommand, type ChiefSkillList, type ChiefSkills } from "./chiefSkills";
+import {
+  chiefSkillMatches,
+  couldNameSkill,
+  skillCommand,
+  type ChiefSkillList,
+  type ChiefSkills,
+} from "./chiefSkills";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { excerpt } from "./replyQuote";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
@@ -192,8 +199,8 @@ export function MessageComposer({
   /** The text Escape closed the list on: it stays closed until the text changes. */
   const [dismissed, setDismissed] = useState<string | undefined>();
   const setSlash = (trigger: SlashTrigger | undefined) => {
-    // A fresh `/` (none showed) reads the list; typing more never does.
-    if (trigger?.leading && !slashShown.current) skillStore?.load();
+    // A fresh `/` (none showed) reads the list; typing more never does, nor a message ↑ brought back.
+    if (trigger?.leading && !slashShown.current && !browse.isBrowsing) skillStore?.load();
     slashShown.current = Boolean(trigger?.leading);
     // A new word forgets the row the arrows chose: the same word typed again picks by its spelling.
     if (lastSlash.current?.query !== trigger?.query || lastSlash.current?.leading !== trigger?.leading) {
@@ -206,13 +213,17 @@ export function MessageComposer({
   const loadedSkills = skillList.kind === "loaded" ? skillList.skills : undefined;
   const skillCommands = useMemo(() => loadedSkills?.map(skillCommand), [loadedSkills]);
   const slashNames = useSlashNames(skillCommands);
-  const typedSlash = skillStore && slash?.leading && dismissed !== value ? slash : undefined;
+  // A message ↑ brought back keeps its arrows for history: a `/skill` in it opens no list.
+  const typedSlash =
+    skillStore && slash?.leading && dismissed !== value && !browse.isBrowsing ? slash : undefined;
+  const menuId = useId();
   const slashRows = useMemo(
     () => (typedSlash && loadedSkills ? chiefSkillMatches(loadedSkills, typedSlash) : []),
     [typedSlash, loadedSkills],
   );
+  // A status row (loading, failed, none) only while the word can still name a skill: never for a path.
   const slashStatus =
-    !typedSlash || skillList.kind === "none"
+    !typedSlash || skillList.kind === "none" || !couldNameSkill(typedSlash.query)
       ? undefined
       : skillList.kind === "loading"
         ? t("home.compose.slash.loading")
@@ -401,6 +412,7 @@ export function MessageComposer({
       <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
       {slashOpen && (
         <SkillMenu
+          id={menuId}
           rows={slashRows}
           active={slashSelected}
           status={slashStatus}
@@ -482,9 +494,9 @@ export function MessageComposer({
                     role: "combobox",
                     "aria-autocomplete": "list",
                     "aria-expanded": String(slashOpen),
-                    "aria-controls": slashOpen ? "mt-slash-menu" : undefined,
+                    "aria-controls": slashOpen ? menuId : undefined,
                     "aria-activedescendant":
-                      slashOpen && slashRows.length > 0 ? `mt-slash-${slashSelected}` : undefined,
+                      slashOpen && slashRows.length > 0 ? `${menuId}-${slashSelected}` : undefined,
                   }
                 : {}),
             }}
@@ -570,6 +582,7 @@ export function MessageComposer({
 /** The `/` list over the message box: `/name` with the typed letters marked, where the skill comes
  * from, its description; or one status row while the list loads, failed, or the Chief has none. */
 function SkillMenu({
+  id,
   rows,
   active,
   status,
@@ -579,6 +592,7 @@ function SkillMenu({
   onPick,
   sourceOf,
 }: {
+  id: string;
   rows: SlashMatch[];
   active: number;
   status: string | undefined;
@@ -597,7 +611,7 @@ function SkillMenu({
         : t("home.compose.slash.source.chief");
   if (rows.length === 0)
     return (
-      <div className="ui-popup ui-glass mt-slash-menu mt-slash-status" role="status" aria-busy={loading}>
+      <div id={id} className="ui-popup ui-glass mt-slash-menu mt-slash-status" role="status" aria-busy={loading}>
         {status}
       </div>
     );
@@ -611,9 +625,9 @@ function SkillMenu({
       activeIndex={active}
       onActiveIndexChange={onHover}
       onOpen={(row) => onPick(row.command)}
-      getItemId={(_, index) => `mt-slash-${index}`}
+      getItemId={(_, index) => `${id}-${index}`}
       className="ui-popup ui-glass mt-slash-menu"
-      id="mt-slash-menu"
+      id={id}
       rowClassName="mt-slash-row"
       renderItem={(row) => (
         <>

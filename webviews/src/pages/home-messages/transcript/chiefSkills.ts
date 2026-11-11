@@ -23,6 +23,10 @@ export type ChiefSkillList =
   | { kind: "failed" }
   | { kind: "loaded"; skills: readonly ChiefSkill[] };
 
+/** Whether the answer lists skills at all: a Chief that cannot (a hosted Chief has no skill folders
+ * the app reads) answers `listed: false`, and `/` there shows nothing. */
+export const skillsListed = (raw: unknown): boolean => (raw as { listed?: unknown } | null)?.listed !== false;
+
 /** The `{skills}` answer, each row checked; a malformed row is left out, never the list. */
 export function parseChiefSkills(raw: unknown): ChiefSkill[] {
   const rows = (raw as { skills?: unknown } | null)?.skills;
@@ -41,6 +45,14 @@ export function parseChiefSkills(raw: unknown): ChiefSkill[] {
   return skills;
 }
 
+const sameSkills = (a: readonly ChiefSkill[], b: readonly ChiefSkill[]) =>
+  a.length === b.length &&
+  a.every((skill, i) => skill.name === b[i]!.name && skill.description === b[i]!.description && skill.source === b[i]!.source);
+
+/** What a `/word` can still be the start of: a skill name (slash_skills.rs `invoked` reads a name of
+ * letters, digits and `-_.:`). A path (`/usr/bin`) cannot, so it never shows a loading or failed row. */
+export const couldNameSkill = (query: string) => /^[\w.:-]*$/.test(query);
+
 /** A skill as the agent pane's `/` matching reads it (slashCommands.ts): a command the Chief runs
  * when its message starts with it. */
 export const skillCommand = (skill: ChiefSkill): SlashCommand => ({
@@ -56,12 +68,15 @@ export function chiefSkillMatches(skills: readonly ChiefSkill[], trigger: SlashT
   return slashMatches(skills.map(skillCommand), trigger);
 }
 
-/** One Chief conversation's skills: read on demand, kept while it shows, read again on a fresh `/`
- * after a failure (a Chief that was starting may answer now). */
+/** One Chief conversation's skills: read on a fresh `/`. A list already here stays shown while it is
+ * read again (a skill added since shows on the next `/`); a failure asks again on the next `/` (a
+ * Chief that was starting may answer now). A Chief that lists none (`listed: false`) is never asked
+ * again. */
 export class ChiefSkills {
   private list: ChiefSkillList = { kind: "none" };
   private readonly listeners = new Set<() => void>();
   private asking = false;
+  private unlisted = false;
 
   constructor(
     private readonly host: PageClient | null,
@@ -75,19 +90,29 @@ export class ChiefSkills {
 
   getSnapshot = (): ChiefSkillList => this.list;
 
-  /** A fresh `/`: asks the host unless the list is here or on its way. */
+  /** A fresh `/`: asks the host unless an ask is on its way or the Chief lists none. */
   load(): void {
-    if (!this.host || this.asking || this.list.kind === "loaded") return;
+    if (!this.host || this.asking || this.unlisted) return;
     this.asking = true;
-    this.publish({ kind: "loading" });
+    const shown = this.list.kind === "loaded" ? this.list : undefined;
+    if (!shown) this.publish({ kind: "loading" });
     void this.host.call<unknown>(CHIEF_SKILLS_OP, { conversation: this.conversation }).then(
       (answer) => {
         this.asking = false;
-        this.publish({ kind: "loaded", skills: parseChiefSkills(answer) });
+        if (!skillsListed(answer)) {
+          this.unlisted = true;
+          this.publish({ kind: "none" });
+          return;
+        }
+        const skills = parseChiefSkills(answer);
+        // The same list again keeps its object: the menu does not redraw.
+        if (shown && sameSkills(shown.skills, skills)) return;
+        this.publish({ kind: "loaded", skills });
       },
       () => {
         this.asking = false;
-        this.publish({ kind: "failed" });
+        // A list already shown stays: one missed refresh is not a failure the person needs to see.
+        if (!shown) this.publish({ kind: "failed" });
       },
     );
   }

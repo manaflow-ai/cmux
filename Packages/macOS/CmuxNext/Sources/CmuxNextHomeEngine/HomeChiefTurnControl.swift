@@ -113,9 +113,10 @@ public struct HomeChiefTurnControl {
     }
 
     /// `chief.engine.get` `offered.skills`: what `/` lists in this Chief's composer (its host reads
-    /// the skill folders, optchat-chief slash_skills.rs), local and paired-server Chiefs alike.
-    public func offeredSkills() async -> Result<[ChiefEngineReport.Offered.Skill], HomeChiefEngineError> {
-        if isHosted { return .failure(.cloudStopUnsupported) }
+    /// the skill folders, optchat-chief slash_skills.rs), local and paired-server Chiefs alike. Nil
+    /// for a hosted Chief: the Cloud service names no skills, so `/` there lists nothing.
+    public func offeredSkills() async -> Result<[ChiefEngineReport.Offered.Skill]?, HomeChiefEngineError> {
+        if isHosted { return .success(nil) }
         guard let connection else { return .failure(.unreachable) }
         do throws(ChiefControlError) {
             return .success(try await ChiefControlClient(connection).chiefEngine(chief: named).offered.skills)

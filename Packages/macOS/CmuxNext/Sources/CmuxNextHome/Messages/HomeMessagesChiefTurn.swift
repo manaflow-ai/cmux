@@ -57,8 +57,9 @@ public protocol HomeMessagesChiefControl {
     /// `chief.stop {start: name}`: Start now on an agent the Chief queued behind its cap (its pill's
     /// card and menu, user 2026-11-08); nil when it started.
     func startQueuedAgent(_ name: String) async -> HomeMessagesChiefRefusal?
-    /// `chief.engine.get` `offered.skills`: what `/` in the message box lists.
-    func slashSkills() async -> Result<[HomeChiefSlashSkill], HomeMessagesChiefRefusal>
+    /// `chief.engine.get` `offered.skills`: what `/` in the message box lists; nil when this Chief
+    /// lists none at all (a hosted Chief).
+    func slashSkills() async -> Result<[HomeChiefSlashSkill]?, HomeMessagesChiefRefusal>
 }
 
 /// The Messages page's Chief turn ops (the App's `HomeMessagesHostProvider` routes these here),
@@ -68,7 +69,7 @@ public protocol HomeMessagesChiefControl {
 /// - `chief.continue {conversation}` -> `{continued, reason?}`: Continue after a stop;
 /// - `chief.restart {conversation, names}` -> `{restarted: true}`: Restart on the stop-all toast;
 /// - `chief.startAgent {conversation, agent}` -> `{started: true}`: Start now on a queued agent's pill;
-/// - `chief.skills {conversation}` -> `{skills: [{name, description, source}]}`: what `/` in the
+/// - `chief.skills {conversation}` -> `{skills: [{name, description, source}], listed}`: what `/` in the
 ///   message box lists. A read, so it is the one op a typed `/` runs without a click.
 /// A refusal (no Chief here, a hosted cloud Chief, the brain unreachable) throws its words.
 @MainActor
@@ -112,9 +113,12 @@ public final class HomeMessagesChiefTurn {
             return .object(out)
         case "chief.skills":
             let skills = try Self.answer(await chief.slashSkills())
-            return .object(["skills": .array(skills.map { skill in
-                .object(["name": .string(skill.name), "description": .string(skill.description), "source": .string(skill.source)])
-            })])
+            return .object([
+                "skills": .array((skills ?? []).map { skill in
+                    .object(["name": .string(skill.name), "description": .string(skill.description), "source": .string(skill.source)])
+                }),
+                "listed": .bool(skills != nil),
+            ])
         case "chief.startAgent":
             let agent = fields["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !agent.isEmpty else { throw PageError.invalidParams("agent must name the queued agent") }
