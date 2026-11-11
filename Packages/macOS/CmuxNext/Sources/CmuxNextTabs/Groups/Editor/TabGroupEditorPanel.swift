@@ -68,7 +68,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         let content = ThemeHookView()
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let glass = Glass.makeMenuPanel(content: content)
         adoptPopupStyle(card: glass)
         self.glass = glass
         // Adopting a scope and every theme change of it repaint the content.

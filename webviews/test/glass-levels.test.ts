@@ -43,7 +43,9 @@ test("every popup and hover card is one material: the menu level and one veil on
   const rule = glass.slice(at, glass.indexOf("}", at));
   expect(rule).toContain("var(--ds-glass-menu-tint)");
   expect(rule).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
-  expect(rule).toContain("--host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent)");
+  expect(rule).toContain(
+    "--host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent)",
+  );
   // No popup names the popover level, and no menu a second rule of its own.
   expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);
   // The surfaces that kept a tint of their own (the model menu's 92%, the + menu's and New Tab
