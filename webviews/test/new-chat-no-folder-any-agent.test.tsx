@@ -249,6 +249,64 @@ test("a folder the pane refused is never started again: not by a later pick, not
   ]);
 });
 
+test("after a refused folder, Retry and a send start in the pane's start folder, never the refused one", async () => {
+  const { HarnessSwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const created: { harness: string; cwd?: string }[] = [];
+  let startFolder: string | undefined = "/work/project";
+  const store = new HarnessSwitch();
+  store.setHandlers({ notice: () => undefined, restore: () => undefined } as never);
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: async (harness: string, cwd?: string) => {
+      created.push({ harness, ...(cwd ? { cwd } : {}) });
+      if (cwd === HOME || cwd === "/granted/gone")
+        throw Object.assign(new Error("This folder is outside the folders this pane may use."), {
+          code: "transport.path_outside_roots",
+        });
+      return `${harness}-session`;
+    },
+    leave: () => undefined,
+    open: async (sessionId: string) => sessionId,
+    send: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+    startFolder: () => startFolder,
+  } as never);
+  const refusedAt = async (count: number, what: string) =>
+    until(() => created.length === count && store.view().intent?.phase === "failed", what);
+  // Retry goes to the pane's start folder as it is now.
+  void store.switchTo("codex", HOME, { deferred: true });
+  await refusedAt(1, "the start in ~ was refused");
+  store.retry();
+  await until(() => created.length === 2, "Retry started again");
+  // A send after the failure (Enter instead of Retry) restarts the same way: no start folder, no folder.
+  startFolder = undefined;
+  void store.switchTo("claude", "/granted/gone", { deferred: true });
+  await refusedAt(3, "the start in a folder that left the roots was refused");
+  void store.send("hello")?.catch(() => undefined);
+  await until(() => created.length === 4, "the send started again");
+  expect(created).toEqual([
+    { harness: "codex", cwd: HOME },
+    { harness: "codex", cwd: "/work/project" },
+    { harness: "claude", cwd: "/granted/gone" },
+    { harness: "claude" },
+  ]);
+});
+
+test("a project folder the person picks counts even when the tab sits in it", async () => {
+  const { newChatFolder } = await import("../src/agent-session/acpmux/startFolderModel");
+  const project = "/Users/you/code/app";
+  expect(newChatFolder({ cwd: project, inherited: project, startFolder: `${project}/sub`, fresh: true })).toBe(project);
+  // The inherited home folder or agent-home is never a pick: the start folder, else no folder.
+  expect(newChatFolder({ cwd: HOME, inherited: HOME, fresh: true })).toBeNull();
+  expect(newChatFolder({ cwd: HOME, inherited: HOME, startFolder: project, fresh: true })).toBe(project);
+  expect(newChatFolder({ cwd: HOME, inherited: HOME, fresh: false })).toBeUndefined();
+  // Once the person answered Use Home Folder, `~` is the start folder and is used.
+  expect(newChatFolder({ cwd: HOME, inherited: HOME, startFolder: HOME, fresh: true })).toBe(HOME);
+});
+
 test("once the person answered Use Home Folder, a new chat of any agent starts in ~", async () => {
   const { starts, refused } = await mountFreshWorkspaceTab({ homeAnswered: true });
   for (const harness of AGENTS) {
