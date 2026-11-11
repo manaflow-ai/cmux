@@ -702,36 +702,18 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         return defaultClientPath
     }
 
-    /// Longest line a remote login shell will accept: `MAX_CANON`, which is 1024 on macOS.
-    ///
-    /// et types the command into a pty rather than exec'ing it, so this is a hard delivery limit
-    /// and not a style guide: a longer line never completes, the shell runs nothing, and the attach
-    /// dies on a timeout with nothing to explain it.
-    ///
-    /// The value is the smaller of the platforms cmux reaches, deliberately. It is 4096 on Linux,
-    /// so a bound of 1024 is safe against either — but only as a *starting* figure, because the
-    /// whole line is not cmux's to spend. See ``deliverableCommandBytes``.
-    static let maxCanonicalLineBytes = 1024
+    /// Longest line a remote login shell will accept: `MAX_CANON`. The value and the reason
+    /// for it live in `CmuxFoundation.RemoteTmuxETCommandLine`. See ``deliverableCommandBytes``.
+    static var maxCanonicalLineBytes: Int { RemoteTmuxETCommandLine.maxCanonicalLineBytes }
 
-    /// How much of that line cmux may actually fill.
-    ///
-    /// Measured, because assuming the whole line was available was wrong: against et 6.2.11+7 on
-    /// macOS, delivery stops between 953 and 1016 bytes, not at 1024. et appends `; exit` to
-    /// whatever it is given and the shell's own line editing costs more on top, so roughly 70
-    /// bytes of a 1024-byte line are already spent before cmux's command starts. A budget compared
-    /// against the raw `MAX_CANON` therefore passes its own check and still gets truncated, which
-    /// is the failure this constant exists to prevent.
-    ///
-    /// The allowance is rounded up from the measured 71 bytes to absorb a longer prompt or a
-    /// noisier shell. `scripts/remote-tmux-et-conformance.sh` re-measures the real threshold on
-    /// each run and fails if this budget no longer fits inside it, so the number cannot quietly
-    /// drift away from the transport again.
-    static let transportLineOverheadAllowanceBytes = 96
+    /// The part of that line et and the shell spend before cmux's command starts; measured, and
+    /// documented on `RemoteTmuxETCommandLine`.
+    static var transportLineOverheadAllowanceBytes: Int {
+        RemoteTmuxETCommandLine.transportLineOverheadAllowanceBytes
+    }
 
     /// Bytes available for the remote command itself.
-    static var deliverableCommandBytes: Int {
-        max(0, maxCanonicalLineBytes - transportLineOverheadAllowanceBytes)
-    }
+    static var deliverableCommandBytes: Int { RemoteTmuxETCommandLine.deliverableCommandBytes }
 
     /// Longest session name whose attach command still fits one deliverable line.
     ///
@@ -795,9 +777,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     static func controlStreamRemoteCommand(
         sessionName: String, mode: RemoteTmuxControlAttachMode, socketName: String? = nil
     ) -> String {
-        (["tmux"] + RemoteTmuxSocketName.arguments(for: socketName) + mode.tmuxArguments(sessionName: sessionName))
-            .map(RemoteTmuxHost.shellSingleQuoted)
-            .joined(separator: " ")
+        RemoteTmuxETCommandLine(
+            tmuxArguments: mode.tmuxArguments(sessionName: sessionName), socketName: socketName
+        ).rendered
     }
 
     func executablePath() -> String { broker?.executable ?? executable }
@@ -927,11 +909,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         sessionName: String,
         mode: RemoteTmuxControlAttachMode
     ) -> (actual: Int, budget: Int)? {
-        let actual = Self.controlStreamRemoteCommand(
-            sessionName: sessionName, mode: mode, socketName: socketName
-        ).utf8.count
-        let budget = Self.deliverableCommandBytes
-        return actual > budget ? (actual: actual, budget: budget) : nil
+        RemoteTmuxETCommandLine(
+            tmuxArguments: mode.tmuxArguments(sessionName: sessionName), socketName: socketName
+        ).overrun
     }
 }
 

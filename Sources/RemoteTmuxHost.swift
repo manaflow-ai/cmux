@@ -154,45 +154,34 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// multiplexes destructive commands (`kill-session`, `rename-window`), so two
     /// distinct endpoints must never collapse onto one socket and risk routing a
     /// command to the wrong server.
-    var connectionHash: String {
-        // The transport and its port belong in the fingerprint because they decide what the
-        // control stream actually is. Everything keyed by this hash — the attach single-flight,
-        // the transport registry, matching a mirror to a host — would otherwise treat an ssh
-        // host and an et host at the same destination as one endpoint, and hand an attach a
-        // cached connection whose profile or port is wrong. Two et hosts on different
-        // etserver ports collide the same way.
-        //
-        // Only appended for a non-default transport, so a plain ssh host keeps the hash it has
-        // today: it names the shared master's socket path and persisted mirror state, and
-        // changing it for existing hosts would orphan both.
-        var fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
-        // Normalized, so two spellings of one endpoint are one key. An unset et port and an
-        // explicit 2022 both resolve to 2022 in `RemoteTmuxTransportKind.profile(port:)`, and ssh
-        // ignores a transport port entirely — hashing the spelling instead of the meaning gave the
-        // controller two keys for the same host, which bypasses mirror de-duplication and lets one
-        // host be mirrored twice.
-        if transport != .ssh {
-            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transport.resolvedTransportPort(transportPort))"
-        }
-        // Only appended when set, for the same reason: a host on the default server keeps the
-        // hash it has today. Two servers on one host are two endpoints, each holding its own
-        // sessions, so they must never share a master or a mirror (#15022).
-        if let socketName {
-            fingerprint += "\u{1f}socket\u{1f}\(socketName)"
-        }
-        return Self.fnv1a64Hex(fingerprint)
+    var connectionHash: String { endpointIdentity.connectionHash }
+
+    /// This host's endpoint identity: the values ``connectionHash`` is computed from.
+    ///
+    /// The transport is part of it only when it is not ssh, and then with its resolved port, so
+    /// an unset et port and an explicit 2022 are one endpoint and a plain ssh host keeps the hash
+    /// it has always had. The fingerprint itself lives in
+    /// `CmuxFoundation.RemoteTmuxEndpointIdentity`, where it is tested without the app.
+    var endpointIdentity: RemoteTmuxEndpointIdentity {
+        RemoteTmuxEndpointIdentity(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            transport: transport == .ssh
+                ? nil
+                : RemoteTmuxEndpointIdentity.Transport(
+                    name: transport.rawValue,
+                    resolvedPort: transport.resolvedTransportPort(transportPort)
+                ),
+            socketName: socketName
+        )
     }
 
     /// FNV-1a 64-bit hex digest — a stable, dependency-free short hash used to derive
     /// collision-resistant identifiers from a string (the host ``connectionHash`` and
     /// the multiplexed view-session owner hash both build on it).
     static func fnv1a64Hex(_ string: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        for byte in string.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3 // FNV prime
-        }
-        return String(format: "%016llx", hash)
+        RemoteTmuxEndpointIdentity.fnv1a64Hex(string)
     }
 
     /// The SSH ControlMaster socket path shared by every operation against this host.
