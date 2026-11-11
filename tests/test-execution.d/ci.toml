@@ -45,6 +45,11 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cdn_user_agent.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails a Python read of a CDN-fronted host of ours (gh-events, files, files-next, presence, workers.dev) that would send urllib's default User-Agent, which the CDN refuses with 403 error code 1010, and runs base_red_excuse.py's receipt read and cli-swap.py's fetch against a fake CDN; run python3 -m unittest tests/test_ci_cdn_user_agent.py yourself after adding or changing such a read (about 4 s, no build)."
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
