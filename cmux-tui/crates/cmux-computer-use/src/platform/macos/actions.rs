@@ -150,7 +150,12 @@ impl MacDesktop {
     /// types them.
     fn refuse_menu_keys(&self, el: &Ax) -> DResult<()> {
         match menu_role(el) {
-            Some(role) if role != "AXComboBox" => self.menu_gate(el).map(|_| ()),
+            Some(role) if role != "AXComboBox" => {
+                // A menu opened by a key would skip the keyboard guard and
+                // the open-menu record: refuse in both modes, naming what works.
+                self.menu_gate(el)?;
+                Err(DesktopError::Unsupported(menus::MENU_KEYS_REFUSAL.into()))
+            }
             _ => Ok(()),
         }
     }
@@ -179,6 +184,7 @@ impl MacDesktop {
     /// Opens the menu of `el` (which [`Self::menu_gate`] allowed) and leaves
     /// it open with its items in the result.
     fn open_menu_of(&self, t: &Target, el: &Ax, element: &str) -> DResult<ActionOutcome> {
+        self.refuse_left_open_in_persons_app(t)?;
         let action = roles::open_action(&el.actions()).ok_or_else(|| {
             DesktopError::Unsupported(format!(
                 "element {element} has no press or show-menu action to open its menu"
@@ -256,6 +262,7 @@ pub(super) fn click(
     let t = d.target(target.window_id())?;
     if spec.delivery == Delivery::Background && opens_context_menu(spec) {
         d.context_menu_allowed()?;
+        d.refuse_left_open_in_persons_app(&t)?;
         return match target {
             PointerTarget::Point { point, .. } => d.context_menu_at(&t, d.point_in(&t, *point)?),
             PointerTarget::Element { element_id, .. } => {
@@ -400,6 +407,14 @@ pub(super) fn press_keys(
     let mut flags = keymap::flags(&combo.modifiers);
     if shift {
         flags |= keymap::FLAG_SHIFT;
+    }
+    // Return or Space would activate the highlighted item of a menu left
+    // open, which may be one hidden from the tree (a denied app's).
+    if delivery == Delivery::Background
+        && matches!(combo.key, crate::keys::Key::Return | crate::keys::Key::Space)
+        && d.opened_menu_for(&t.id()).is_some()
+    {
+        return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
     }
     // Escape closes the menu a call left open for this window, through
     // accessibility (a posted Escape does not reach every app's menu).
@@ -593,10 +608,6 @@ fn pick_closed(
         after != before
     });
     let confirmed = after.as_deref().is_some_and(|a| roles::same_title(a, &title));
-    if !confirmed && after == before && d.menu_policy().opens() {
-        // The closed menu took the press and kept its value: open it instead.
-        return Ok(None);
-    }
     let mut out = if confirmed {
         ActionOutcome::confirmed("ax_menu_item")
     } else {
@@ -640,6 +651,7 @@ pub(super) fn perform_action(
     let available = el.actions();
     let Some(ax_action) = roles::resolve_action(action, &available) else {
         if let Some((attr, value)) = roles::attribute_action(action.trim()) {
+            d.refuse_denied_item(&el)?;
             // Expanding a pop-up or combo box opens its menu or list.
             if attr == "AXExpanded" && value && d.menu_gate(&el)?.is_some() {
                 return d.open_menu_of(&t, &el, element_id);
@@ -667,6 +679,7 @@ pub(super) fn perform_action(
             return Err(DesktopError::Unsupported(menus::MENU_BAR_REFUSAL.into()));
         }
         d.context_menu_allowed()?;
+        d.refuse_left_open_in_persons_app(&t)?;
         return d.open_and_list(&t, &el, "AXShowMenu");
     }
     if roles::is_foreground_action(ax_action) {
@@ -676,6 +689,7 @@ pub(super) fn perform_action(
     }
     // A press (or pick) on a pop-up opens its menu.
     if matches!(ax_action.as_str(), "AXPress" | "AXPick") && d.menu_gate(&el)?.is_some() {
+        d.refuse_left_open_in_persons_app(&t)?;
         return d.open_and_list(&t, &el, ax_action);
     }
     let before = el.value_text();

@@ -133,6 +133,8 @@ fn hide_denied_removes_items_and_their_submenus() {
         )],
     );
     let policy = MenuPolicy { mode: MenuMode::Open, denied_names: titles(&["Terminal"]) };
+    assert!(has_menu_items(&root));
+    assert!(!has_menu_items(&el("window", "w", vec![el("button", "OK", vec![])])));
     assert_eq!(hide_denied(&mut root, &policy), 2);
     let menu = &root.children[0];
     let names: Vec<&str> = menu.children.iter().map(|c| c.name.as_str()).collect();

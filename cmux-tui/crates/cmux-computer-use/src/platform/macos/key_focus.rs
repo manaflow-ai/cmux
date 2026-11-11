@@ -82,6 +82,7 @@ unsafe extern "C" {
     fn CFRunLoopRun();
     fn CFRunLoopStop(rl: *mut c_void);
     fn CFRelease(cf: *const c_void);
+    fn CFRetain(cf: *const c_void) -> *const c_void;
     static kCFRunLoopCommonModes: *const c_void;
 }
 
@@ -135,6 +136,8 @@ struct State {
     /// Taps on the processes whose menus took key focus.
     menus: HashMap<i32, Tap>,
     armed_until: Option<Instant>,
+    /// The app whose menu the armed call opens.
+    target: i32,
     lookup_until: Option<Instant>,
     released: u64,
     missed: u64,
@@ -154,6 +157,10 @@ pub(super) enum Notice {
     ReleaseAndDrop(i32),
 }
 
+/// `menu_owner(pid)` says whether `pid` may own the armed call's menu: the
+/// target app, or a helper process that is not a regular app (a System
+/// Settings pane's extension draws its menus). A regular app other than the
+/// target taking key focus is the person switching apps: it passes.
 pub(super) fn classify(
     event_type: u32,
     subtype: i64,
@@ -161,14 +168,22 @@ pub(super) fn classify(
     front: i32,
     own: i32,
     armed: bool,
+    menu_owner: impl Fn(i32) -> bool,
 ) -> Notice {
     if !armed || event_type != FOCUS_NOTICE || subtype != LOST_KEY_FOCUS {
         return Notice::Pass;
     }
     match i32::try_from(thief) {
-        Ok(pid) if pid > 0 && pid != front && pid != own => Notice::ReleaseAndDrop(pid),
+        Ok(pid) if pid > 0 && pid != front && pid != own && menu_owner(pid) => {
+            Notice::ReleaseAndDrop(pid)
+        }
         _ => Notice::Pass,
     }
+}
+
+/// Whether `pid` may own the menu of a call on `target` (see [`classify`]).
+fn may_own_menu(pid: i32, target: i32) -> bool {
+    pid == target || super::workspace::app_for_pid(pid).is_none_or(|a| !a.is_regular())
 }
 
 /// Whether the menu's tap drops one event: this process's own theft notice
@@ -205,10 +220,11 @@ extern "C" fn front_tap(
     event: *mut c_void,
     _info: *mut c_void,
 ) -> *mut c_void {
-    let (front, armed, port) = {
+    let (front, armed, port, target) = {
         let st = state();
         let armed = st.armed_until.is_some_and(|t| Instant::now() < t);
-        (st.front.as_ref().map_or(0, |f| f.0), armed, st.front.as_ref().map(|f| f.1.port))
+        let front = st.front.as_ref();
+        (front.map_or(0, |f| f.0), armed, front.map(|f| f.1.port), st.target)
     };
     if reenable(event_type, port) || event.is_null() {
         return event;
@@ -220,7 +236,8 @@ extern "C" fn front_tap(
             CGEventGetIntegerValueField(event, FIELD_THIEF_PID),
         )
     };
-    match classify(event_type, subtype, thief, front, std::process::id() as i32, armed) {
+    let owner = |pid| may_own_menu(pid, target);
+    match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
             // The release waits for the menu window: released earlier, the
@@ -228,7 +245,7 @@ extern "C" fn front_tap(
             // window) to the front.
             let spawned = std::thread::Builder::new()
                 .name("cu-key-focus-release".into())
-                .spawn(move || release_theft(thief));
+                .spawn(move || release_theft(thief, front));
             if spawned.is_ok() { std::ptr::null_mut() } else { event }
         }
     }
@@ -269,18 +286,31 @@ extern "C" fn menu_tap(
 }
 
 /// Gives the keyboard back from `thief`'s menu to the person's app.
-fn release_theft(thief: i32) {
+fn release_theft(thief: i32, front: i32) {
     let start = Instant::now();
-    while start.elapsed() < MENU_WAIT
-        && !super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer >= 101)
-    {
+    let menu_shows =
+        || super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer >= 101);
+    while start.elapsed() < MENU_WAIT && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
-    let tapped = state().menus.contains_key(&thief);
-    if !tapped && let Some(tap) = spawn_tap(thief, menu_tap) {
+    // No menu (it closed already) or the person moved to another app:
+    // nothing of the call's to give back.
+    if !menu_shows() || super::workspace::frontmost_pid() != Some(front) {
+        state().missed += 1;
+        return;
+    }
+    if !state().menus.contains_key(&thief)
+        && let Some(tap) = spawn_tap(thief, menu_tap)
+    {
         let mut st = state();
-        st.menus.insert(thief, tap);
-        // A few menu owners at most; the oldest ones go.
+        // Another release may have placed one meanwhile: keep the first.
+        match st.menus.entry(thief) {
+            std::collections::hash_map::Entry::Occupied(_) => stop_tap(tap),
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(tap);
+            }
+        }
+        // A few menu owners at most; the others go.
         while st.menus.len() > 8 {
             let Some(old) = st.menus.keys().copied().find(|p| *p != thief) else { break };
             if let Some(t) = st.menus.remove(&old) {
@@ -334,7 +364,16 @@ fn spawn_tap(pid: i32, callback: TapCallback) -> Option<Tap> {
             let run_loop = CFRunLoopGetCurrent();
             CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
             CGEventTapEnable(port, true);
-            let _ = tx.send(Some((port as usize, run_loop as usize)));
+            // Retained for the Tap that holds it; released in stop_tap.
+            CFRetain(run_loop);
+            if tx.send(Some((port as usize, run_loop as usize))).is_err() {
+                // The caller gave up waiting: nothing holds this tap.
+                CFRelease(run_loop);
+                CFMachPortInvalidate(port);
+                CFRelease(source);
+                CFRelease(port);
+                return;
+            }
             CFRunLoopRun();
             CFMachPortInvalidate(port);
             CFRelease(source);
@@ -353,14 +392,17 @@ fn spawn_tap(pid: i32, callback: TapCallback) -> Option<Tap> {
 fn stop_tap(tap: Tap) {
     // SAFETY: the run loop of a tap thread this module started; stopping it
     // ends that thread, which releases the tap.
-    unsafe { CFRunLoopStop(tap.run_loop as *mut c_void) };
+    unsafe {
+        CFRunLoopStop(tap.run_loop as *mut c_void);
+        CFRelease(tap.run_loop as *const c_void);
+    }
 }
 
 /// Arms the guard for a call about to open a menu of an app other than the
 /// person's (`front_pid`, where their keys go): a theft in the next moments
 /// is released. False when no tap could be placed (the menu then keeps the
 /// keyboard while it is open, as without the guard).
-pub(super) fn arm(front_pid: i32) -> bool {
+pub(super) fn arm(front_pid: i32, target_pid: i32) -> bool {
     if skylight().is_none() {
         return false;
     }
@@ -371,8 +413,15 @@ pub(super) fn arm(front_pid: i32) -> bool {
             stop_tap(old);
         }
     }
-    state().armed_until = Some(Instant::now() + ARMED_FOR);
+    let mut st = state();
+    st.armed_until = Some(Instant::now() + ARMED_FOR);
+    st.target = target_pid;
     true
+}
+
+/// Ends the armed window when the call that armed it returns.
+pub(super) fn disarm() {
+    state().armed_until = None;
 }
 
 /// Releases and thefts that could not be released, so far.
@@ -405,18 +454,22 @@ mod tests {
     const FRONT: i32 = 388;
 
     #[test]
-    fn only_another_apps_theft_while_armed_is_released() {
-        assert_eq!(classify(21, 0x4000, 986, FRONT, OWN, true), Notice::ReleaseAndDrop(986));
-        // Not armed: no call is opening a menu; the person's own switches pass.
-        assert_eq!(classify(21, 0x4000, 986, FRONT, OWN, false), Notice::Pass);
+    fn only_the_menus_theft_while_armed_is_released() {
+        let owner = |pid: i32| pid == 986;
+        let c = |ty, sub, thief: i64, armed| classify(ty, sub, thief, FRONT, OWN, armed, owner);
+        assert_eq!(c(21, 0x4000, 986, true), Notice::ReleaseAndDrop(986));
+        // Not armed: no call is opening a menu.
+        assert_eq!(c(21, 0x4000, 986, false), Notice::Pass);
+        // The person switching to another regular app passes.
+        assert_eq!(c(21, 0x4000, 777, true), Notice::Pass);
         // The person's app itself, or this process: pass.
-        assert_eq!(classify(21, 0x4000, i64::from(FRONT), FRONT, OWN, true), Notice::Pass);
-        assert_eq!(classify(21, 0x4000, i64::from(OWN), FRONT, OWN, true), Notice::Pass);
+        assert_eq!(c(21, 0x4000, i64::from(FRONT), true), Notice::Pass);
+        assert_eq!(c(21, 0x4000, i64::from(OWN), true), Notice::Pass);
         // Other notices (focus returned, another type) pass.
-        assert_eq!(classify(21, 0x8000, 986, FRONT, OWN, true), Notice::Pass);
-        assert_eq!(classify(13, 0x4000, 986, FRONT, OWN, true), Notice::Pass);
-        assert_eq!(classify(21, 0x4000, i64::MAX, FRONT, OWN, true), Notice::Pass);
-        assert_eq!(classify(21, 0x4000, 0, FRONT, OWN, true), Notice::Pass);
+        assert_eq!(c(21, 0x8000, 986, true), Notice::Pass);
+        assert_eq!(c(13, 0x4000, 986, true), Notice::Pass);
+        assert_eq!(c(21, 0x4000, i64::MAX, true), Notice::Pass);
+        assert_eq!(c(21, 0x4000, 0, true), Notice::Pass);
     }
 
     #[test]

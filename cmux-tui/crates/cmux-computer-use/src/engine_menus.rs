@@ -22,6 +22,9 @@ impl Engine {
     /// Takes the menu items that lead to a denied app out of a tree the
     /// agent will see.
     pub(super) fn hide_denied_menu_items(&self, config: &PolicyConfig, root: &mut Element) {
-        menus::hide_denied(root, &self.menu_policy(config));
+        // Most trees hold no menu: no app list is read for them.
+        if menus::has_menu_items(root) {
+            menus::hide_denied(root, &self.menu_policy(config));
+        }
     }
 }

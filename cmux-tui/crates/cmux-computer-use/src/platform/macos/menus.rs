@@ -56,16 +56,20 @@ const RELEASE_WAIT: Duration = Duration::from_millis(300);
 /// before the press, when armed.
 fn guard_keyboard(t: &Target) -> Option<(u64, u64)> {
     let front = workspace::frontmost_pid()?;
-    (front != t.window.pid && key_focus::arm(front)).then(key_focus::counts)
+    (front != t.window.pid && key_focus::arm(front, t.window.pid)).then(key_focus::counts)
 }
 
-/// `person` when the guard gave the keyboard back, else `menu`.
+/// `person` when the guard gave the keyboard back, else `menu`; the guard
+/// is disarmed either way (it never outlives the call).
 fn keyboard(guard: Option<(u64, u64)>) -> String {
-    match guard {
-        Some(before) if key_focus::released_since(before, RELEASE_WAIT) => "person".into(),
-        _ => "menu".into(),
-    }
+    let given_back = guard.is_some_and(|before| key_focus::released_since(before, RELEASE_WAIT));
+    key_focus::disarm();
+    if given_back { "person".into() } else { "menu".into() }
 }
+
+/// A menu just opened: its element, its windows, when it was asked for, and
+/// the keyboard guard's counts when armed.
+type OpenedMenu = (Ax, Vec<u32>, Instant, Option<(u64, u64)>);
 
 /// A menu this desktop opened and left open: the window it is for, its
 /// element and its menu windows.
@@ -92,6 +96,13 @@ fn menu_window_ids() -> Vec<u32> {
 fn cancel(menu: &Ax, windows: &[u32], escape_to: Route) {
     let _ = menu.perform("AXCancel");
     if wait_for(CANCEL_WAIT, || !showing(windows)) {
+        return;
+    }
+    // Never into the person's app: if the menu closed in between, the
+    // Escape would reach their window (a sheet, a field).
+    if let Route::Pid { pid, .. } = escape_to
+        && workspace::frontmost_pid() == Some(pid)
+    {
         return;
     }
     let _ = input::key(escape_to, ESCAPE, 0, None);
@@ -202,6 +213,15 @@ pub(super) fn item_path(el: &Ax) -> Vec<String> {
 }
 
 impl MacDesktop {
+    /// Refuses leaving a menu open in the app the person is using (it would
+    /// track their pointer and keyboard until the next call).
+    pub(super) fn refuse_left_open_in_persons_app(&self, t: &Target) -> DResult<()> {
+        if workspace::frontmost_pid() == Some(t.window.pid) {
+            return Err(DesktopError::Unsupported(menus::PERSONS_APP_REFUSAL.into()));
+        }
+        Ok(())
+    }
+
     /// Refuses pressing a menu item that leads to a denied app.
     pub(super) fn refuse_denied_item(&self, el: &Ax) -> DResult<()> {
         if el.string("AXRole").as_deref() != Some("AXMenuItem") {
@@ -259,12 +279,7 @@ impl MacDesktop {
     }
 
     /// Opens `el`'s menu with `action` and waits until it shows.
-    fn open_menu(
-        &self,
-        t: &Target,
-        el: &Ax,
-        action: &str,
-    ) -> DResult<(Ax, Vec<u32>, Instant, Option<(u64, u64)>)> {
+    fn open_menu(&self, t: &Target, el: &Ax, action: &str) -> DResult<OpenedMenu> {
         let app = Ax::application(t.window.pid).ok_or_else(|| {
             DesktopError::TargetNotFound(format!("the app of window {}", t.window.id))
         })?;
@@ -288,7 +303,7 @@ impl MacDesktop {
             || shown_menu(el, &app),
         );
         el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
-        let (menu, windows) = opened?;
+        let (menu, windows) = opened.inspect_err(|_| key_focus::disarm())?;
         Ok((menu, windows, start, guard))
     }
 
@@ -455,7 +470,10 @@ impl MacDesktop {
                 Ok(out)
             }
             // The click was delivered and showed no menu (nothing there has one).
-            Err(_) => Ok(ActionOutcome::delivered(route.name()).at(at)),
+            Err(_) => {
+                key_focus::disarm();
+                Ok(ActionOutcome::delivered(route.name()).at(at))
+            }
         }
     }
 }

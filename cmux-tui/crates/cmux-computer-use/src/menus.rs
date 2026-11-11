@@ -257,6 +257,15 @@ pub fn refused_by_setting(what: &str) -> String {
     )
 }
 
+/// Why keys that open a focused pop-up's menu are refused.
+pub const MENU_KEYS_REFUSAL: &str = "Space, Return and the arrow keys open this focused pop-up's menu outside Computer Use's menu handling; use set_value with the item's title, or click the pop-up to open its menu";
+
+/// Why a menu is not left open in the app the person is using.
+pub const PERSONS_APP_REFUSAL: &str = "this menu belongs to the app the person is using, and a menu left open there takes their pointer and keyboard; use set_value with the item's title (it picks and closes the menu in one call), or delivery foreground";
+
+/// Why Return or Space is refused while a menu is open.
+pub const OPEN_MENU_KEYS_REFUSAL: &str = "a menu is open in this window: press its item by element (perform_action press, or click with element_id), or press_key Escape to close it";
+
 /// Why a menu bar menu stays closed in the background.
 pub const MENU_BAR_REFUSAL: &str = "menu bar menus are not opened in the background: the menu bar is the frontmost app's, so opening one would take over the person's menu bar; use the item's keyboard shortcut with press_key, the app's own controls, or delivery foreground";
 
@@ -287,6 +296,11 @@ pub fn not_found(wanted: &str, found: &ItemMatch, titles: &[String]) -> String {
 
 /// The plain role names of menu items in a tree.
 const ITEM_ROLES: &[&str] = &["menu_item", "menu_bar_item"];
+
+/// Whether a tree holds any menu item.
+pub fn has_menu_items(root: &Element) -> bool {
+    ITEM_ROLES.contains(&root.role.as_str()) || root.children.iter().any(has_menu_items)
+}
 
 /// Removes the menu items of `root` that lead to a denied app (and their
 /// submenus) and returns how many it removed.
