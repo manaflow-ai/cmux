@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "tests" / "git_fixture_env.py"
 LIB = ROOT / "scripts/cmux-next/tests/lib/git-fixture.sh"
+APP_SIZE_TEST = ROOT / "scripts/cmux-next/tests/check-app-size.test.sh"
 _spec = importlib.util.spec_from_file_location("git_fixture_env", HELPER)
 git_fixture_env = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(git_fixture_env)
@@ -149,6 +150,21 @@ class SharedTempAttack(unittest.TestCase):
                 folder = Path((self.root / "global-path").read_text().strip()).parent
                 self.assertEqual(folder.parent, self.shared)
                 self.assertEqual(self.leftovers(), [], f"{case}: the helper's private folder outlived the shell")
+
+    def test_check_app_size_test_leaves_no_git_fixture_dir(self):
+        # The real suite caller: check-app-size.test.sh sources the helper, makes its own mktemp -d, then sets
+        # `trap 'rm -rf "$tmp"' EXIT`. At 1af46a70 (cmux#40939) that trap replaced the helper's cleanup and each
+        # run left a cmux-git-fixture.* folder in TMPDIR. Its own trap's work is observable too: its tmp.* goes.
+        private = self.root / "private-tmp"
+        private.mkdir(mode=0o700)
+        done = subprocess.run(["bash", str(APP_SIZE_TEST)], env=dict(self.env, TMPDIR=str(private)), cwd=self.root,
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        left = sorted(path.name for path in private.iterdir())
+        print(f"check-app-size.test.sh exit={done.returncode}; left in TMPDIR={left}")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual([name for name in left if name.startswith("cmux-git-fixture.")], [],
+                         "check-app-size.test.sh left the git fixture's private folder behind")
+        self.assertEqual(left, [], "check-app-size.test.sh's own EXIT trap did not remove its tmp folder")
 
     def test_shell_keeps_the_folder_while_a_subshell_sets_and_runs_an_exit_trap(self):
         done = self.bash('source "$1" || exit 9\n'
