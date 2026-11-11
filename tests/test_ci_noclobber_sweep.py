@@ -25,10 +25,12 @@ reason, keyed by path and a piece of its line; an entry nothing matches fails, s
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -180,6 +182,18 @@ def allowed(path: str, line: str) -> bool:
     return any(path == ap and piece in line for ap, piece in ALLOWED) or (not NOCLOBBER.search(line) and app_named(line))
 
 
+def scratch_hits(files) -> set[str]:
+    """The paths hits() flags in a scratch repository holding FILES ((path, text, is unsafe))."""
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+        for path, text, _ in files:
+            (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
+            (Path(tmp) / path).write_text(text)
+        subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
+        return {p for p, _, _ in hits(Path(tmp))}
+
+
 class NoclobberSweep(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -238,7 +252,11 @@ class NoclobberSweep(unittest.TestCase):
                      # Review of manaflow-ai/cmux#41306 (block at 1f84d085): the outer word's template is only inside
                      # its substitution, and the write is on the outer mktemp; an unbalanced ) is not shell, so it
                      # exempts nothing.
-                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)"):
+                     'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)",
+                     # Review of manaflow-ai/cmux#41306 at 7e60a832, F1: an array's words read as a command; of
+                     # manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F1: a process substitution in ${ } read as text.
+                     "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
+                     "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX"):
             self.assertTrue(flagged(code(line)), line)
 
     def test_the_tree_walk_misses_nothing_in_the_corpus(self):
@@ -252,6 +270,13 @@ class NoclobberSweep(unittest.TestCase):
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
         self.assertEqual(bad, [])
+
+    def test_a_whole_file_is_read_in_context(self):
+        """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
+        `# $(...)` was a comment, though bash runs the substitution. The test runs hits() on files."""
+        files = (("scripts/heredoc-comment.sh", "#!/bin/sh\ncat <<EOF\n# $(printf secret > /tmp/out.$$)\nEOF\n", True),)
+        found = scratch_hits(files)
+        self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
 
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
