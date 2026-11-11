@@ -20,6 +20,8 @@ A call to a local reusable workflow whose steps publish counts as publishing at 
 
 A gate counts only if it REQUIRES the release ref. The condition is split at top-level `||` (every alternative must
 require it) and `&&` (one conjunct is enough), so `tag-gate || github.event_name == 'workflow_dispatch'` is no gate.
+For a policy with an event list (app-ffi-release.yml: push and workflow_dispatch) the gate must also carry an event
+term, and an event term naming any other event (workflow_run, repository_dispatch, schedule) is refused too.
 A step is gated by its own `if`, its job's `if`, or a job it `needs` that is gated, unless the job's `if` holds
 always(), failure() or cancelled() (then it runs even when the gated job was skipped).
 
@@ -44,16 +46,18 @@ WORKFLOWS = ROOT / ".github/workflows"
 class Policy(NamedTuple):
     ref: re.Pattern  # an atom that requires the release ref
     push_only: bool  # the gate must also exclude a dispatch (a tag ref can be dispatched)
+    events: frozenset = frozenset()  # if set, the gate must also carry an event term naming only these events
 
 
 POLICIES = {
     "coderouter-release.yml": Policy(re.compile(
         r"startsWith\(\s*github\.ref\s*,\s*'refs/tags/coderouter-v[^']*'\s*\)"
         r"|github\.ref\s*==\s*'refs/tags/coderouter-v[^']*'"), push_only=True),
-    "app-ffi-release.yml": Policy(re.compile(r"github\.ref\s*==\s*'refs/heads/feat-cmux-next'"), push_only=False),
+    "app-ffi-release.yml": Policy(re.compile(r"github\.ref\s*==\s*'refs/heads/feat-cmux-next'"), push_only=False,
+                                  events=frozenset({"push", "workflow_dispatch"})),
 }
 PUSH_ONLY_ATOM = re.compile(r"github\.event_name\s*==\s*'push'|github\.event_name\s*!=\s*'workflow_dispatch'")
-STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled)\s*\(", re.IGNORECASE)
+STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IGNORECASE)
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
@@ -84,11 +88,52 @@ def requires(expression: Any, atom: Callable[[str], bool]) -> bool:
     return atom(text)
 
 
+def event_term(atom: str, allowed: frozenset) -> bool:
+    match = re.fullmatch(r"github\.event_name\s*==\s*'([A-Za-z_]+)'", atom)
+    return bool(match) and match.group(1) in allowed
+
+
 def gated(expression: Any, policy: Policy) -> bool:
     if expression is None or not str(expression).strip():
         return False
     ref = requires(expression, lambda atom: bool(policy.ref.fullmatch(atom)))
-    return ref and (not policy.push_only or requires(expression, lambda atom: bool(PUSH_ONLY_ATOM.fullmatch(atom))))
+    if not ref:
+        return False
+    if policy.push_only and not requires(expression, lambda atom: bool(PUSH_ONLY_ATOM.fullmatch(atom))):
+        return False
+    # A ref alone would let a trigger added later (workflow_run, repository_dispatch, schedule on that branch)
+    # publish unnoticed, so the gate names the events that may, and every alternative of it names only those.
+    return not policy.events or requires(expression, lambda atom: event_term(atom, policy.events))
+
+
+RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
+GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q",
+                      "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
+GH_API_FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field", "--input")
+
+
+def gh_api_writes_release(args: list[str]) -> bool:
+    """`gh api` on a release, tag or asset path with a write method, read the way gh reads its flags: a field flag or
+    --input makes it a POST unless -X/--method says otherwise; flags come spaced or attached (-XPOST, --method=POST)."""
+    method, fields, paths, index = None, False, [], 0
+    while index < len(args):
+        word = args[index]
+        index += 1
+        name, attached = (word.split("=", 1) + [None])[:2] if word.startswith("--") else (word, None)
+        if word.startswith("-X") and len(word) > 2:
+            method = word[2:]
+        elif name in ("-X", "--method"):
+            method = attached if attached is not None else (args[index] if index < len(args) else "")
+            index += 0 if attached is not None else 1
+        elif name in GH_API_FIELD_FLAGS or (len(word) > 2 and word[:2] in ("-f", "-F") and not word.startswith("--")):
+            fields = True
+            index += 1 if (name in GH_API_VALUE_FLAGS and attached is None) else 0
+        elif name in GH_API_VALUE_FLAGS:
+            index += 1 if attached is None else 0
+        elif not word.startswith("-"):
+            paths.append(word)
+    effective = (method or ("POST" if fields else "GET")).upper()
+    return effective != "GET" and effective != "HEAD" and any(RELEASE_PATH.search(path) for path in paths)
 
 
 def publishing_command(words: list[str]) -> bool:
@@ -98,11 +143,7 @@ def publishing_command(words: list[str]) -> bool:
     if program == "gh":
         if rest[:1] == ["release"] and rest[1:2] and rest[1] in {"create", "upload", "edit", "delete", "delete-asset"}:
             return True
-        if rest[:1] == ["api"] and any("releases" in word for word in rest):
-            for flag, value in zip(rest, rest[1:]):
-                if flag in ("-X", "--method") and value.upper() != "GET":
-                    return True
-        return False
+        return rest[:1] == ["api"] and gh_api_writes_release(rest[1:])
     if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
         return "publish" in rest[:2]
     if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
@@ -150,11 +191,16 @@ def job_gates(jobs: Mapping[str, Mapping[str, Any]], policy: Policy) -> dict[str
     while changed:
         changed = False
         for name, job in jobs.items():
-            if state[name] or STATUS_FUNCTION.search(str(job.get("if", ""))):
+            if state[name]:
                 continue
             needs = job.get("needs") or []
             needs = [needs] if isinstance(needs, str) else list(needs)
-            if any(state.get(need) for need in needs):
+            condition = str(job.get("if", ""))
+            # A status function in the job's `if` turns the implicit "every need succeeded" off: the job then runs
+            # when the gated need was skipped. It stays covered only if the `if` itself requires that need's success.
+            if any(state.get(need) and (not STATUS_FUNCTION.search(condition) or requires(
+                    condition, lambda atom, need=need: bool(re.fullmatch(
+                        rf"needs\.{re.escape(need)}\.result\s*==\s*'success'", atom)))) for need in needs):
                 state[name], changed = True, True
     return state
 
@@ -182,7 +228,8 @@ def problems(name: str, document: Mapping[str, Any], policy: Policy,
             if why and not gates[job_name] and not gated(step.get("if"), policy):
                 label = step.get("name") or step.get("uses") or f"step {index}"
                 found.append(f"{name} {job_name}: step {label!r} ({'; '.join(why)}) has no condition that requires "
-                             "the release ref" + (" and the push event" if policy.push_only else ""))
+                             "the release ref" + (" and the push event" if policy.push_only else "")
+                             + (f" and an event term naming only {sorted(policy.events)}" if policy.events else ""))
     return found
 
 
