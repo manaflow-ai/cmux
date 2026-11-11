@@ -165,7 +165,7 @@ public final class SidebarSessionTreeFeed {
         if tree.state != state { tree.state = state }
         let badges = pass?.state.pullRequests ?? [:]
         if tree.pullRequests != badges { tree.pullRequests = badges }
-        let tries = pass?.tries ?? [:]
+        let tries = tree.captureTries ?? pass?.tries ?? [:]
         if tree.tries != tries { tree.tries = tries }
     }
 

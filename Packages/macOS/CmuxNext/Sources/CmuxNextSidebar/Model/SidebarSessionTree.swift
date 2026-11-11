@@ -195,6 +195,9 @@ public final class SidebarSessionTree {
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// Each row's Try pill: what its agent finished and how to try it, tree or not.
     public var tries: [WorkspaceID: SidebarTry] = [:]
+    /// A capture scene's Try pills (DEBUG `sidebar-try`): when set, the feed publishes these instead
+    /// of the chats' own, so a still shows the pill without a real agent's wrap-up.
+    @ObservationIgnored public var captureTries: [WorkspaceID: SidebarTry]?
     /// Opens a row's Try in its workspace (the app's tab opener); nil draws no pill.
     @ObservationIgnored public var onTry: (@MainActor (WorkspaceID, SidebarTry) -> Void)?
     /// The parents the user folded (a chevron on the row), kept across launches.
