@@ -200,7 +200,6 @@ async function renderPage(cell: Cell, calls: Call[]) {
           lastAgent={cell.harness}
           projects={[...projects]}
           knownProjects={[SCRATCH, ...projects.map((project) => project.cwd)]}
-          pageWidgets={new Set(["projects"])}
           chips={NewTabComposerChips}
           onAsk={actions.onAsk}
           onOpen={() => {}}
