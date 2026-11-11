@@ -2157,6 +2157,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "browser.vimKeys" : {
+      "default" : true,
+      "description" : "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.",
+      "title" : "Vim Keys in Pages",
+      "type" : "boolean"
+    },
     "browser.wakeTabsOnHover" : {
       "default" : false,
       "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
@@ -5121,7 +5127,7 @@
       "default" : [
 
       ],
-      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
       "items" : {
         "type" : "string"
       },

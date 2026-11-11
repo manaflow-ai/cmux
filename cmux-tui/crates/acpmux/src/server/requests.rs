@@ -861,6 +861,7 @@ pub(super) async fn handle_request(
     conn: &Arc<Conn>,
     m: &str,
     mut params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
@@ -989,6 +990,22 @@ pub(super) async fn handle_request(
             // The program that ran a send no session proved (`sender_program.rs`), so a prompt
             // no proof attributes still says which program sent it.
             crate::sender_program::stamp(prompt, pid, carried, conn.caller().is_none()).await;
+            // Whether a local send presented this host's sender token (`sender_token.rs`): only a
+            // unix connection's is read; the Web's, the app pane's and a peer link's were taken
+            // out unread (`server/mod.rs`).
+            let token = sender_token.filter(|_| {
+                conn.origin == super::Origin::Local
+                    && matches!(conn.socket_peer, crate::sender_harness::SocketPeer::Pid(_))
+            });
+            let matched = match token {
+                Some(token) => {
+                    let home = crate::config::home();
+                    let check = move || crate::sender_token::matches(&home, &token);
+                    Some(tokio::task::spawn_blocking(check).await.unwrap_or(false))
+                }
+                None => None,
+            };
+            crate::sender_token::stamp(prompt, matched, carried);
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
@@ -1243,7 +1260,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1864,6 +1881,11 @@ async fn dispatch_request_with_identity(
                     &params,
                 )),
             };
+            // A named sender whose send matched this host's sender token is `verified` by it
+            // (`sender_token::label`). A label only: nothing above (the person, the owner's
+            // terminal, who may do what) read it, and it makes no prompt the person's.
+            let token = crate::sender_token::matched(&params);
+            let provenance = provenance.map(|p| crate::sender_token::label(p, token));
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
             let provenance = provenance.map(|p| match conn.origin {
                 super::Origin::Peer => {

@@ -98,19 +98,31 @@ import Testing
     /// folders ("Move ▸"), and each folder holds at least two rows.
     /// Reachability inside folders is checked by the tests above, which
     /// walk submenus.
+    ///
+    /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+    /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+    /// the rows that builder hides; its catalog list here is longer than any menu it shows.
     @Test func everyMenuKeepsAShortTopLevel() {
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
             let rows = entries.filter { if case .separator = $0 { false } else { true } }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
-            let cap = [.agentChat, .terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
-            #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
+            if !Self.countedAtItsBuilder.contains(context) {
+                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            }
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count
                 #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")
             }
         }
     }
+
+    /// The menus whose top level is counted in the App's tests, from the same code that builds
+    /// them. The chat menu: its three Cloud rows are never shown together (the builder takes
+    /// `CloudMove.hiddenMenuItems` away, `AgentTabs+Header`), so `ChatMenuLengthTests`
+    /// (CmuxNextAppTests) holds it to its 13 rows (12 and the fork commands) for each kind of chat.
+    static let countedAtItsBuilder: Set<ActionMenuContext> = [.agentChat]
 
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]

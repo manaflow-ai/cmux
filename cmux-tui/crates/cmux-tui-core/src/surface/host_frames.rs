@@ -45,7 +45,7 @@
 //! not lost to the drop's own shutdown.
 
 use std::collections::VecDeque;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
@@ -55,6 +55,14 @@ use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 /// Bytes the reader thread may queue ahead of the surface's reader, counted
 /// by [`queued_cost`]. One frame is always admitted, however large.
 const QUEUED_BYTES_BUDGET: usize = 8 * 1024 * 1024;
+
+/// Bytes the reader thread reads from the socket in one call. A host link
+/// under backlog holds many frames; reading them one header and one payload
+/// at a time cost at least two `read` calls per frame. Bounded and small next
+/// to [`QUEUED_BYTES_BUDGET`]: when the queue is full the thread still stops
+/// reading, so the host keeps its backpressure (it may have written at most
+/// this many bytes more).
+const LINK_READ_BUFFER: usize = 64 * 1024;
 
 /// What a queued frame costs besides its payload: the wire header it arrived
 /// with and its queue slot. Empty frames (Bell, metadata) cost this alone;
@@ -181,6 +189,27 @@ impl HostFrames {
         }
     }
 
+    /// The next frame when one is already queued and `admit` accepts it;
+    /// never blocks. The surface's reader takes the Output frames queued
+    /// behind the one it applies with this.
+    pub(super) fn try_recv_if(&self, admit: impl FnOnce(&Frame) -> bool) -> Option<Frame> {
+        let mut state = self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let HostFrame::Frame(front) = state.frames.front()? else { return None };
+        if !admit(front) {
+            return None;
+        }
+        let HostFrame::Frame(frame) = state.frames.pop_front()? else { return None };
+        state.queued_bytes = state.queued_bytes.saturating_sub(queued_cost(&frame));
+        self.queue.changed.notify_all();
+        Some(frame)
+    }
+
+    /// Tests: how many frames are queued for the surface's reader.
+    #[cfg(test)]
+    pub(super) fn queued_frames_for_test(&self) -> usize {
+        self.queue.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).frames.len()
+    }
+
     /// The surface's reader stops reading this stream (for example at
     /// `ResyncRequired`) but the connection may stay open while it
     /// reconnects. Ordered waiters fail now, except clear-history ones. The
@@ -270,12 +299,14 @@ fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -
 }
 
 fn read_stream(
-    mut stream: impl Read,
+    stream: impl Read,
     control_responses: &ControlResponses,
     protocol_version: u16,
     early: EarlyResponses,
     queue: &Queue,
 ) {
+    // A payload larger than the buffer is read straight into its frame.
+    let mut stream = BufReader::with_capacity(LINK_READ_BUFFER, stream);
     loop {
         let draining = queue.state.lock().unwrap().draining;
         if draining.is_some_and(|deadline| {
@@ -563,6 +594,60 @@ mod tests {
                 "the reader thread queued {queued} empty frames without stopping at the budget"
             );
         });
+    }
+
+    /// Counts the `read` calls made on a stream.
+    struct CountingReader<R> {
+        inner: R,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.inner.read(buf)
+        }
+    }
+
+    /// A backlog of small frames is read with a few large reads, not two
+    /// per frame, and arrives whole and in order; a payload larger than the
+    /// read buffer arrives whole after them.
+    #[test]
+    fn a_backlog_of_small_frames_is_read_in_few_calls() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut frames: Vec<Frame> = (0..1000u64)
+            .map(|index| {
+                let mut output =
+                    Frame::new(MessageKind::Output, format!("line {index}\r\n").into());
+                output.version = version;
+                output.sequence = index + 1;
+                output
+            })
+            .collect();
+        let mut large = Frame::new(MessageKind::Output, vec![b'y'; 3 * LINK_READ_BUFFER + 5]);
+        large.version = version;
+        large.sequence = 1001;
+        frames.push(large);
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stream = CountingReader { inner: stream_of(&frames), reads: reads.clone() };
+        read_stream(stream, &responses, version, SMART, &queue);
+        let state = queue.state.lock().unwrap();
+        let received: Vec<&Frame> = state
+            .frames
+            .iter()
+            .map(|frame| match frame {
+                HostFrame::Frame(frame) => frame,
+                HostFrame::End => panic!("End is not queued"),
+            })
+            .collect();
+        assert_eq!(received.len(), frames.len());
+        for (received, sent) in received.iter().zip(&frames) {
+            assert_eq!((received.sequence, &received.payload), (sent.sequence, &sent.payload));
+        }
+        let reads = reads.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(reads < 20, "{reads} read calls for 1001 frames");
     }
 
     /// A Kitty limits acknowledgement whose requester already gave up does
