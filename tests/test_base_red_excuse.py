@@ -40,6 +40,8 @@ REAL_GIT_TEXT = getattr(excuse, "git_text", None)
 # The fleet's compile receipt is a network read too: tests see no receipt unless they fake one; CompileReceiptRead and
 # FfiPinCompileReceipt run the real reader against a faked urlopen.
 REAL_COMPILE_RECEIPT = excuse.compile_receipt
+# StaleFfiPinOfAStepARustChange's setUp patches excuse.ffi_release_file; the release-file tests call the real one.
+REAL_FFI_RELEASE_FILE = excuse.ffi_release_file
 # HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
 os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
@@ -6009,6 +6011,13 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
 
+    @staticmethod
+    def real_release_reader():
+        """`excuse` with its real ffi_release_file (setUp patches it), not a second copy of the module."""
+        import types
+        return types.SimpleNamespace(ffi_release_file=REAL_FFI_RELEASE_FILE, release_download=excuse.release_download,
+                                     Refused=excuse.Refused)
+
     def setUp(self):
         self.gh = self.GitHub(self)
         self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
@@ -6342,9 +6351,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     def test_the_release_files_are_read_anonymously_and_a_404_is_unpublished(self):
         import io
         import urllib.error
-        # setUp replaced the reader in `excuse`; a fresh copy of the module has the real one.
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # setUp replaced the reader in `excuse`; the real one, saved before any patch, reads through the same module.
+        module = self.real_release_reader()
         urls = []
 
         def answer(code):
@@ -6378,8 +6386,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # files, and every published base pin was refused as unread, which held every merge.
         import io
         import urllib.error
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = self.real_release_reader()
         tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
         download = f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA"
         listing = f"https://api.github.com/repos/{REPO}/releases/tags/{tag}"

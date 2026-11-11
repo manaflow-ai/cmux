@@ -123,27 +123,35 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     return findings, importers, {stem: {rel for rel, _, _ in sites} for stem, sites in loaders.items()}
 
 
-# Run in a fresh interpreter: imports each test module in the given order, then reports any file that two distinct
-# module objects (in sys.modules or in a test module's globals) were made from.
+# Run in a fresh interpreter: imports each test module in the given order, then reports any repository file that
+# sys.modules holds a module object of (what `import name` returns) while a test module's globals hold another.
+# Private copies nothing registers (tests/git_fixture_env.py, loaded by path in each test file by design because
+# `python3 -I` puts no folder on sys.path) are no second object of an importable module, so they do not count.
 ONE_OBJECT_PER_FILE = textwrap.dedent('''
     import importlib, json, os, sys, types
     root, order = sys.argv[1], json.loads(sys.argv[2])
     for folder in {os.path.dirname(os.path.join(root, rel)) for rel in order}:
         sys.path.insert(0, folder)
     loaded = [importlib.import_module(os.path.basename(rel)[:-3]) for rel in order]
-    objects = {}
-    def note(module):
+    def file_of(module):
         path = getattr(module, "__file__", None)
-        if path and os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
-            objects.setdefault(os.path.realpath(path), {})[id(module)] = getattr(module, "__name__", "?")
-    for module in list(sys.modules.values()):
-        if isinstance(module, types.ModuleType):
-            note(module)
+        real = os.path.realpath(path) if path else ""
+        return real if real.startswith(os.path.realpath(root) + os.sep) else None
+    registered = {}
+    for name, module in list(sys.modules.items()):
+        if isinstance(module, types.ModuleType) and file_of(module):
+            registered.setdefault(file_of(module), {})[id(module)] = name
+    held = {}
     for test in loaded:
         for value in vars(test).values():
-            if isinstance(value, types.ModuleType):
-                note(value)
-    print(json.dumps({os.path.relpath(p, root): sorted(names.values()) for p, names in objects.items() if len(names) > 1}))
+            if isinstance(value, types.ModuleType) and file_of(value) in registered:
+                held.setdefault(file_of(value), {})[id(value)] = test.__name__ + "." + value.__name__
+    two = {}
+    for path, objects in registered.items():
+        every = {**held.get(path, {}), **objects}
+        if len(every) > 1:
+            two[os.path.relpath(path, root)] = sorted(every.values())
+    print(json.dumps(two))
 ''')
 
 POLLUTER = "tests/test_ci_change_areas.py::test_cmux_next_does_not_run_full_suite_for_unrelated_packages"
