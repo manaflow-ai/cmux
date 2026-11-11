@@ -71,7 +71,9 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/question/HatQuestions.tsx"],
   load: () => import("../../../gallery/fixtures/HatQuestionsStage").then((module) => module.HatQuestionsStage),
   pane: true,
-  height: 300,
+  // Tall enough for the dock (`.acpmux-dock` max-height leaves the transcript 140 px) to hold the
+  // band whole: at 300 the band was clipped under the composer.
+  height: 520,
   experiment: { definition: hatQuestionsLook, script: hatQuestionsScript },
   variants: {
     one: {
