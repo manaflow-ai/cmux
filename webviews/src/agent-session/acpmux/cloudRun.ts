@@ -41,6 +41,9 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   // A no-project chat's private agent-home folder (sessionList.ts isAgentHome) is no project either:
   // never copied.
   if (isAgentHome(folder)) return { home: true };
+  // Chief's own home (`~/.cmux/chief/<account>`, BuildIdentity.swift): the folder a tab with "No folder"
+  // reports. RED before: a no-folder Cloud start copied it (3,602 files, 1.2 GB, refused as not git).
+  if (/\/\.cmux\/chief(?:\/|$)/.test(folder)) return { home: true };
   return { cwd: folder };
 }
 

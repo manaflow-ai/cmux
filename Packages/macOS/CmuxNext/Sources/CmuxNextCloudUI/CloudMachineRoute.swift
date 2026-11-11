@@ -89,7 +89,7 @@ public struct CloudMachineRoute: Sendable {
         guard verdict == .ready else { throw Refused(verdict: verdict) }
     }
 
-    static func message(_ verdict: Verdict) -> String {
+    nonisolated static func message(_ verdict: Verdict) -> String {
         switch verdict {
         case .ready:
             ""
