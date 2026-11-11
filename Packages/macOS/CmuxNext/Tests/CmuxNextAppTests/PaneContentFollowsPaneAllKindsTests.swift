@@ -218,4 +218,99 @@ struct PaneContentFollowsPaneAllKindsTests {
         if let inner { #expect(Self.rect(inner) == landed, "\(kind): after the landing the page is at \(Self.rect(inner)), its area at \(landed)") }
         #expect(later.taken.isEmpty, "\(kind): the content took \(later.taken.count) more size(s) after the landing's frame: \(later.taken)")
     }
+
+    /// THE 2 HOME KINDS THAT ARE HELD, NOT FOLLOWING. Not a skip: this is their contract until the Home's layout is
+    /// cheap enough to follow, and the commit that makes them follow moves them from here to the kinds above in the
+    /// same commit.
+    ///
+    /// The reason, measured (cmux#41105, hold mx5, Release builds, aws-m4pro-8, 120 Hz, 3 takes each): a Home that
+    /// followed its pane missed 13 to 15 of about 125 refreshes at a moving pane (docked Home) and 7 to 22 (Home page
+    /// tab), each second refresh in the first 8 frames after each key press; held, it missed 0. The frame's layout
+    /// pass took 5.6 ms at p95 against 1.3 ms held (the budget of a motion frame is 4 ms). A Home that follows and
+    /// drops each second refresh is a new defect in the main view; held is what it did before 2026-11-11.
+    ///
+    /// A conversation tab (`TabContent.Kind.conversation`) is not here: it followed its pane before too, and it is
+    /// in the kinds above.
+    nonisolated enum HeldHome: CaseIterable, Sendable {
+        /// The docked Home (`InternalPageID.homeDock`, a `HomeDockView`).
+        case docked
+        /// The Home as a pane tab (`InternalPageID.homeTab`, a `TopHomePageView`).
+        case pageTab
+    }
+
+    /// The Home page of `home`, made as its tab provider makes it (`HomeDockTab`, `HomePageTab`).
+    static func page(_ home: HeldHome, services: AppServices) -> InternalPageView {
+        switch home {
+        case .docked:
+            InternalPageView(key: "pane-holds-home-dock", page: .homeDock, content: HomeDockView(services: services, mode: .messages))
+        case .pageTab:
+            InternalPageView(key: "pane-holds-home-tab", page: .homeTab, content: TopHomePageView(services: services, windowKey: { "pane-holds-home-tab" }))
+        }
+    }
+
+    /// Held: in every frame of the press the Home has the size it had before the press, at the pane's edge that stays
+    /// (p2's right edge: the divider on its left moves), so it lays out in no frame of the motion. After the landing
+    /// it takes its content area's rect, with one new size.
+    @Test(arguments: HeldHome.allCases)
+    func theHomeKeepsItsSizeThroughAKeyResizeAndTakesTheRestSizeOnce(_ home: HeldHome) throws {
+        let (services, _) = HomeLaunchRevealTests.services()
+        let page = Self.page(home, services: services)
+        defer { withExtendedLifetime(services) { (page.content as? HomeDockView)?.close() } }
+
+        let provider = Panes(content: page)
+        let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        defer { window.closeAfterTest() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        let landing = Landing()
+        root.context.afterCommit = { [landing] in landing.work.append($0) }
+
+        let pane = try #require(provider.views["p2"]), area = pane.contentHost
+        let host = try #require(sequence(first: pane as NSView, next: \.superview).first { $0 is PaneHostView }, "the pane's content has no pane host above it")
+        try #require(page.window === window, "the pane does not show the \(home) Home")
+        let start = Self.rect(page)
+        try #require(start.width > 100 && start.height > 100, "the \(home) Home is at \(start) before the press")
+        #expect(start == Self.rect(area), "at rest the \(home) Home is at \(start), its area at \(Self.rect(area))")
+        let sizes = Sizes(of: page), inner = Sizes(of: page.content)
+
+        // One press on p2: the divider between p1 and p2 moves, so p2's left edge moves and its width changes.
+        #expect(PaneResize.press("p2", .left, model: model, view: root))
+        var off: [String] = []
+        var widths: Set<CGFloat> = []
+        var frames = 0
+        while frames < 240, root.advanceFrame(1.0 / 120) {
+            root.layoutSubtreeIfNeeded()
+            frames += 1
+            widths.insert(host.frame.width.rounded())
+            // The start size exactly; the edge that stays to a point (the spring's frames round to the screen's pixels).
+            let now = Self.rect(page)
+            if now.size != start.size || abs(now.maxX - start.maxX) > 1 || abs(now.minY - start.minY) > 1 { off.append("frame \(frames): \(now)") }
+        }
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        try #require(widths.count > 3, "the pane did not move with the spring: \(widths.sorted())")
+        #expect(off.isEmpty, "\(home): the Home was not held at \(start) in \(off.count) of \(frames) frames: \(off.prefix(3))")
+        #expect(sizes.taken.isEmpty, "\(home): the Home took \(sizes.taken.count) size(s) in the frames of the press: \(sizes.taken.prefix(3))")
+        #expect(inner.taken.isEmpty, "\(home): the Home's own view took \(inner.taken.count) size(s) in the frames of the press: \(inner.taken.prefix(3))")
+
+        // The landing's frame holds still; what the landing leaves for after its commit gives the Home its rest size, once.
+        root.layoutSubtreeIfNeeded()
+        #expect(sizes.taken.isEmpty, "\(home): the Home took a size in the landing's frame: \(sizes.taken)")
+        let release = landing.work
+        landing.work.removeAll()
+        for work in release { work() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        #expect(!area.isHolding, "the hold did not end at the landing")
+        let landed = Self.rect(area)
+        #expect(landed.width != start.width, "the press did not change the pane's width: \(landed), was \(start)")
+        #expect(Self.rect(page) == landed, "\(home): after the landing the Home is at \(Self.rect(page)), its area at \(landed)")
+        #expect(sizes.taken.count == 1, "\(home): the Home took \(sizes.taken.count) sizes for one press, not one: \(sizes.taken)")
+    }
 }
