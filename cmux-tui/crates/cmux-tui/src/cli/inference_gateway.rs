@@ -45,6 +45,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 use super::cloud_client_session::secure_origin;
+use super::inference_gateway_mac::{ClaudeBorrow, Login, MacLogins, login_for, oauth_beta};
 
 const PROTOCOL: &str = "cmux.inference-gateway/1";
 const CONNECT_PATH: &str = "/v1/cloud/inference-gateway/connect";
@@ -107,7 +108,8 @@ your Cloud machines' model calls from it. Machines never get the token.
 
 Usage:
   cmux inference gateway [--api URL] [--team TEAM] [--personal]
-                         (--upstream URL [--upstream-key-file PATH] | --codex-auth PATH)
+                         (--upstream URL [--upstream-key-file PATH] | --codex-auth PATH
+                          | --mac-logins) [--supervised] [--enable-once FILE]
                          [--token-file PATH | --token-command CMD]
 
   --api URL              the cmux API origin (or CMUX_CLOUD_API_URL)
@@ -122,7 +124,16 @@ Usage:
   --codex-auth PATH      or opt in to the gateway holding a Codex login itself
                          and refreshing it. Make one with: CODEX_HOME=DIR codex login
 
-One of --upstream or --codex-auth is required: cmux picks no proxy for you.
+  --mac-logins           or answer from the logins already on this Mac: Claude
+                         Code's sign-in (borrowed, never refreshed here) for
+                         Messages calls, and ~/.codex/auth.json for Responses
+                         calls. The cmux app runs this for you while signed in.
+  --supervised           (the app's child) state lines on stdout; exits when its
+                         stdin closes
+  --enable-once FILE     turn your own gateway mode on unless FILE says it already
+                         did (with --personal)
+
+One of --upstream, --codex-auth or --mac-logins is required: cmux picks no proxy for you.
   --token-file PATH      a cmux access token, read again on every connect
   --token-command CMD    a command that prints one, run again on every connect
                          (default: cmux auth token; or CMUX_CLOUD_ACCESS_TOKEN)
@@ -144,8 +155,15 @@ pub(super) enum TokenSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Upstream {
-    Codex { auth: PathBuf },
-    Proxy { base: String, key_file: Option<PathBuf> },
+    Codex {
+        auth: PathBuf,
+    },
+    /// The logins already on this Mac (inference_gateway_mac.rs).
+    MacLogins(MacLogins),
+    Proxy {
+        base: String,
+        key_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +174,10 @@ pub(super) struct Options {
     pub personal: bool,
     pub token: TokenSource,
     pub upstream: Upstream,
+    /// The cmux app's child: state lines on stdout, and it ends when its stdin closes.
+    pub supervised: bool,
+    /// Turn the person's own gateway mode on once; the file records that it did.
+    pub enable_once: Option<PathBuf>,
 }
 
 fn help() -> String {
@@ -206,6 +228,9 @@ pub(super) fn parse(
     let mut upstream = None;
     let mut key_file = None;
     let mut token = None;
+    let mut mac_logins = false;
+    let mut supervised = false;
+    let mut enable_once = None;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -224,6 +249,9 @@ pub(super) fn parse(
             "--team" => team = Some(value()?),
             "--personal" if inline.is_none() => personal = true,
             "--codex-auth" => codex_auth = Some(PathBuf::from(value()?)),
+            "--mac-logins" if inline.is_none() => mac_logins = true,
+            "--supervised" if inline.is_none() => supervised = true,
+            "--enable-once" => enable_once = Some(PathBuf::from(value()?)),
             "--upstream" => upstream = Some(value()?),
             "--upstream-key-file" => key_file = Some(PathBuf::from(value()?)),
             "--token-file" => set_token(&mut token, TokenSource::File(PathBuf::from(value()?)))?,
@@ -235,7 +263,16 @@ pub(super) fn parse(
         .or_else(|| env("CMUX_CLOUD_API_URL"))
         .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
     let api = secure_origin(&api)?;
+    if enable_once.is_some() && !personal {
+        return Err("--enable-once turns your own gateway on; it goes with --personal".into());
+    }
     let upstream = match (codex_auth, upstream) {
+        (auth, proxy)
+            if mac_logins && (auth.is_some() || proxy.is_some() || key_file.is_some()) =>
+        {
+            return Err("--mac-logins answers from this Mac's own logins; it takes no --upstream or --codex-auth".into());
+        }
+        (None, None) if mac_logins => Upstream::MacLogins(MacLogins::from_env(env)?),
         (Some(_), Some(_)) => {
             return Err("--codex-auth and --upstream are two different gateways; pick one".into());
         }
@@ -280,7 +317,7 @@ pub(super) fn parse(
         }
         (None, None) => {
             return Err(
-                "name your subscription proxy with --upstream URL (or opt in to --codex-auth PATH); cmux picks none for you"
+                "name your subscription proxy with --upstream URL (or opt in to --codex-auth PATH or --mac-logins); cmux picks none for you"
                     .into(),
             );
         }
@@ -288,7 +325,7 @@ pub(super) fn parse(
     let token = token.unwrap_or_else(|| {
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
-    Ok(Options { api, team, personal, token, upstream })
+    Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
 
 #[derive(Debug, PartialEq)]
@@ -362,7 +399,19 @@ fn run(options: Options) -> i32 {
             return 1;
         }
     };
-    runtime.block_on(serve(options))
+    let code = runtime.block_on(async move {
+        if !options.supervised {
+            return serve(options).await;
+        }
+        // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
+        tokio::select! {
+            code = serve(options) => code,
+            () = super::inference_gateway_mac::stdin_closed() => 0,
+        }
+    });
+    // A stdin read still blocked (the gateway ended first) must not hold the exit: the app restarts it.
+    runtime.shutdown_background();
+    code
 }
 
 /// The backend's token for one connect, from the configured source.
@@ -429,6 +478,15 @@ fn proxy_url(base: &str, path: &str) -> Option<String> {
 }
 
 async fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
+    command_output_within(program, args, Duration::from_secs(40)).await
+}
+
+/// A command's stdout, or why not, ended at `limit` (killed then).
+pub(super) async fn command_output_within(
+    program: &str,
+    args: &[&str],
+    limit: Duration,
+) -> Result<String, String> {
     let (program, args) =
         (program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
     // A token is far smaller than a pipe's buffer, so the child never blocks on its output while we wait.
@@ -440,7 +498,7 @@ async fn command_output(program: &str, args: &[&str]) -> Result<String, String> 
             .stderr(cmux_process::Stdio::null())
             .spawn()
             .map_err(|e| format!("cannot run the token command: {e}"))?;
-        if child.wait_timeout(Duration::from_secs(40)).map_err(|e| e.to_string())?.is_none() {
+        if child.wait_timeout(limit).map_err(|e| e.to_string())?.is_none() {
             let _ = child.kill();
             let _ = child.wait();
             return Err("the token command timed out".to_owned());
@@ -482,12 +540,35 @@ async fn serve(options: Options) -> i32 {
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
     if let Err(error) = upstream.check().await {
         log(&error);
+        if options.supervised {
+            super::inference_gateway_mac::event("stopped", Some("gateway_config"));
+        }
         return 2;
     }
+    let state = |kind: &str, reason: &str| {
+        if options.supervised {
+            super::inference_gateway_mac::event(kind, Some(reason));
+        }
+    };
+    let mut enabled = options.enable_once.is_none();
     let mut backoff = Duration::from_secs(1);
     let mut refusals = 0u32;
     loop {
         let started = Instant::now();
+        if !enabled && let Some(marker) = &options.enable_once {
+            // Before the connect, so the backend routes this person's machines here once it is up.
+            match super::inference_gateway_mac::enable_once(&options.api, &options.token, marker)
+                .await
+            {
+                Ok(turned_on) => {
+                    enabled = true;
+                    if turned_on {
+                        log("turned your own gateway on");
+                    }
+                }
+                Err(error) => log(&error),
+            }
+        }
         let ended = match backend_token(&options.token, options.team.as_deref()).await {
             Ok(token) => session(&options, &token, upstream.clone()).await,
             Err(error) => Ended::Closed(error),
@@ -495,18 +576,22 @@ async fn serve(options: Options) -> i32 {
         match ended {
             Ended::Stop(reason) => {
                 log(&format!("stopped: {reason}"));
+                state("stopped", if reason.contains("took over") { "replaced" } else { "ended" });
                 return 3;
             }
             Ended::Refused(status) => {
                 refusals += 1;
                 log(&format!("the cmux API refused the gateway (HTTP {status})"));
                 if status == 403 || refusals >= 5 {
+                    state("stopped", "refused");
                     return 2;
                 }
+                state("offline", "refused");
             }
             Ended::Closed(reason) => {
                 refusals = 0;
                 log(&format!("disconnected ({reason}); dialing again"));
+                state("offline", "disconnected");
             }
         }
         // A socket that lived a while (the backend's 10-minute re-check) dials again at once.
@@ -631,6 +716,9 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                     options.api,
                     if options.personal { "your own machines" } else { "the team's machines" }
                 ));
+                if options.supervised {
+                    super::inference_gateway_mac::event("online", None);
+                }
             }
             Some("request") if !id.is_empty() => {
                 if pending.len() + running.len() >= MAX_CALLS {
@@ -828,6 +916,8 @@ struct Provider {
     http: reqwest::Client,
     /// The Codex login, loaded on first use and kept current across refreshes.
     codex: Mutex<Option<CodexLogin>>,
+    /// `--mac-logins`: Claude Code's sign-in, borrowed.
+    claude: Option<ClaudeBorrow>,
 }
 
 #[derive(Clone)]
@@ -843,12 +933,30 @@ type CallError = (&'static str, String);
 
 impl Provider {
     fn new(upstream: Upstream, http: reqwest::Client) -> Self {
-        Self { upstream, http, codex: Mutex::new(None) }
+        let claude = match &upstream {
+            Upstream::MacLogins(logins) => Some(ClaudeBorrow::new(logins.clone())),
+            _ => None,
+        };
+        Self { upstream, http, codex: Mutex::new(None), claude }
     }
 
     /// Fails at start when the login cannot be read, so a mistake shows before any machine calls.
     async fn check(&self) -> Result<(), String> {
         match &self.upstream {
+            // Never fails the start: a login signed in later is read at its first call.
+            Upstream::MacLogins(logins) => {
+                let claude = match &self.claude {
+                    Some(borrow) => borrow.present().await,
+                    None => false,
+                };
+                let codex = read_codex_login(&logins.codex_auth).await.is_ok();
+                log(&format!(
+                    "answering from this Mac's logins (Claude Code: {}, Codex: {})",
+                    if claude { "signed in" } else { "not found" },
+                    if codex { "signed in" } else { "not found" },
+                ));
+                Ok(())
+            }
             Upstream::Codex { auth } => {
                 let login = read_codex_login(auth).await?;
                 log(&format!("holding the Codex login in {}", auth.display()));
@@ -880,29 +988,63 @@ impl Provider {
                 ))?;
                 self.send(&url, call, key.as_deref(), &[]).await
             }
-            Upstream::Codex { auth } => {
-                let url = codex_url(&call.path).ok_or((
-                    "inference.unsupported_path",
-                    format!("a Codex login does not serve {}", call.path),
-                ))?;
-                let login = self.codex_login(auth, false).await?;
-                let account = [
-                    ("chatgpt-account-id", login.account.as_str()),
-                    ("originator", "codex_cli_rs"),
-                ];
-                let response = self.send(&url, call, Some(&login.access), &account).await?;
-                if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-                    return Ok(response);
-                }
-                // The token was revoked or rotated under us: refresh once and send again.
-                let login = self.codex_login(auth, true).await?;
-                let account = [
-                    ("chatgpt-account-id", login.account.as_str()),
-                    ("originator", "codex_cli_rs"),
-                ];
-                self.send(&url, call, Some(&login.access), &account).await
-            }
+            Upstream::MacLogins(logins) => match login_for(&logins.claude_base, &call.path) {
+                Some(Login::Claude(url)) => self.claude_call(&url, call).await,
+                Some(Login::Codex) => self.codex_call(&logins.codex_auth, call).await,
+                None => Err((
+                    "inference.not_found",
+                    format!("the inference gateway serves no {}", log_path(&call.path)),
+                )),
+            },
+            Upstream::Codex { auth } => self.codex_call(auth, call).await,
         }
+    }
+
+    /// A Messages call with Claude Code's borrowed sign-in: read again once on a 401 (Claude Code
+    /// may have renewed it meanwhile), and a 401 on the only token there is the gateway's login error.
+    async fn claude_call(&self, url: &str, call: &Pending) -> Result<reqwest::Response, CallError> {
+        let Some(borrow) = &self.claude else {
+            return Err(("inference.gateway_config", "no Claude login is configured".into()));
+        };
+        let beta = oauth_beta(&call.headers);
+        let extra = [("anthropic-beta", beta.as_str())];
+        let token = borrow.token(None).await?;
+        let response = self.send(url, call, Some(&token), &extra).await?;
+        if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(response);
+        }
+        let token = borrow.token(Some(&token)).await?;
+        let response = self.send(url, call, Some(&token), &extra).await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err((
+                "inference.gateway_login",
+                "the agent's sign-in on your Mac was refused; sign in to the agent on your Mac again".into(),
+            ));
+        }
+        Ok(response)
+    }
+
+    async fn codex_call(
+        &self,
+        auth: &Path,
+        call: &Pending,
+    ) -> Result<reqwest::Response, CallError> {
+        let url = codex_url(&call.path).ok_or((
+            "inference.unsupported_path",
+            format!("a Codex login does not serve {}", call.path),
+        ))?;
+        let login = self.codex_login(auth, false).await?;
+        let account =
+            [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
+        let response = self.send(&url, call, Some(&login.access), &account).await?;
+        if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(response);
+        }
+        // The token was revoked or rotated under us: refresh once and send again.
+        let login = self.codex_login(auth, true).await?;
+        let account =
+            [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
+        self.send(&url, call, Some(&login.access), &account).await
     }
 
     async fn send(
@@ -916,7 +1058,10 @@ impl Provider {
             .map_err(|_| ("inference.bad_request", "bad method".to_owned()))?;
         let mut request = self.http.request(method, url);
         for (name, value) in &call.headers {
-            if PASS_HEADERS.contains(&name.as_str()) {
+            // A header the login sets itself (the OAuth beta) replaces the caller's.
+            if PASS_HEADERS.contains(&name.as_str())
+                && !extra.iter().any(|(n, _)| *n == name.as_str())
+            {
                 request = request.header(name, value);
             }
         }
@@ -1361,6 +1506,99 @@ mod tests {
             Upstream::Proxy { base: "http://127.0.0.1:8317".into(), key_file: None }
         );
         assert_eq!(o.token, TokenSource::File(PathBuf::from("/t")));
+    }
+
+    #[test]
+    fn parses_the_apps_mac_logins_gateway() {
+        let env = |k: &str| (k == "HOME").then(|| "/Users/p".to_owned());
+        let o = parse(
+            &args(&[
+                "--api",
+                "https://api.cmux.dev",
+                "--personal",
+                "--mac-logins",
+                "--supervised",
+                "--enable-once",
+                "/s/on",
+            ]),
+            &env,
+        )
+        .unwrap();
+        let Upstream::MacLogins(logins) = &o.upstream else { panic!("{:?}", o.upstream) };
+        assert_eq!(logins.codex_auth, PathBuf::from("/Users/p/.codex/auth.json"));
+        assert_eq!(logins.claude_home, PathBuf::from("/Users/p/.claude"));
+        assert!(o.supervised);
+        assert_eq!(o.enable_once, Some(PathBuf::from("/s/on")));
+        // The app's default token source stays: `cmux auth token`.
+        assert_eq!(o.token, TokenSource::App);
+        // --mac-logins is its own upstream, and --enable-once is only for the person's own gateway.
+        let api = ["--api", "https://api.cmux.dev", "--personal", "--mac-logins"];
+        let mut two = api.to_vec();
+        two.extend(["--upstream", "http://127.0.0.1:8317"]);
+        assert!(parse(&args(&two), &env).is_err());
+        let team = ["--api", "https://api.cmux.dev", "--mac-logins", "--enable-once", "/s/on"];
+        assert!(parse(&args(&team), &env).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_messages_call_goes_out_with_claude_codes_borrowed_sign_in() {
+        let (base, upstream) = fake_upstream(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n{}",
+        )
+        .await;
+        let dir = std::env::temp_dir().join(format!("cmux-gw-claude-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let far = (now_s() + 3600) * 1000;
+        std::fs::write(
+            dir.join(".credentials.json"),
+            format!(r#"{{"claudeAiOauth":{{"accessToken":"oat-1","refreshToken":"keep","expiresAt":{far}}}}}"#),
+        )
+        .unwrap();
+        let logins = MacLogins {
+            claude_home: dir.clone(),
+            codex_auth: dir.join("auth.json"),
+            keychain: false,
+            claude_base: base,
+        };
+        let provider = Provider::new(Upstream::MacLogins(logins), test_client());
+        let mut call = pending("/v1/messages?beta=true", r#"{"model":"m"}"#);
+        call.headers.push(("anthropic-beta".into(), "claude-code-20250219".into()));
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "c3", call, &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["status"], 200);
+        let request = upstream.await.unwrap();
+        let lower = request.to_ascii_lowercase();
+        assert!(request.starts_with("POST /v1/messages?beta=true HTTP/1.1"), "{request}");
+        assert!(lower.contains("authorization: bearer oat-1"));
+        assert!(
+            lower.contains("anthropic-beta: claude-code-20250219,oauth-2025-04-20"),
+            "{request}"
+        );
+        assert_eq!(lower.matches("anthropic-beta:").count(), 1, "{request}");
+        assert!(!lower.contains("x-cmux-machine"));
+        // Never refreshed: the refresh token is not sent anywhere.
+        assert!(!request.contains("keep"));
+    }
+
+    #[tokio::test]
+    async fn the_mac_logins_gateway_serves_no_other_path() {
+        let dir = std::env::temp_dir().join(format!("cmux-gw-claude-np-{}", std::process::id()));
+        let logins = MacLogins {
+            claude_home: dir.clone(),
+            codex_auth: dir.join("auth.json"),
+            keychain: false,
+            claude_base: "http://127.0.0.1:1".into(),
+        };
+        let provider = Provider::new(Upstream::MacLogins(logins), test_client());
+        let (tx, mut rx) = mpsc::channel(4);
+        answer(&provider, "c4", pending("/v1/chat/completions", "{}"), &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["code"], "inference.not_found");
+        // No Claude sign-in on this Mac: a typed login error, not a crash or a hang.
+        let (tx, mut rx) = mpsc::channel(4);
+        answer(&provider, "c5", pending("/v1/messages", "{}"), &tx).await;
+        assert_eq!(frames(&mut rx).await[0]["code"], "inference.gateway_login");
     }
 
     #[test]

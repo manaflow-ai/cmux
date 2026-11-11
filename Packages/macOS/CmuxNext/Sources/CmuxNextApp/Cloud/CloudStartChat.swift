@@ -129,8 +129,8 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // No login step: the machine's agents reach models through its edge (the Cloud service's model
-        // route), and this Mac copies no provider login to it. Remote approvals run beside the copy, awaited before the chat opens.
+        _ = await services.cloud.gateway.ensureOnline(within: .seconds(10)) // No login step: its model calls reach this Mac's own gateway (PersonalGateway)
+        // through its edge, and this Mac copies no provider login to it. Remote approvals run beside the copy, awaited before the chat opens.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
             report(.init(name: "folder", folder: folderName, machine: name, size: size))

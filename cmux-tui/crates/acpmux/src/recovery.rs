@@ -42,6 +42,24 @@ pub mod kind {
     pub const AUTH_SIGNED_OUT: &str = "auth.signed_out";
     /// The agent's sign-in expired: an expired OAuth token or credential ([`super::auth_kind`]).
     pub const AUTH_EXPIRED: &str = "auth.expired";
+    /// A Cloud machine's model call found the owner's own gateway (their Mac) not connected:
+    /// the Mac is asleep, offline or not running cmux (`inference.gateway_offline`, `_gone`).
+    pub const GATEWAY_OFFLINE: &str = "gateway.offline";
+    /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
+    /// (`inference.gateway_login`).
+    pub const GATEWAY_LOGIN: &str = "gateway.login";
+}
+
+/// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
+/// Cloud service or the gateway put in the agent's error text.
+pub fn gateway_kind(message: &str) -> Option<&'static str> {
+    if message.contains("inference.gateway_offline") || message.contains("inference.gateway_gone") {
+        Some(kind::GATEWAY_OFFLINE)
+    } else if message.contains("inference.gateway_login") {
+        Some(kind::GATEWAY_LOGIN)
+    } else {
+        None
+    }
 }
 
 /// What an agent's error says about its sign-in: `auth.expired` when it says a credential
@@ -175,6 +193,18 @@ fn classify(
              was not sent, so send it again once `acpmux machine ls` shows {peer} connected."
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
+    }
+    // Before the sign-in kinds: the fix is on the owner's Mac, not a login on this machine.
+    if let Some(kind) = gateway_kind(message) {
+        let recovery = if kind == kind::GATEWAY_OFFLINE {
+            "Your Mac answers this chat's model calls, and it isn't reachable right now: it may be \
+             asleep, offline, or not running cmux. Wake your Mac and open cmux on it, then send \
+             the message again."
+        } else {
+            "The agent's sign-in on your Mac is missing or expired. Open the agent on your Mac once \
+             so it signs in or renews its sign-in, then send the message again."
+        };
+        return Some((kind, recovery.into(), Map::new()));
     }
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.
@@ -602,10 +632,27 @@ mod tests {
                 None,
             ),
             ("agent process closed", true, Some(kind::AGENT_EXITED)),
+            (
+                r#"API Error: 503 {"error":{"code":"inference.gateway_offline","message":"Your model gateway is offline"}}"#,
+                false,
+                Some(kind::GATEWAY_OFFLINE),
+            ),
+            (
+                r#"API Error: 502 {"error":{"code":"inference.gateway_login","message":"the agent's sign-in on your Mac expired"}}"#,
+                true,
+                Some(kind::GATEWAY_LOGIN),
+            ),
         ] {
             let mut e = RpcError::new(-32000, message);
             annotate_as(&mut e, None, dead);
             assert_eq!(kind_of(&e), want, "{message}");
+            if want.is_some_and(|k| k.starts_with("gateway.")) {
+                let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
+                assert!(
+                    recovery.contains("your Mac") && !recovery.contains("harness login"),
+                    "{recovery}"
+                );
+            }
             if want.is_some_and(|k| k.starts_with("auth.")) {
                 let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
                 assert!(recovery.contains("cmux harness login"), "{recovery}");

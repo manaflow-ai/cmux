@@ -236,7 +236,7 @@ struct CloudStartSession {
         try still(name)
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
-        // No login step: the machine's agents reach models through its edge, and nothing is copied to it.
+        _ = await services.cloud.gateway.ensureOnline(within: .seconds(10)) // No login step: its model calls reach this Mac's own gateway through its edge; up before the first turn.
         // Remote approvals turn on (an idle daemon only), awaited on every exit: the gate is never released under them.
         try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
         steps.done("approvals")
