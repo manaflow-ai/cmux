@@ -87,14 +87,15 @@ struct WorkspaceSpawner {
         }
     }
 
-    /// Cmd-N's New Tab page workspace on this Mac, a chat's, or a browser workspace (`showFirstBrowser`), shown in this turn: the
-    /// store shows it with its page or chat (`AgentTabStore.showWorkspace`) and its window selects it now; the returned work pins its
-    /// room, then creates it and its first tab in the window's create lane, and places it at its slot once the daemon has it. Nil: the create waits for the daemon.
+    /// Cmd-N's New Tab page workspace on this Mac, a chat's, or a browser workspace (`showFirstBrowser`), shown in this turn: the store shows it with its page or chat and its window selects it now; the
+    /// returned work pins its room, then creates it and its first tab in the window's create lane, and places it at its slot once the daemon has it. Nil: the create waits for the daemon.
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon, windows = windows
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let browser = spawn.showFirstBrowser(key, name: name, on: daemon, create: { try await repair.createBrowserWorkspace(key, name: name, tab: $0, on: $1) }, handOver: { _ = services.cache.moveBrowser($0, to: $1) })
+        let browser = spawn.showFirstBrowser(key, name: name, on: daemon, create: { try await repair.createBrowserWorkspace(key, name: name, tab: $0, on: $1) }, handOver: { key, tab in // the focus rules drop an address bar's focus when its pane's tab changes: a person typing in the stand-in's field keeps it
+            if services.cache.moveBrowser(key, to: tab), let content = windows.controller(for: windowID)?.content, content.focus.state.target == .addressBar, content.focus.state.resolved.tab == key { content.expectFocus(on: tab.surface, target: .addressBar) }
+        })
         guard browser != nil || (spawn.showsBeforeDaemon(local: daemon.isLocal) && services.agentTabs.showsWorkspaceAtOnce(on: daemon)) else { return nil }
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
