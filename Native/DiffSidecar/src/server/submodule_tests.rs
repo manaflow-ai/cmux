@@ -349,3 +349,27 @@ async fn a_submodule_that_is_not_checked_out_keeps_only_its_gitlink_line() {
     assert!(patch.contains("Subproject commit"), "{patch}");
     assert!(!patch.contains("libs/sub/"), "{patch}");
 }
+
+#[tokio::test]
+async fn a_rename_inside_a_submodule_stays_under_its_folder() {
+    let fixture = Fixture::new("rename");
+    git(&fixture.sub(), &["mv", "f.txt", "moved.txt"]);
+    git(&fixture.sub(), &["commit", "--quiet", "-m", "rename"]);
+    git(&fixture.repo, &["add", "libs/sub"]);
+
+    let (session, patch) = fixture
+        .open(DiffSource::Staged {
+            repo_root: fixture.repo_root(),
+        })
+        .await;
+
+    // git writes `rename from` / `rename to` without the folder, so the
+    // submodule's diff shows a rename as a delete and an add under it.
+    assert!(!patch.contains("rename from"), "{patch}");
+    assert!(patch.contains("+++ b/libs/sub/moved.txt"), "{patch}");
+    assert!(patch.contains("--- a/libs/sub/f.txt"), "{patch}");
+    assert_eq!(
+        fixture.sides(&session, "libs/sub/moved.txt").await,
+        (None, Some("one\n".to_owned()))
+    );
+}

@@ -37,6 +37,11 @@ const MAX_DEPTH: usize = 4;
 const MAX_SUBMODULE_PATCH_BYTES: u64 = 64 * 1024 * 1024;
 /// The most bytes a raw gitlink listing may take.
 const MAX_RAW_LISTING_BYTES: usize = 4 * 1024 * 1024;
+/// The most untracked files added across every submodule together.
+const MAX_UNTRACKED_PATHS: usize = 512;
+/// The longest the whole submodule pass may take, well inside the session's
+/// 120 s open budget (the superproject's own diff runs first).
+const SUBMODULE_PASS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 /// git's empty tree, the old side of a newly added submodule.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -168,7 +173,14 @@ pub(super) async fn append_submodule_patches(
         depth: 0,
     }];
     let mut diffed = Vec::new();
+    let mut untracked_left = MAX_UNTRACKED_PATHS;
+    // One deadline for the whole submodule pass, so it can never take the
+    // session's open budget: what is written by then stays.
+    let deadline = tokio::time::Instant::now() + SUBMODULE_PASS_DEADLINE;
     while let Some(level) = pending.pop() {
+        if tokio::time::Instant::now() >= deadline {
+            return Ok(diffed);
+        }
         if level.depth >= MAX_DEPTH {
             continue;
         }
@@ -176,7 +188,7 @@ pub(super) async fn append_submodule_patches(
             continue;
         };
         for submodule in changed_submodules(&raw) {
-            if diffed.len() >= MAX_SUBMODULES {
+            if diffed.len() >= MAX_SUBMODULES || tokio::time::Instant::now() >= deadline {
                 return Ok(diffed);
             }
             let new = match new_side {
@@ -192,34 +204,50 @@ pub(super) async fn append_submodule_patches(
             let folder = level.folder.join(&submodule.path);
             let prefix = format!("{}{}/", level.prefix, submodule.path);
             let old = submodule.old.unwrap_or_else(|| EMPTY_TREE.to_owned());
-            diffed.push(DiffedSubmodule {
-                prefix: prefix.clone(),
-                old: old.clone(),
-                new: new.clone(),
-            });
-            let mut revisions = vec![old];
-            revisions.extend(new);
+            let mut revisions = vec![old.clone()];
+            revisions.extend(new.clone());
 
             let budget = max_patch_bytes
                 .saturating_sub(*bytes_written)
                 .min(MAX_SUBMODULE_PATCH_BYTES);
             let mut command = git.command();
+            // `--no-renames`: git writes `rename from` / `rename to` without
+            // the `--src-prefix` folder, so a rename inside a submodule would
+            // name a root path.
             command.args([
                 "diff",
                 "--no-ext-diff",
                 "--no-textconv",
                 "--no-color",
                 "--binary",
+                "--no-renames",
             ]);
             command.args(whitespace.diff_args());
             command.args(prefix_args(&prefix));
             command.args(&revisions);
             command.arg("--");
-            if let Some(patch) = collect_stdout(command, budget, &[0]).await {
-                write(output, bytes_written, &patch).await?;
-            }
+            // A submodule whose diff fails (a missing commit, over budget)
+            // keeps only its `Subproject commit` lines: it is not recorded
+            // and nothing under it is diffed.
+            let Some(patch) = collect_stdout(command, budget, &[0]).await else {
+                continue;
+            };
+            write(output, bytes_written, &patch).await?;
+            diffed.push(DiffedSubmodule {
+                prefix: prefix.clone(),
+                old,
+                new,
+            });
             if untracked {
-                append_untracked(&git, &prefix, output, bytes_written, max_patch_bytes).await?;
+                untracked_left = append_untracked(
+                    &git,
+                    &prefix,
+                    untracked_left,
+                    output,
+                    bytes_written,
+                    max_patch_bytes,
+                )
+                .await?;
             }
             pending.push(Level {
                 git,
@@ -298,15 +326,22 @@ async fn open_submodule(folder: &Path, path: &str) -> Option<SessionGit> {
     (top == expected).then_some(git)
 }
 
+/// Adds up to `left` untracked files of one submodule; the number still
+/// allowed after it.
 async fn append_untracked(
     git: &SessionGit,
     prefix: &str,
+    mut left: usize,
     output: &mut tokio::fs::File,
     bytes_written: &mut u64,
     max_patch_bytes: u64,
-) -> Result<(), SessionOpenError> {
+) -> Result<usize, SessionOpenError> {
+    if left == 0 {
+        return Ok(0);
+    }
     let paths = git_untracked_paths(git).await.unwrap_or_default();
-    for path in paths {
+    for path in paths.into_iter().take(left) {
+        left -= 1;
         let budget = max_patch_bytes
             .saturating_sub(*bytes_written)
             .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
@@ -315,7 +350,7 @@ async fn append_untracked(
         };
         write(output, bytes_written, &patch).await?;
     }
-    Ok(())
+    Ok(left)
 }
 
 async fn write(
