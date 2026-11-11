@@ -201,28 +201,37 @@ impl SessionJournalReader {
         Ok(Self { connection })
     }
 
+    /// One page after `sequence`. Like every multi-statement read on this
+    /// connection, it reads in one read transaction: the head, the sealed
+    /// segments and the active rows come from one snapshot, so a seal that
+    /// commits on the registry connection between two of them (moving
+    /// records from the active table into a segment) cannot show as a gap.
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after(&snapshot, sequence, limit)
     }
 
     /// The resource events after `revision`, read on this reader's own
-    /// read-only connection (no registry lock). `generation` is the
-    /// registry's, which never changes while it is open.
+    /// read-only connection (no registry lock) in one read transaction.
+    /// `generation` is the registry's, which never changes while it is open.
     pub(crate) fn resource_events_after(
         &self,
         generation: &str,
         revision: u64,
     ) -> anyhow::Result<ResourceEventPage> {
-        resource_store::query_resource_events_after(&self.connection, generation, revision)
+        let snapshot = self.connection.unchecked_transaction()?;
+        resource_store::query_resource_events_after(&snapshot, generation, revision)
     }
 
+    /// One subject-filtered page, in one read transaction (see [`Self::after`]).
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
-        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after_subjects(&snapshot, sequence, limit, subjects)
     }
 
     pub(crate) fn restore_cursor(
@@ -870,33 +879,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn append_resource_journal_record(
-    transaction: &Transaction<'_>,
-    revision: u64,
-    previous_revision: u64,
-    origin: &str,
-    idempotency_key: &str,
-    operation: &str,
-    patch: Option<&ResourcePatch>,
-    result: &Value,
-    changes: &Value,
-) -> anyhow::Result<()> {
-    append_resource_journal_record_at(
-        transaction,
-        revision,
-        previous_revision,
-        origin,
-        idempotency_key,
-        operation,
-        patch,
-        result,
-        changes,
-        unix_epoch_ms()?,
-        true,
-    )
-}
-
 pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
@@ -985,6 +967,7 @@ pub(crate) fn append_resource_effect_journal_record(
     Ok(())
 }
 
+/// Gives the changes as the record states them (`session_journal/resource_record.rs`).
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -998,7 +981,7 @@ fn append_resource_journal_record_at(
     changes: &Value,
     occurred_at_ms: u64,
     with_current_state: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Value> {
     validate_identifier("journal operation", operation)?;
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
@@ -1058,7 +1041,7 @@ fn append_resource_journal_record_at(
             actor: actor.as_deref(),
         },
     )?;
-    Ok(())
+    Ok(decorated)
 }
 
 /// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
@@ -1447,6 +1430,8 @@ pub(crate) fn query_session_journal_after(
         records.truncate(limit);
         return Ok(SessionJournalPage { head_sequence, records });
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
     let active_after = records.last().map_or(sequence, |record| record.sequence);
     let mut statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
@@ -1694,6 +1679,25 @@ thread_local! {
         const { Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between a journal read's sealed
+    /// part and its active rows ([`query_session_journal_after`],
+    /// [`query_session_journal_sequences`]), where a concurrent seal can
+    /// commit.
+    pub(crate) static BETWEEN_JOURNAL_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_journal_reads_for_test() {
+    // Taken before it runs: a read the hook itself makes does not run it again.
+    let hook = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 fn not_output(kind: &str) -> bool {
     kind != "terminal.output"
 }
@@ -1814,6 +1818,8 @@ pub(crate) fn query_session_journal_sequences(
             }
         }
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
 
     let mut active_statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
@@ -2670,8 +2676,11 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+mod live_terminal;
 pub(crate) mod reducer_records;
+mod resource_record;
 use digest_reader::DigestReader;
+pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
 #[cfg(test)]
 mod actor_tests;
 
