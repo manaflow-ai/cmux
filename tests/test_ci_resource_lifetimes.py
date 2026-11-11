@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The resource-lifetime lint: each rule catches its shape, leaves the bounded or owned form alone, and the
-allowlist only shrinks. CI runs scripts/lint-resource-lifetimes.py itself for the tree check."""
+allowlist only shrinks. CI runs scripts/ci/lint_resource_lifetimes.py itself for the tree check."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("lint_resource_lifetimes", ROOT / "scripts/lint-resource-lifetimes.py")
+SPEC = importlib.util.spec_from_file_location("lint_resource_lifetimes", ROOT / "scripts/ci/lint_resource_lifetimes.py")
 lint = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = lint
 SPEC.loader.exec_module(lint)

@@ -24,7 +24,7 @@ It is a pattern lint, not a type checker: comments and string contents are blank
 the same statement or the few lines around it. Tests, benches, examples, scripts and Rust #[cfg(test)]
 modules are not scanned.
 
-Today's cases are recorded in scripts/resource-lifetime-allowlist.json, per rule and file, with the exact
+Today's cases are recorded in scripts/ci/resource-lifetime-allowlist.json, per rule and file, with the exact
 number of matches and a reason. They are reported as warnings. The check fails when a file not on the list
 matches, when a file has more matches than its entry (new code has to follow the rule), when it has fewer
 (lower the count, so the list only shrinks), and when an entry is stale or has no reason. Entries whose
@@ -32,9 +32,9 @@ reason starts with "debt:" are the recorded baseline. In CI, CMUX_GUARDS_BASE_SH
 entry added or raised since that commit's list fails unless its reason starts with "safe:" and says why the
 resource is bounded some other way, so debt never grows and the exception shows in review.
 
-  scripts/lint-resource-lifetimes.py               check (exit 1 on a new case, 2 if the scan failed)
-  scripts/lint-resource-lifetimes.py --list        print every finding, file:line rule
-  scripts/lint-resource-lifetimes.py --write-baseline
+  scripts/ci/lint_resource_lifetimes.py               check (exit 1 on a new case, 2 if the scan failed)
+  scripts/ci/lint_resource_lifetimes.py --list        print every finding, file:line rule
+  scripts/ci/lint_resource_lifetimes.py --write-baseline
                                                    rewrite the counts from the tree, keeping reasons; new
                                                    entries get "debt:" reasons a reviewer will see in the diff
 """
@@ -50,7 +50,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = Path(__file__).resolve().parent / "resource-lifetime-allowlist.json"
 
 RULES = ("connect-no-timeout", "process-no-cleanup", "task-unowned", "timer-unowned", "wait-no-deadline")
@@ -611,7 +611,7 @@ def main() -> int:
         n = sum(found[rule].values())
         if n:
             note = (f"{n} recorded {rule} case(s) in {len(found[rule])} file(s) are still open; {HOW[rule]} "
-                    f"(scripts/lint-resource-lifetimes.py --list)")
+                    f"(scripts/ci/lint_resource_lifetimes.py --list)")
             print(f"::warning title=resource lifetimes::{note}" if in_actions else f"warning: {note}")
     if bad:
         print("lint-resource-lifetimes: new resource with no bound or owner:", file=sys.stderr)
