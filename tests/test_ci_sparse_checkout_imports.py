@@ -1294,6 +1294,9 @@ def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
 
 
 _OK, _FAILED, _EXEMPT = 1, 0, -1
+# A group's or block's own redirection failed, so its body never ran: bash returns 1 from there before
+# it applies !, so ! does not invert it (`! { exit 1; } > / || cd x` runs the cd). Gone by pipeline end.
+_REDIRECT = -2
 
 
 class _Shell:
@@ -1470,10 +1473,20 @@ class _Shell:
             outcomes = [state for state in outcomes if not state[2]]
         else:  # it was on in there; whether it is out here, the enclosing groups will say
             outcomes = [(cwd, ok, min(dies, depth)) for cwd, ok, dies in outcomes]
-        if negated:  # its failure is one bash does not exit for
-            outcomes = [(cwd, _EXEMPT if ok == _OK else _OK, dies) for cwd, ok, dies in outcomes]
-        elif suppressed or self.ignore:
-            outcomes = [(cwd, _EXEMPT if ok == _FAILED else ok, dies) for cwd, ok, dies in outcomes]
+        if negated:  # its failure is one bash does not exit for; a failed redirection stays a failure
+            outcomes = [
+                state
+                for cwd, ok, dies in outcomes
+                for state in (
+                    [(cwd, _FAILED, dies), (cwd, _EXEMPT, dies)] if ok == _REDIRECT
+                    else [(cwd, _EXEMPT if ok == _OK else _OK, dies)]
+                )
+            ]
+            # whether errexit then ends the step: keeping both is the superset of what bash does
+        else:
+            outcomes = [(cwd, _FAILED if ok == _REDIRECT else ok, dies) for cwd, ok, dies in outcomes]
+            if suppressed or self.ignore:
+                outcomes = [(cwd, _EXEMPT if ok == _FAILED else ok, dies) for cwd, ok, dies in outcomes]
         self.tail = (tuple(outcomes), skipped, negated)
         self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         return True
@@ -1565,9 +1578,9 @@ class _Shell:
                 if self.group is not None and not self.command:  # on a group or block: it may not run
                     start = self._merge(self._split()[0])
                     if self.moved:
-                        self.group = tuple((None, ok, dies) for _, ok, dies in self.group) + ((None, _FAILED, 0),)
+                        self.group = tuple((None, ok, dies) for _, ok, dies in self.group) + ((None, _REDIRECT, 0),)
                     else:
-                        self.group += tuple((cwd, _FAILED, dies) for cwd, _, dies in start)
+                        self.group += tuple((cwd, _REDIRECT, dies) for cwd, _, dies in start)
                 previous = self.command[-1] if self.command else None
                 if previous is not None and previous.end == tok.start and previous.raw.isdigit():
                     self.command.pop()  # 2>&1: the 2 is the redirection's
@@ -2071,6 +2084,12 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("{ cd scripts/ci && :; }\npython3 x", True, "x", None),
     ("{ cd scripts/ci && :; } || exit 1\npython3 x", True, "x", _CI),
     ("set +e\nset -e\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41088: a compound command's own redirection failing is not a status ! inverts:
+    # bash takes the || branch here.
+    ("! { exit 1; } > / || cd scripts/ci\npython3 x", True, "x", _CI),
+    # the generator's finds at a2a71b13 (the same tree as 338d1230), the same class
+    ("while false; do set +e; done ; : > /\n! set +e || ! { exit 1; } > / || cd lib\n( set -e ) > /dev/null\npython3 x", False, "x", None),  # seed 42021
+    ("! true || cd missing > / && { exit\n}\n! { if ! set -e; then { true && set +e; } > / && ! while false; do : > /; done\nfi > /dev/null ; exit 1\n} > / || ! set +e || ! cd ..\npython3 x", True, "x", None),  # seed 66672
     # Outside the grammar: the directory is unknown from there on.
     ("go() { cd scripts/ci; }\npython3 x", True, "x", None),
     ("function go {\n  cd scripts/ci\n}\npython3 x", True, "x", None),
@@ -2297,14 +2316,18 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
 # composes cd (to folders that exist, do not exist, or lie outside the repo), !, { } groups,
 # ( ) subshells, &&, ||, ;, if / else, a redirect that always fails (> /), set -e / set +e and the
 # builtins true, false and :, nested up to depth 3, one python3 call somewhere in it, under bash
-# with and without -e. Every command but python is a builtin, so bash takes one path per python
+# with and without -e. Review of #41088: exit and exit 1 too, a while false loop, and a redirect on a
+# compound command itself ({ }, ( ), if, while), one that fails (> /) or not (> /dev/null), so a
+# compound's own redirection failing is in the grammar, under ! included. Every command but python is a builtin, so bash takes one path per python
 # status. Seeds are fixed, so a disagreement reproduces from its seed.
 
 GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
 _GEN_TARGETS = ("scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a")
 _GEN_SIMPLE = (
     "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
+    "exit", "exit 1",
 )
+_GEN_REDIRECTS = ("", "", "", " > /", " > /dev/null")
 
 
 def _generated_shell(seed: int) -> tuple[str, bool]:
@@ -2316,22 +2339,32 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
     def sep(newline_ok: bool = True) -> str:
         return "\n" if newline_ok and rng.random() < 0.3 else "; "
 
+    def body(depth: int, most: int) -> str:
+        # Sometimes a body that always leaves (every path ends in exit), the case a redirect on the
+        # compound around it matters most for.
+        if rng.random() < 0.15:
+            return rng.choice(("exit", "exit 1", "false || exit 1", "exit 1 && true"))
+        return and_or_list(depth, most)
+
     def command(depth: int) -> str:
         r = rng.random()
         if depth < 3 and r < 0.15:
-            return "{ " + and_or_list(depth + 1, 3) + sep() + "}"
+            return "{ " + body(depth + 1, 3) + sep() + "}" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.27:
-            return "( " + and_or_list(depth + 1, 3) + " )"
+            return "( " + body(depth + 1, 3) + " )" + rng.choice(_GEN_REDIRECTS)
         if depth < 3 and r < 0.35:
             text = "if " + and_or_list(depth + 1, 2) + sep() + "then " + and_or_list(depth + 1, 3)
             if rng.random() < 0.4:
                 text += sep() + "else " + and_or_list(depth + 1, 3)
-            return text + sep() + "fi"
+            return text + sep() + "fi" + rng.choice(_GEN_REDIRECTS)
+        # if / while bodies use and_or_list: a body() there would end the program on most paths.
+        if depth < 3 and r < 0.38:
+            return "while false; do " + and_or_list(depth + 1, 2) + sep() + "done" + rng.choice(_GEN_REDIRECTS)
         return "\0"
 
     def pipeline(depth: int) -> str:
         text = command(depth)
-        return ("! " + text) if rng.random() < 0.15 else text
+        return ("! " + text) if rng.random() < 0.2 else text
 
     def and_or_list(depth: int, most: int) -> str:
         parts = [pipeline(depth)]
@@ -2343,14 +2376,17 @@ def _generated_shell(seed: int) -> tuple[str, bool]:
     text = "\n".join(lines)
     slots = text.count("\0")
     # Half the time python runs on a line of its own at the end, where everything before it counts.
-    python = rng.randrange(slots) if rng.random() < 0.5 else -1
+    python = rng.randrange(slots) if slots and rng.random() < 0.5 else -1
     out, index = [], 0
     for chunk in text.split("\0")[:-1]:
         out.append(chunk)
         if index == python:
             out.append("python3 x")
         else:
-            out.append(rng.choice(_GEN_SIMPLE).format(d=rng.choice(_GEN_TARGETS)))
+            choice = rng.choice(_GEN_SIMPLE)
+            if choice.startswith("exit") and rng.random() < 0.5:
+                choice = "true"  # exit, but not so often that python is rarely reached
+            out.append(choice.format(d=rng.choice(_GEN_TARGETS)))
         index += 1
     out.append(text.split("\0")[-1])
     run = "".join(out)
