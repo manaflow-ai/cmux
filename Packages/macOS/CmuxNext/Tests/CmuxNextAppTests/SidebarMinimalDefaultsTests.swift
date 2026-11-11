@@ -87,14 +87,15 @@ import Testing
 
     // MARK: Alignment
 
-    /// A row without an icon starts its title at the leading inset; a row with one starts it after the icon
-    /// (Lawrence 2026-10-23: "text needs to be as left as possible (how it originally was)").
+    /// A row without an icon starts its title at the content inset (8 pt at Default, where the rows match the Codex
+    /// sidebar, #39956); a row with one starts it after the icon (Lawrence 2026-10-23: "text needs to be as left as
+    /// possible (how it originally was)").
     @Test(arguments: [false, true])
     func aTitleWithoutAnIconStartsAtTheInset(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
         for id in [Self.busy, Self.plain, Self.reported] {
             let row = try Self.row(sidebar, id)
-            #expect(row.title.frame.minX == SidebarStyle.horizontalInset, "\(id): title at \(row.title.frame.minX) pt")
+            #expect(row.title.frame.minX == SidebarStyle.contentInset, "\(id): title at \(row.title.frame.minX) pt")
         }
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)
