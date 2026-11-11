@@ -3601,6 +3601,69 @@ sys.exit(1)
 """
 
 
+class GhReadByMethod(unittest.TestCase):
+    """gh_read (the gh reads GitHub.run keeps for the judgement) classifies by the HTTP method gh sends (review of
+    cmux#41312 at 67c48fb7, F1): an explicit GET reads, any other explicit method writes, a field or --input with no
+    method is gh's POST, and a GraphQL call reads only as a query. A write is never answered from the memo."""
+
+    R = f"repos/{REPO}/commits/{HEAD}"
+    QUERY = "query($owner: String!) { repository(owner: $owner, name: \"cmux\") { id } }"
+    TABLE = (
+        # REST with no method and no body: GET.
+        (["api", R], True),
+        (["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/7/logs"], True),
+        (["api", R, "--jq", ".sha"], True),
+        (["api", "-H", "Accept: application/vnd.github+json", R], True),
+        # An explicit GET reads, in every spelling; its fields are query parameters.
+        (["api", "-X", "GET", R], True),
+        (["api", "--method", "GET", R], True),
+        (["api", "--method=GET", R], True),
+        (["api", "-XGET", R], True),
+        (["api", "--method", "get", R], True),
+        (["api", "-X", "GET", "search/issues", "-f", "q=repo:o/r is:open"], True),
+        # Any other explicit method writes.
+        (["api", "-X", "POST", f"repos/{REPO}/actions/workflows/w.yml/dispatches", "-f", "ref=main"], False),
+        (["api", "--method", "PATCH", f"repos/{REPO}/pulls/1"], False),
+        (["api", "--method=PUT", f"repos/{REPO}/pulls/1/merge"], False),
+        (["api", "-XDELETE", f"repos/{REPO}/git/refs/heads/x"], False),
+        (["api", "-X", "POST", R], False),
+        # A field or --input with no method is gh's POST.
+        (["api", f"repos/{REPO}/issues/1/comments", "-f", "body=hi"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-F", "body=@note.md"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--field", "labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/labels", "--raw-field=labels[]=x"], False),
+        (["api", f"repos/{REPO}/issues/1/comments", "-fbody=hi"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input", "status.json"], False),
+        (["api", f"repos/{REPO}/statuses/{HEAD}", "--input=-"], False),
+        # GraphQL: a query reads, a mutation writes, and a body gh_read cannot see is a write.
+        (["api", "graphql", "-f", f"query={QUERY}", "-f", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query={ viewer { login } }"], True),
+        (["api", "graphql", "-F", f"query={QUERY}", "-F", "owner=manaflow-ai"], True),
+        (["api", "graphql", "-f", "query=mutation { addComment(input: {}) { clientMutationId } }"], False),
+        (["api", "graphql", "-f", "query=\n  mutation M { x }"], False),
+        (["api", "graphql", "-F", "query=mutation{x}"], False),
+        (["api", "graphql", "-F", "query=@query.graphql"], False),
+        (["api", "graphql", "--input", "body.json"], False),
+        (["api", "graphql", "-f", "owner=o"], False),
+        # Other gh commands: `gh run view` reads; anything else is not a read gh_read knows.
+        (["run", "view", "10", "--repo", REPO, "--job", "7", "--log"], True),
+        (["run", "rerun", "10", "--failed"], False),
+        (["pr", "merge", "1"], False),
+    )
+
+    def test_each_argv_shape_by_its_effective_method(self):
+        for args, read in self.TABLE:
+            with self.subTest(args=args):
+                self.assertIs(excuse.gh_read(args), read)
+
+    def test_the_clients_own_reads_are_reads(self):
+        owner, _, name = REPO.partition("/")
+        blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"expression={HEAD}:Package.swift"]
+        self.assertTrue(excuse.gh_read(blob))
+        self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
+
+
 class OneReadPerJudgement(unittest.TestCase):
     """The real gh client at its wire (subprocess.Popen of gh, under main_fix_evidence.GitHub.run): in one judgement
     each read (`gh api` REST and GraphQL, a job's log) goes out once, however often it is asked, and a write every
