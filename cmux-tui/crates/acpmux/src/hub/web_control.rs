@@ -39,12 +39,14 @@ impl Hub {
     }
 
     /// `web_modes::trusted_mode_family` for a session: against the config entry
-    /// its harness name runs now, else the session's own family. A config being
-    /// written counts as no entry.
+    /// its harness name runs now, else the family of the program its agent runs
+    /// (`SessionMeta::program_family`). A config being written counts as no entry.
     pub(crate) fn trusted_mode_family(&self, m: &SessionMeta) -> String {
-        let family = crate::web_modes::family_of(m);
-        let Ok(cfg) = self.config.try_read() else { return family };
-        crate::web_modes::trusted_mode_family(cfg.profile(&m.harness), family)
+        let program = m.program_family.as_deref();
+        let Ok(cfg) = self.config.try_read() else {
+            return crate::web_modes::trusted_mode_family(None, program);
+        };
+        crate::web_modes::trusted_mode_family(cfg.profile(&m.harness), program)
     }
 
     /// Whether a session's mode asks, for a Web gate: the asking row of

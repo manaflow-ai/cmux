@@ -88,12 +88,9 @@ pub fn remote_start(
         return Ok(BRIDGE_ASKING_MODES.iter().map(|m| m.to_string()).collect());
     }
     let family = crate::config::derive_family(name, profile);
-    let unnamed = HarnessProfile { family: None, ..profile.clone() };
-    let runs_refused =
-        REFUSED_FAMILIES.contains(&crate::config::derive_family(name, &unnamed).as_str());
-    if table.refused().contains(&family) || runs_refused {
-        let runs_opencode =
-            family == "opencode" || crate::config::derive_family(name, &unnamed) == "opencode";
+    let runs_refused = refused_family_run(name, profile);
+    if table.refused().contains(&family) || runs_refused.is_some() {
+        let runs_opencode = family == "opencode" || runs_refused == Some("opencode");
         return Err(if runs_opencode { OPENCODE_REFUSAL } else { NO_ASKING_MODE }.into());
     }
     // The modes the harness offers: a launcher profile of Claude Code (`claude-sr2`) gets
@@ -220,16 +217,25 @@ pub(crate) fn refused_families_for(extra: impl IntoIterator<Item = String>) -> B
 /// `family` (`{"argv": ["codex-acp"], "family": "mine"}`) cannot rename
 /// Codex into a family that config.json opens.
 pub(crate) fn refused_families(cfg: &Config) -> BTreeSet<String> {
-    let runs_refused = |name: &str, p: &HarnessProfile| {
-        let unnamed = HarnessProfile { family: None, ..p.clone() };
-        REFUSED_FAMILIES.contains(&crate::config::derive_family(name, &unnamed).as_str())
-    };
     refused_families_for(
         cfg.harnesses
             .iter()
-            .filter(|(name, p)| runs_refused(name, p))
+            .filter(|(name, p)| refused_family_run(name, p).is_some())
             .map(|(name, p)| crate::config::derive_family(name, p)),
     )
+}
+
+/// The refused family (`REFUSED_FAMILIES`) that profile `name` may run, whatever family it
+/// declares: the family its program names (`config::derive_family` with no declared family), or
+/// one that any word of its command line names (`config::argv_mentions_family`). The second reads
+/// every word on purpose: a refusal fails closed, so a launch that runs Codex through a script
+/// path (`node /opt/codex-acp/dist/index.js`) or names it in a setting stays refused.
+fn refused_family_run(name: &str, profile: &HarnessProfile) -> Option<&'static str> {
+    let unnamed = HarnessProfile { family: None, ..profile.clone() };
+    let own = crate::config::derive_family(name, &unnamed);
+    REFUSED_FAMILIES.iter().copied().find(|refused| {
+        own == *refused || crate::config::argv_mentions_family(&profile.argv, refused)
+    })
 }
 
 /// The merged table: the reviewed rows, then config.json's additions minus
@@ -369,31 +375,44 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
-/// The one rule of every gate that lets a mode through without the person (the Web gates, and the
-/// local person gates for a client that is not the person): `claude` only when `entry`, the config
-/// entry that runs, is kind `claude-stdio` (a launcher such as `claude-sr2` included), else
-/// `family`. It never believes the agent's own `agentInfo`, which any ACP agent writes: an agent
-/// that names itself `claude-stdio` keeps its own family's row. With no config entry (a folder
-/// profile, an entry removed, a config being written) it is `family`, never wider (fail closed).
-/// A launcher profile such as `claude-sr2` (`sr2 claude`) names its own family to stay out of
-/// the default Claude row, but runs Claude Code with Claude Code's modes. The policy gates read
-/// it too (`policy_mode::policy_family`, `policy_gate::has_gate`,
-/// `start_mode::may_move_without_person`; cmux#40568).
+/// The one rule of every gate that lets a mode through without the person or holds a policy (the
+/// Web gates, the local person gates for a client that is not the person, and the policy
+/// gates): the family a chat is judged by.
+/// - `claude` when `entry`, the config entry that runs, is kind `claude-stdio` (a launcher such as
+///   `claude-sr2` included: it names its own family to stay out of the default Claude row, but
+///   runs Claude Code with Claude Code's modes);
+/// - else the entry's explicit `family`, the owner's word;
+/// - else `program`, the family of the program its agent runs: `SessionMeta::program_family`,
+///   judged at its start on the file it runs (`config::launch_family`), or before a start
+///   `config::program_family_of` of the written launch;
+/// - else empty: no family's mode table, no OpenCode exception (fail closed).
+///
+/// It never believes the agent's own `agentInfo`, which any ACP agent writes (cmux#40568), nor a
+/// part of a program's name, another argv word or the entry's name (W5-L). With no config entry
+/// (a folder profile, an entry removed, a config being written) only `program` counts. Read by
+/// `policy_mode::policy_family`, `policy_gate::has_gate` and
+/// `start_mode::may_move_without_person`.
 pub(crate) fn trusted_mode_family(
     entry: Option<&crate::config::HarnessProfile>,
-    family: String,
+    program: Option<&str>,
 ) -> String {
-    if entry.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio) {
-        return "claude".to_owned();
+    if let Some(entry) = entry {
+        if entry.kind == crate::config::HarnessKind::ClaudeStdio {
+            return "claude".to_owned();
+        }
+        if let Some(family) = &entry.family {
+            return family.clone();
+        }
     }
-    family
+    program.unwrap_or_default().to_owned()
 }
 
-/// [`trusted_mode_family`] of a profile before its session exists: `claude` for a profile of acpmux's own
-/// Claude Code backend (kind `claude-stdio`, a launcher such as `claude-sr2` included), else its
-/// family (`config::derive_family`).
-pub(crate) fn profile_mode_family(agent: &str, profile: &crate::config::HarnessProfile) -> String {
-    trusted_mode_family(Some(profile), crate::config::derive_family(agent, profile))
+/// [`trusted_mode_family`] of a profile before its session exists: `claude` for a profile of
+/// acpmux's own Claude Code backend (kind `claude-stdio`, a launcher such as `claude-sr2`
+/// included), else its explicit family, else the family of the program its launch names
+/// (`config::program_family_of`), else empty. Never the profile's name `_agent`.
+pub(crate) fn profile_mode_family(_agent: &str, profile: &crate::config::HarnessProfile) -> String {
+    trusted_mode_family(Some(profile), crate::config::program_family_of(&profile.argv))
 }
 
 /// The family whose modes a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`)

@@ -370,10 +370,10 @@ impl Hub {
         // launcher profile of Claude Code (`claude-sr2`) asks in Claude's `default` and `plan`
         // too; an agent that only names itself Claude Code does not.
         let modes_of = match target {
-            LevelTarget::Request { agent, profile, folder } => {
+            LevelTarget::Request { agent: _, profile, folder } => {
                 crate::web_modes::trusted_mode_family(
                     (!folder).then_some(profile),
-                    crate::config::derive_family(agent, profile),
+                    crate::config::program_family_of(&profile.argv),
                 )
             }
             LevelTarget::Session(meta) => self.trusted_mode_family(meta),

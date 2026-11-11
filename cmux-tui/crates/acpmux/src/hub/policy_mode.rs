@@ -92,10 +92,13 @@ pub(super) fn asks_opencode(
 }
 
 /// Whether `meta`'s agent, spawned from `profile` (as configured, before it is resolved), is
-/// OpenCode.
+/// OpenCode: by its family, or by any word of its command line (`config::argv_mentions_family`,
+/// as before the family read only the program word), so OpenCode run through a script path
+/// still gets acpmux's asks.
 pub(super) fn is_opencode(meta: &SessionMeta, profile: &HarnessProfile) -> bool {
     crate::web_modes::family_of(meta) == "opencode"
         || crate::config::derive_family(&meta.harness, profile) == "opencode"
+        || crate::config::argv_mentions_family(&profile.argv, "opencode")
 }
 
 /// The mode a chat with `policy` (narrower than approve-all) runs in on a harness of `family`
@@ -618,13 +621,15 @@ impl Hub {
 /// entries an `asksBeforeTools` claim is judged against ([`claim_distrust`]).
 pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), RpcError> {
     let Some(policy) = narrow_policy(meta, cfg.permission_policy) else { return Ok(()) };
+    // OpenCode asked to ask (`opencode_ask.rs`) only when the entry or the program it runs is
+    // OpenCode (`policy_family`), never by a guess from its launch or its name.
+    let family = policy_family(meta, cfg);
     if super::policy_gate::has_gate(meta, cfg)
         || asks_before_tools(meta, cfg)
-        || crate::web_modes::family_of(meta) == "opencode"
+        || family == "opencode"
     {
         return Ok(());
     }
-    let family = policy_family(meta, cfg);
     let offered = super::start_mode::offered_ids(meta);
     let current = crate::web_modes::mode_of(meta);
     let held = match (policy_mode(policy, &family, &offered), current) {
@@ -641,6 +646,10 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
         Some(wanted) => format!("it does not run in its mode that asks ({wanted})"),
         None => crate::web_modes::NO_ASKING_MODE.to_owned(),
     };
+    if family.is_empty() {
+        why.push_str("; ");
+        why.push_str(&family_hint(&meta.harness, japanese_locale()));
+    }
     if claims_asks(meta)
         && let Some(distrust) = claim_distrust(meta, cfg)
     {
@@ -704,6 +713,27 @@ pub(super) fn refusal_record(e: &RpcError) -> Value {
     record
 }
 
+/// What a refusal says when acpmux knows no family of a chat's program ([`policy_family`] is
+/// empty): which entry of this daemon's config file (`Config::path`), and the `"family"` to add
+/// to it, in Japanese when `japanese`.
+pub(super) fn family_hint(harness: &str, japanese: bool) -> String {
+    let text = if japanese {
+        "acpmux はハーネス {harness} が実行するプログラムのファミリーを判別できないため、そのモードでポリシーを保てません。acpmux が知っているエージェントを実行している場合は、{config} の \"{harness}\" エントリーに \"family\": \"<ファミリー>\" を追加してください (例: \"family\": \"codex\")"
+    } else {
+        "acpmux knows no family of the program harness {harness} runs, so none of its modes holds the policy. If it runs an agent acpmux knows, add \"family\": \"<family>\" to the \"{harness}\" entry in {config} (for example \"family\": \"codex\")"
+    };
+    text.replace("{config}", &Config::path().display().to_string()).replace("{harness}", harness)
+}
+
+/// Whether the daemon's locale is Japanese (`LC_ALL`, `LC_MESSAGES`, then `LANG`), as the CLI's
+/// own help reads it (`cli/harness.rs` `add_help`).
+fn japanese_locale() -> bool {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        .is_some_and(|locale| locale.to_ascii_lowercase().starts_with("ja"))
+}
+
 /// The typed error of a start under a policy that harness `harness` cannot keep
 /// (`require_enforced`): `data.reason` is `policy_unenforceable`, with the policy, the harness
 /// and a hint.
@@ -748,12 +778,13 @@ pub(super) fn out_of_policy(
 /// The family whose modes hold `meta`'s policy: [`crate::web_modes::trusted_mode_family`] of the
 /// config entry that its harness names in `cfg` now. Never the agent's own `agentInfo`, which any
 /// ACP agent writes (cmux#40568): an agent of family `lane` that names itself `claude-stdio` is
-/// held in `lane`'s asking mode, not Claude Code's `default`. With no entry, the chat's own
-/// family, never wider.
+/// held in `lane`'s asking mode, not Claude Code's `default`. Nor a family guessed from its
+/// launch or its entry's name: with no family in the entry, the family of the program its agent
+/// runs (`SessionMeta::program_family`), else empty (W5-L).
 pub(super) fn policy_family(meta: &SessionMeta, cfg: &Config) -> String {
     crate::web_modes::trusted_mode_family(
         cfg.profile(&meta.harness),
-        crate::web_modes::family_of(meta),
+        meta.program_family.as_deref(),
     )
 }
 
@@ -895,5 +926,19 @@ mod tests {
             assert_eq!(policy_mode(policy, "opencode", &ids(&["build", "plan", "ask"])), None);
             assert_eq!(policy_mode(policy, "pi", &[]), None);
         }
+    }
+
+    /// A refusal for an unknown family names the entry and the `"family"` to add, in English and
+    /// in Japanese.
+    #[test]
+    fn the_family_hint_names_the_entry_in_both_languages() {
+        for japanese in [false, true] {
+            let hint = family_hint("my-agent", japanese);
+            assert!(hint.contains("\"my-agent\""), "{hint}");
+            assert!(hint.contains("\"family\": \"codex\""), "{hint}");
+            assert!(hint.contains(&Config::path().display().to_string()), "{hint}");
+        }
+        assert!(family_hint("a", true).contains("追加してください"));
+        assert!(family_hint("a", false).contains("add \"family\""));
     }
 }

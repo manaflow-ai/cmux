@@ -596,7 +596,7 @@ impl Hub {
             let cfg = self.config.read().await;
             crate::web_modes::trusted_mode_family(
                 cfg.profile(&meta.harness),
-                crate::web_modes::family_of(meta),
+                meta.program_family.as_deref(),
             ) == "claude"
         };
         if meta.remote_origin

@@ -173,6 +173,12 @@ pub struct SessionMeta {
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+    /// The family of the program its agent last started with, judged at that start
+    /// (`config::launch_family`): what a policy check reads when the config entry names none
+    /// (`web_modes::trusted_mode_family`). None before any start, for a start by an older build,
+    /// and when the program is no agent of acpmux's list or runs another one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program_family: Option<String>,
     /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,

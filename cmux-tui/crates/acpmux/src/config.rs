@@ -790,38 +790,177 @@ impl SessionDefaults {
     }
 }
 
-/// The family a profile belongs to: its explicit `family`, else derived
-/// from the harness kind and the argv basenames, else the first word of
-/// the profile name (`claude-sr` → `claude`, `fake-pool` → `fake`).
-pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
+/// Family needles of a program's file name, for the Web's refusal only
+/// ([`argv_mentions_family`]), which fails closed: a fork is its own family (omp, prime), so
+/// `-m pi` never lands on one.
+const FAMILY_NEEDLES: &[(&str, &str)] = &[
+    ("codex", "codex"),
+    ("opencode", "opencode"),
+    ("gemini", "gemini"),
+    ("pi-acp", "pi"),
+    ("omp", "omp"),
+    ("prime-agent", "prime"),
+    ("claude", "claude"),
+];
+
+/// The programs of the agents acpmux knows, by the exact file name a launch runs, and their
+/// family: the one list a family is read from ([`exact_family`], [`launch_family`],
+/// `agent::foreign_login`).
+pub(crate) const PROGRAM_FAMILIES: &[(&str, &str)] = &[
+    ("codex", "codex"),
+    ("codex-acp", "codex"),
+    ("claude", "claude"),
+    ("claude-acp", "claude"),
+    ("claude-agent-acp", "claude"),
+    ("claude-code-acp", "claude"),
+    ("gemini", "gemini"),
+    ("opencode", "opencode"),
+    ("opencode2", "opencode"),
+    ("dsh", "deepseek"),
+    ("pi", "pi"),
+    ("pi-acp", "pi"),
+    ("omp", "omp"),
+    ("prime-agent", "prime"),
+    ("grok", "grok"),
+    ("cursor-agent", "cursor"),
+    ("hermes", "hermes"),
+    ("muse", "muse"),
+    ("muse-acp", "muse"),
+    ("deepseek", "deepseek"),
+];
+
+/// The family a program's file name `file` is in [`PROGRAM_FAMILIES`]: exact, case folded, with
+/// `.exe`, `.cmd`, `.js` or `.mjs` removed. A name that only contains an agent's name
+/// (`my-opencode-wrapper`, `claude-proxy`) is none.
+pub(crate) fn program_family(file: &str) -> Option<&'static str> {
+    let name = file.to_lowercase();
+    let name = [".exe", ".cmd", ".js", ".mjs"]
+        .iter()
+        .find_map(|ext| name.strip_suffix(ext))
+        .unwrap_or(name.as_str());
+    PROGRAM_FAMILIES.iter().find(|(program, _)| *program == name).map(|(_, family)| *family)
+}
+
+/// The family of the program a launch `argv` runs, by its written name ([`launch_program`],
+/// [`program_family`]).
+pub(crate) fn program_family_of(argv: &[String]) -> Option<&'static str> {
+    launch_program(argv).as_deref().and_then(program_family)
+}
+
+/// The family a profile names exactly: its explicit `family`, else `claude` for the Claude Code
+/// kind, else the family of the program its launch runs ([`program_family_of`]). `None` when
+/// none of these names one: no family is guessed from a part of a program's name, another argv
+/// word (a setting such as `FAKE_RESET_CANCEL_ON_PROMPT`, `--model claude-opus`, a wrapper's
+/// argument), the profile's name or what its agent says about itself.
+pub fn exact_family(profile: &HarnessProfile) -> Option<String> {
     if let Some(f) = &profile.family {
-        return f.clone();
+        return Some(f.clone());
     }
     if profile.kind == HarnessKind::ClaudeStdio {
-        return "claude".into();
+        return Some("claude".into());
     }
-    let words: Vec<String> = profile
-        .argv
-        .iter()
-        .map(|a| {
-            Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default()
-        })
-        .collect();
-    // A fork is its own family (omp, prime): `-m pi` never lands on one.
-    for (needle, family) in [
-        ("codex", "codex"),
-        ("opencode", "opencode"),
-        ("gemini", "gemini"),
-        ("pi-acp", "pi"),
-        ("omp", "omp"),
-        ("prime-agent", "prime"),
-        ("claude", "claude"),
-    ] {
-        if words.iter().any(|w| w.contains(needle)) {
-            return family.into();
+    program_family_of(&profile.argv).map(str::to_owned)
+}
+
+/// The family a profile is shown, stored and routed under: [`exact_family`], else the first word
+/// of the profile name (`claude-sr` → `claude`, `fake-pool` → `fake`). A policy check never reads
+/// the name's word: its family is the entry's or the program's, or none
+/// (`web_modes::trusted_mode_family`).
+pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
+    exact_family(profile)
+        .unwrap_or_else(|| name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase())
+}
+
+/// The family a program file name `word` names by [`FAMILY_NEEDLES`], case folded.
+fn family_of_word(word: &str) -> Option<String> {
+    let word = word.to_lowercase();
+    FAMILY_NEEDLES.iter().find(|(needle, _)| word.contains(needle)).map(|(_, f)| (*f).to_owned())
+}
+
+/// Whether any word of `argv` names family `family` by [`FAMILY_NEEDLES`] (file names, case
+/// folded). Only for a refusal, which fails closed: a setting word that names it refuses too
+/// (`web_modes::refused_families`).
+pub fn argv_mentions_family(argv: &[String], family: &str) -> bool {
+    argv.iter().any(|word| {
+        let name = Path::new(word).file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+        family_of_word(&name).as_deref() == Some(family)
+    })
+}
+
+/// What a launch runs ([`launch_target`]).
+pub(crate) enum LaunchTarget<'a> {
+    /// A program word as written: a path, or a bare name `PATH` finds.
+    Program(&'a str),
+    /// The script an interpreter runs, as written: a path from the launch's folder.
+    Script(&'a str),
+    /// A package a runner fetches, or a Python module: a name, no file to read.
+    Named(String),
+}
+
+/// The file name of the program a launch `argv` runs: its first word; after `env`, its options
+/// (`-i`, `-u NAME`) and `KEY=VALUE` words, the program `env` runs; for an interpreter (Python,
+/// Node, Bun, Deno), the script it runs or the module of `-m`; for a package runner (`npx`,
+/// `bunx`, `pnpx`, `uvx`, `pipx run`), the package's name (`@scope/name@1.2` gives `name`).
+/// `None` when the launch names none (code of the command line, `env -S`, a bare `env`).
+fn launch_program(argv: &[String]) -> Option<String> {
+    let file = |word: &str| Path::new(word).file_name().map(|n| n.to_string_lossy().into_owned());
+    match launch_target(argv)? {
+        LaunchTarget::Program(word) | LaunchTarget::Script(word) => file(word),
+        LaunchTarget::Named(name) => Some(name),
+    }
+}
+
+/// What a launch `argv` runs, as [`launch_program`] reads it.
+pub(crate) fn launch_target(argv: &[String]) -> Option<LaunchTarget<'_>> {
+    let file = |word: &str| Path::new(word).file_name().map(|n| n.to_string_lossy().into_owned());
+    let mut words = argv.iter().map(String::as_str);
+    let mut program = words.next()?;
+    if file(program)? == "env" {
+        let mut found = None;
+        while let Some(word) = words.next() {
+            if matches!(word, "-u" | "--unset" | "-C" | "--chdir") {
+                words.next();
+            } else if matches!(word, "-S" | "--split-string") || word.starts_with("-S") {
+                // A command line in one word: no program word to read.
+                return None;
+            } else if !(word.starts_with('-') || word.contains('=')) {
+                found = Some(word);
+                break;
+            }
+        }
+        program = found?;
+    }
+    let lower = file(program)?.to_lowercase();
+    let interpreter =
+        lower.starts_with("python") || matches!(lower.as_str(), "node" | "nodejs" | "bun" | "deno");
+    let runner = matches!(lower.as_str(), "npx" | "bunx" | "pnpx" | "uvx" | "pipx");
+    if !interpreter && !runner {
+        return Some(LaunchTarget::Program(program));
+    }
+    let package = |word: &str| {
+        let name = word.rsplit('/').next()?.split('@').next()?;
+        (!name.is_empty()).then(|| LaunchTarget::Named(name.to_owned()))
+    };
+    while let Some(word) = words.next() {
+        match word {
+            // Python's module; code of the command line names no program.
+            "-m" if interpreter => return words.next().map(|m| LaunchTarget::Named(m.to_owned())),
+            "-c" | "-e" | "--eval" | "-p" | "--print" if interpreter => return None,
+            // A runner's package option names the package.
+            "-p" | "--package" if runner => return package(words.next()?),
+            // Options that take the next word as their value.
+            "-W" | "-X" | "-r" | "--require" | "--import" | "--loader" => {
+                words.next();
+            }
+            // `bun run`, `deno run`, `pipx run`: the script or package follows.
+            "run" => {}
+            _ if word.starts_with('-') => {}
+            // `@scope/name@1.2` and `name@1.2` give `name`.
+            _ if runner => return package(word),
+            _ => return Some(LaunchTarget::Script(word)),
         }
     }
-    name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
+    None
 }
 
 /// The harness store a profile's conversations live in, which adopt reads (`adopt::find`):
@@ -2073,6 +2212,7 @@ pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
+mod launch_family;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
     CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
@@ -2080,6 +2220,7 @@ pub use discover::{
     add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
+pub use launch_family::launch_family;
 mod peer;
 pub use peer::PeerConfig;
 mod save_merge;

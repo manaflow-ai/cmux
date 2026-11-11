@@ -245,7 +245,10 @@ fn is_own_binary(program: &std::path::Path) -> bool {
 /// or a runner with no program, is [`Ambiguous`]: no guess, and no label decides. No substring counts.
 fn argv_family(argv: &[String]) -> Result<Option<String>, Ambiguous> {
     let by_name = |name: &str| {
-        EXECUTABLES.iter().find(|(exe, _)| *exe == name).map(|(_, family)| family.to_string())
+        crate::config::PROGRAM_FAMILIES
+            .iter()
+            .find(|(exe, _)| *exe == name)
+            .map(|(_, family)| family.to_string())
     };
     let Some((program, rest)) = argv.split_first() else { return Ok(None) };
     let runner = program_name(program);
@@ -310,31 +313,6 @@ fn program_name(program: &str) -> String {
 
 /// Programs that start another program named by their arguments.
 const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
-
-/// The executables of leaf agents and their families: `derive_family`'s and
-/// the launchers discovery finds (`config/discover.rs`).
-const EXECUTABLES: [(&str, &str); 20] = [
-    ("codex", "codex"),
-    ("codex-acp", "codex"),
-    ("claude", "claude"),
-    ("claude-acp", "claude"),
-    ("claude-agent-acp", "claude"),
-    ("claude-code-acp", "claude"),
-    ("gemini", "gemini"),
-    ("opencode", "opencode"),
-    ("opencode2", "opencode"),
-    ("dsh", "deepseek"),
-    ("pi", "pi"),
-    ("pi-acp", "pi"),
-    ("omp", "omp"),
-    ("prime-agent", "prime"),
-    ("grok", "grok"),
-    ("cursor-agent", "cursor"),
-    ("hermes", "hermes"),
-    ("muse", "muse"),
-    ("muse-acp", "muse"),
-    ("deepseek", "deepseek"),
-];
 
 /// Every login `runs` must not inherit, removed through `remove`, for an
 /// agent started outside [`scrub`]'s profile path (a sign-in check, a model

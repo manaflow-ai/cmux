@@ -455,6 +455,8 @@ impl Hub {
             spawn_argv: None,
             launch_digest: None,
             family: parent_meta.family.clone(),
+            // Judged again when the fork's agent starts.
+            program_family: None,
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,

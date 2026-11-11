@@ -86,7 +86,9 @@ icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB),
 protocol = "acp"                # acp (default) | terminal | claude-stdio
 command = "acme-agent"          # program on PATH, or an absolute path (no spaces, no arguments)
 args = ["acp", "--model", "${model}"]   # ${model} = the chosen model, ${cwd} = the chat folder
-family = "acme"                 # optional; groups profiles for `-m acme`
+family = "acme"                 # optional; groups profiles for `-m acme`, and names the agent
+                                # `command` runs for permission policies when acpmux does not know
+                                # its program (`"family": "codex"` for a wrapper around Codex)
 fallback = "acme-backup"        # optional; the profile to move to on a usage limit
 hooks = "claude"                # optional; a hook-capable agent whose status hooks to use
 
