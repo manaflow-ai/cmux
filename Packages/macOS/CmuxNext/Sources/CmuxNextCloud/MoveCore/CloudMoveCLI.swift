@@ -310,6 +310,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return (try await run(call).answer, ())
     }
 
+    /// `cmux link start-chat strand`: the start of the send `key` can't go on and gives up `machine`, the one made for
+    /// it. True only when no other send is on the machine, so the App may delete it (under the ledger lock later sends
+    /// pin under, so a chat that took the machine first keeps it). Any failure answers false: nothing is deleted.
+    public func startChatStrand(key: String, account: String, machine: String) async -> Bool {
+        struct Reply: Decodable { var ok: Bool; var delete: Bool? }
+        guard let read = try? await run(["verb": "start-chat-strand", "key": key, "account": account, "machine": machine], reading: "reservation"),
+              let object = read.object, let reply = try? JSONDecoder().decode(Reply.self, from: object) else { return false }
+        return reply.ok && reply.delete == true
+    }
+
     public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
         (try await run(["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]).answer, ())
     }

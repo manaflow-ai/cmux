@@ -85,6 +85,7 @@ cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --crea
 cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
+cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat preflight --local FOLDER\n       \
@@ -158,6 +159,12 @@ pub(super) fn run(args: &[String]) -> i32 {
                 _ => None,
             }
         }
+        "strand" => match (flags.key(), flags.account(), flags.one("--machine")) {
+            (Some(key), Some(account), Some(machine)) => {
+                Some(strand(&ledger, &key, account, machine))
+            }
+            _ => None,
+        },
         "copy" => StartCopy::of(&flags).map(|copy| {
             // `--store PLATFORM|default`: through the content-addressed store, the cmux
             // credential on stdin; without one the copy goes over the link as before.
@@ -1017,6 +1024,17 @@ fn target_pane(ledger: &Path, key: &str, account: &str, machine: &str, pane: &st
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pinned send"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+/// `strand`: the start of the send `key` can't go on and gives up `machine`, the one made for it
+/// ([`Ledger::strand`]). `delete`: true only when no other send is on it, so the App may delete
+/// it; false keeps it for the other sends. A ledger that can't be read answers not ok, and the
+/// App deletes nothing.
+pub(super) fn strand(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.strand(&Send::new(key, account), machine)) {
+        Ok(delete) => json!({"ok": true, "delete": delete}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }

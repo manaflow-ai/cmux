@@ -445,6 +445,13 @@ pub enum Call {
         machine: String,
         pane: String,
     },
+    /// `link start-chat strand`: a start that can't go on gives up the machine made for it; the
+    /// answer's `delete` says whether no other send is on it.
+    StartChatStrand {
+        key: String,
+        account: String,
+        machine: String,
+    },
     /// `link start-chat import`: the sends the app kept itself before.
     StartChatImport {
         entries: String,
@@ -671,6 +678,17 @@ pub fn invocation(call: &Call) -> Invocation {
             machine,
             "--pane",
             pane,
+        ])),
+        Call::StartChatStrand { key, account, machine } => ledger(words(&[
+            "link",
+            "start-chat",
+            "strand",
+            "--key",
+            key,
+            "--account",
+            account,
+            "--machine",
+            machine,
         ])),
         Call::StartChatImport { entries } => {
             ledger(words(&["link", "start-chat", "import", "--entries", entries]))

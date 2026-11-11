@@ -34,7 +34,11 @@ fn a_small_plain_folder_goes_on() {
 fn a_folder_in_git_goes_on_without_counting() {
     let (_root, top) = canonical();
     write(&top, "app/big.bin", 4096);
-    let init = std::process::Command::new("git").args(["init", "-q"]).current_dir(top.join("app")).status().unwrap();
+    let init = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(top.join("app"))
+        .status()
+        .unwrap();
     assert!(init.success());
     // Limits a single file passes: a repository is never counted here (its seed is).
     let answer = size_cap::with_test_limits(16, 1, || run(top.join("app").to_str().unwrap()));
@@ -52,8 +56,12 @@ fn a_parent_of_repositories_past_the_limit_is_refused_naming_them() {
     let answer = size_cap::with_test_limits(1024, 1_000, || run(top.to_str().unwrap()));
     assert_eq!(answer["ok"], false);
     assert_eq!(answer["error_code"], size_cap::CODE);
-    let names: Vec<&str> =
-        answer["repos"].as_array().unwrap().iter().map(|repo| repo["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = answer["repos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|repo| repo["name"].as_str().unwrap())
+        .collect();
     assert_eq!(names, ["cmux", "web", "work/api"]);
     assert_eq!(answer["repos"][0]["path"], top.join("cmux").to_str().unwrap());
     assert_eq!(answer["repos_more"], false);
@@ -117,6 +125,9 @@ fn a_terminal_refusal_names_the_repositories_to_start_in() {
     repo(&top, "web");
     repo(&top, "cmux");
     let hint = size_cap::repos_hint(&top);
-    assert!(hint.starts_with("; the repositories inside it: cmux, web (start in one: --from-folder "), "{hint}");
+    assert!(
+        hint.starts_with("; the repositories inside it: cmux, web (start in one: --from-folder "),
+        "{hint}"
+    );
     assert!(hint.ends_with("/cmux)"), "{hint}");
 }

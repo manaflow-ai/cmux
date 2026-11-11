@@ -4703,7 +4703,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runHereSend.current = true;
     sandbox.setMode("persistent");
   };
-  const dismissCloudFailure = () => setCloudStart(undefined);
+  /// The card's "Start without a folder" start, until it opens or is dismissed: its Retries go without a folder too.
+  const cloudHomeStart = useRef(false);
+  const dismissCloudFailure = () => {
+    cloudHomeStart.current = false;
+    setCloudStart(undefined);
+  };
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
@@ -4864,6 +4869,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A folder the host refused before binding the compose's reservation: that machine is given back now.
       if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
         cloudReservation.returned(request.reservationKey);
+      if (answer.ok) cloudHomeStart.current = false;
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -6050,24 +6056,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : Promise.resolve(false);
   /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
   /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
-  const retryCloudStart = () => sendStartPrompt();
+  /// A Retry keeps the start's own folder: a start the too-big card sent without a folder retries without one, never
+  /// from the composer's folder the preflight refused (Codex review F2 on #40957).
+  const retryCloudStart = () => {
+    if (cloudHomeStart.current) cloudFolderOnce.current = { home: true };
+    sendStartPrompt();
+  };
   /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
   /// it, another folder, or none), taken once by that send.
   const cloudFolderOnce = useRef<{ cwd: string } | { home: true } | undefined>(undefined);
   /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
   const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
     cloudFolderOnce.current = folder;
+    cloudHomeStart.current = "home" in folder;
     sendStartPrompt();
   };
   /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
-  /// tab, shown in the composer), then sent. A pick the host refuses sends nothing.
+  /// tab, shown in the composer), then sent from the pick's acceptance, so a pick the host refuses, one it only asks
+  /// to confirm, or one a newer pick replaced sends nothing (Codex review F3 on #40957).
   const sendCloudInPicked = (cwd: string) => {
-    let refused = false;
-    void chooseProject(cwd, undefined, () => {
-      refused = true;
-    }).then(() => {
-      if (!refused) sendCloudIn({ cwd });
-    });
+    void chooseProject(cwd, undefined, undefined, (folder) => sendCloudIn({ cwd: folder }));
   };
   const cloudTooBigActions = {
     onPickRepo: sendCloudInPicked,
@@ -7021,9 +7029,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
   const pickedProject = useRef<string | undefined>(undefined);
-  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder.
+  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder, and `accepted`
+  /// the folder once it is this pane's pick (a confirmation shown, or a reply a newer pick replaced, is neither).
   const chooseProject = useCallback(
-    (cwd: string, peer?: string, refused?: () => void): Promise<void> => {
+    (cwd: string, peer?: string, refused?: () => void, accepted?: (folder: string) => void): Promise<void> => {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
@@ -7039,6 +7048,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           pickedProject.current = folder;
           if (freshRef.current) setProjectDraft(folder);
           else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+          accepted?.(folder);
         },
         // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
         (refusal) => {

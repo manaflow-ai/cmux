@@ -370,6 +370,7 @@ fn each_verb_carries_its_arguments() {
         json!({"verb": "start-chat-create-refused", "key": "k", "account": "a", "createKey": "c"}),
         json!({"verb": "start-chat-target-pane", "key": "k", "account": "a", "machine": "m", "pane": "p"}),
         json!({"verb": "start-chat-import", "entries": "[]"}),
+        json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}),
     ] {
         assert_eq!(
             call(ledger.clone()).timeout_seconds,
@@ -377,9 +378,18 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    let strand =
+        call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
+    assert_eq!(
+        strand.args,
+        ["link", "start-chat", "strand", "--key", "k", "--account", "a", "--machine", "m"]
+    );
     // The folder check before any machine: its own bound, never a copy's 30 minutes.
     let preflight = call(json!({"verb": "start-chat-preflight", "local": "/Users/me/Projects"}));
-    assert_eq!(preflight.args, ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]);
+    assert_eq!(
+        preflight.args,
+        ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
+    );
     assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
