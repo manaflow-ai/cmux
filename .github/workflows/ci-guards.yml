@@ -1079,9 +1079,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
 
+      # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
+      # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
+      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_runs_on_values.py
+        run: |
+          python3 tests/test_ci_runs_on_values.py
+          python3 scripts/cmux-next/check-single-host-fallbacks.py --advisory
 
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}

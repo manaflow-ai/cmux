@@ -81,6 +81,10 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
+.github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
+hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
+not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
@@ -139,10 +143,12 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import urllib.request
@@ -249,6 +255,14 @@ rescue Psych::SyntaxError => e
   exit 1
 end
 """
+# A runs-on variable with no declared fallback (cmux#40221 merged two; the build-fleet policy test read this repository
+# live and went red after the merge). Local only: ci-guards.yml runs the same script with --advisory, warnings only.
+FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
+FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
+FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
+                  "`fallback` that takes the job and `after_minutes`), then push. Check with "
+                  "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
 CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_DRIFT = "cannot update the lock file"
@@ -795,6 +809,33 @@ class Finding(str):
         return finding
 
 
+class NoVerdict(str):
+    """A check that ran but gave no verdict (it crashed, timed out, or printed output of the wrong shape). It is
+    never subtracted as old debt: not by a base run that gave no verdict alike (both sides crash the same way, so
+    the diff would hide it), and not by gate_own's runs over a merge's upstream ranges. Its key is its own object,
+    so push_range.less never matches it."""
+
+    @property
+    def key(self) -> str:
+        return f"no-verdict:{id(self)}"
+
+
+# Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
+NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: ", re.M)
+
+
+def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
+    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), crashed (a traceback),
+    or exited with a code outside CODES (the codes its verdicts use, when it has a fixed set)."""
+    if code == 124:
+        return "timed out"
+    if NO_VERDICT.search(out):
+        return "crashed"
+    if codes is not None and code not in codes:
+        return f"exited {code}"
+    return None
+
+
 def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
     seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
     fresh = []
@@ -1292,7 +1333,7 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
 
-        def findings(rev: str, base_list: bytes | None) -> list[str] | None:
+        def findings(rev: str, base_list: bytes | None) -> tuple[list[str], str | None] | None:
             reserved, surfaces = blob(rev, RESERVED_LIST), blob(rev, RESERVED_SURFACES)
             if reserved is None or surfaces is None:
                 return None
@@ -1303,12 +1344,16 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
             if base_list is not None:
                 (work / "base-list.json").write_bytes(base_list)
                 cmd += ["--base-reserved", str(work / "base-list.json")]
-            _, out = run(cmd, work)
-            return [line for line in out.splitlines() if line.strip()]
+            code, out = run(cmd, work)
+            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict.
+            return [line for line in out.splitlines() if line.strip()], no_verdict(code, out, (0, 1))
 
-        head_lines = findings(head, blob(base, RESERVED_LIST)) or []
-        base_lines = findings(base, None) or []
-    fresh = [line for line in head_lines if line not in base_lines]
+        head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
+        base_lines, base_stopped = findings(base, None) or ([], None)
+    if head_stopped:
+        return [NoVerdict(f"{RESERVED_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push is "
+                          f"refused: {' '.join(head_lines[-2:])[:300]}")]
+    fresh = [line for line in head_lines if base_stopped or line not in base_lines]
     if fresh and RESERVED_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
         return []
@@ -1347,20 +1392,25 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
             if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
                 return []
 
-        def findings(*args: str) -> list[str]:
+        def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
-            if code == 124:
-                return [f"check-ui-font.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+            lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict.
+            return lines, no_verdict(code, out, (0, 1))
 
-        head_lines = findings("--rev", head, "--base", base)
+        head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
         # would hide it and pass a push the check never judged (review of #39838): it refuses on its own.
         stopped = [line for line in head_lines if UI_FONT_GUARD in line]
         if stopped:
             return stopped
-        base_lines = set(findings("--rev", base))
-        return [line for line in head_lines if line not in base_lines]
+        # A crash or a timeout is the same class: both passes can print it alike, so it refuses on its own too.
+        if head_stopped:
+            return [NoVerdict(f"{UI_FONT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push "
+                              f"is refused: {' '.join(head_lines[-2:])[:300]}")]
+        base_lines, base_stopped = findings("--rev", base)
+        # A base pass with no verdict never subtracts: every head finding counts.
+        return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
 def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
@@ -1534,6 +1584,138 @@ def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | Non
         log(f"prepush-gate: WARNING: no YAML parser here (PyYAML, ruby or actionlint), so {', '.join(unchecked)} "
             "went unchecked; CI's \"Lint every workflow\" step still checks it. `pip install pyyaml` fixes this.")
     return found
+
+
+# scripts/ci/guards-local.sh's pin, so the hook and the local guard venv read YAML with the same PyYAML.
+PYYAML_PIN = "PyYAML==6.0.3"
+
+
+def has_pyyaml(python: str) -> bool:
+    """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
+    try:
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
+                           apt: bool | None = None) -> str:
+    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
+    `pip install --user` never helps the hook. A venv or a site-packages this user can write: pip into it (with
+    --break-system-packages where the Python is marked externally managed, as Homebrew's is; that flag only lifts
+    pip's refusal, it writes this Python's own prefix). Otherwise the system's package (python3-yaml) where apt-get
+    exists, else pip into that Python with sudo."""
+    paths = sysconfig.get_paths()
+    purelib = paths["purelib"] if purelib is None else purelib
+    stdlib = paths["stdlib"] if stdlib is None else stdlib
+    apt = shutil.which("apt-get") is not None if apt is None else apt
+    pip = f"{shlex.quote(python)} -m pip install"
+    if os.access(purelib, os.W_OK):
+        managed = os.path.exists(os.path.join(stdlib, "EXTERNALLY-MANAGED"))
+        return f"{pip}{' --break-system-packages' if managed else ''} {PYYAML_PIN}"
+    if apt:
+        return "sudo apt-get install -y python3-yaml"
+    return f"sudo {pip} {PYYAML_PIN}"
+
+
+FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_INCOMPLETE = "incomplete"
+
+
+def fallback_output_fault(listed: object) -> str | None:
+    """What is wrong with the checker's --json output LISTED, or None: it must be a list of objects, each with a string
+    key, a string message and a status of FALLBACKS_STATUSES (Codex on #40840: findings were str()-coerced, so
+    `[{"key": [], "message": {}}]` read as one equal finding on both sides and was subtracted)."""
+    if not isinstance(listed, list):
+        return f"a {type(listed).__name__}, not a list"
+    for index, item in enumerate(listed):
+        if not isinstance(item, dict):
+            return f"item {index} is a {type(item).__name__}, not an object"
+        for field in ("key", "message"):
+            if not isinstance(item.get(field), str):
+                return f"item {index}'s {field} is a {type(item.get(field)).__name__}, not a string"
+        if item.get("status") not in FALLBACKS_STATUSES:
+            return f"item {index}'s status is {item.get('status')!r}, not one of {', '.join(FALLBACKS_STATUSES)}"
+    return None
+
+
+def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
+
+    Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. Only two cases pass unchecked: a HEAD without the
+    declaration (a branch older than it), and a hook install older than the checker (a warning). A checker that runs
+    and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
+    the checker and the layer passed), whatever the cause, a missing PyYAML included.
+
+    Codex on #40840. F1: a finding whose status is "incomplete" (the scan did not run: a declaration of the wrong
+    shape, a workflow that does not load) refuses at the head whether or not the base had it too; the base's copy was
+    subtracted as old debt, so a new vars.NAME passed with no scan. F2: the output must be a list of objects, each
+    with a string key, a string message and a known status; anything else (`[{"key": [], "message": {}}]`, which
+    str() made equal on both sides) is a checker failure and refuses. A base that gives no verdict, or an incomplete
+    one, subtracts nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
+    if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
+        return []
+    if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
+        return []  # a branch older than the declaration
+    if trusted_scripts is None:
+        script = blob_at(repo, head, FALLBACKS_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
+            "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
+    if not has_pyyaml(sys.executable):
+        return [f"PyYAML missing: run {pyyaml_install_command(sys.executable)}"]
+    with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
+            """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
+            verdict (a crash, an exit, no JSON, output of the wrong shape)."""
+            tree = work / rev[:12]
+            tree.mkdir()
+            paths = [".github/workflows"] + ([FALLBACKS_DECLARATION] if blob_at(repo, rev, FALLBACKS_DECLARATION) else [])
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, *paths],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return f"git archive {rev[:12]} failed: {archive.stderr.decode(errors='replace').strip()[:200]}"
+            subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+            if not (tree / FALLBACKS_DECLARATION).is_file():
+                return {}, []
+            code, out = run([sys.executable, "-I", str(work / "check.py"), "--root", str(tree), "--json"], work)
+            tail = " ".join(out.strip().splitlines()[-3:])[:300]
+            if code != 0:
+                return f"exited {code}: {tail or 'no output'}"
+            try:
+                listed = json.loads(next(line for line in out.splitlines() if line.startswith("[")))
+            except (ValueError, StopIteration) as error:
+                return f"printed no JSON list of findings ({error.__class__.__name__}): {tail or 'no output'}"
+            bad = fallback_output_fault(listed)
+            if bad:
+                return f"printed findings of the wrong shape ({bad}): {tail[:200]}"
+            return ({f["key"]: f["message"] for f in listed},
+                    [f["message"] for f in listed if f["status"] == FALLBACKS_INCOMPLETE])
+
+        now = keyed(head)
+        if isinstance(now, str):
+            return [NoVerdict(f"the single-host fallback checker did not give a verdict at the pushed head, so the "
+                              f"push is refused (fix the declaration or the checker; `python3 {FALLBACKS_SCRIPT}` "
+                              f"shows it): {now}")]
+        found, incomplete = now
+        if incomplete:
+            return [NoVerdict(f"the single-host fallback scan did not run at the pushed head, so the push is refused "
+                              f"whatever the base had (fix the declaration or the workflow): {message}")
+                    for message in incomplete]
+        before = keyed(base)
+        # No verdict at the base, or an incomplete one: subtract nothing, every head finding is new.
+        before = before[0] if isinstance(before, tuple) and not before[1] else {}
+        return [message for key, message in sorted(found.items()) if key not in before]
 
 
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
@@ -1747,6 +1929,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): ci-guards.yml runs the checker --advisory.
+    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None:
+        undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
+        if undeclared:
+            reserved.append((FALLBACKS_CHECK, undeclared))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
@@ -1879,7 +2066,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         if crash_layer else None)
             for name in jobs:
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
-                _, base_out, base_s = futures[(name, 0)].result()
+                base_code, base_out, base_s = futures[(name, 0)].result()
                 head_code, head_out, head_s = futures[(name, 1)].result()
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
@@ -1888,6 +2075,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
+                if no_verdict(base_code, base_out):
+                    base_out = ""  # never subtracted, here or in the dependency check's stale-line diff
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
@@ -1895,6 +2084,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
+                stopped = no_verdict(head_code, head_out)
+                if stopped:
+                    fresh = [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the push is "
+                                       f"refused: {' '.join(head_out.strip().splitlines()[-2:])[:300]}"), *fresh]
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
@@ -1989,8 +2182,13 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
     for name, fresh in found:
-        mine = push_range.less(fresh, [run.get(name, []) for run in before], key=finding_key)
-        if any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine):
+        # A run of the check that gave no verdict over an upstream range takes nothing off: what it printed is not
+        # its findings. A NoVerdict of the push's own range is never taken off (its key matches nothing).
+        sides = [run.get(name, []) for run in before]
+        mine = push_range.less(fresh, [[] if any(isinstance(r, NoVerdict) for r in side) else side for side in sides],
+                               key=finding_key)
+        if (any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine)
+                and not any(isinstance(r, NoVerdict) for r in mine)):
             mine = []
         if mine:
             kept.append((name, mine))
@@ -2497,7 +2695,8 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "single-host-fallbacks")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -2658,6 +2857,8 @@ def main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == FALLBACKS_CHECK for name, _ in found_any):
+        print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):

@@ -497,6 +497,11 @@ fn ancestors_in(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Vec<u32> {
     found
 }
 
+/// The parent of `pid`, read for that pid alone (`sender_program.rs` walks the same chain).
+pub(crate) fn parent(pid: u32) -> Option<u32> {
+    lookup(pid).map(|p| p.ppid)
+}
+
 /// The outermost `.app` bundle in an executable path: its name and its path.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();

@@ -38,7 +38,7 @@ enum SidebarStyle {
         let a = base.alphaComponent, out = dim + a * (1 - dim)
         guard out > 0 else { return base }
         let k = a * (1 - dim) / out
-        return NSColor(srgbRed: base.redComponent * k, green: base.greenComponent * k, blue: base.blueComponent * k, alpha: out)
+        return NSColor(srgbRed: base.redComponent * k, green: base.greenComponent * k, blue: base.blueComponent * k, alpha: out) // colour-allow: Palette.sidebarBackground composited under surfaceDim, no raw value
     }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
