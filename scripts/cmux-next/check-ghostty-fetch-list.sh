@@ -62,7 +62,18 @@ case "$mode" in
     echo "libghostty-vt: ${line} with ${flags[*]}"
     # CMUX_VT_ZIG: the libghostty-vt tree's Zig when PATH's zig is the classic
     # ghostty's (a job that builds both); default zig on PATH.
-    (cd "$src" && "${CMUX_VT_ZIG:-zig}" build "${flags[@]}" "-Dversion-string=$version" --prefix "$work/out")
+    # The `vt` packages from our mirror, as ghostty-vt-sys's build.rs seeds
+    # them; mirror only (the default in CI), Zig has no other route, so this
+    # also proves the lock's `vt` set is the whole fetch list.
+    mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
+    [[ -n "$mirror_only" ]] || { [[ "${CI:-}" == true ]] && mirror_only=1 || mirror_only=0; }
+    proxy=(env)
+    if [[ "$mirror_only" == 1 ]]; then
+      proxy+=(-u NO_PROXY -u no_proxy)  # a bypass list would route around the proxy
+      for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do proxy+=("$name=http://127.0.0.1:9"); done
+    fi
+    CMUX_ZIG_MIRROR_ONLY="$mirror_only" CMUX_ZIG_LOCK_TAG=vt "$ROOT/scripts/ci/seed-zig-package-archives.sh" "$ZIG_GLOBAL_CACHE_DIR" "$src"
+    (cd "$src" && "${proxy[@]}" "${CMUX_VT_ZIG:-zig}" build "${flags[@]}" "-Dversion-string=$version" --prefix "$work/out")
     ;;
   helper)
     src="$(fresh_copy ghostty "$(git -C "$ROOT" rev-parse HEAD:ghostty)")"

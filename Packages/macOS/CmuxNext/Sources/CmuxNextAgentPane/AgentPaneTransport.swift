@@ -32,7 +32,7 @@ import CmuxNextCompat
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
     /// Runs right before anything reaches the page: a push here, a script call or a picture
-    /// (``AgentPaneView/callPageScript(_:arguments:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
+    /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?

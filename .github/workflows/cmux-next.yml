@@ -256,6 +256,7 @@ on:
       - tests/test_next_batch_groups.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
+      - scripts/ci/failed_steps_log.py
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
@@ -270,6 +271,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -362,6 +365,7 @@ on:
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
+      - scripts/ci/failed_steps_log.py
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
@@ -592,6 +596,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -1617,6 +1623,17 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-27b
+      - name: Prepare check Python (PyYAML) and timeout
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/checks-venv"
+          "$RUNNER_TEMP/checks-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          if ! command -v timeout >/dev/null && command -v gtimeout >/dev/null; then
+            ln -s "$(command -v gtimeout)" "$RUNNER_TEMP/checks-venv/bin/timeout"
+          fi
+          echo "$RUNNER_TEMP/checks-venv/bin" >> "$GITHUB_PATH"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
         run: |
@@ -1709,6 +1726,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
             python3 tests/test_cmux_tui_tree_takeover.py
+            python3 tests/test_cmux_next_same_tree_failed.py
             python3 tests/test_idea_ledger.py
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
@@ -2670,7 +2688,9 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-177 (a re-run reads the tree's publish record)
       - name: Report the unavailable same-tree cmux-tui
+        id: unavailable
         if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
@@ -2678,11 +2698,30 @@ jobs:
           COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
+          ORIGIN: ${{ inputs.same_tree_origin }}
+          ORIGIN_RUN: ${{ inputs.same_tree_origin_run }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_KIND: ${{ github.ref_type == 'tag' && 'tags' || 'heads' }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily == true && inputs.dev_daily_sha || '' }}
+          TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || inputs.base_tier == true && 'base' || '' }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$COMMIT" ]]; then
+            # The tree's publish record, read now: a re-run of this run (same inputs) after a later
+            # publication dispatches the ready tree jobs instead of repeating the old verdict. Not
+            # published: it writes this run's marker (reported), uploaded below for the key's next publish.
+            marker="$RUNNER_TEMP/cmux-next-tree-wait/marker.json"
+            if python3 scripts/ci/cmux_next_same_tree_failed.py --repo "$GITHUB_REPOSITORY" --ref "$REF_NAME" \
+                --ref-kind "$REF_KIND" --reason "$REASON" --key "$KEY" --commit "$COMMIT" --status-sha "$STATUS_SHA" \
+                --tiers "$TIERS" --origin "$ORIGIN" --origin-run "$ORIGIN_RUN" --dev-daily-sha "$DEV_DAILY_SHA" \
+                ${TIP_SUITE:+--tip-suite "$TIP_SUITE"} --marker "$marker" --output "$GITHUB_OUTPUT"; then
+              echo "::notice title=same-tree cmux-tui published::the tree was published after this run was dispatched; its tree jobs were dispatched again (ready)"; exit 0
+            fi
+            [[ -f "$marker" ]] && echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          fi
           if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
             echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
           fi
@@ -2706,6 +2745,17 @@ jobs:
             done
           fi
           exit 1
+      # The record of this run's red, keyed by its tree: the key's next publication re-dispatches every tier
+      # it reported (cmux_next_tree_notify.py), whatever became of the marker that started this run.
+      - name: Upload the reported tree wait marker
+        if: ${{ !cancelled() && steps.unavailable.outputs.marker != '' && steps.unavailable.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
+          path: ${{ steps.unavailable.outputs.marker }}
+          retention-days: 7
+          overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
   # Why: docs/ci/cmux-next-workflow-notes.md#note-33
@@ -3322,6 +3372,16 @@ jobs:
           VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
           RESULT: ${{ needs.fast-tier-fleet.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
@@ -3331,6 +3391,7 @@ jobs:
             echo "::error title=cmux-next fast tier::fleet $RESULT, verdict ${VERDICT:-none}; its log is in cmux-next fast tier (build fleet)"
             exit 1
           fi
+          if [[ $RESULT == cancelled ]] && superseded_push "fast tier"; then exit 0; fi
           echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
           exit 3
 
@@ -5246,6 +5307,16 @@ jobs:
           HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
           VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$VERDICT" in
             fresh)
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
@@ -5256,6 +5327,7 @@ jobs:
               echo "::error::The action catalog checks fail on $HOST with fresh exports too: a catalog failure, not stale files. Regenerating changes nothing; $HOST's step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               exit 1 ;;
             *)
+              if [[ $HOST_RESULT == cancelled ]] && superseded_push "generated files"; then exit 0; fi
               echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
               exit 1 ;;
           esac
@@ -6340,6 +6412,16 @@ jobs:
           OUTCOME: ${{ needs.cmux-scheme-compile.outputs.crash_gate }}
           COMPILE: ${{ needs.cmux-scheme-compile.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head bound=()
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            if command -v timeout >/dev/null; then bound=(timeout 20); fi  # a Mac runner may have none
+            head="$(${bound[@]+"${bound[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$OUTCOME" in
             success) echo "crash gate: every deliberate crash ended the app in time" ;;
             failure) echo "::error::crash gate: red; the cause (a crash froze the app, or no app to test) is in the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
@@ -6347,6 +6429,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
+              if [[ $COMPILE == cancelled ]] && superseded_push "crash gate"; then exit 0; fi
               [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
