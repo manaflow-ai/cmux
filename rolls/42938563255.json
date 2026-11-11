@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42938563255",
+  "recorded_at": "2026-11-11T01:31:44Z",
+  "reason": "cmux-tui a6741b511e17 changes the image's cmux-tui (pinned 64b1225a583c)",
+  "dry_run": false,
+  "cmux_tui": "a6741b511e1775d8837d75dbcc6363e88902224c",
+  "fixes": [
+    {
+      "sha": "a6741b511e1775d8837d75dbcc6363e88902224c",
+      "mergedAt": "2026-11-10T17:08:40-08:00",
+      "subject": "cmux-tui: the app FFI and layout reducer FFI locks take hashlink again (rusqlite cache feature)"
+    },
+    {
+      "sha": "0a62188da19c21d64093c46c83e60b0824b6d6a8",
+      "mergedAt": "2026-11-11T01:02:07Z",
+      "subject": "Close selection: the windows' state and its pick in Rust (Rust half) (#40920)"
+    },
+    {
+      "sha": "fe238fc388af73ae374f4e85af32b6eef6704214",
+      "mergedAt": "2026-11-10T17:01:24-08:00",
+      "subject": "acpmux: the login read takes only a whole environment and never waits on a background job"
+    },
+    {
+      "sha": "21bb277bf5b1d2f0938ef0bcbe505dbc1d9804ee",
+      "mergedAt": "2026-11-10T17:01:24-08:00",
+      "subject": "acpmux: test the login read against a shell that prints no env or keeps its output open"
+    },
+    {
+      "sha": "0ccb0753e0dec4494fa65ab8404f0e9c66a7548f",
+      "mergedAt": "2026-11-10T17:01:24-08:00",
+      "subject": "acpmux: a harness line that is not UTF-8 never ends its pipe"
+    },
+    {
+      "sha": "6d5e445436a33e463e0571ba9094c351893d3215",
+      "mergedAt": "2026-11-10T17:01:23-08:00",
+      "subject": "acpmux: test that a harness line that is not UTF-8 ends no output"
+    },
+    {
+      "sha": "e2882efc5fab7305cf5958b78e2986b0a3cb7d9e",
+      "mergedAt": "2026-11-10T17:01:23-08:00",
+      "subject": "acpmux: an update never ends the agent of a chat it could not read"
+    },
+    {
+      "sha": "c5932e9799f7ce1152353d5192753d958568b91a",
+      "mergedAt": "2026-11-10T17:01:23-08:00",
+      "subject": "acpmux: test that an update keeps agents whose chat it could not read"
+    },
+    {
+      "sha": "67607d825dfd0c9dfc688d9caed3e5c961c3c745",
+      "mergedAt": "2026-11-10T17:01:23-08:00",
+      "subject": "acpmux: read the login shell again after a failed startup read"
+    },
+    {
+      "sha": "a4d0bd602e5992736bd34234b0dd98223a1bec66",
+      "mergedAt": "2026-11-10T17:01:22-08:00",
+      "subject": "acpmux: test that a login shell read failed at start is read again"
+    },
+    {
+      "sha": "f1994dccb9eb1f6a705730dd8105f5af5610ef88",
+      "mergedAt": "2026-11-10T17:01:22-08:00",
+      "subject": "cmux-tui registry: the durability comment says what synchronous=NORMAL keeps"
+    },
+    {
+      "sha": "59437aa8206c5364fe0cfa09389431cbc7abbc2f",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "cmux-tui journal: a reader reads each page in one snapshot, so a concurrent seal is never a gap"
+    },
+    {
+      "sha": "2f08036291bd74eb09b15cb505e1a1e1ef54015e",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "cmux-tui journal: tests: a reader's page read during a seal sees every record"
+    },
+    {
+      "sha": "a631eae3bf3a38bcaf285d5212431305e511318e",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "acpmux: a queued send's prompt id names one message to one target"
+    },
+    {
+      "sha": "92875540bbda3eef357b54e96f58cb7f77d622f5",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "acpmux: test that a queued send's prompt id to another target is its own message"
+    },
+    {
+      "sha": "3b55531fe69018c53880ca50bccd19321b3e95c7",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "acpmux: a result before a queued prompt starts no longer ends that prompt"
+    },
+    {
+      "sha": "b997a830008fa926c9fd6a83fafa7aa93a559b39",
+      "mergedAt": "2026-11-10T17:01:21-08:00",
+      "subject": "acpmux: test that a result before a queued prompt starts is not that prompt's"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:31:44Z",
+    "snapshot_id": "sh-7b76e8180e134d169de8e2b18e998c65",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42938563255): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1499f66f8f6d78e9fe74c5c0ecd7b02de9052437",
+    "image": "cloud-native-auto-a6741b51-42938563255-1",
+    "revision": "ci-42938563255-1",
+    "at": "2026-11-11T01:31:44Z"
+  },
+  "rolled_back": false
+}
