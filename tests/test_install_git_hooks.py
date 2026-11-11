@@ -919,6 +919,9 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(marker.exists(), result.stderr)
         self.assertIn("inside this checkout", result.stderr)
+        # npm's `env node` finds no checked node, and says so instead of a bare not-found.
+        self.assertIn("node is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                      " outside this checkout", result.stderr)
 
     def symlink_layouts(self, name, payload):
         """(label, PATH entry) for each layout that steers a lookup of name at payload in the checkout."""
