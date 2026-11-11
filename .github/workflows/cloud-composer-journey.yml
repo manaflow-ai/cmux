@@ -276,6 +276,10 @@ jobs:
           ONLY: ${{ inputs.only }}
           SWEEP_VM_IDS: ${{ inputs.sweep_vm_ids }}
           CMUX_JOURNEY_PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          # The repository's Claude login (as cloud-claude-matrix.yml and cloud-journey-prod.yml use it): the harness
+          # stores it where a person's Claude sign-in in the app goes, so a started machine's Claude is signed in
+          # (run 43098103951's only start answered with an empty, signed-out reply). Removed when the harness ends.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           case "$BACKEND" in
@@ -287,7 +291,7 @@ jobs:
           # The harness from this run's ref; it imports cloud-chat-matrix.py beside it.
           python3 -I harness/scripts/cmux-next/cloud-composer-journey.py --app "$CMUX_JOURNEY_APP" \
             --tag "$CMUX_JOURNEY_TAG" --cloud-backend "$BACKEND" --expected-api-origin "$origin" \
-            --credentials-file "$CMUX_JOURNEY_CREDENTIALS" --grant-claude-login --only "$ONLY" \
+            --credentials-file "$CMUX_JOURNEY_CREDENTIALS" --grant-claude-login --seed-claude-login --only "$ONLY" \
             --sweep-vm-ids "$SWEEP_VM_IDS" \
             --nightly "$NIGHTLY_BUILD ($NIGHTLY_COMMIT)" --out "$out" || status=$?
           [ -s "$out/journey.md" ] && cat "$out/journey.md" >> "$GITHUB_STEP_SUMMARY"

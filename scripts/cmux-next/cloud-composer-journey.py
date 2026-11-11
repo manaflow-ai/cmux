@@ -49,7 +49,9 @@ Live, in a person's NIGHTLY after a fix (one command; CMUX_BUNDLE_ID is read fro
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -107,6 +109,10 @@ def parse_args(argv=None):
     parser.add_argument("--credentials-file")
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's scratch cmux.json says yes to the Claude login copy")
+    parser.add_argument("--seed-claude-login", action="store_true",
+                        help="with --app: put $CLAUDE_CODE_OAUTH_TOKEN where a person's Claude sign-in in the app puts it "
+                             "(the cmux-cloud-secret Keychain entry the app's Cloud start copies to the machine), for "
+                             "the account and each team the run uses; removed when the run ends")
     parser.add_argument("--sweep-vm-ids", default="",
                         help="comma list of machine ids an earlier run left on this account: delete them (signed in "
                              "as the run's agent account) and run no cells")
@@ -187,6 +193,7 @@ class Journey(Matrix):
         # The first cell's chat pane, in the launch window's own (local) workspace: later cells open their new
         # chat there by target, so a start that focused its machine's workspace never decides where it opens.
         self.launch_pane: str | None = None
+        self.seeded_logins: list[str] = []  # the Claude sign-in entries --seed-claude-login stored (removed at the end)
 
     # -- app calls
     def call(self, method: str, params: dict | None = None, timeout: int = 90) -> dict:
@@ -215,6 +222,42 @@ class Journey(Matrix):
     def creations(self) -> list[dict]:
         value = self.call("cloud.machines", {}) if self.composer else {}
         return [r for r in (value.get("creations") or []) if isinstance(r, dict)]
+
+    def claude_login_names(self, teams: list[str]) -> list[str]:
+        """The Keychain names the app reads a cached Claude login under (CloudCredentialLogin.name): one per scope,
+        `personal` and each team id, for the signed-in user."""
+        user = str(self.call("auth.status").get("user_id") or "") if self.composer else ""
+        if not user:
+            return []
+        names = []
+        for team in ["personal", *[t for t in teams if t]]:
+            scope = hashlib.sha256(f"{user}:{team}:".encode()).digest()[:12].hex()
+            name = f"CLAUDE_TRANSFER_{scope}"
+            if name not in names:
+                names.append(name)
+        return names
+
+    def seed_claude_login(self, token: str, teams: list[str]) -> str:
+        """Store `token` as a person's Claude sign-in in the app stores it (`cmux cloud secret set`, the envelope
+        CloudCredentialLogin.store writes), so a Cloud start copies it to the machine. Answers a problem, or ''."""
+        if not re.fullmatch(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}", token or ""):
+            return "CLAUDE_CODE_OAUTH_TOKEN is unset or not a Claude login token"
+        names = self.claude_login_names(teams)
+        if not names:
+            return "the app names no signed-in user"
+        envelope = json.dumps({"created": time.time(), "credential": base64.b64encode(token.encode()).decode()})
+        for name in names:
+            done = subprocess.run([self.cli, "cloud", "secret", "set", name], env=self.env, input=envelope,
+                                  capture_output=True, text=True, timeout=70)
+            if done.returncode != 0:
+                return f"cloud secret set {name}: {clean(done.stderr or done.stdout, 200)}"
+            self.seeded_logins.append(name)
+        return ""
+
+    def unseed_claude_login(self) -> None:
+        for name in self.seeded_logins:
+            subprocess.run([self.cli, "cloud", "secret", "rm", name], env=self.env, capture_output=True, timeout=70)
+        self.seeded_logins = []
 
     def team_id(self) -> str:
         return str(self.call("auth.status").get("team_id") or "") if self.composer else ""
@@ -302,6 +345,15 @@ def guest_peek(journey: Journey, machine: str) -> str:
 def creation_ids(journey: Journey) -> set[str]:
     """The machines the app's own creation record names (`cloud.machines` creations)."""
     return {str(r.get("machine_id") or r.get("id") or "") for r in journey.creations()} - {""}
+
+
+def machine_name(row: dict) -> str:
+    """A `cloud list-machines` row's name, as the app's start card names the machine."""
+    for key in ("name", "title", "display_name", "displayName"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def owned_and_seen(made_by_us: set[str], before: set[str], now: set[str]) -> tuple[list[str], list[str]]:
@@ -490,6 +542,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     # Follow the start: the card fails (it stays), or the tab closes into the machine's chat.
     outcome, message, deadline = "", "", time.monotonic() + timeout
     recorded: set[str] = set()  # this cell's machines, from the app's creation record while it still lists them
+    start_names: set[str] = set()  # the machine names this cell's start card showed (CloudStartProgress.machine)
     while time.monotonic() < deadline:
         # The record drops a creation once its workspace opens, so read it on every pass and own it at once
         # (also for a cancel mid-start): read only after the loop, a started cell's machine could be missed.
@@ -504,6 +557,8 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             outcome = "started"  # the start closed this tab: the chat is the machine's
             break
         start = progress.get("cloudStart") or {}
+        if isinstance(start, dict) and isinstance(start.get("machine"), str) and start["machine"].strip():
+            start_names.add(start["machine"].strip())  # the start's own card names its machine
         if isinstance(start, dict) and start.get("state") == "failed":
             outcome, message = "refused", str(start.get("message") or "")
             cell["refused_here"] = bool(start.get("refusedHere"))
@@ -550,7 +605,13 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             # Positive evidence for a machine the record no longer names: its agent's transcript holds this
             # cell's own prompt word (cj + 8 random hex), which no other run or person sends (run 43071400243
             # left vm_9f340437d7c0cbb6d188 because the record had dropped it).
-            ours = [m for m in seen if guest_has(journey, m, word)]
+            # Or its row's name is the one this cell's own start card showed (run 43098103951 left
+            # vm_442dc624e8cf21b72077: the record had dropped it and its signed-out agent never saw the prompt).
+            rows = journey.machine_rows() if start_names else {}
+            by_name = [m for m in seen if start_names and machine_name(rows.get(m) or {}) in start_names]
+            ours = by_name or [m for m in seen if guest_has(journey, m, word)]
+            if by_name:
+                cell["owned_by_start_card"] = sorted(by_name)
             if ours:
                 made = sorted(ours)
                 seen = [m for m in seen if m not in ours]
@@ -755,6 +816,19 @@ def main(argv=None) -> int:
                 report["result"] = f"fail: the app has no debug.agent_pane ({probe.get('error')})"
                 return finish(report, out, 1)
         untrusted = args.untrusted_cell or UNTRUSTED in [w for w in args.only.split(",") if w]
+        if args.sweep_vm_ids.strip() == "list":
+            # List every machine on the signed-in account (id, name, status), deleting nothing: what a sweep then
+            # names by id (a team at its machine limit: run 43103895699).
+            code, out_, err_ = journey.cmux("cloud", "list-machines", "--json", timeout=60)
+            rows = journey.parsed(out_).get("machines") or [] if code == 0 else []
+            report["team"] = journey.team_id()
+            report["listed"] = [{k: r.get(k) for k in ("machine_id", "id", "title", "name", "status", "created_at",
+                                                          "createdAt", "team_id", "slug") if r.get(k) is not None}
+                                for r in rows if isinstance(r, dict)]
+            report["machines_left"] = []
+            report["result"] = (f"pass: listed {len(report['listed'])} machines" if code == 0
+                                else f"fail: list-machines: {clean(err_ or out_, 300)}")
+            return finish(report, out, 0 if code == 0 else 1)
         named = [m.strip() for m in args.sweep_vm_ids.split(",") if m.strip()]
         if named:
             # Only ids named here: machines an earlier run of this journey left (its report's machines_left).
@@ -783,6 +857,10 @@ def main(argv=None) -> int:
         fixtures = {kind: fixture(kind, root) for kind in FOLDERS + ((UNTRUSTED,) if untrusted else ())}
         personal = journey.team_id()
         report["teams"] = {"personal": personal, "team": args.team, "removed": args.removed_team}
+        if args.seed_claude_login and args.app:
+            problem = journey.seed_claude_login(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", ""),
+                                                [personal, args.team, args.removed_team])
+            report["claude_login"] = problem or f"seeded {len(journey.seeded_logins)} scopes"
         order = [a for a in ("personal", "team", "removed") if a in ACCOUNTS]
         for account in order:
             team = {"personal": personal, "team": args.team, "removed": args.removed_team}[account]
@@ -836,6 +914,11 @@ def main(argv=None) -> int:
         if journey.owned:  # a run that ended early (an exception) still deletes what it made
             try:
                 sweep(journey)
+            except Exception:
+                pass
+        if journey.seeded_logins:
+            try:
+                journey.unseed_claude_login()
             except Exception:
                 pass
         if args.app:
