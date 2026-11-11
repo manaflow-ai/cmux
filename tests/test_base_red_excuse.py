@@ -9903,6 +9903,17 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                 self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
                 self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
 
+    def test_a_recap_only_retry_counts_its_titles_once_placed_and_whole(self):
+        # #41329's review F1: two attempts that each recap `a > one` counted it twice, refused against a base that
+        # failed it once. The retry drops the superseded attempt's recap titles too.
+        retried = self.BASE_RECAP + ["--- retry, alone ---"] + self.BASE_RECAP
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(retried, self.BASE_RECAP)[0].startswith("excused "))
+                with self.assertRaisesRegex(excuse.Refused, "a > one"):
+                    path(self.HEAD_RECAP + ["--- retry, alone ---"]
+                         + self.HEAD_RECAP, self.BASE_RECAP)
+
     def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
         # The same rule for a name its results print twice: the placed path compared the window by name alone.
         twice = bun_lines(results=["a > one", "a > one"])
@@ -9958,6 +9969,41 @@ class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
     def test_one_verdict_with_all_three_still_excuses(self):
         said = self.judge(self.NEWEST, self.HEAD_RECAP)
         self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+
+class SplitSectionsAreNeverJudgedAgain(unittest.TestCase):
+    """#41329's review follow-up F3 (base_red_excuse.py:1487): "re-parsing the concatenated failed sections runs
+    passed_steps again, so a failed section with no ##[error] can be read as passing and its unnamed Bun count dropped.
+    Parse each failed section on its own, and never re-judge pass or fail on text that's already been split." A
+    FailedView's text is a test_reds.Steps: each section is read as the failed step it was placed as."""
+
+    def sections(self):
+        echo = lambda script: [f"2026-11-11T12:00:0{n}.0Z {line}" for n, line in enumerate(
+            [f"##[group]Run {script}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"])]
+        # A failed step that printed no `##[error]` (the jobs API says it failed), then the step that did.
+        quiet = echo("bun test test/a.test.ts") + [f"2026-11-11T12:00:05.0Z {line}" for line in
+                                                     bun_lines(results=["a > one"], fail=2)]
+        loud = echo("cargo test") + [f"2026-11-11T12:00:09.0Z {line}" for line in (
+            "test tests::reconnects ... FAILED",
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+            "##[error]Process completed with exit code 101.")]
+        return quiet, loud
+
+    def view(self):
+        quiet, loud = self.sections()
+        steps = [{"name": "bun", "conclusion": "failure"}, {"name": "cargo", "conclusion": "failure"}]
+        return excuse.FailedView({"id": 1, "steps": steps}, False, steps,
+                                 [(0, "FAILED", quiet), (1, "FAILED", loud)])
+
+    def test_a_failed_sections_bun_count_is_kept_without_an_error_line(self):
+        view = self.view()
+        own = excuse.owned_unnamed(excuse.test_reds.read("\n".join(sum(self.sections(), []))), view)
+        self.assertEqual(own.unnamed, [" 2 fail"])
+        self.assertTrue(any(why.startswith(excuse.test_reds.UNNAMED_WHY) for why in own.truncated), own.truncated)
+        unnamed: list = []
+        excuse.test_reds.failed_in(excuse.view_text(view), unnamed)
+        self.assertEqual(unnamed, [" 2 fail"])
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):

@@ -1275,7 +1275,10 @@ class FailedView:
         self.job, self.base, self.steps, self.sections = job, base, steps, sections
 
     def text(self) -> str:
-        return "\n".join(line for _, _, lines in self.sections for line in lines)
+        """Its sections' lines, as a test_reds.Steps: every reader of it reads each section as the failed step it was
+        placed as, never splitting the text by its echoes and judging pass or fail again (#41329's review follow-up
+        F3)."""
+        return test_reds.Steps(["\n".join(lines) for _, _, lines in self.sections])
 
     def lines(self) -> list[tuple[str, int]]:
         """(raw line, the index of its step in STEPS) for each line of the view."""
@@ -1475,7 +1478,7 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     text = view_text(view)
     steps = {step["name"] for step in view.job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests = set(test_reds.failed_tests(test_reds.red_lines(text)))  # bun's too (#41158's review F1)
+    tests = set(test_reds.failed_in(text))  # bun's too (#41158's review F1)
     return steps, tests, {error for _, error in step_errors(view)}
 
 
@@ -1499,7 +1502,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
     text = view_text(view)
     scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
-    tests = set(test_reds.failed_tests(test_reds.red_lines(text)))
+    tests = set(test_reds.failed_in(text))
     job = view.job
     found: set[tuple[str, str]] = set()
     for n, line in enumerate(lines_of(text)):
@@ -1578,7 +1581,7 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     # A passing step's lines are no failing test's: the names are read from red_lines, as parse_log reads them
     # (#41244's review F1).
     unnamed: list = []
-    tests = test_reds.failed_tests(test_reds.red_lines(log), unnamed)
+    tests = test_reds.failed_in(log, unnamed)
     named = set(tests)
     errors: Counter = Counter()
     for line in output:
@@ -4520,7 +4523,7 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
     # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
     # it fails.
-    times = test_reds.failed_tests(test_reds.red_lines(head_text))
+    times = test_reds.failed_in(head_text)
     alone = []
     for (run, view, *_), gap in zip(window, gaps):
         if gap:
@@ -4528,7 +4531,7 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
         text = view_text(view)
         judged = test_reds.classify(head_text, text, name, f"{base} run {run['id']}")
         alone.append((set(judged.shared) if judged is not None else set(),
-                      test_reds.failed_tests(test_reds.red_lines(text))))
+                      test_reds.failed_in(text)))
     if lone := sorted(f"{test} x{n} (at most x{max([counts[test] for same, counts in alone if test in same] or [0])})"
                       for test, n in times.items() if test not in known
                       and not any(test in same and counts[test] >= n for same, counts in alone)):

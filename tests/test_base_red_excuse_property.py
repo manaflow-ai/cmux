@@ -118,12 +118,12 @@ def truth(steps: list) -> tuple[Counter, Counter, list]:
         for block in step["blocks"]:
             if block.get("retry") is not None:
                 # run-webviews-tests.sh's contract: a file run again, alone, is judged by that run only, so every
-                # earlier failure of the file in the log (every bun block here runs one file) is superseded. A title
-                # no file names (titled) is no failure of the file.
-                found = [failure for failure in found if failure[0] != "bun" or failure[1].startswith("pane > ")]
-            found += final_identities(block)
-    named = Counter(ident for runner, ident, ok in found if ok)
-    return keys, named, [(runner, ident) for runner, ident, ok in found if not ok]
+                # earlier failure of the file in the log (every bun block here runs one file) is superseded. A run
+                # with no file header ran no file: its results stay (read_bun drops only `FILE > ` names).
+                found = [failure for failure in found if failure[0] != "bun" or failure[3]]
+            found += [(*failure, bool(block.get("headerless"))) for failure in final_identities(block)]
+    named = Counter(ident for runner, ident, ok, _ in found if ok)
+    return keys, named, [(runner, ident) for runner, ident, ok, _ in found if not ok]
 
 
 def unreported(steps: list) -> list:
@@ -267,7 +267,10 @@ def gen_block(rng: random.Random, unnamed_rate: float) -> dict:
         # No file header: each result is named by its title, the identity a recap-only block gives it, but with its
         # error (#41329's review F1: the same title, one verdict with an error and another without).
         block["headerless"] = True
-        named = [failure for failure in failures if failure[2]]
+        # Every failure named: an unnamed one's count line would be kept or dropped by a later retry of whichever
+        # file ran before it, which is no contract to model.
+        failures[:] = [(runner, name, True) for runner, name, _ in failures]
+        named = list(failures)
         if named and rng.random() < 0.5:
             failures.append(rng.choice(named))
     return block
@@ -300,7 +303,7 @@ def mutate(rng: random.Random, steps: list, window: list) -> list:
         if step["blocks"] and rng.random() < 0.6:
             block = rng.choice(step["blocks"])
             target = block["retry"] if block.get("retry") is not None else block["failures"]
-            target.append((block["runner"], rng.choice(NAMES), False))
+            target.append((block["runner"], rng.choice(NAMES), bool(block.get("headerless"))))  # see gen_block
         else:
             runner = rng.choice(RUNNERS)
             step["blocks"].append({"runner": runner, "failures": [(runner, rng.choice(NAMES), True),
