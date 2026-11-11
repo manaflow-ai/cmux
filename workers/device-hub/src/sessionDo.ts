@@ -106,6 +106,8 @@ export class SessionDO extends DurableObject<Env> {
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [ticket.role, h.id]);
+    // This side is back: a peer-left about it still waiting for the other side is stale.
+    this.sql.exec("DELETE FROM queue WHERE to_role = ? AND msg LIKE ?", other(ticket.role), `{"type":"peer-left","role":"${ticket.role}"%`);
     // Deliver what the peer sent before this side connected.
     const queued = this.sql.exec("SELECT seq, msg FROM queue WHERE to_role = ? ORDER BY seq", ticket.role).toArray();
     for (const q of queued) pair[1].send(q.msg as string);
@@ -199,7 +201,14 @@ export class SessionDO extends DurableObject<Env> {
     }
     const role = this.ctx.getTags(ws)[0] as Role;
     const msg = JSON.stringify({ type: "peer-left", role, reason: reason.slice(0, 120) });
-    for (const p of this.ctx.getWebSockets(other(role))) {
+    const peers = this.ctx.getWebSockets(other(role));
+    if (peers.length === 0) {
+      // The other side has not joined yet: it hears this when it does (admit delivers the queue).
+      const count = this.sql.exec("SELECT COUNT(*) AS n FROM queue").one().n as number;
+      if (count < MAX_QUEUE) this.sql.exec("INSERT INTO queue(to_role, msg) VALUES (?, ?)", other(role), msg);
+      return;
+    }
+    for (const p of peers) {
       try {
         p.send(msg);
       } catch {

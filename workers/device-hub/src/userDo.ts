@@ -199,6 +199,9 @@ export class UserDO extends DurableObject<Env> {
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+    // Sockets restored from hibernation need the silence check armed: a socket
+    // accepted before this check existed has no clock until a sweep stamps it.
+    if (ctx.getWebSockets().length > 0) void ctx.blockConcurrencyWhile(() => this.scheduleAlarm());
   }
 
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----

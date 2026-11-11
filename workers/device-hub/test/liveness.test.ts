@@ -1,4 +1,4 @@
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { INTERNAL_CALL_TIMEOUT_MS, internalCall } from "../src/internalCall";
 import { SILENT_CLOSE, SILENT_MS } from "../src/userDo";
@@ -119,6 +119,25 @@ describe("User DO: a device that goes silent without closing its socket", () => 
     expect(await online(host, viewer.id)).toBe(true);
   });
 
+  it("arms the silence check for a socket restored from before the check existed", async () => {
+    const { account, host, viewer } = await setup();
+    const stub = userStub(account.userId);
+    // A socket accepted by the old code: no clock, and no alarm pending.
+    await runInDurableObject(stub, async (_i, s) => {
+      for (const ws of s.getWebSockets()) ws.serializeAttachment(null);
+      await s.storage.deleteAlarm();
+    });
+    await evictDurableObject(stub);
+    // Any wake (here a request) arms the check right away.
+    expect((await host.call("GET", "/v1/devices")).status).toBe(200);
+    expect(await runInDurableObject(stub, (_i, s) => s.storage.getAlarm())).not.toBeNull();
+    // The sweep starts the restored sockets' clocks, and the next check is within the bound.
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    const { attachment, alarm } = await socketClock(account.userId, viewer.id);
+    expect(typeof attachment?.openedAt).toBe("number");
+    expect(alarm! - attachment!.openedAt!).toBeLessThanOrEqual(SILENT_MS);
+  });
+
   it("records a ping's auto-response as a sign of life", async () => {
     const { account, viewer } = await setup();
     viewer.user!.send({ type: "ping" });
@@ -142,6 +161,17 @@ describe("Session DO: the other side hears when a signaling socket goes", () => 
     expect(await h.none((f) => f.type === "peer-left", 300)).toBe(true);
     // The session itself stands (the peer connection may be up).
     expect(h.closed).toBeNull();
+  });
+
+  it("a side that fails before the other joins: the other hears peer-left when it joins", async () => {
+    const { host, viewer } = await setup();
+    const s = await approvedSession(host, viewer);
+    await viewer.signal(s.vt);
+    await runInDurableObject(sessionStub(s.sid), async (instance: any, state) => {
+      await instance.webSocketError(state.getWebSockets("viewer")[0], new Error("connection reset"));
+    });
+    const h = (await host.signal(s.ht)).peer!;
+    expect(await h.next((f) => f.type === "peer-left")).toEqual({ type: "peer-left", role: "viewer", reason: "error: connection reset" });
   });
 
   it("a socket close tells the remaining peer peer-left with the code and reason", async () => {
@@ -171,6 +201,15 @@ describe("calls between Durable Objects have a deadline", () => {
     await expect(internalCall(hung, "https://user.do/internal/session-ended", {}, "session s1 end report", 50)).rejects.toThrow("session s1 end report: no answer within 50 ms");
     expect(Date.now() - started).toBeLessThan(1000);
     expect(INTERNAL_CALL_TIMEOUT_MS).toBe(5000);
+  });
+
+  it("leaves no timer behind once a call answers, so the object can be evicted at once", async () => {
+    const { account, host, viewer } = await setup();
+    // Approval calls the Session DO through internalCall from the User DO.
+    await approvedSession(host, viewer);
+    const started = Date.now();
+    await evictDurableObject(userStub(account.userId), { webSockets: "close" });
+    expect(Date.now() - started).toBeLessThan(INTERNAL_CALL_TIMEOUT_MS);
   });
 
   it("passes the stub's own failure through with the call's name", async () => {
