@@ -1,5 +1,5 @@
 // Jump up (jumpUp.ts) glides to where the reader left off, on Jump to latest's ride, instead of cutting
-// there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a hell of a lot more
+// there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
 // gracefully than whatever's going on here."). A long way skips at once to one viewport from the
 // place and eases the rest; the way back glides too.
 import { afterAll, expect, test } from "bun:test";
@@ -69,13 +69,15 @@ const rows: AcpmuxRow[] = [
 ];
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
-/// Each frame's offset until it holds still for a few frames (or 90 frames run out).
+/// Each frame's offset until, once it has moved, it holds still for a few frames (or 120 frames run
+/// out): an eased start can hold a whole pixel for its first frames.
 async function frames(scroller: HTMLElement): Promise<number[]> {
   const seen = [scroller.scrollTop];
   let still = 0;
-  for (let i = 0; i < 90 && still < 4; i++) {
+  for (let i = 0; i < 120 && still < 6; i++) {
     await act(async () => nextFrame());
-    still = scroller.scrollTop === seen.at(-1) ? still + 1 : 0;
+    const moved = seen.some((top) => top !== seen[0]) || scroller.scrollTop !== seen[0];
+    still = moved && scroller.scrollTop === seen.at(-1) ? still + 1 : 0;
     seen.push(scroller.scrollTop);
   }
   return seen;
