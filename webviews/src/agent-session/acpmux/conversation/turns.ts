@@ -20,6 +20,7 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
+import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
@@ -55,9 +56,10 @@ import { isThought, thoughtDuration } from "./thoughts";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
-  collectFoldedBackgroundId,
   foldBackgroundTurns,
+  foldedBackgroundIds,
   foldsBackground,
+  hiddenInBackground,
   openBackgroundTurns,
 } from "./backgroundTurns";
 import {
@@ -471,7 +473,11 @@ export function turnViewFrom(
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   const reuseFoldedBackground = previous?.source === rows && previous.expanded === expanded;
-  const foldedBackground = reuseFoldedBackground ? previous!.foldedBackground : new Set<string>();
+  // Read over the background turns alone, from a pass that reads only the rows a snapshot changed
+  // (prefixFlatMap.ts): every row of a long chat was read for them on each event.
+  const foldedBackground = reuseFoldedBackground
+    ? previous!.foldedBackground
+    : foldedBackgroundIds(backgroundTurnRows.read(rows).items, expanded);
   let reuse = 0;
   if (
     previous &&
@@ -484,12 +490,14 @@ export function turnViewFrom(
     const shared = previous.source;
     if (rows === shared) reuse = previous.starts.length;
     else {
-      let from = 0;
-      while (from < rows.length && from < shared.length && rows[from] === shared[from]) {
-        if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[from]!, expanded);
-        from += 1;
+      const from = keptPrefix(shared, rows);
+      // The turns that start before it (`starts` ascends): a long chat holds thousands.
+      let high = previous.starts.length;
+      while (reuse < high) {
+        const middle = (reuse + high) >> 1;
+        if (previous.starts[middle]! < from) reuse = middle + 1;
+        else high = middle;
       }
-      while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
     }
     reuse = Math.max(0, reuse - 1);
   }
@@ -523,7 +531,6 @@ export function turnViewFrom(
     // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
-      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, row, expanded);
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
     out = foldBackgroundRuns(foldBackgroundTurns(out, expanded), expanded);
@@ -550,13 +557,11 @@ export function turnViewFrom(
   // turn that changed (shapedTurn).
   while (index < rows.length) {
     const start = index++;
-    if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[start]!, expanded);
     let answerAt: number | undefined;
     while (
       index < rows.length &&
       (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
     ) {
-      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[index]!, expanded);
       if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
       index += 1;
     }
@@ -614,7 +619,7 @@ export function turnViewFrom(
     for (const row of shaped) {
       // The local turn may contain a late done line whose background owner is in a prior
       // prompt. Its original background line still controls disclosure of that completion.
-      if (row.inBackground !== undefined && foldedBackground.has(row.inBackground)) continue;
+      if (hiddenInBackground(row, foldedBackground)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -888,9 +893,7 @@ function shapedTurn(
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
-  const source = rows
-    .slice(start + 1, end)
-    .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
+  const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
   // The person's own prompt opened the turn after this one: a turn with no summary ended there
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
@@ -992,7 +995,9 @@ function shapedTurn(
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
-    const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson, user.at);
+    const body = sinceAboveWorked(
+      supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson, user.at),
+    );
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -1054,6 +1059,22 @@ function shapedTurn(
       rows: shaped,
     });
   return shaped;
+}
+
+/// "New since you looked" draws above the "Worked for" that holds or just precedes it, never under
+/// it: the place the person left can fall before the turn's work, inside it or at its end, and the
+/// fold draws the last two the same way, under its line. A reply or a steer between them is
+/// something the person read, so the divider stays under that.
+function sinceAboveWorked(body: AcpmuxRow[]): AcpmuxRow[] {
+  const at = body.findIndex((row) => row.kind === SINCE_DIVIDER);
+  if (at < 0) return body;
+  let worked = at - 1;
+  for (; worked >= 0 && body[worked]!.kind !== WORKED; worked -= 1) {
+    const row = body[worked]!;
+    if ((row.kind === "user" && !isReceivedLine(row)) || (isReply(row) && !row.foldedReply)) return body;
+  }
+  if (worked < 0) return body;
+  return [...body.slice(0, worked), body[at]!, ...body.slice(worked, at), ...body.slice(at + 1)];
 }
 
 /// Where `body` draws the "Worked for" of the turn `user` opened, or -1 for none.
@@ -1912,14 +1933,21 @@ const staysOut = (row: AcpmuxRow) =>
 /// A turn's todo list (an ACP `plan` update's row, direct.ts) that has its entries.
 const isPlan = (row: AcpmuxRow) => row.kind === "plan" && row.plan !== undefined;
 
+/// The background turns' lines of a transcript (turnViewFrom's `foldedBackground`).
+const backgroundTurnRows = new PrefixFilter<AcpmuxRow>((row) => row.kind === BACKGROUND_TURN);
+
+/// A turn's todo lists, the ones whose turn has not ended, and the prompts: what the hat reads
+/// (liveTurnPlan, earlierTurnPlan), each from a pass that reads only the rows a snapshot changed.
+const planRows = new PrefixFilter<AcpmuxRow>((row) => row.kind === "plan");
+const livePlanRows = new PrefixFilter<AcpmuxRow>((row) => row.kind === "plan" && !!row.plan?.length && !row.turnEnded);
+const promptRows = new PrefixFilter<AcpmuxRow>((row) => row.kind === "user");
+
 /// The running turn's todo list, if it has one: the last plan row whose turn has not ended, which
 /// App.tsx moves into the hat over the composer (subagents/SubagentTray.tsx `plan`).
 export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
-    const row = rows[at]!;
-    if (row.kind === "plan" && row.plan?.length && !row.turnEnded) return row;
-  }
-  return undefined;
+  // The last such list (`livePlanRows`): a long chat with none walked every row back to the first
+  // on each event.
+  return livePlanRows.read(rows).items.at(-1);
 }
 
 /// The todo list from before the person's last message, while the turn that message started has
@@ -1928,19 +1956,18 @@ export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
 /// to be able to render it in ours"). Only a list with steps left carries over: a finished one is
 /// done work, folded in its own turn. A newer list, even an empty one that cleared it, ends it.
 export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
-  let prompted = false;
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
-    const row = rows[at]!;
-    if (row.kind === "user") {
-      // The running turn is another session's message's, not the person's: nothing carries over.
-      if (row.incoming && !prompted) return undefined;
-      prompted = true;
-    }
-    if (row.kind !== "plan") continue;
-    if (!row.turnEnded || !prompted || !row.plan?.length || row.planCleared) return undefined;
-    return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
-  }
-  return undefined;
+  // The latest list and the latest prompt decide it (`planRows`, `promptRows`): read back from the
+  // end, the first prompt met is the latest, and the first list met ends the walk.
+  const plans = planRows.read(rows);
+  const row = plans.items.at(-1);
+  if (!row) return undefined;
+  const prompts = promptRows.read(rows);
+  const prompt = prompts.items.at(-1);
+  // No prompt after the list: nothing carries over. The running turn is another session's
+  // message's, not the person's: nothing carries over either.
+  if (!prompt || prompts.from.at(-1)! < plans.from.at(-1)! || prompt.incoming) return undefined;
+  if (!row.turnEnded || !row.plan?.length || row.planCleared) return undefined;
+  return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
 }
 
 /// The id suffix of the earlier list's copy that pins under the running turn (App.tsx).

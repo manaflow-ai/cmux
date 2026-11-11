@@ -1665,6 +1665,31 @@ class ServerStatsHookQueue:
 
 
 @dataclass(frozen=True)
+class ServerStatsJournalFollower:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollower'
+    client: int
+    connected_ms: int
+    keeps_hook_rows: bool
+    keeps_report_rows: bool
+    kinds: List[str]
+    left_ms: Union[int, None]
+    max_sensitivity: Union[str, None]
+    remote: bool
+    stream_id: str
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalFollowers:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollowers'
+    followers: List[ServerStatsJournalFollower]
+    grace_ms: int
+    hook_rows_kept: bool
+    journal_hook_keeps_rows: Union[bool, None]
+    keep_all_ms: int
+    report_rows_kept: bool
+
+
+@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1784,6 +1809,7 @@ class ServerStatsResult:
     uptime_ms: int
     disk: Union[ServerStatsDisk, MissingType] = field(default=MISSING)
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
+    journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
@@ -6574,6 +6600,8 @@ __all__ = [
     'ServerStatsDiskSegments',
     'ServerStatsHistogram',
     'ServerStatsHookQueue',
+    'ServerStatsJournalFollower',
+    'ServerStatsJournalFollowers',
     'ServerStatsJournalWriter',
     'ServerStatsLockDetail',
     'ServerStatsLockHolder',

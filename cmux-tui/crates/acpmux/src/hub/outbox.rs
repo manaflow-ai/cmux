@@ -8,14 +8,26 @@
 //! with the first outcome instead of running it twice. Each delivery is `queued`, `delivering`
 //! (attempt n), `delivered` (the target's acceptance: its session, turn and whether it steered),
 //! `held` (the runaway guard holds it until the person resumes the pair, `agent_pairs.rs`) or
-//! `failed` (the last error). The record is saved in `outbox.json` beside the sessions on
-//! every change, so a daemon restart goes on with what was not delivered yet; a store in memory
-//! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
+//! `failed` (the last error). The record is saved beside the sessions on every change, so a
+//! daemon restart goes on with what was not delivered yet; a store in memory keeps it in memory.
+//! Settled deliveries are kept for [`KEEP_SETTLED_MS`].
+//!
+//! On disk it is `outbox.json`, every delivery as of the last snapshot, and `outbox.journal`,
+//! one line for each delivery changed since, in order; a reader takes the snapshot and then the
+//! journal's lines, the last line for an id winning. The journal's first line names the snapshot
+//! it follows (its size and SHA-256): a journal left beside any other snapshot (an older daemon
+//! rewrote `outbox.json` without it, or a crash came between a new snapshot and the journal's
+//! reset) is not read, so it never takes a delivery back to an older state. A change appends only the deliveries it
+//! changed, so its cost does not grow with the deliveries kept: rewriting the whole file on every
+//! change wrote 2 GB in 14 minutes with a day's 2,500 deliveries (5 MB) kept (hang-watch
+//! `6159015094`, cmuxterm-hq#8660). A snapshot is written again once the journal is twice its
+//! size (at least [`COMPACT_FLOOR`]), and at open when a journal is left over, so a change costs
+//! about one and a half times its own lines however many deliveries are kept.
 //!
 //! A change returns once a file that holds it is on disk, unless the write failed: that is
 //! logged and the change is only in memory until a later write succeeds, as before. A new
 //! delivery is the exception: when its write fails it is taken out again and the sender is told,
-//! so a message is never answered as kept when a restart would lose it. The file is
+//! so a message is never answered as kept when a restart would lose it. The files are
 //! written outside the deliveries lock and changes made while one write runs share the next one
 //! (group commit): 60 sends at once used to queue behind 180 whole-file writes and syncs, each up
 //! to a second on a busy disk (`design/acpmux-perf.md` in leo-workspace).
@@ -24,7 +36,7 @@
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
 
@@ -46,6 +58,10 @@ pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 
 /// lost because a machine was off or overloaded for half an hour (Leo, 2026-11-02: "sends
 /// shouldn't time out just bc of load").
 pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
+
+/// The journal is folded into a new snapshot once it holds this many bytes or twice as many as
+/// the snapshot, whichever is more.
+pub(crate) const COMPACT_FLOOR: u64 = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -162,8 +178,8 @@ impl Delivery {
 pub struct Outbox {
     deliveries: StdMutex<Book>,
     path: StdMutex<Option<PathBuf>>,
-    /// The last change on disk, held while a write runs.
-    saved: StdMutex<u64>,
+    /// What is on disk, held while a write runs.
+    disk: StdMutex<Disk>,
     /// At most one bounded delivery/reconciliation task for each id in this launch.
     running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
@@ -178,22 +194,53 @@ pub struct Outbox {
 struct Book {
     deliveries: BTreeMap<String, Delivery>,
     changes: u64,
+    /// The deliveries changed since the last write: the next one journals them.
+    dirty: BTreeSet<String>,
+}
+
+/// What the files hold.
+#[derive(Default)]
+struct Disk {
+    /// The last change on disk.
+    saved: u64,
+    /// Bytes of the journal's lines since the last snapshot, and of that snapshot.
+    journal: u64,
+    snapshot: u64,
+    /// The journal's first line for the snapshot on disk.
+    header: Vec<u8>,
+    /// A journal that starts with `header` is on disk: changes append to it. Otherwise the next
+    /// change writes a new journal whole (header and its lines).
+    journal_open: bool,
+    /// The next write is a snapshot: a journal was left at open, or an append failed.
+    snapshot_next: bool,
+    /// The journal may end in a torn line (it did at open, or an append failed): the next
+    /// append starts with a newline, so that line never swallows the next one.
+    torn: bool,
+    /// Bytes written to both files in this launch.
+    written: u64,
+    /// A snapshot that failed (a nearly full disk) is tried again once the journal holds this
+    /// many bytes, not on every change.
+    snapshot_retry_at: u64,
 }
 
 impl Outbox {
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
-        let saved: BTreeMap<String, Delivery> = match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-                tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
-                BTreeMap::new()
-            }),
-            Err(_) => BTreeMap::new(),
-        };
+        let saved = read_saved(path);
         *self.path.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_owned());
+        {
+            let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
+            disk.snapshot = saved.snapshot_bytes;
+            disk.header = saved.header;
+            disk.journal = saved.journal_bytes;
+            disk.journal_open = saved.journal_open;
+            disk.snapshot_next = saved.journal_bytes > 0;
+            disk.torn = saved.torn;
+            disk.snapshot_retry_at = 0;
+        }
         let mut book = self.book();
-        book.deliveries.extend(saved);
+        book.deliveries.extend(saved.deliveries);
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
         let mut named = std::collections::HashSet::new();
@@ -211,7 +258,34 @@ impl Outbox {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
-        book.deliveries.values().filter(|d| !d.settled()).cloned().collect()
+        let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
+        // A journal left over is folded into the snapshot now, so the files read alone by an
+        // older daemon hold everything.
+        if saved.journal_bytes > 0 {
+            let change = book.changed();
+            drop(book);
+            self.save(change);
+        }
+        pending
+    }
+
+    /// Folds the journal into a new snapshot, so `outbox.json` alone holds everything: at a
+    /// daemon's shutdown (`hub/shutdown.rs` `flush`), for whichever daemon starts next, an older
+    /// one too.
+    pub fn compact(&self) {
+        // The path lock is never held while the disk lock is taken, nor taken under it.
+        if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
+        {
+            let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
+            if disk.journal == 0 && !disk.snapshot_next {
+                return;
+            }
+            disk.snapshot_next = true;
+        }
+        let change = self.book().changed();
+        self.save(change);
     }
 
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
@@ -225,9 +299,9 @@ impl Outbox {
         crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
-    /// Records a new delivery; the same prompt id again answers with the first one. Fails when
-    /// the file cannot be written: then the delivery is not kept in memory either (not kept
-    /// means not sent), and a later write never puts it on disk.
+    /// Records a new delivery; the same prompt id to the same target again answers with the first
+    /// one. Fails when the file cannot be written: then the delivery is not kept in memory either
+    /// (not kept means not sent), and a later write never puts it on disk.
     pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, added) = self.add_scoped(delivery, false);
         self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
@@ -251,16 +325,18 @@ impl Outbox {
     }
 
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
+    /// A prompt id names one message to one target, as the target's prompt ledger keys it
+    /// (`Hub::prompt_with`): the same id to another target is another message.
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
+                && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
-                        && d.target == delivery.target
                         && projected_message(d) == projected_message(&delivery)))
         }) {
             let first = first.clone();
@@ -269,6 +345,7 @@ impl Outbox {
             return (first, change, false);
         }
         book.deliveries.insert(delivery.id.clone(), delivery.clone());
+        book.dirty.insert(delivery.id.clone());
         let change = book.changed();
         (delivery, change, true)
     }
@@ -323,11 +400,12 @@ impl Outbox {
             created_at: now,
             updated_at: now,
         });
+        book.dirty.insert(key);
         let change = book.changed();
         drop(book);
         self.save(change);
-        self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none()
-            || *self.saved.lock().unwrap_or_else(|e| e.into_inner()) >= change
+        let in_memory = self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none();
+        in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
     pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
@@ -370,6 +448,7 @@ impl Outbox {
         let Some(d) = book.deliveries.get_mut(id) else { return };
         f(d);
         d.updated_at = crate::store::now_ms();
+        book.dirty.insert(id.to_owned());
         let change = book.changed();
         drop(book);
         self.save(change);
@@ -398,41 +477,244 @@ impl Outbox {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return Ok(());
         };
-        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
-        if *saved >= change {
+        let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
+        if disk.saved >= change {
             return Ok(());
         }
-        let (bytes, newest) = {
-            let book = self.book();
-            // Attachment bytes are kept once beside the file (`keep_attachments`), not rewritten
-            // here.
-            let on_disk: BTreeMap<&String, std::borrow::Cow<Delivery>> = book
-                .deliveries
-                .iter()
-                .map(|(id, d)| {
-                    let blocks = d.request.get("prompt").and_then(Value::as_array);
-                    if !blocks.is_some_and(|b| crate::attach::any(b)) {
-                        return (id, std::borrow::Cow::Borrowed(d));
-                    }
-                    let mut d = d.clone();
-                    crate::attach::strip(&mut d.request);
-                    (id, std::borrow::Cow::Owned(d))
-                })
-                .collect();
-            (serde_json::to_vec(&on_disk), book.changes)
+        let snapshot = disk.snapshot_next
+            || (disk.journal >= COMPACT_FLOOR.max(2 * disk.snapshot)
+                && disk.journal >= disk.snapshot_retry_at);
+        // The changed deliveries' lines and, for a snapshot, every delivery, as of one change.
+        let (lines, whole, dirty, newest) = {
+            let mut book = self.book();
+            let dirty = std::mem::take(&mut book.dirty);
+            let encoded = (|| -> serde_json::Result<_> {
+                // A torn line an append left behind ends before these.
+                let mut lines = if disk.torn { b"\n".to_vec() } else { Vec::new() };
+                for d in dirty.iter().filter_map(|id| book.deliveries.get(id)) {
+                    serde_json::to_writer(&mut lines, &*on_disk(d))?;
+                    lines.push(b'\n');
+                }
+                let whole = if snapshot {
+                    let all: BTreeMap<&String, std::borrow::Cow<Delivery>> =
+                        book.deliveries.iter().map(|(id, d)| (id, on_disk(d))).collect();
+                    Some(serde_json::to_vec(&all)?)
+                } else {
+                    None
+                };
+                Ok((lines, whole))
+            })();
+            match encoded {
+                Ok((lines, whole)) => (lines, whole, dirty, book.changes),
+                Err(e) => {
+                    book.dirty.extend(dirty);
+                    return Err(e.into());
+                }
+            }
         };
+        // The journal gets these lines before any snapshot: a snapshot that fails leaves them
+        // readable after the snapshot they follow.
+        let written = (|| -> anyhow::Result<()> {
+            let journal = journal_path(&path);
+            if lines.iter().any(|b| *b != b'\n') {
+                if disk.journal_open {
+                    use std::io::Write;
+                    let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
+                        let start = f.metadata()?.len();
+                        let written = f.write_all(&lines).and_then(|()| f.sync_data());
+                        if written.is_err() {
+                            // A failed change is not kept (an add is taken out): its whole line
+                            // must not stay to be read after a restart. An append-only handle
+                            // cannot truncate on Windows, so through its own write handle. Should
+                            // that fail too, the next write is a snapshot (`snapshot_next`),
+                            // which resets the journal.
+                            let _ = std::fs::OpenOptions::new()
+                                .write(true)
+                                .open(&journal)
+                                .and_then(|w| w.set_len(start).and_then(|()| w.sync_data()));
+                        }
+                        Ok(written?)
+                    });
+                    if let Err(e) = appended {
+                        disk.snapshot_next = true;
+                        disk.torn = true;
+                        return Err(e);
+                    }
+                    disk.torn = false;
+                } else {
+                    // A new journal: written whole and renamed in, its folder synced, so a power
+                    // loss never drops the file a change was answered from.
+                    let fresh = [disk.header.as_slice(), &lines].concat();
+                    crate::config::write_atomic(&journal, &fresh)?;
+                    disk.torn = false;
+                    disk.written += disk.header.len() as u64;
+                    disk.journal = 0;
+                    disk.journal_open = true;
+                }
+                disk.journal += lines.len() as u64;
+                disk.written += lines.len() as u64;
+            }
+            if let Some(whole) = whole {
+                // Once this change's lines are synced it is on disk: a snapshot that fails then
+                // only waits for a later try, after another snapshot's worth of journal.
+                if let Err(e) = crate::config::write_atomic(&path, &whole) {
+                    if !disk.journal_open {
+                        return Err(e);
+                    }
+                    tracing::warn!(
+                        "outbox: a snapshot could not be written, kept the journal: {e:#}"
+                    );
+                    disk.snapshot_retry_at = disk.journal + COMPACT_FLOOR.max(disk.snapshot);
+                    disk.snapshot_next = false;
+                    return Ok(());
+                }
+                disk.snapshot_retry_at = 0;
+                disk.snapshot = whole.len() as u64;
+                disk.header = header_for(&whole);
+                disk.written += whole.len() as u64;
+                disk.snapshot_next = false;
+                disk.journal = 0;
+                // The new snapshot holds everything; the journal beside it now names the old one
+                // and is not read. Starting the new one now is only an early start: when it
+                // fails, the next change writes it.
+                disk.journal_open = false;
+                match crate::config::write_atomic(&journal, &disk.header) {
+                    Ok(()) => {
+                        disk.journal_open = true;
+                        disk.torn = false;
+                        disk.written += disk.header.len() as u64;
+                    }
+                    Err(e) => tracing::warn!("outbox: a new journal could not be started: {e:#}"),
+                }
+            }
+            Ok(())
+        })();
         // Failed writes never advance saved. A retry of the same in-memory intent
         // must try the write again before it can report success.
-        let written =
-            bytes.map_err(anyhow::Error::from).and_then(|b| crate::config::write_atomic(&path, &b));
         if let Err(e) = written {
+            let mut book = self.book();
+            book.dirty.extend(dirty);
             if let Some(id) = added {
-                self.book().deliveries.remove(id);
+                book.deliveries.remove(id);
             }
             return Err(e);
         }
-        *saved = newest;
+        disk.saved = newest;
         Ok(())
+    }
+}
+
+/// Delivery `d` as it is written: attachment bytes are kept once beside the file
+/// (`keep_attachments`), never in it.
+fn on_disk(d: &Delivery) -> std::borrow::Cow<'_, Delivery> {
+    let blocks = d.request.get("prompt").and_then(Value::as_array);
+    if !blocks.is_some_and(|b| crate::attach::any(b)) {
+        return std::borrow::Cow::Borrowed(d);
+    }
+    let mut d = d.clone();
+    crate::attach::strip(&mut d.request);
+    std::borrow::Cow::Owned(d)
+}
+
+/// The journal beside `outbox.json` (at `path`).
+pub(crate) fn journal_path(path: &Path) -> PathBuf {
+    path.with_extension("journal")
+}
+
+/// The journal's first line for a snapshot of `bytes`.
+fn header_for(bytes: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(bytes);
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let mut line =
+        serde_json::to_vec(&json!({"outboxSnapshot": {"bytes": bytes.len(), "sha256": hex}}))
+            .unwrap_or_default();
+    line.push(b'\n');
+    line
+}
+
+/// What the files at `path` hold.
+struct Saved {
+    deliveries: BTreeMap<String, Delivery>,
+    snapshot_bytes: u64,
+    header: Vec<u8>,
+    /// Bytes of journal lines read over the snapshot.
+    journal_bytes: u64,
+    /// The journal on disk follows this snapshot.
+    journal_open: bool,
+    /// Its last line has no newline (a torn append).
+    torn: bool,
+}
+
+/// The snapshot at `path`, then each line of the journal that follows it. A snapshot that cannot
+/// be read starts empty (and is replaced); a journal that names another snapshot is not read; a
+/// journal line that cannot be read (a torn append) is skipped.
+fn read_saved(path: &Path) -> Saved {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            // Set aside: a journal started against "no snapshot" must never sit beside it, or a
+            // later read that works would ignore that journal's accepted changes.
+            let aside = path.with_extension("json.unreadable");
+            let moved = std::fs::rename(path, &aside);
+            tracing::error!(
+                "outbox: {} cannot be read ({e}); starting empty, set aside at {} ({moved:?})",
+                path.display(),
+                aside.display()
+            );
+            Vec::new()
+        }
+    };
+    let mut deliveries: BTreeMap<String, Delivery> = if bytes.is_empty() {
+        BTreeMap::new()
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
+            BTreeMap::new()
+        })
+    };
+    let header = header_for(&bytes);
+    let journal = match std::fs::read(journal_path(path)) {
+        Ok(journal) => journal,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            // Set aside, never replaced by the next change's new journal: its lines may hold
+            // changes that were answered as saved.
+            let aside = journal_path(path).with_extension("journal.unreadable");
+            let moved = std::fs::rename(journal_path(path), &aside);
+            tracing::error!(
+                "outbox: the journal cannot be read ({e}); reading the snapshot alone, journal \
+                 set aside at {} ({moved:?})",
+                aside.display()
+            );
+            Vec::new()
+        }
+    };
+    let (journal_open, lines) = match journal.strip_prefix(header.as_slice()) {
+        Some(lines) => (true, lines),
+        None => {
+            if !journal.is_empty() {
+                tracing::warn!("outbox: the journal follows another snapshot, not read");
+            }
+            (false, &[][..])
+        }
+    };
+    for line in lines.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+        match serde_json::from_slice::<Delivery>(line) {
+            Ok(d) => {
+                deliveries.insert(d.id.clone(), d);
+            }
+            Err(e) => tracing::warn!("outbox: a journal line cannot be read, skipped: {e}"),
+        }
+    }
+    Saved {
+        deliveries,
+        snapshot_bytes: bytes.len() as u64,
+        header,
+        journal_bytes: lines.len() as u64,
+        journal_open,
+        torn: !lines.is_empty() && !lines.ends_with(b"\n"),
     }
 }
 
@@ -625,6 +907,30 @@ mod tests {
         assert_eq!(outbox.add(delivery(1)).unwrap().id, "d-1");
     }
 
+    /// A queued send's prompt id is a key for one message to one target, as the target's own
+    /// prompt ledger keys it (`Hub::prompt_with`): the same prompt id to another target is a
+    /// message of its own and is delivered too. Before, `add` answered it with the first
+    /// message's delivery (`delivered`, to the first target), and the second never went.
+    #[test]
+    fn a_queued_send_with_a_reused_prompt_id_to_another_target_is_its_own() {
+        let outbox = Outbox::default();
+        let first = delivery(1);
+        assert_eq!(outbox.add(first.clone()).unwrap().id, "d-1");
+        // The same message again (a CLI retry): the first delivery.
+        let mut again = first.clone();
+        again.id = "retry".into();
+        assert_eq!(outbox.add(again).unwrap().id, "d-1");
+        // The same prompt id to another target: its own delivery.
+        let mut other = first.clone();
+        other.id = "d-2".into();
+        other.target = "other".into();
+        other.request["sessionId"] = json!("other");
+        assert_eq!(outbox.add(other.clone()).unwrap().id, "d-2");
+        other.id = "retry-2".into();
+        assert_eq!(outbox.add(other).unwrap().id, "d-2");
+        assert_eq!(outbox.unsettled(), 2);
+    }
+
     #[test]
     fn provisional_duplicate_does_not_consume_acceptance_hooks() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -730,8 +1036,7 @@ mod tests {
                 std::thread::spawn(move || {
                     outbox.add(delivery(n)).unwrap();
                     // What a restart would read right now holds this one.
-                    let saved: BTreeMap<String, Delivery> =
-                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    let saved = read_saved(&path).deliveries;
                     assert!(saved.contains_key(&format!("d-{n}")), "d-{n} not on disk");
                 })
             })
@@ -762,7 +1067,7 @@ mod tests {
         assert!(outbox.add(delivery(1)).is_err());
         assert!(outbox.get("d-1").is_none(), "a delivery not on disk is still in memory");
         // Adds that share one failed write all fail, the same prompt id again among them.
-        let held = outbox.saved.lock().unwrap();
+        let held = outbox.disk.lock().unwrap();
         let adds: Vec<_> = [2, 3, 2]
             .into_iter()
             .enumerate()
@@ -797,7 +1102,7 @@ mod tests {
         let outbox = std::sync::Arc::new(Outbox::default());
         outbox.open(&path);
         // Hold the write lock as a slow write would, then add: the delivery is in memory only.
-        let held = outbox.saved.lock().unwrap();
+        let held = outbox.disk.lock().unwrap();
         let first = {
             let outbox = outbox.clone();
             std::thread::spawn(move || outbox.add(delivery(1)).unwrap())
@@ -810,9 +1115,7 @@ mod tests {
             let path = path.clone();
             std::thread::spawn(move || {
                 let again = outbox.add(delivery(1)).unwrap();
-                let saved: BTreeMap<String, Delivery> =
-                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-                (again.id, saved.contains_key("d-1"))
+                (again.id, read_saved(&path).deliveries.contains_key("d-1"))
             })
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -820,6 +1123,210 @@ mod tests {
         drop(held);
         first.join().unwrap();
         assert_eq!(retry.join().unwrap(), ("d-1".to_owned(), true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn temp_outbox() -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        (dir, path)
+    }
+
+    /// A delivery the size of an average one in a day's real outbox (5.2 MB for 2,512).
+    fn sized(n: usize, state: State) -> Delivery {
+        let mut d = delivery(n);
+        d.request["prompt"] = json!([{"type": "text", "text": "x".repeat(1800)}]);
+        d.state = state;
+        d
+    }
+
+    /// cmuxterm-hq#8660 (hang-watch `6159015094`): the bytes a change writes do not grow with
+    /// the deliveries kept. Small is 10 kept, god 25,000 (ten days of a busy machine, 52 MB);
+    /// "before" is what the whole-file rewrite wrote for each change, the snapshot's size.
+    #[test]
+    fn a_change_writes_the_same_bytes_with_ten_or_25000_deliveries_kept() {
+        let mut per_change = Vec::new();
+        for kept in [10, 25_000] {
+            let (dir, path) = temp_outbox();
+            let all: BTreeMap<String, Delivery> =
+                (0..kept).map(|n| sized(n, State::Delivered)).map(|d| (d.id.clone(), d)).collect();
+            let before = serde_json::to_vec(&all).unwrap().len() as u64;
+            std::fs::write(&path, serde_json::to_vec(&all).unwrap()).unwrap();
+            let outbox = Outbox::default();
+            outbox.open(&path);
+            let start = outbox.disk.lock().unwrap().written;
+            let changes = 2_000;
+            for n in 0..changes / 4 {
+                // A send's life: queued, delivering, attempted again, delivered.
+                let id = format!("d-{}", kept + n);
+                outbox.add(sized(kept + n, State::Queued)).unwrap();
+                outbox.update(&id, |d| d.state = State::Delivering);
+                outbox.update(&id, |d| d.attempts += 1);
+                outbox.update(&id, |d| d.state = State::Delivered);
+            }
+            let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
+            eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
+            per_change.push(after);
+            // Everything comes back after a restart, from the snapshot and the journal.
+            let restarted = Outbox::default();
+            assert!(restarted.open(&path).is_empty());
+            assert_eq!(restarted.list(None, usize::MAX).0.len(), kept + changes / 4);
+            assert_eq!(restarted.get(&format!("d-{kept}")).unwrap().attempts, 1);
+            assert!(before > 10 * after || kept == 10);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        assert!(
+            per_change[1] * 10 <= per_change[0] * 12,
+            "god {} B per change is over 1.2x small {} B",
+            per_change[1],
+            per_change[0]
+        );
+    }
+
+    /// A torn last line (a crash or a full disk mid-append) costs only that line; the rest of the
+    /// journal is read, and the open folds it into a fresh snapshot.
+    #[test]
+    fn a_torn_journal_line_is_skipped_and_the_open_compacts() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        for n in 0..3 {
+            outbox.add(delivery(n)).unwrap();
+        }
+        outbox.update("d-1", |d| d.state = State::Delivered);
+        let journal = journal_path(&path);
+        let mut torn = std::fs::read(&journal).unwrap();
+        assert!(!torn.is_empty(), "small changes go to the journal");
+        torn.extend_from_slice(br#"{"id":"d-9","tar"#);
+        std::fs::write(&journal, torn).unwrap();
+        let restarted = Outbox::default();
+        let pending = restarted.open(&path);
+        assert_eq!(pending.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["d-0", "d-2"]);
+        assert_eq!(restarted.get("d-1").unwrap().state, State::Delivered);
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(std::fs::read(&journal).unwrap(), header_for(&bytes), "the open compacts");
+        let snapshot: BTreeMap<String, Delivery> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(snapshot.len(), 3, "the snapshot alone holds everything for an older daemon");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A torn tail stays fenced off when the snapshot meant to replace it fails (a full disk):
+    /// the next change's line starts after a newline and is read after a restart.
+    #[test]
+    fn a_torn_tail_and_a_failed_snapshot_lose_no_later_change() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        let journal = journal_path(&path);
+        let mut torn = std::fs::read(&journal).unwrap();
+        torn.extend_from_slice(br#"{"id":"d-9","tar"#);
+        std::fs::write(&journal, torn).unwrap();
+        {
+            let mut disk = outbox.disk.lock().unwrap();
+            disk.torn = true;
+            disk.snapshot_next = true;
+        }
+        // The snapshot fails: a folder that is not empty is in its place.
+        std::fs::create_dir_all(path.join("occupied")).unwrap();
+        outbox.compact();
+        assert!(outbox.disk.lock().unwrap().torn, "the fence outlives a failed snapshot");
+        outbox.add(delivery(1)).unwrap();
+        std::fs::remove_dir_all(&path).unwrap();
+        let restarted = Outbox::default();
+        let ids: Vec<String> = restarted.open(&path).into_iter().map(|d| d.id).collect();
+        assert_eq!(ids, ["d-0", "d-1"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A snapshot that cannot be read at open is set aside, so a journal started against no
+    /// snapshot never sits beside it to be ignored once it reads again.
+    #[test]
+    fn an_unreadable_snapshot_is_set_aside() {
+        let (dir, path) = temp_outbox();
+        std::fs::create_dir_all(path.join("unreadable")).unwrap();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        assert!(path.with_extension("json.unreadable").exists());
+        let restarted = Outbox::default();
+        assert_eq!(restarted.open(&path).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A change's lines reach the journal before any snapshot of it: a snapshot that fails (or
+    /// a crash before the journal is cut) still finds the change in the journal, and since the
+    /// journal's last line for each id is the snapshot's own state, a replay over a newer
+    /// snapshot is never older.
+    #[test]
+    fn a_change_is_journaled_before_its_snapshot() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        // The snapshot's rename fails: a folder that is not empty is in its place.
+        std::fs::create_dir_all(path.join("occupied")).unwrap();
+        outbox.disk.lock().unwrap().snapshot_next = true;
+        outbox.update("d-0", |d| d.state = State::Delivered);
+        // The change is on disk in the journal, so it is saved; the snapshot waits for a later
+        // try, not the next change.
+        assert_eq!(outbox.disk.lock().unwrap().saved, outbox.book().changes);
+        assert!(!outbox.disk.lock().unwrap().snapshot_next);
+        let tries = outbox.disk.lock().unwrap().snapshot_retry_at;
+        assert!(tries >= COMPACT_FLOOR);
+        let journal = String::from_utf8(std::fs::read(journal_path(&path)).unwrap()).unwrap();
+        let last: Delivery = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
+        assert_eq!(last.state, State::Delivered);
+        std::fs::remove_dir_all(&path).unwrap();
+        let restarted = Outbox::default();
+        assert!(restarted.open(&path).is_empty());
+        assert_eq!(restarted.get("d-0").unwrap().state, State::Delivered);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An older daemon reads and rewrites `outbox.json` alone. The journal it left behind names
+    /// the snapshot before that, so a newer daemon started after it never replays it over the
+    /// older daemon's newer states: nothing goes back to waiting and is sent again.
+    #[test]
+    fn a_journal_beside_another_snapshot_is_not_read() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        outbox.update("d-0", |d| d.state = State::Delivering);
+        assert!(!read_saved(&path).deliveries["d-0"].settled());
+        // The older daemon: delivers it and rewrites the snapshot, leaving the journal.
+        let mut older = read_saved(&path).deliveries;
+        older.get_mut("d-0").unwrap().state = State::Delivered;
+        std::fs::write(&path, serde_json::to_vec(&older).unwrap()).unwrap();
+        let restarted = Outbox::default();
+        assert!(restarted.open(&path).is_empty(), "nothing resumes to be sent again");
+        assert_eq!(restarted.get("d-0").unwrap().state, State::Delivered);
+        // And a change after it starts a journal for this snapshot.
+        restarted.add(delivery(1)).unwrap();
+        let again = Outbox::default();
+        assert_eq!(again.open(&path).len(), 1);
+        assert_eq!(again.get("d-0").unwrap().state, State::Delivered);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// At shutdown the journal is folded in: `outbox.json` alone then holds every change, for
+    /// whichever daemon starts next.
+    #[test]
+    fn compact_leaves_the_snapshot_holding_everything() {
+        let (dir, path) = temp_outbox();
+        let outbox = Outbox::default();
+        outbox.open(&path);
+        outbox.add(delivery(0)).unwrap();
+        outbox.update("d-0", |d| d.state = State::Delivered);
+        outbox.add(delivery(1)).unwrap();
+        outbox.compact();
+        let bytes = std::fs::read(&path).unwrap();
+        let snapshot: BTreeMap<String, Delivery> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(snapshot["d-0"].state, State::Delivered);
+        assert!(snapshot.contains_key("d-1"));
+        assert_eq!(std::fs::read(journal_path(&path)).unwrap(), header_for(&bytes));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -857,7 +1364,10 @@ mod tests {
         let orphan = kept.with_file_name("gone.json");
         std::fs::write(&orphan, b"{}").unwrap();
         outbox.add(d).unwrap();
-        assert!(!std::fs::read_to_string(&path).unwrap().contains(&data));
+        let journal = std::fs::read_to_string(journal_path(&path)).unwrap_or_default();
+        assert!(read_saved(&path).deliveries.contains_key("d1"));
+        assert!(!std::fs::read_to_string(&path).unwrap_or_default().contains(&data));
+        assert!(!journal.contains(&data));
         assert_eq!(outbox.get("d1").unwrap().request["prompt"][0]["data"], data);
         let restarted = Outbox::default();
         let pending = restarted.open(&path);

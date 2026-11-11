@@ -21,7 +21,8 @@ Detectors (all line/regex heuristics, never an AST):
 
 - assert-on-duration: an assertion comparing a wall-clock duration expression
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
-  .uptimeNanoseconds, monotonic(), a *_ms variable) against a numeric literal.
+  .uptimeNanoseconds, monotonic(), a *_ms variable, a `clock.now - start`)
+  against a numeric literal or a Swift Duration literal (`.milliseconds(1000)`).
   This is the "assert on latency" ban.
 - live-network-host: a hardcoded external URL/host driving real network from a
   test (public domain or public IP). Loopback, data:, and 0.0.0.0 are allowed.
@@ -65,6 +66,7 @@ from typing import Iterable, Optional
 
 DEFAULT_ROOTS: tuple[str, ...] = (
     "Packages",
+    "cmux-next-ios",
     "tests",
     "tests_v2",
     "web/tests",
@@ -73,8 +75,10 @@ DEFAULT_ROOTS: tuple[str, ...] = (
 
 DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 
-# Only files that look like test code are scanned. Packages/ is broad, so we
-# additionally require a Tests path segment for files under it.
+# Only files that look like test code are scanned. Packages/ and cmux-next-ios/
+# are broad (sources and tests side by side), so we additionally require a Tests
+# path segment for files under them.
+TESTS_SEGMENT_ROOTS = ("Packages", "cmux-next-ios")
 SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
 
 IGNORED_PATH_PARTS = (
@@ -224,6 +228,7 @@ _DURATION_TOKEN = re.compile(
   | \b(?=\w*[a-z])\w*_ms\b              # measured ms var; ALL-CAPS T0_MS excluded
   | \b(?=\w*[a-z])\w*[Mm]illis\w*\b
   | \b(?=\w*[a-z])\w*[Nn]anos\w*\b
+  | \.now(?:\(\))?\s*-\s*\w        # a clock reading minus a start: clock.now - start, Date.now() - t0
     """
 )
 
@@ -237,6 +242,9 @@ _DURATION_COMPARE = re.compile(
     r"""(?x)
     \d[\d_]*(?:\.\d+)?\s*(?:<=|>=|<|>)(?![=>])        # 250 < x
   | (?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*\d[\d_]*(?:\.\d+)?  # x < 250
+  # A Swift Duration literal: clock.now - start < .milliseconds(1000), .seconds(1) > d
+  | (?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(\s*\d
+  | \.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(\s*\d[\d_.]*\s*\)\s*(?:<=|>=|<|>)(?![=>])
     """
 )
 
@@ -3780,8 +3788,8 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     if suffix not in SCANNED_SUFFIXES:
         return False
-    # Under Packages/, only scan files inside a Tests path segment.
-    if root == "Packages" and "/Tests/" not in ("/" + rel_posix):
+    # Under Packages/ and cmux-next-ios/, only scan files inside a Tests path segment.
+    if root in TESTS_SEGMENT_ROOTS and "/Tests/" not in ("/" + rel_posix):
         return False
     return True
 
@@ -4016,6 +4024,18 @@ def _self_test() -> int:
         (
             "cmuxTests/a.swift",
             "let elapsed = end - start\nXCTAssertLessThan(elapsedMs, 250)\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # A Swift clock reading against a Duration literal: RetryButtonHoldTests asserted a 150 ms answer
+        # returned in under 1 s of ContinuousClock time and failed at 1.29 s on a loaded simulator.
+        (
+            "cmux-next-ios/CmuxMobileKit/Tests/KitTests/hold.swift",
+            "#expect(clock.now - start < .milliseconds(1000))\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_literal_first.swift",
+            "#expect(.seconds(5) > clock.now - start)\n",
             {RULE_ASSERT_ON_DURATION},
         ),
         (
@@ -5700,6 +5720,11 @@ def _self_test() -> int:
                 "        } while ContinuousClock.now < deadline\n"
                 "        #expect(ready())\n"
             ),
+        ),
+        # A clock the test moves by hand, checked for an exact instant, is deterministic.
+        (
+            "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
+            "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
         ),
     ]
 

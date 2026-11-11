@@ -115,6 +115,9 @@ mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+mod live_ages;
+#[cfg(test)]
+mod live_ages_tests;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -357,6 +360,46 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+
+/// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
+/// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
+pub const MAX_MATCH_BYTES: usize = 2 * 1024;
+
+/// Every `match` a request brings (`_acpmux/events`, `_acpmux/watch_add`) passes here: one past
+/// [`MAX_MATCH_BYTES`] would make each stub keep that much of both its text's ends, past any page's
+/// bound.
+pub fn validate_match(pattern: Option<&str>) -> Result<(), crate::rpc::RpcError> {
+    match pattern {
+        Some(p) if p.len() > MAX_MATCH_BYTES => Err(crate::rpc::RpcError::invalid_params(format!(
+            "match is at most {MAX_MATCH_BYTES} bytes: a watch on a peer chat keeps that much of each long reply's end to find a match across replies"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// A `match` saved before the cap, cut to [`MAX_MATCH_BYTES`] at a char boundary. Returns whether
+/// it was cut.
+pub(crate) fn cap_match(pattern: &mut Option<String>) -> bool {
+    let Some(p) = pattern else { return false };
+    if p.len() <= MAX_MATCH_BYTES {
+        return false;
+    }
+    let mut end = MAX_MATCH_BYTES;
+    while !p.is_char_boundary(end) {
+        end -= 1;
+    }
+    p.truncate(end);
+    true
+}
+
+impl Hub {
+    /// Run durable watches: the loop that reconciles them on hub events and the
+    /// `REMOTE_WORKERS` that page peer chats. The daemon starts them once at startup; a test
+    /// that needs real watch paging starts them on its own hub.
+    pub fn start_watches(self: &Arc<Self>) {
+        watches::Watches::start(self);
+    }
+}
 mod web_control;
 mod web_token;
 mod work_below;
@@ -783,6 +826,8 @@ pub struct Hub {
     /// The model ids Codex chats reported that each live list lacked, by profile name, each
     /// already probed again for once (`recheck_live_models`).
     pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
+    /// When each live list's probe last started (`hub/live_ages.rs`): a read probes an old one again.
+    pub(super) live_ages: StdMutex<live_ages::LiveAges>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1193,6 +1238,7 @@ impl Hub {
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
+            live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
@@ -1436,6 +1482,7 @@ impl Hub {
         }
         {
             let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            plan.listed = true;
             plan.waiting.extend(waiting);
             plan.adopting.extend(hosted.iter().cloned());
             plan.hosted.extend(hosted.iter().cloned());
@@ -2401,7 +2448,7 @@ impl Hub {
         text: &str,
     ) -> Result<Option<String>, RpcError> {
         if session.moving().is_some() {
-            return Err(RpcError::invalid_params(queue::moving_error().message));
+            return Err(RpcError::invalid_params(queue::moving_error(session).message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {

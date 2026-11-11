@@ -1,7 +1,6 @@
 {
   "about": "Short hard timeout ratchet for app/daemon, acpmux, CLI and agent-session paths. Regenerate intentionally with: python3 scripts/ci/check_short_timeouts.py --update",
   "allow": {
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxChatProjects.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxCheckedLine.swift:swift-socket-timeout": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxComputerUse.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxDaemonLauncher.swift:swift-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
