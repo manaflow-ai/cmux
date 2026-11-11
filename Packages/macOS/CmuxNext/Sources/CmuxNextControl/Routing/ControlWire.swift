@@ -63,6 +63,13 @@ public struct ControlError: Error, Sendable, Hashable {
         ControlError(code: "busy", message: ControlStrings.format("control.error.busy", "cmux is busy (%1$lld queued requests, limit %2$lld); retry later", pending, limit),
                      data: ["pending": JSONValue(pending), "limit": JSONValue(limit)])
     }
+
+    /// Another cmux process kept the lock of the settings file (`SettingsFileBusy`), so a settings
+    /// write did not finish. Not `busy`: a write of several steps can have written its first
+    /// steps, so the answer does not say `not_run`. The same request sent again completes the write.
+    static func settingsBusy() -> ControlError {
+        ControlError(code: "settings_busy", message: ControlStrings.text("control.error.settingsBusy", "another cmux process holds the lock of the settings file; the write did not finish, send the request again"))
+    }
 }
 
 /// JSON Lines framing shared by the router and the connection.

@@ -392,32 +392,27 @@ class Notify(unittest.TestCase):
         """A 404 (or any read error) is no record: the failed state stands."""
         seen = []
 
-        class Response(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-        def urlopen(request, timeout):
-            seen.append(request.full_url)
-            if "missing" in seen[-1]:
-                raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
-            if "truncated" in seen[-1]:  # the connection drops mid-body
+        def request(url, seconds):
+            seen.append(url)
+            self.assertEqual(seconds, notify.REQUEST_TIMEOUT_S)
+            if "missing" in url:
+                return 404, b"Not Found", {}
+            if "truncated" in url:  # the connection drops mid-body
                 raise http.client.IncompleteRead(b"{")
-            return Response(json.dumps(completion_json()).encode())
+            if "timeout" in url:
+                raise notify.RequestTimeout("no full answer")
+            return 200, json.dumps(completion_json()).encode(), {}
 
-        original = notify.urllib.request.urlopen
-        notify.urllib.request.urlopen = urlopen
+        original = notify.deadline_http.request
+        notify.deadline_http.request = request
         try:
             self.assertEqual(notify.fetch_completion(KEY), completion_json())
             self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
             self.assertIsNone(notify.fetch_completion("missing"))
             self.assertIsNone(notify.fetch_completion("truncated"))
+            self.assertIsNone(notify.fetch_completion("timeout"))
         finally:
-            notify.urllib.request.urlopen = original
+            notify.deadline_http.request = original
 
     def test_a_failed_tree_is_reported_once_per_marker(self):
         """2026-11-02: tree 4e172926 could not build (a stale Cargo.lock on the base its commits came

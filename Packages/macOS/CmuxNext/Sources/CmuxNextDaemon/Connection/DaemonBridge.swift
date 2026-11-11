@@ -91,6 +91,8 @@ public struct DaemonBridge: Hashable, Sendable {
             Darwin.close(mine)
             throw error
         }
+        // The dial line is the last stderr line this reads; the child may write more for as long as it lives.
+        child.drainStderr()
         return (mine, child)
     }
 
@@ -142,30 +144,77 @@ public struct DaemonBridge: Hashable, Sendable {
 /// The bridge process of one connection: killed and reaped exactly once,
 /// when the connection closes or the transport goes away.
 final class BridgeChild: Sendable {
+    private struct State {
+        var reaped = false
+        /// The read end of the child's stderr while this closes it: -1 once closed, or once `drain` owns it.
+        var stderr: Int32
+        /// Reads and drops the child's stderr after its dial line; its cancel handler closes the descriptor.
+        var drain: (any DispatchSourceRead)?
+    }
+
     let pid: pid_t
-    private let state: Mutex<Int32>
+    private let state: Mutex<State>
+    private static let drainQueue = DispatchQueue(label: "com.cmuxterm.next.bridge-stderr", qos: .utility)
 
     init(pid: pid_t, stderr: Int32) {
         self.pid = pid
-        state = Mutex(stderr)
+        state = Mutex(State(stderr: stderr))
     }
 
     /// Signals the child without reaping it (its owner still does, in ``terminate()``); nothing once reaped.
     func kill() {
-        state.withLock { stderr in
-            guard stderr >= 0 else { return }
+        state.withLock { state in
+            guard !state.reaped else { return }
             Darwin.kill(pid, SIGKILL)
         }
     }
 
+    /// Reads and drops what the child writes to stderr from now on, for its whole life. Nobody
+    /// reads that pipe after the dial line, so without this a child that keeps writing fills it
+    /// (64 KB) and stops in `write` for good. The watch ends, and the read end closes, at end of
+    /// file (the child exited) or in ``terminate()``. Nothing once reaped.
+    func drainStderr() {
+        state.withLock { state in
+            guard !state.reaped, state.stderr >= 0 else { return }
+            let fd = state.stderr
+            // A read that finds nothing ready returns at once: the watch's queue never waits in it.
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: Self.drainQueue)
+            source.setEventHandler { [weak self] in
+                var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+                let count = Darwin.read(fd, &buffer, buffer.count)
+                if count > 0 || (count < 0 && (errno == EINTR || errno == EAGAIN)) { return }
+                self?.endDrain()
+            }
+            // The descriptor closes only here, on the watch's queue after its last read: never under a read.
+            source.setCancelHandler { Darwin.close(fd) }
+            source.activate()
+            state.stderr = -1
+            state.drain = source
+        }
+    }
+
+    /// Ends the stderr watch (end of file, or a read that failed); its cancel handler closes the read end.
+    private func endDrain() {
+        state.withLock { state in
+            state.drain?.cancel()
+            state.drain = nil
+        }
+    }
+
     func terminate() {
-        state.withLock { stderr in
-            guard stderr >= 0 else { return }
+        state.withLock { state in
+            guard !state.reaped else { return }
+            state.reaped = true
             Darwin.kill(pid, SIGKILL)
             var status: Int32 = 0
             while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-            Darwin.close(stderr)
-            stderr = -1
+            if state.stderr >= 0 {
+                Darwin.close(state.stderr)
+                state.stderr = -1
+            }
+            state.drain?.cancel()
+            state.drain = nil
         }
     }
 

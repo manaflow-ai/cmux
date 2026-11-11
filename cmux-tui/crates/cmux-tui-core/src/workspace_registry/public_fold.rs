@@ -86,7 +86,7 @@ impl PublicTopologyFold {
                     self.values.get(&(resource.to_string(), id.to_string())).is_some_and(|value| {
                         value == &change["value"]
                             || (resource == "workspace"
-                                && without_workspace_key(value) == change["value"])
+                                && equal_without_workspace_key(value, &change["value"]))
                     })
                 }
                 _ => false,
@@ -97,7 +97,47 @@ impl PublicTopologyFold {
 /// Whether `stated` (a folded value) already says what the decorated upsert `value` says: equal, or equal
 /// without `extra.key` (a raw projection value never carries it).
 pub(crate) fn workspace_value_stated(stated: &Value, value: &Value) -> bool {
-    stated == value || without_workspace_key(stated) == without_workspace_key(value)
+    stated == value || equal_without_workspace_key(stated, value)
+}
+
+/// A workspace value's `extra` object: `Some(None)` when absent, `None` when not an object.
+fn workspace_extra(
+    object: &serde_json::Map<String, Value>,
+) -> Option<Option<&serde_json::Map<String, Value>>> {
+    match object.get("extra") {
+        None => Some(None),
+        Some(Value::Object(extra)) => Some(Some(extra)),
+        Some(_) => None,
+    }
+}
+
+/// `without_workspace_key(a) == without_workspace_key(b)`, compared in place:
+/// the fold checks every workspace of a projection, and a copy of each per
+/// check was a create's cost growing with the session.
+fn equal_without_workspace_key(a: &Value, b: &Value) -> bool {
+    let (Some(a), Some(b)) = (a.as_object(), b.as_object()) else { return a == b };
+    let others_equal = |x: &serde_json::Map<String, Value>, y: &serde_json::Map<String, Value>| {
+        x.iter()
+            .filter(|(field, _)| *field != "extra")
+            .all(|(field, value)| y.get(field) == Some(value))
+    };
+    let (Some(extra_a), Some(extra_b)) = (workspace_extra(a), workspace_extra(b)) else {
+        return without_workspace_key(&Value::Object(a.clone()))
+            == without_workspace_key(&Value::Object(b.clone()));
+    };
+    let without_key_len = |extra: Option<&serde_json::Map<String, Value>>| {
+        extra.map_or(0, |extra| extra.len() - usize::from(extra.contains_key("key")))
+    };
+    let extras_equal = without_key_len(extra_a) == without_key_len(extra_b)
+        && extra_a.is_none_or(|extra_a| {
+            extra_a
+                .iter()
+                .filter(|(name, _)| *name != "key")
+                .all(|(name, value)| extra_b.and_then(|extra_b| extra_b.get(name)) == Some(value))
+        });
+    a.len() - usize::from(a.contains_key("extra")) == b.len() - usize::from(b.contains_key("extra"))
+        && others_equal(a, b)
+        && extras_equal
 }
 
 /// A folded workspace value without `extra.key` (and without `extra` when
@@ -204,7 +244,20 @@ impl WorkspaceRegistry {
             self.public_fold = None;
             return;
         }
-        let journaled = &decorated;
+        self.record_journaled_public_fold(previous_revision, revision, &decorated, full_projection);
+    }
+
+    /// [`Self::record_public_fold`] for changes that are already what the journal record of the
+    /// revision states (`journal_resource_record` gives them): they are folded as they are, with
+    /// no second read of the state rows. A commit that states many workspaces (a workspace close
+    /// states each workspace after the closed one) read the state fields of each one two times.
+    pub(super) fn record_journaled_public_fold(
+        &mut self,
+        previous_revision: u64,
+        revision: u64,
+        journaled: &Value,
+        full_projection: bool,
+    ) {
         match self.public_fold.as_mut() {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);
@@ -300,5 +353,40 @@ impl WorkspaceRegistry {
         self.catch_up_public_fold();
         let fold = self.public_fold.as_ref()?;
         Some(fold.values.get(&(resource.to_string(), id.to_string())).cloned())
+    }
+}
+
+#[cfg(test)]
+mod workspace_key_comparison_tests {
+    use super::{equal_without_workspace_key, without_workspace_key};
+    use serde_json::json;
+
+    /// The in-place comparison answers as the copying one did.
+    #[test]
+    fn the_comparison_in_place_matches_the_copies() {
+        let values = [
+            json!({"id": "w", "name": "a"}),
+            json!({"id": "w", "name": "b"}),
+            json!({"id": "w", "name": "a", "extra": {}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k"}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k2"}}),
+            json!({"id": "w", "name": "a", "extra": {"key": "k", "title": "t"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "t"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "u"}}),
+            json!({"id": "w", "name": "a", "extra": {"title": "t", "color": "c"}}),
+            json!({"id": "w", "name": "a", "focused": true}),
+            json!({"id": "w", "extra": {"key": "k"}}),
+            json!({"id": "w", "name": "a", "extra": "odd"}),
+            json!("not an object"),
+        ];
+        for a in &values {
+            for b in &values {
+                assert_eq!(
+                    equal_without_workspace_key(a, b),
+                    without_workspace_key(a) == without_workspace_key(b),
+                    "{a} vs {b}"
+                );
+            }
+        }
     }
 }

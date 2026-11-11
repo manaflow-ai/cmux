@@ -53,6 +53,23 @@ class GalleryHealthMergeRef(unittest.TestCase):
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
+    def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
+        # cmuxterm-hq#9131: the upload carried a screenshot of every passing state, ~190 MB a shard on a
+        # full render, and nothing read them. upload-set.ts drops them first (upload-set.test.ts holds what
+        # it keeps); it runs after the base replay has read health.json, on the folder the upload takes.
+        names = [entry.get("name") for entry in steps()]
+        trim = step("Keep only the screenshots a reader needs")
+        upload = step("Upload the health run")
+        self.assertLess(names.index("Judge the red states against the base"), names.index(trim["name"]))
+        self.assertEqual(names.index(trim["name"]) + 1, names.index(upload["name"]))
+        self.assertIn("always()", trim["if"])
+        self.assertIn('upload-set.ts --dir "$RUNNER_TEMP/health"', trim["run"])
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/health")
+        # More screenshots only on an explicit dispatch input, empty by default.
+        inputs = triggers()["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["screenshots"]["default"], "")
+        self.assertEqual(trim["env"]["KEEP"], "${{ inputs.screenshots }}")
+
     def test_reports_keep_the_pull_request_head(self) -> None:
         # The artifact names the head the pull request shows, beside the merge commit rendered.
         record = step("Record what was rendered")
@@ -140,10 +157,45 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("--annotate", run)
         # The classifier is copied before the base replaces it in the checkout.
         self.assertLess(run.index("cp scripts/ci/test_reds.py"), run.index("git restore"))
-        # A push has no base to compare with; a failed render with no red state is a tool failure.
-        self.assertIn('[ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]', run)
+        # Only a run with no base (the nightly dispatch, a new tip) fails on every red; a failed render
+        # with no red state is a tool failure.
+        self.assertIn('if [ -z "$BASE_SHA" ]; then', run)
+        self.assertNotIn("!= pull_request", run)
         self.assertIn('[ "$rc" = 2 ]', run)
         self.assertTrue(run.rstrip().endswith('exit "$rc"'))
+
+
+class GalleryHealthPushBase(unittest.TestCase):
+    """A push to feat-cmux-next is judged against the tip it replaced, so a red names the push that
+    caused it. With no base, every red failed every push (8 of 8 shards on 6 of 8 pushes, 2026-11-10)
+    and a red one push introduced could not be told from one already there."""
+
+    def resolve(self, event: str, before: str) -> dict[str, str]:
+        run = step("Resolve the head and the merge")["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            shas = []
+            for n in range(2):
+                subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", str(n)], check=True)
+                shas.append(subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                           text=True).stdout.strip())
+            out = Path(tmp) / "out"
+            env = {**os.environ, "EVENT": event, "PR_HEAD": "", "GITHUB_OUTPUT": str(out),
+                   "BEFORE": shas[0] if before == "previous" else before}
+            subprocess.run(["bash", "-c", run], cwd=tmp, env=env, check=True, capture_output=True)
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            return {**values, "previous": shas[0], "tip": shas[1]}
+
+    def test_a_push_compares_with_the_tip_it_replaced(self) -> None:
+        self.assertIn("github.event.before", str(step("Resolve the head and the merge").get("env")))
+        values = self.resolve("push", "previous")
+        self.assertEqual(values["base_sha"], values["previous"])
+        self.assertEqual(values["head_sha"], values["tip"])
+
+    def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
+        self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
+        self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
 
 
 class GalleryHealthBrowserConsistency(unittest.TestCase):
@@ -222,6 +274,7 @@ RENDER_SCRIPTS = (
     "webviews/scripts/gallery/touched.ts",
     "scripts/gallery-matrix/health.ts",
     "scripts/gallery-matrix/unplaced.py",
+    "scripts/gallery-matrix/upload-set.ts",
 )
 _RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
 _SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")

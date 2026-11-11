@@ -856,8 +856,10 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-/// Permission policy applied when no attached client answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Permission policy applied when no attached client answers. Read from config.json through
+/// `FromStr`: a value this build does not know (one a newer build added and saved, read after a
+/// rollback) reads as `ask` rather than failing the whole config, which stopped the daemon.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPolicy {
     /// Ask attached clients; wait without limit when none is attached.
@@ -888,6 +890,16 @@ impl std::str::FromStr for PermissionPolicy {
             "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or_else(|_| {
+            tracing::warn!("permission policy {text:?} is not one this build knows; using ask");
+            Self::Ask
+        }))
     }
 }
 

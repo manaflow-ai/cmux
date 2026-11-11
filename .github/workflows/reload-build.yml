@@ -163,7 +163,11 @@ jobs:
       # files behind, so make the ref boundary explicit before building.
       - name: Remove stale checkout files
         shell: bash
-        run: git clean -ffdx
+        # build-acpmux.sh leaves Go's module cache in .build/go-path, read-only (a toolchain switch,
+        # or a clone from before tailnet-go.sh set -modcacherw), and git clean fails on it.
+        run: |
+          chmod -R u+w .build/go-path 2>/dev/null || true
+          git clean -ffdx
 
       - name: Start timer
         id: t0
@@ -215,6 +219,15 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys runs `zig build` in ghostty-next with ghostty-next's
+          # own Zig (as cloud-chat-proof.yml does); without it the build stops at
+          # "failed to run `zig build` ... No such file or directory".
+          if [[ -z "${ZIG:-}" ]]; then
+            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+            vt_zig="$(sed -n 's/^CMUX_VT_ZIG=//p' "$GITHUB_ENV" | tail -1)"
+            [[ -x "$vt_zig" ]] || { echo "::error::ghostty-next Zig not installed" >&2; exit 1; }
+            export ZIG="$vt_zig"
+          fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"

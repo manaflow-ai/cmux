@@ -33135,6 +33135,12 @@
             "state": "needs_review",
             "value": "另一台 Mac 结束了会话。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一部 Mac 結束了工作階段。"
+          }
         }
       }
     },
@@ -33259,6 +33265,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "与另一台 Mac 的连接已断开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與另一部 Mac 的連線已中斷。"
           }
         }
       }
@@ -33385,6 +33397,12 @@
             "state": "needs_review",
             "value": "cmux 无法启动屏幕查看器。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法啟動螢幕檢視器。"
+          }
         }
       }
     },
@@ -33509,6 +33527,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "另一台 Mac 尚未批准会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一部 Mac 尚未核准工作階段。"
           }
         }
       }
@@ -33635,6 +33659,12 @@
             "state": "needs_review",
             "value": "直连"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直連"
+          }
         }
       }
     },
@@ -33759,6 +33789,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "直连（本地网络）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直連（區域網路）"
           }
         }
       }
@@ -33885,6 +33921,12 @@
             "state": "needs_review",
             "value": "中继"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼"
+          }
         }
       }
     },
@@ -34010,6 +34052,12 @@
             "state": "needs_review",
             "value": "会话无法连接到另一台 Mac。"
           }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段無法連線到另一部 Mac。"
+          }
         }
       }
     },
@@ -34134,6 +34182,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "屏幕查看器已停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕檢視器已停止。"
           }
         }
       }
