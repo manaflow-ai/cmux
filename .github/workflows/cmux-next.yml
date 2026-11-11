@@ -187,6 +187,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-react-pages.py
+      - scripts/cmux-next/react-pages.tsv
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-default-cursor.py
@@ -509,6 +511,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-react-pages.py
+      - scripts/cmux-next/react-pages.tsv
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-default-cursor.py
@@ -1746,6 +1750,7 @@ jobs:
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
+            bash scripts/cmux-next/tests/check-react-pages.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
             bash scripts/cmux-next/tests/check-default-cursor.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
@@ -1882,6 +1887,16 @@ jobs:
         id: single-omnibar
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+
+      - name: React pages are listed (native chrome and Home are Swift, plans/cmux-next/language-layers.md)
+        id: react-pages
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          python3 -I scripts/cmux-next/check-react-pages.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-138
       - name: No new SwiftUI (macOS UI is AppKit)
@@ -2396,6 +2411,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
+            ${{ steps.react-pages.outcome }}|React pages are listed (native chrome and Home are Swift)
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.default-cursor.outcome }}|Default cursor (no pointing hand in app UI)

@@ -16,6 +16,9 @@ reviews:
   # other non-default bases); reviews themselves are unchanged.
   review_status: false
   path_instructions:
+    - path: "{Packages/macOS/CmuxNext/Sources/**/*.swift,webviews/src/**,scripts/cmux-next/react-pages.tsv}"
+      instructions: |
+        Apply `.github/review-bot-rules/native-chrome-layer.md` during review. For the cmux NEXT macOS app, flag a change that draws native chrome or Home in a web view: deleting AppKit view files while adding a directory under webviews/src/pages/ for the same surface; hosting a PageWebView or WKWebView inside a popover, sheet, dialog, toast, toolbar, bar, sidebar section or row, card or overlay window; one web view per bar, row or card; chrome drawn on a transparent web overlay; a Home surface or a surface the Command Palette opens moved into a web page; a new debt or review row in scripts/cmux-next/react-pages.tsv, or a page directory with no row. Pass for changes inside the agent chat pane, a new full tab page with a page row and the decision test's answers in the description, moving a surface back to AppKit, and Rust changes that do not change which layer draws. Line count is not a defense. The rule is .github/review-bot-rules/native-chrome-layer.md and plans/cmux-next/language-layers.md.
     - path: "**/*"
       instructions: |
         Apply `.github/review-bot-rules/familiar-intent.md`. When a changed hunk
@@ -204,6 +207,10 @@ reviews:
         mode: error
         instructions: |
           For React UI changes under `web/**/*.tsx` and `web/**/*.jsx`, fail when the diff violates `.github/review-bot-rules/react-base-ui-accessibility.md`: a custom dialog, popover, menu, context menu, checkbox, select, switch, tabs, tooltip, combobox, command menu, or other composite widget is built from raw elements, ad hoc ARIA, `tabIndex`, or hand-rolled keyboard handlers when `@base-ui-components/react` or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
+      - name: "cmux native chrome layer"
+        mode: error
+        instructions: |
+          For changes under `Packages/macOS/CmuxNext/Sources/**` and `webviews/src/**`, fail when the diff violates `.github/review-bot-rules/native-chrome-layer.md`. For the cmux NEXT macOS app, flag a change that draws native chrome or Home in a web view: deleting AppKit view files while adding a directory under webviews/src/pages/ for the same surface; hosting a PageWebView or WKWebView inside a popover, sheet, dialog, toast, toolbar, bar, sidebar section or row, card or overlay window; one web view per bar, row or card; chrome drawn on a transparent web overlay; a Home surface or a surface the Command Palette opens moved into a web page; a new debt or review row in scripts/cmux-next/react-pages.tsv, or a page directory with no row. Pass for changes inside the agent chat pane, a new full tab page with a page row and the decision test's answers in the description, moving a surface back to AppKit, and Rust changes that do not change which layer draws. Line count is not a defense. The rule is .github/review-bot-rules/native-chrome-layer.md and plans/cmux-next/language-layers.md.
       - name: "cmux landing page registry parity"
         mode: error
         instructions: |

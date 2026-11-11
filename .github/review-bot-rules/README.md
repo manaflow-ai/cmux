@@ -33,5 +33,6 @@ Current rules:
 - `readme-site-feature-parity.md`
 - `landing-page-registry-parity.md`
 - `remote-relay-authorization.md`
+- `native-chrome-layer.md`
 
 Open source repository note: review bots should apply the configuration from the base branch. A PR that edits these rules should not be able to weaken its own review.
