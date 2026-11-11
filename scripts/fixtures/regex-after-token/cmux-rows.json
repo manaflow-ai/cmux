@@ -1,0 +1,5635 @@
+{
+  "about": [
+    "cmux's rows for regex-after-token.json, in its format, that the pinned copy does not hold yet; each goes to the shared table, and leaves this file when a re-pin brings it.",
+    "ranges: TypeScript's parser's, as regex-after-token.json's (the shared table's js-ranges.ts parseAll at the pinned commit, typescript 7.0.2, each source read as a .tsx file).",
+    "parsed, family lookahead_literals: a generic arrow (<T extends U>(...) => x) whose lookahead holds a regex, string, template or comment with a //, /*, quote or bracket in it, as a parameter default, a parameter or return type, a constraint or a type parameter default; a statement or an initializer; then a // comment or a call. Sources the parser reports a syntax error in are left out."
+  ],
+  "rows": [
+    {
+      "source": "<T extends U>(x = /[//]/) => x // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux#41407 at 2e84a894, F1: the // inside the regex class of a generic arrow's parameter default is regex text, not a comment, so the arrow is one and the // after it is a comment",
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    }
+  ],
+  "parsed": [
+    {
+      "source": "<T extends U>(x = /[//]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[//]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[/*]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[/*]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[/*]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /\\//) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          22
+        ],
+        [
+          "comment",
+          29,
+          50
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /\\//, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          22
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /\\//): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          25
+        ],
+        [
+          "comment",
+          35,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[)]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          30,
+          51
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[)]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[)]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[>]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          30,
+          51
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[>]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[>]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[(]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          30,
+          51
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[(]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[(]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[`'\"]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          25
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[`'\"]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          25
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[`'\"]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          28
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[{]/g) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[{]/g, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[{]/g): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"//\") => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          29,
+          50
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"//\", y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = \"//\"): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          35,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = ')>') => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          29,
+          50
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = ')>', y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = ')>'): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          35,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"/*\") => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          29,
+          50
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"/*\", y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = \"/*\"): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          35,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `//`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          22
+        ],
+        [
+          "comment",
+          29,
+          50
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `//`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          22
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `//`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "comment",
+          35,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${\"//\"}`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "template",
+          25,
+          27
+        ],
+        [
+          "comment",
+          34,
+          55
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${\"//\"}`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "template",
+          25,
+          27
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${\"//\"}`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "string",
+          24,
+          28
+        ],
+        [
+          "template",
+          28,
+          30
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${a}>`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          22,
+          25
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${a}>`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          22,
+          25
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${a}>`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          25,
+          28
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${ {a: 1}.a })`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${ {a: 1}.a })`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${ {a: 1}.a })`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          34,
+          37
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /* ) > */ 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          18,
+          27
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /* ) > */ 1, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          18,
+          27
+        ],
+        [
+          "comment",
+          43,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /* ) > */ 1): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          21,
+          30
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = { a: /[//]/ }) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          23,
+          29
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = { a: /[//]/ }, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          23,
+          29
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = { a: /[//]/ }): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          26,
+          32
+        ],
+        [
+          "comment",
+          44,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = [/[)]/]) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          19,
+          24
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = [/[)]/], y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          19,
+          24
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = [/[)]/]): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          22,
+          27
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends \"//\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "comment",
+          28,
+          49
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = \"//\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: \"//\" | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): \"//\" => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends ')>'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "comment",
+          28,
+          49
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = ')>'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: ')>' | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): ')>' => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends \"/*\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "comment",
+          28,
+          49
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = \"/*\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: \"/*\" | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): \"/*\" => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends `//`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          11,
+          15
+        ],
+        [
+          "comment",
+          28,
+          49
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = `//`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          15,
+          19
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: `//` | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          17,
+          21
+        ],
+        [
+          "comment",
+          32,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): `//` => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends `${string}>`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          11,
+          14
+        ],
+        [
+          "template",
+          20,
+          23
+        ],
+        [
+          "comment",
+          36,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = `${string}>`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          15,
+          18
+        ],
+        [
+          "template",
+          24,
+          27
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: `${string}>` | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          17,
+          20
+        ],
+        [
+          "template",
+          26,
+          29
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): `${string}>` => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          30,
+          33
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends '\"'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          11,
+          14
+        ],
+        [
+          "comment",
+          27,
+          48
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = '\"'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          15,
+          18
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: '\"' | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          17,
+          20
+        ],
+        [
+          "comment",
+          31,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): '\"' => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          24
+        ],
+        [
+          "comment",
+          30,
+          51
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[//]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[//]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[//]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[/*]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[/*]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[/*]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /\\//) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          22
+        ],
+        [
+          "string",
+          34,
+          54
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /\\//, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          22
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /\\//): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          25
+        ],
+        [
+          "string",
+          40,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[)]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          35,
+          55
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[)]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[)]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[>]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          35,
+          55
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[>]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[>]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[(]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          35,
+          55
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[(]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          23
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[(]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          26
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[`'\"]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          25
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[`'\"]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          25
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[`'\"]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          28
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[{]/g) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /[{]/g, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          18,
+          24
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /[{]/g): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          21,
+          27
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"//\") => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          34,
+          54
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"//\", y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = \"//\"): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          40,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = ')>') => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          34,
+          54
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = ')>', y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = ')>'): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          40,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"/*\") => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          34,
+          54
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = \"/*\", y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          18,
+          22
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = \"/*\"): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          40,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `//`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          22
+        ],
+        [
+          "string",
+          34,
+          54
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `//`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          22
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `//`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "string",
+          40,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${\"//\"}`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "template",
+          25,
+          27
+        ],
+        [
+          "string",
+          39,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${\"//\"}`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "template",
+          25,
+          27
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${\"//\"}`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "string",
+          24,
+          28
+        ],
+        [
+          "template",
+          28,
+          30
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${a}>`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          22,
+          25
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${a}>`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          22,
+          25
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${a}>`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          25,
+          28
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${ {a: 1}.a })`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = `${ {a: 1}.a })`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          18,
+          21
+        ],
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = `${ {a: 1}.a })`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          34,
+          37
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /* ) > */ 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          18,
+          27
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = /* ) > */ 1, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          18,
+          27
+        ],
+        [
+          "string",
+          48,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = /* ) > */ 1): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          21,
+          30
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = { a: /[//]/ }) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          23,
+          29
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = { a: /[//]/ }, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          23,
+          29
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = { a: /[//]/ }): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          26,
+          32
+        ],
+        [
+          "string",
+          49,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = [/[)]/]) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          19,
+          24
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x = [/[)]/], y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          19,
+          24
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T = [/[)]/]): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          22,
+          27
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "<T extends \"//\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "string",
+          33,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = \"//\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: \"//\" | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): \"//\" => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends ')>'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "string",
+          33,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = ')>'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: ')>' | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): ')>' => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends \"/*\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          11,
+          15
+        ],
+        [
+          "string",
+          33,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = \"/*\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          15,
+          19
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: \"/*\" | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          17,
+          21
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): \"/*\" => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends `//`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          11,
+          15
+        ],
+        [
+          "string",
+          33,
+          53
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = `//`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          15,
+          19
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: `//` | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          17,
+          21
+        ],
+        [
+          "string",
+          37,
+          57
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): `//` => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends `${string}>`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          11,
+          14
+        ],
+        [
+          "template",
+          20,
+          23
+        ],
+        [
+          "string",
+          41,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = `${string}>`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          15,
+          18
+        ],
+        [
+          "template",
+          24,
+          27
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: `${string}>` | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          17,
+          20
+        ],
+        [
+          "template",
+          26,
+          29
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): `${string}>` => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          30,
+          33
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "<T extends '\"'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          11,
+          14
+        ],
+        [
+          "string",
+          32,
+          52
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U = '\"'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          15,
+          18
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: '\"' | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          17,
+          20
+        ],
+        [
+          "string",
+          36,
+          56
+        ]
+      ]
+    },
+    {
+      "source": "<T extends U>(x: T): '\"' => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          24
+        ],
+        [
+          "string",
+          35,
+          55
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[//]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[//]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[//]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[/*]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[/*]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[/*]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /\\//) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          32
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /\\//, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          32
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /\\//): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          35
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[)]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[)]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[)]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[>]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[>]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[>]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[(]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[(]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[(]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[`'\"]/) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          35
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[`'\"]/, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          35
+        ],
+        [
+          "comment",
+          49,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[`'\"]/): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          38
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[{]/g) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[{]/g, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[{]/g): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "comment",
+          47,
+          68
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"//\") => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"//\", y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = \"//\"): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = ')>') => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = ')>', y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = ')>'): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"/*\") => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"/*\", y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = \"/*\"): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `//`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          32
+        ],
+        [
+          "comment",
+          39,
+          60
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `//`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          32
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `//`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          35
+        ],
+        [
+          "comment",
+          45,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${\"//\"}`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "template",
+          35,
+          37
+        ],
+        [
+          "comment",
+          44,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${\"//\"}`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "template",
+          35,
+          37
+        ],
+        [
+          "comment",
+          51,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${\"//\"}`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "string",
+          34,
+          38
+        ],
+        [
+          "template",
+          38,
+          40
+        ],
+        [
+          "comment",
+          50,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${a}>`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          32,
+          35
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${a}>`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          32,
+          35
+        ],
+        [
+          "comment",
+          49,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${a}>`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          35,
+          38
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${ {a: 1}.a })`) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          41,
+          44
+        ],
+        [
+          "comment",
+          51,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${ {a: 1}.a })`, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          41,
+          44
+        ],
+        [
+          "comment",
+          58,
+          79
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${ {a: 1}.a })`): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          44,
+          47
+        ],
+        [
+          "comment",
+          57,
+          78
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /* ) > */ 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          28,
+          37
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /* ) > */ 1, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          28,
+          37
+        ],
+        [
+          "comment",
+          53,
+          74
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /* ) > */ 1): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "comment",
+          31,
+          40
+        ],
+        [
+          "comment",
+          52,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = { a: /[//]/ }) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          33,
+          39
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = { a: /[//]/ }, y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          33,
+          39
+        ],
+        [
+          "comment",
+          55,
+          76
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = { a: /[//]/ }): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          36,
+          42
+        ],
+        [
+          "comment",
+          54,
+          75
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = [/[)]/]) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          29,
+          34
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = [/[)]/], y = 1) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          29,
+          34
+        ],
+        [
+          "comment",
+          49,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = [/[)]/]): T => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "regex",
+          32,
+          37
+        ],
+        [
+          "comment",
+          48,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends \"//\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = \"//\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: \"//\" | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): \"//\" => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends ')>'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = ')>'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: ')>' | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): ')>' => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends \"/*\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = \"/*\">(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: \"/*\" | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): \"/*\" => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends `//`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "comment",
+          38,
+          59
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = `//`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          25,
+          29
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: `//` | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          27,
+          31
+        ],
+        [
+          "comment",
+          42,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): `//` => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          35
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends `${string}>`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          30,
+          33
+        ],
+        [
+          "comment",
+          46,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = `${string}>`>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          25,
+          28
+        ],
+        [
+          "template",
+          34,
+          37
+        ],
+        [
+          "comment",
+          50,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: `${string}>` | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          27,
+          30
+        ],
+        [
+          "template",
+          36,
+          39
+        ],
+        [
+          "comment",
+          50,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): `${string}>` => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          40,
+          43
+        ],
+        [
+          "comment",
+          49,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends '\"'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          21,
+          24
+        ],
+        [
+          "comment",
+          37,
+          58
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = '\"'>(x: T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          25,
+          28
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: '\"' | T) => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          27,
+          30
+        ],
+        [
+          "comment",
+          41,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): '\"' => x // echo > /tmp/out.$$",
+      "family": "lookahead_literals",
+      "hit": false,
+      "ranges": [
+        [
+          "string",
+          31,
+          34
+        ],
+        [
+          "comment",
+          40,
+          61
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[//]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[//]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[//]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[/*]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[/*]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[/*]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /\\//) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          32
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /\\//, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          32
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /\\//): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          35
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[)]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[)]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[)]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[>]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[>]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[>]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[(]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[(]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          33
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[(]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          36
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[`'\"]/) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          35
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[`'\"]/, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          35
+        ],
+        [
+          "string",
+          54,
+          74
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[`'\"]/): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          38
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[{]/g) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /[{]/g, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          28,
+          34
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /[{]/g): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          31,
+          37
+        ],
+        [
+          "string",
+          52,
+          72
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"//\") => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"//\", y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = \"//\"): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = ')>') => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = ')>', y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = ')>'): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"/*\") => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = \"/*\", y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          28,
+          32
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = \"/*\"): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `//`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          32
+        ],
+        [
+          "string",
+          44,
+          64
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `//`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          32
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `//`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          35
+        ],
+        [
+          "string",
+          50,
+          70
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${\"//\"}`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "template",
+          35,
+          37
+        ],
+        [
+          "string",
+          49,
+          69
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${\"//\"}`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "template",
+          35,
+          37
+        ],
+        [
+          "string",
+          56,
+          76
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${\"//\"}`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "string",
+          34,
+          38
+        ],
+        [
+          "template",
+          38,
+          40
+        ],
+        [
+          "string",
+          55,
+          75
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${a}>`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          32,
+          35
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${a}>`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          32,
+          35
+        ],
+        [
+          "string",
+          54,
+          74
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${a}>`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          35,
+          38
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${ {a: 1}.a })`) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          41,
+          44
+        ],
+        [
+          "string",
+          56,
+          76
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = `${ {a: 1}.a })`, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          28,
+          31
+        ],
+        [
+          "template",
+          41,
+          44
+        ],
+        [
+          "string",
+          63,
+          83
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = `${ {a: 1}.a })`): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          44,
+          47
+        ],
+        [
+          "string",
+          62,
+          82
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /* ) > */ 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          28,
+          37
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = /* ) > */ 1, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          28,
+          37
+        ],
+        [
+          "string",
+          58,
+          78
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = /* ) > */ 1): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "comment",
+          31,
+          40
+        ],
+        [
+          "string",
+          57,
+          77
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = { a: /[//]/ }) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          33,
+          39
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = { a: /[//]/ }, y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          33,
+          39
+        ],
+        [
+          "string",
+          60,
+          80
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = { a: /[//]/ }): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          36,
+          42
+        ],
+        [
+          "string",
+          59,
+          79
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = [/[)]/]) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          29,
+          34
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x = [/[)]/], y = 1) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          29,
+          34
+        ],
+        [
+          "string",
+          54,
+          74
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T = [/[)]/]): T => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "regex",
+          32,
+          37
+        ],
+        [
+          "string",
+          53,
+          73
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends \"//\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = \"//\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: \"//\" | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): \"//\" => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends ')>'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = ')>'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: ')>' | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): ')>' => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends \"/*\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          25
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = \"/*\">(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          25,
+          29
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: \"/*\" | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          27,
+          31
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): \"/*\" => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          35
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends `//`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          25
+        ],
+        [
+          "string",
+          43,
+          63
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = `//`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          25,
+          29
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: `//` | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          27,
+          31
+        ],
+        [
+          "string",
+          47,
+          67
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): `//` => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          35
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends `${string}>`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          21,
+          24
+        ],
+        [
+          "template",
+          30,
+          33
+        ],
+        [
+          "string",
+          51,
+          71
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = `${string}>`>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          25,
+          28
+        ],
+        [
+          "template",
+          34,
+          37
+        ],
+        [
+          "string",
+          55,
+          75
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: `${string}>` | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          27,
+          30
+        ],
+        [
+          "template",
+          36,
+          39
+        ],
+        [
+          "string",
+          55,
+          75
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): `${string}>` => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "template",
+          31,
+          34
+        ],
+        [
+          "template",
+          40,
+          43
+        ],
+        [
+          "string",
+          54,
+          74
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends '\"'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          21,
+          24
+        ],
+        [
+          "string",
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U = '\"'>(x: T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          25,
+          28
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: '\"' | T) => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          27,
+          30
+        ],
+        [
+          "string",
+          46,
+          66
+        ]
+      ]
+    },
+    {
+      "source": "const f = <T extends U>(x: T): '\"' => x; run(\"echo > /tmp/out.$$\")",
+      "family": "lookahead_literals",
+      "hit": true,
+      "ranges": [
+        [
+          "string",
+          31,
+          34
+        ],
+        [
+          "string",
+          45,
+          65
+        ]
+      ]
+    }
+  ]
+}
