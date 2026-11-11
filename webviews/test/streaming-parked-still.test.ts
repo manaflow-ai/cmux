@@ -11,10 +11,15 @@
 // 5,000-character Markdown reply at Claude's cadence. Mid-stream the test either parks the reader a
 // distance up with one real wheel and samples every painted frame until the reply has drained, or
 // wanders up from the latest line and back down to it in a trackpad's small steps, twice, sampling
-// as it goes. Each frame records the scroller's offset and the screen top of every row and of every
-// block of the reply in view. Between two frames, each item still drawn must have moved by exactly
-// the offset's change, the other way; an item gone while the scroll alone would leave it in view is
-// a blank flash.
+// as it goes. Each frame records the screen top of every row and of every block of the reply in view.
+// The view's scroll between two frames is how far the picture moved, read off the items themselves
+// (their common move): the offset, the follow motion's translate and the thread's scroll origin are
+// the app's own split of one picture, and a reader sees only the picture. Each item still drawn must
+// have moved by exactly that scroll; an item gone while the scroll alone would leave it in view is a
+// blank flash. The picture moves only while the reader's own scroll is under way: from the frame their
+// first wheel event acted on until the first frame the picture holds still after their last one. The
+// test reads that from the order of events, never from a clock, so a starved runner that stretches
+// frames, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -22,20 +27,21 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// One painted frame: its time, the offset and how far it rests from the end, the view's edges, the
-/// last wheel event's time, and the screen top of each row and reply block in view.
+/// One painted frame: its time, the offset and how far it rests from the end, the view's edges, how
+/// many wheel events the page had seen when it was read, and the screen top of each row and reply
+/// block in view.
 type Sample = {
   t: number;
   top: number;
   fromEnd: number;
-  input: number;
+  wheels: number;
   /// The follow motion's translate on the thread, px: rows drawn off their layout by it.
   lag: number;
   view: [number, number];
   items: Record<string, number>;
 };
 type Probe = Window & {
-  __still: { samples: Sample[]; sampling: boolean; done: boolean; input: number; run?: Promise<unknown> };
+  __still: { samples: Sample[]; sampling: boolean; done: boolean; wheels: number; run?: Promise<unknown> };
   __streamingText: { run(options: { cadence: string }): Promise<unknown> };
 };
 /// An item that moved apart from the scroll, or vanished in view, between two painted frames.
@@ -43,34 +49,55 @@ type Event = { t: number; key: string; kind: "moved" | "vanished"; px?: number; 
 
 await requireBrowserLane("streaming-parked-still.test.ts", async () => {
   const round = (value: number) => Math.round(value * 100) / 100;
-  /// How long after a wheel event the browser's own scroll may still be easing it in.
-  const INPUT_MS = 1_000;
 
-  /// What moved apart from the scroll in `samples`, and how often the offset changed.
+  /// How far the picture scrolled from `before` to `now`, toward the end positive: the move most of
+  /// the items drawn in both frames share (the middle one), so one item moving on its own cannot pass
+  /// for the scroll. With no item in both, the offset less the follow motion's translate.
+  function pictureScroll(before: Sample, now: Sample) {
+    const moves = Object.keys(before.items)
+      .filter((key) => key in now.items)
+      .map((key) => before.items[key]! - now.items[key]!)
+      .sort((a, b) => a - b);
+    if (moves.length > 0) return moves[Math.floor(moves.length / 2)]!;
+    return now.top - before.top - (now.lag - before.lag);
+  }
+
+  /// What moved apart from the scroll in `samples`, and how often the picture scrolled.
   function stillness(samples: Sample[]) {
     const events: Event[] = [];
     let offsetMoves = 0;
-    /// Offset changes toward the end, or with no wheel event in the INPUT_MS before them: not the reader's.
+    /// Scrolls toward the end, or after the reader's scroll has settled: not the reader's.
     const unprompted: { t: number; px: number }[] = [];
-    /// Offset changes, either way, with no wheel event in the INPUT_MS before them.
+    /// Scrolls, either way, after the reader's scroll has settled.
     const late: { t: number; px: number }[] = [];
     let blockFrames = 0;
-    const t0 = samples[0]?.t ?? 0;
-    for (let index = 1; index < samples.length; index += 1) {
+    const wheels = samples.at(-1)?.wheels ?? 0;
+    // The frame the reader's first wheel event acted on: the last one read before the page saw it
+    // (paintedFrames.ts runs a painted frame's read before any input event's handlers). Frames before
+    // it are of the followed view, the reader's input still on its way to the page.
+    const from = Math.max(0, samples.findIndex((sample) => sample.wheels > 0) - 1);
+    // The first frame read after the last wheel event: from there, the first frame in which the
+    // picture holds still after it has moved is where the reader's scroll has settled.
+    const last = samples.findIndex((sample) => sample.wheels === wheels);
+    let moved = false;
+    let settled: number | undefined;
+    const t0 = samples[from]?.t ?? 0;
+    for (let index = from + 1; index < samples.length; index += 1) {
       const before = samples[index - 1]!;
       const now = samples[index]!;
-      // The offset's change as drawn: a held follow motion folded into the offset moves the offset and
-      // takes the thread's translate back by as much in the same frame, so the picture is the same.
-      // Only in a frame the offset itself moved: the follow motion easing home alone is no scroll.
-      const offset = now.top - before.top;
-      const scrolled = Math.abs(offset) > 0.5 ? offset - (now.lag - before.lag) : offset;
+      const scrolled = pictureScroll(before, now);
       const t = Math.round(now.t - t0);
       if (Object.keys(now.items).some((key) => key.startsWith("block:"))) blockFrames += 1;
-      if (Math.abs(scrolled) > 0.5) {
+      const moving = Math.abs(scrolled) > 0.5;
+      if (settled === undefined && index >= last) {
+        if (moving) moved = true;
+        else if (moved) settled = index;
+      }
+      if (moving) {
         offsetMoves += 1;
-        const recent = now.t - now.input <= INPUT_MS;
-        if (!recent) late.push({ t, px: round(scrolled) });
-        if (!(recent && scrolled < 0)) unprompted.push({ t, px: round(scrolled) });
+        const after = settled !== undefined;
+        if (after) late.push({ t, px: round(scrolled) });
+        if (after || scrolled > 0) unprompted.push({ t, px: round(scrolled) });
       }
       for (const [key, top] of Object.entries(before.items)) {
         const expected = top - scrolled;
@@ -84,10 +111,12 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       }
     }
     return {
-      frames: samples.length,
+      frames: samples.length - from,
       blockFrames,
       offsetMoves,
       fromEnd: round(samples.at(-1)?.fromEnd ?? 0),
+      wheels,
+      settled: settled === undefined ? undefined : Math.round(samples[settled]!.t - t0),
       unprompted: unprompted.slice(0, 16),
       late: late.slice(0, 16),
       events: events.length,
@@ -136,10 +165,11 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const w = window as unknown as Probe;
-      w.__still = { samples: [], sampling: false, done: false, input: Number.NEGATIVE_INFINITY };
+      w.__still = { samples: [], sampling: false, done: false, wheels: 0 };
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      // Each wheel event's time, before the page's own handlers see it.
-      const wheel = () => (w.__still.input = performance.now());
+      // Each wheel event, before the page's own handlers see it (and after the read of the frame
+      // painted before it, which paintedFrames.ts runs from its window capture first).
+      const wheel = () => (w.__still.wheels += 1);
       scroller.addEventListener("wheel", wheel, { capture: true, passive: true });
       // Read after each frame paints (paintedFrames.ts), until the page is done.
       window.cmuxAfterPaint((t) => {
@@ -173,7 +203,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
                 getComputedStyle(scroller.querySelector<HTMLElement>(".acpmux-thread")!).translate.split(" ")[1] ?? "",
               ) || 0,
             fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
-            input: w.__still.input,
+            wheels: w.__still.wheels,
             view: [view.top, view.bottom],
             items,
           });
@@ -219,6 +249,9 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       expect(report.blockFrames).toBeGreaterThan(30);
       expect(report.offsetMoves).toBeGreaterThan(0);
       expect(report.fromEnd).toBeGreaterThan(4);
+      // The page saw the wheel and its scroll came to rest: what follows is the parked view.
+      expect(report.wheels).toBe(1);
+      expect(report.settled).toBeNumber();
       expect({ unprompted: report.unprompted, events: report.first }).toEqual({ unprompted: [], events: [] });
     },
   );
@@ -240,8 +273,10 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       expect(report.blockFrames).toBeGreaterThan(30);
       expect(report.offsetMoves).toBeGreaterThan(10);
       expect(report.fromEnd).toBeGreaterThan(4);
-      // While the wheel turns, the offset follows it and, at the latest line, the reply; once the
-      // reader has parked again, nothing moves it.
+      expect(report.wheels).toBeGreaterThan(0);
+      expect(report.settled).toBeNumber();
+      // While the wheel turns, the view follows it and, at the latest line, the reply; once the
+      // reader's last scroll has settled, parked again, nothing moves it.
       expect({ late: report.late, events: report.first }).toEqual({ late: [], events: [] });
     },
   );

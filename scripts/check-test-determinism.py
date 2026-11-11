@@ -31,6 +31,15 @@ Detectors (all line/regex heuristics, never an AST):
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
+- wall-clock-window (JS/TS): the distance between two time stamps compared
+  against a named millisecond constant (`now.t - now.input <= INPUT_MS`,
+  `Date.now() - start < LEAVE_MS`). The window decides what a test counts
+  (whose motion a frame is, how long to watch), not how long anything took,
+  so assert-on-duration never sees it: it sits outside the assertion and its
+  bound is a constant, not a literal. A busy runner stretches the gaps
+  between frames and events past the window. Order by events instead (the
+  input the page saw, a frame that holds still, a signal the page emits). A
+  fake clock (`time.now()`, `clock.now()`) is allowed.
 - yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
   (N a literal or a named bound such as a `maxYields` parameter) that
   exits on a condition (`break`/`return`) and carries no deadline. N
@@ -93,6 +102,7 @@ RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
+RULE_WALL_CLOCK_WINDOW = "wall-clock-window"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -100,6 +110,7 @@ ALL_RULES = (
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
+    RULE_WALL_CLOCK_WINDOW,
 )
 
 # ---------------------------------------------------------------------------
@@ -3747,6 +3758,23 @@ _CANCELLATION_ONLY_EXIT = re.compile(
 _YIELD_COUNT_LOOP_MAX_LINES = 60
 
 
+# `a - b <= SOME_MS` (either relational operator, the constant ALL-CAPS and ending in _MS): the subtraction of
+# two stamps measured against a named window. streaming-parked-still counted an offset change as the reader's
+# while `now.t - now.input <= INPUT_MS`; a starved runner moved a frame past it.
+_WALL_CLOCK_WINDOW = re.compile(
+    r"[\w.)\]]\s-\s[^;,]*?(?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*[A-Z][A-Z0-9_]*_MS\b"
+)
+# A clock the test owns and advances by hand is deterministic.
+_FAKE_CLOCK_NOW = re.compile(r"\b(?:time|clock|fakeClock|virtualClock|testClock)\.now\s*\(")
+
+
+def detect_wall_clock_window(line: str, path_suffix: str = "") -> bool:
+    """A JS/TS test that compares two time stamps' distance with a named millisecond window."""
+    if path_suffix not in _JAVASCRIPT_SUFFIXES or _FAKE_CLOCK_NOW.search(line):
+        return False
+    return bool(_WALL_CLOCK_WINDOW.search(line))
+
+
 def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> bool:
     """A Swift condition poll bounded by a Task.yield() count, not a deadline."""
     if path_suffix != ".swift" or not _YIELD_COUNT_LOOP_HEADER.search(lines[idx]):
@@ -3911,6 +3939,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
+        if detect_wall_clock_window(code, suffix):
+            findings.append(Finding(rel_posix, line_no, RULE_WALL_CLOCK_WINDOW, snippet))
 
     return findings
 
@@ -5038,9 +5068,31 @@ def _self_test() -> int:
             ),
             {RULE_YIELD_COUNT_POLL},
         ),
+        # A wall-clock window decides what a frame test counts (streaming-parked-still: an offset change
+        # was the reader's while it came within INPUT_MS of a wheel event; a starved runner broke it).
+        (
+            "webviews/test/wall_clock_window.test.ts",
+            "        const recent = now.t - now.input <= INPUT_MS;\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
+        (
+            "webviews/test/wall_clock_watch.test.ts",
+            "    while (Date.now() - start < LEAVE_MS) later = await look(page, x, y);\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
     ]
 
     negatives: list[tuple[str, str]] = [
+        # A clock the test advances by hand.
+        (
+            "webviews/test/fake_clock_window.test.ts",
+            "      if (time.now() - lostAt >= RECONNECT_LINE_AFTER_MS) recoveredAt = time.now();\n",
+        ),
+        # A configured constant, no subtraction of stamps.
+        (
+            "webviews/test/configured_window.test.ts",
+            "      expect(config.retryDelay <= RETRY_DELAY_MS).toBe(true);\n",
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
