@@ -65,8 +65,8 @@ final class StagedUpdateRefresh {
     /// How recent a read of both the feed and the pulled list lets the install click decide at
     /// once, with no network wait between the click and the relaunch (Leo 2026-11-08: "just you
     /// click the button and that just simply restarts the app really quickly"). The reads happen
-    /// ahead of the click: when the Update Ready card appears and when cmux becomes active
-    /// (``prefetch(updater:)``), and on the staged update's scheduled probe.
+    /// ahead of the click: Sparkle's own read as it stages the build, a plain read when cmux becomes
+    /// active (``prefetch(updater:)``), and the staged update's scheduled probe.
     static let clickReadFreshness: TimeInterval = 60
     /// Whether the flow was in Update Ready at the last ``follow(_:updater:)``: the read ahead runs
     /// once as the card appears, not on every phase sync.
@@ -148,8 +148,9 @@ final class StagedUpdateRefresh {
 
     /// The probed ring's build when it is strictly newer than `staged`, else nil.
     private static func probedNewer(than staged: String, updater: UpdaterService) -> String? {
-        guard case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) else { return nil }
-        return item.version
+        guard let read = updater.lastFeedRead, read.ring == updater.ring, let newest = read.newest,
+              AppcastSelector.isOlder(staged, than: newest) else { return nil }
+        return newest
     }
 
     /// The feed and the pulled list answered, or the deadline passed with whatever the appcast
@@ -203,9 +204,11 @@ final class StagedUpdateRefresh {
         updater.startNewestCheck(.click)
     }
 
-    /// Follows the flow's phase: an update waiting arms the next probe and reads ahead for the
-    /// click as its card appears; anything else ends it.
-    func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
+    /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it. A
+    /// build Sparkle just downloaded is the feed's newest for the followed ring as of now (Sparkle
+    /// read the feed to pick it), so the card's appearance records that answer
+    /// (``UpdaterService/lastFeedRead``) and reads a stale pulled list, with no extra feed read.
+    func follow(_ phase: UpdateIndicatorPhase, previous: UpdateIndicatorPhase, updater: UpdaterService) {
         guard case .ready = phase else {
             installing = false
             wasReady = false
@@ -213,26 +216,38 @@ final class StagedUpdateRefresh {
         }
         if !wasReady {
             wasReady = true
-            prefetch(updater: updater)
+            if case .downloading = previous, let staged = updater.stagedBuild(), !staged.isEmpty {
+                updater.lastFeedRead = FeedRead(newest: staged, at: updater.now(), ring: updater.ring)
+                if !hasFreshList(updater) { updater.pulledWatch.refresh() }
+            }
         }
         arm(updater)
     }
 
-    /// Whether the feed answered and every pulled list was read within ``clickReadFreshness``.
+    /// Whether the feed answered for the followed ring and every pulled list was read within
+    /// ``clickReadFreshness``.
     func hasFreshRead(_ updater: UpdaterService) -> Bool {
-        guard updater.lastProbeError == nil, let feed = updater.lastProbeAnsweredAt,
-              let list = updater.pulledWatch.lastReadAt else { return false }
-        let now = updater.now()
-        return now.timeIntervalSince(feed) <= Self.clickReadFreshness && now.timeIntervalSince(list) <= Self.clickReadFreshness
+        guard let feed = updater.lastFeedRead, feed.ring == updater.ring,
+              updater.now().timeIntervalSince(feed.at) <= Self.clickReadFreshness else { return false }
+        return hasFreshList(updater)
+    }
+
+    /// Whether every pulled list was read within ``clickReadFreshness``.
+    private func hasFreshList(_ updater: UpdaterService) -> Bool {
+        guard let list = updater.pulledWatch.lastReadAt else { return false }
+        return updater.now().timeIntervalSince(list) <= Self.clickReadFreshness
     }
 
     /// Reads the feed and the pulled list ahead of the install click while an update waits on
-    /// Update Ready, unless a fresh read is at hand or a click already took it. Both join a read in
-    /// flight; each has its own request deadline, and nothing repeats until the next call.
+    /// Update Ready, unless a fresh read is at hand or a click already took it. The feed read is a
+    /// plain read (``UpdaterService/readFeedAhead()``): it never takes, delays or re-arms the
+    /// pending probe, and never answers a ring pick or an install click, so the schedule and every
+    /// check keep their own feed reads. Each has its own request deadline; nothing repeats until
+    /// the next call.
     func prefetch(updater: UpdaterService) {
         guard case .ready = updater.flow.phase, !installing, pendingClick == nil, updater.disabledReason == nil,
               !hasFreshRead(updater) else { return }
-        updater.probe()
+        updater.readFeedAhead()
         updater.pulledWatch.refresh()
     }
 

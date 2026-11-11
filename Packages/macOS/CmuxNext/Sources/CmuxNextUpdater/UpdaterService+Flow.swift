@@ -209,7 +209,7 @@ extension UpdaterService {
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
-        stagedRefresh.follow(phase, updater: self)
+        stagedRefresh.follow(phase, previous: previous, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
         // A pulled running build read while a check ran is followed once the check ends.
