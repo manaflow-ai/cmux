@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42984361307",
+  "recorded_at": "2026-11-11T08:19:44Z",
+  "reason": "cmux-tui a3686b1e9983 changes the image's cmux-tui (pinned 177d23fbdeb9)",
+  "dry_run": false,
+  "cmux_tui": "a3686b1e998371b6863de0d192ae770b3b9a4def",
+  "fixes": [
+    {
+      "sha": "a3686b1e998371b6863de0d192ae770b3b9a4def",
+      "mergedAt": "2026-11-10T23:53:00-08:00",
+      "subject": "Never show acpmux in the app's text"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:19:44Z",
+    "snapshot_id": "sh-c9022fadfa774eb8b3aa9a813171066e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42984361307): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8f367f852d9412e526dba7f6acad70a9fc9472d3",
+    "image": "cloud-native-auto-a3686b1e-42984361307-1",
+    "revision": "ci-42984361307-1",
+    "at": "2026-11-11T08:19:44Z"
+  },
+  "rolled_back": false
+}
