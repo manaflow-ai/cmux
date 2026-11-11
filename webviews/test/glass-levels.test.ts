@@ -53,9 +53,22 @@ test("every popup and hover card is one material: the menu level and one veil on
     "agent-session/acpmux/styles.css",
     "agent-session/acpmux/newtab/screen.css",
   ]) {
-    const css = source(file).replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(css, file).not.toMatch(/\.(acpmux-quick-menu|acpmux-composer-plus|nt-popover)[^{]*\{[^}]*--glass-tint/);
-    expect(css, file).not.toMatch(/\.ui-glass[^{]*\{[^}]*--host-glass-fill/);
+    // One rule at a time: a selector and its own declarations (the sheets hold no nested blocks there).
+    const rules = source(file)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((rule) => rule.split("{"))
+      .filter((parts) => parts.length >= 2)
+      .map((parts) => ({ selector: parts.at(-2)!, body: parts.at(-1)! }));
+    const own = rules.filter(
+      ({ selector, body }) =>
+        (/\.(acpmux-quick-menu|acpmux-composer-plus|nt-popover)\b/.test(selector) && /--glass-tint\s*:/.test(body)) ||
+        (/\.ui-glass\b/.test(selector) && /--host-glass-fill\s*:/.test(body)),
+    );
+    expect(
+      own.map(({ selector }) => selector.trim()),
+      file,
+    ).toEqual([]);
   }
   const quick = source("agent-session/acpmux/modelPicker.css");
   const menu = quick.slice(
