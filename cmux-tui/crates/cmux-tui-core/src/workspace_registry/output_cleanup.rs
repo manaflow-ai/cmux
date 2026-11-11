@@ -72,6 +72,7 @@
 //! registry the version 1 cleanup finished or found without output runs it
 //! once more when its journal holds enough session puts to compact.
 
+mod backup;
 mod build;
 mod chunks;
 mod codec;
@@ -87,15 +88,16 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+pub(super) use backup::{
+    finish_pending_rollback, note_full_start, refuse_open_beside_backup,
+    remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
+    rollback_possible,
+};
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 #[cfg(test)]
 pub(crate) use stage::set_put_records_limit_for_test;
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
-pub(super) use swap::{
-    finish_pending_rollback, note_full_start, refuse_open_beside_backup,
-    remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
-    rollback_possible, swap_at_open,
-};
+pub(super) use swap::swap_at_open;
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
 /// cleanup is one-time: a registry with this key is never staged again.

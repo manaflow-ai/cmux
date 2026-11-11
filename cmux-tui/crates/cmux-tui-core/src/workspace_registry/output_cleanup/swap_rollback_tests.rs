@@ -1,6 +1,10 @@
 //! A rollback that cannot put the previous registry back refuses the start
 //! and is finished by the next one.
 
+use rusqlite::Connection;
+
+use super::super::staging_path;
+use super::super::swap::install;
 use super::*;
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
