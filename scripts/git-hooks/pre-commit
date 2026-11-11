@@ -243,9 +243,10 @@ web_packages_stale() { # package-dir
 # devEngines pins bun's version (scripts/check-webviews-bun-version.sh enforces
 # it): a bun at exactly that version, from mise, asdf, PATH or ~/.bun, comes
 # first; otherwise PATH's bun. Read as data, never run from the checkout.
-pinned_bun_version() {
+pinned_bun_version() { # never fails: no pin is an empty answer
+    [[ -f "$REPO_ROOT/webviews/package.json" ]] || return 0
     sed -n '/"devEngines"/,/}/p' "$REPO_ROOT/webviews/package.json" 2>/dev/null \
-        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1
+        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1 || true
 }
 absolute_tool() { # name -> its absolute path on PATH, or nothing
     local found
