@@ -440,7 +440,9 @@ fn another_connection_cannot_cancel_a_creations_input() {
 /// commit made live.
 #[test]
 fn a_cancelled_creation_refuses_input_by_its_id_after_the_commit() {
-    let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-cancel-late", 1_000);
+    // 3 s: the requests before the commit (a split, 2 sends, a second connection, the cancel) must end
+    // inside the delay also on a loaded machine.
+    let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-cancel-late", 3_000);
     let pane = first_pane(&harness, "creating-cancel-late");
     let terminal_id = creating_terminal(8);
     let mut app = Connection::open(&harness.socket);

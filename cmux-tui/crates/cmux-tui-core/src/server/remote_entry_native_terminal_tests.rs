@@ -206,6 +206,9 @@ fn native_terminal_keeps_foreign_leases_browser_and_other_client_controls_denied
 /// allowlist) and is not told that the daemon has it.
 #[test]
 fn native_terminal_cannot_cancel_creating_input() {
+    // The refusal below is the answer to ANY name that is not on the list, so it alone does not prove
+    // that this command stays off it: the list itself must not have the name.
+    assert!(!native_owner::commands().contains(&"cancel-creating-input"));
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
     entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let (mut stream, mut reader) = connect_as_link(&entry);
