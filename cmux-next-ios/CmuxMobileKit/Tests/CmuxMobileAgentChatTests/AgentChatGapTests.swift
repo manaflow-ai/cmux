@@ -77,7 +77,7 @@ import Testing
         let agent = try? #require(store.subagent("sa"))
         #expect(agent?.state == .completed)
         #expect(agent?.turnID == "t1")
-        let texts = agent?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
+        let texts = agent?.items.compactMap { item -> String? in if case .message(_, let markdown) = item { markdown } else { nil } }
         #expect(texts == ["early", "middle", "late", "live"])
         #expect(store.subagents.filter { $0.id == "sa" }.count == 1)
         // Drawn under the gap's turn that started it, not under the newest turn.
@@ -114,9 +114,9 @@ import Testing
         store.apply(.gapPage([.subagentUpdate(subagentID: "sb", .toolCallUpdate(ACPToolCallUpdate(toolCallId: "tc1", title: "Read a.swift"))),
                               .turnResult(turnId: "t0", status: .completed, errorText: nil, at: Self.at)], done: true))
 
-        let texts = store.subagent("sa")?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
+        let texts = store.subagent("sa")?.items.compactMap { item -> String? in if case .message(_, let markdown) = item { markdown } else { nil } }
         #expect(texts == ["ABC"])
-        let calls = store.subagent("sb")?.items.compactMap { if case .tool(let call) = $0 { call } else { nil } } ?? []
+        let calls: [ACPToolCall] = store.subagent("sb")?.items.compactMap { item -> ACPToolCall? in if case .tool(let call) = item { call } else { nil } } ?? []
         #expect(calls.map(\.title) == ["Read a.swift"])
         #expect(calls.map(\.status) == [.completed])
     }
@@ -148,11 +148,11 @@ import Testing
         let agent = try? #require(store.subagent("bg"))
         #expect(agent?.turnID == "t0")
         #expect(agent?.name == "Watcher")
-        let texts = agent?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
+        let texts = agent?.items.compactMap { item -> String? in if case .message(_, let markdown) = item { markdown } else { nil } }
         #expect(texts == ["first", "second", "third"])
         #expect(store.subagents.filter { $0.id == "bg" }.count == 1)
         let drawnIn = store.turns.filter { turn in
-            turn.items.contains { if case .subagents(_, let ids) = $0 { ids.contains("bg") } else { false } }
+            turn.items.contains { item -> Bool in if case .subagents(_, let ids) = item { ids.contains("bg") } else { false } }
         }.map(\.id)
         #expect(drawnIn == ["t0"])
     }
@@ -199,7 +199,7 @@ import Testing
         // The ask the newer record answered comes on a later page.
         store.apply(.gapPage([ask("late"), .turnResult(turnId: "t1", status: .completed, errorText: nil, at: Self.at)], done: true))
 
-        let records = store.turns.first { $0.id == "t1" }?.items.compactMap { if case .permission(let record) = $0 { record } else { nil } } ?? []
+        let records: [PermissionRecord] = store.turns.first { $0.id == "t1" }?.items.compactMap { item -> PermissionRecord? in if case .permission(let record) = item { record } else { nil } } ?? []
         #expect(records.map(\.request.id) == ["early", "late"])
         #expect(records.map(\.resolution) == [.chose(allow), .chose(allow)])
     }
