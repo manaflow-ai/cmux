@@ -12,15 +12,27 @@
 # have that be the downloading thing." So a build that crashes at launch fails this step: the verify
 # job fails, publish-nightly publishes nothing of it, and the feed keeps serving the build it has.
 #
+# Two homes, one harness call (--arms empty,seeded). Build 4294166855401 (2616865988e1) crashed at
+# launch on its thread cmux-cookie-sync, but only for a person whose imported cookies were kept in
+# sync; this gate launched it from an empty home and passed it. So after the empty home passes, the
+# harness launches the same app copy from a home it seeds with made-up data: imported-cookie sync on
+# and a cookie store with rows (fresh_home_launch_smoke.py seed_cookie_sync_home; no keychain read).
+# A normal run is about 13 s longer; a hung attempt is still cut at LAUNCH_SMOKE_ATTEMPT_SECONDS.
+#
 #   pass        exit 0.
 #   crash       exit 1: the app launched and then exited, wrote a crash report or recorded an
-#               uncaught exception, on both of two attempts (nightly_next_launch_smoke.py verdict).
-#               A live app that never renders Home is a failed smoke but does not trigger rollback.
+#               uncaught exception, on both of two attempts (nightly_next_launch_smoke.py verdict),
+#               from either home. A live app that never renders Home is a failed smoke but does not
+#               trigger rollback.
 #   cannot-run  exit 0 with a warning: no GUI session, a harness or infrastructure error before the
 #               app launched, or a check cut short. The smoke never holds a build the harness could
 #               not launch (Leo, 2026-10-23: a smoke must never block the whole nightly); the
 #               post-publish smoke (nightly-next-launch-smoke.yml) still smokes it from the feed and
-#               rolls it back if it crashes.
+#               rolls it back if it crashes. A seeded home that could not be made, or whose cookie
+#               store the app never read, changes no exit code: the empty home's verdict stands (the
+#               harness exits as it would without that arm, and its report's `arms` says "not-run" or
+#               "cannot-run"). A pass then carries a warning and a summary line that the seeded home
+#               was not checked, so a pass of the empty home alone is never read as a pass of both.
 #
 # Evidence goes to $RUNNER_TEMP/launch-smoke (attempt-N/, status-N, evidence.md) and the job summary.
 set -uo pipefail
@@ -55,7 +67,7 @@ for attempt in 1 2; do
   mkdir -p "$out" && chmod 0777 "$out"
   status=0
   "$ci/frame-pacing/console-session.sh" python3 -I "$ci/fresh_home_launch_smoke.py" \
-    --dmg "$dmg" --out "$out" &
+    --dmg "$dmg" --out "$out" --arms empty,seeded &
   pid=$!
   # The watchdog bounds an attempt, so a hung harness never holds the job until its step timeout
   # (which would fail it like a crash). It sends SIGTERM, which the harness handles by stopping the
@@ -92,9 +104,25 @@ python3 -I "$ci/nightly_next_launch_smoke.py" evidence --report "$last/report.js
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 case "$verdict" in
-  pass) echo "launch smoke passed" ;;
+  pass)
+    echo "launch smoke passed"
+    # Said, never held: the seeded home's arm when it is not a pass (report.json's `arms`).
+    unchecked="$(python3 -I -c 'import json, sys
+arm = (json.load(open(sys.argv[1])).get("arms") or {}).get("seeded") or {}
+verdict = str(arm.get("verdict") or "not-run")
+if verdict != "pass":
+    reason = " ".join(str(arm.get("reason") or "the harness gave no reason").split())[:300]
+    print(f"the seeded home (imported-cookie sync on) was not checked ({verdict}: {reason})")' "$last/report.json" 2>/dev/null)"
+    if [ -n "$unchecked" ]; then
+      echo "::warning title=nightly-next launch smoke::$unchecked; the empty home passed and the build is not held"
+      printf '\nSeeded home: %s. The empty home passed; the build is not held.\n' "$unchecked" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    fi ;;
   crash)
-    echo "::error title=nightly-next launch smoke::the app crashed at launch from a fresh home on both attempts; this build is not published"
+    # Which home the last crash was in: report.json's `arm` (empty, or seeded when the empty home passed).
+    home="$(python3 -I -c 'import json, sys
+arm = json.load(open(sys.argv[1])).get("arm")
+print("a seeded home (imported-cookie sync on)" if arm == "seeded" else "a fresh home")' "$last/report.json" 2>/dev/null)"
+    echo "::error title=nightly-next launch smoke::the app crashed at launch from ${home:-a fresh home} on both attempts; this build is not published"
     exit 1 ;;
   *) cannot_run "the smoke could not run here (verdict $verdict)" ;;
 esac

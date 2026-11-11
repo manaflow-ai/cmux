@@ -27,7 +27,12 @@ extension HomeStore {
         guard mirror.windows[id] == nil else { return Task {} }
         // Switching back: the transcript it showed draws now, and the read below lays what the
         // owner holds over it (``HomeMirror/restoreKept(_:)``).
-        if mirror.restoreKept(id) { bumpTranscript(id) } else { mirror.beginLoading(id) }
+        // With nothing kept, the newest message the inbox names draws now (the one a notification
+        // or an unread badge brought the user here for), and the read lays the rest around it.
+        if mirror.restoreKept(id) { bumpTranscript(id) } else {
+            mirror.beginLoadingWithNewest(id)
+            if mirror.windows[id]?.messages.isEmpty == false { bumpTranscript(id) }
+        }
         return load(id)
     }
 

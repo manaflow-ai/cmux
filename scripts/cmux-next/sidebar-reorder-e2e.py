@@ -108,7 +108,7 @@ def record_spaces():
     print("pin:", cli("room", "Work", "pin", "--workspace", str(delta)), flush=True)
     time.sleep(1)  # test harness: let the rooms settle
     print("space.next:", cli("action", "run", "space.next"), flush=True)
-    print("paging at slide:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
+    print("paging after space.next:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
     frames("next", 1.0)
     print("space.previous:", cli("action", "run", "space.previous"), flush=True)
     frames("previous", 1.0)

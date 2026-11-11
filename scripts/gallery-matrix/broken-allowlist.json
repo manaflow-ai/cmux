@@ -12,7 +12,5 @@
   "agent-pane.new-tab#typed-over-note": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.new-tab#widgets-off": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.subagent-tray#finished-line": "subagent tray. Its play throws on base since health began counting thrown plays (2026-10-28): nothing runs: no tray.",
-  "agent-pane.transcript#fold-holds-clicked-line": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.transcript#footer-actions-left": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms."
+  "agent-pane.transcript#fold-holds-clicked-line": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms."
 }

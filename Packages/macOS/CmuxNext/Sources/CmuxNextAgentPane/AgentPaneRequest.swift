@@ -105,8 +105,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page asked the app to run a user facing action. `session`, when the page names
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
-    /// composer's Environment chip; its setup dialog starts on that environment.
-    case runAction(String, session: String? = nil, environment: String? = nil)
+    /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -208,6 +209,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
+    /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
+    case cloudTurnRewind(AgentPaneCloudTurnRewind)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

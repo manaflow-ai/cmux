@@ -422,8 +422,8 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
+        Command::CreateWorkspace { name, key, first_tab, mutation } => {
+            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
         }
         Command::CreateTerminal {
             workspace,
@@ -507,6 +507,9 @@ fn dispatch_command(
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+        }
+        Command::SetDividerVisible { split, visible, transaction } => {
+            cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)

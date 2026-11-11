@@ -81,7 +81,7 @@ fn configured() -> Option<&'static Config> {
 /// answer or answered with no list of capabilities: such a machine may serve
 /// it, so the caller still fences.
 pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
-    serves_fetch(&super::super::machine_gate::identify(socket)?)
+    serves_fetch(&super::super::machine_gate::reach(socket).ok()?)
 }
 
 /// [`fetch_served`] for one `identify` answer: `None` when it has no list of

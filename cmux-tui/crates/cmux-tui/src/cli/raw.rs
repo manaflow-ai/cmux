@@ -74,10 +74,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) => {
-            eprintln!("{}", super::wire::connect_failure(&socket, &error));
-            return 3;
-        }
+        Err(error) => return super::wire::report_connect_failure(&socket, &error, global.output),
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]

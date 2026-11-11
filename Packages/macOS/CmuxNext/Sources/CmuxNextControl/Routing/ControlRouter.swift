@@ -284,6 +284,8 @@ public final class ControlRouter: Sendable {
             return .success(try await Self.run(method, call, queue: workQueue))
         } catch let error as ControlError {
             return .failure(error.annotated(progress: progress))
+        } catch is SettingsFileBusy {
+            return .failure(.settingsBusy())
         } catch {
             return .failure(ControlError(code: "internal_error", message: String(describing: error)))
         }

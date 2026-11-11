@@ -837,10 +837,14 @@ impl Brain {
         session_id: String,
         policy: Option<String>,
         harness: Option<String>,
+        made: Option<crate::action_lifetime::Made>,
     ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if made.is_some() {
+                sub.made = made;
+            }
             if harness.is_some() {
                 sub.harness = harness;
             }
@@ -1752,12 +1756,32 @@ impl Brain {
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
         if !done {
+            // Running again: it has not expired.
+            if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+                made.expires_ms = None;
+            }
             return;
+        }
+        // Its lifetime ends now (action_lifetime.rs): a Task leaves the hat after its time, a
+        // tucked workspace is due for the reaper at once.
+        let now = now_ms();
+        if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+            made.ended(now);
+            self.save();
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
+        // A tucked one keeps a short task's guards: a stopped run, or a report that left work to
+        // land (its landing follow-up resumes it), keeps its workspace.
+        let reap =
+            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
+                && !sub.stopped
+                && !sub
+                    .report
+                    .as_deref()
+                    .is_some_and(crate::sub_watch::unlanded);
         // Every finished one under the close setting; else a short task's
         // (a run under SHORT_TASK whose report left nothing to land), so a
         // sidebar does not fill with workspaces of one-off asks. Its chat
@@ -1769,7 +1793,7 @@ impl Brain {
                 .report
                 .as_deref()
                 .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short) {
+        if !(self.sub_close_on_finish || short || reap) {
             return;
         }
         let Some(key) = sub.workspace.clone() else {
@@ -1778,6 +1802,8 @@ impl Brain {
         // The close setting closes every finished one and forgets it; a short
         // task closes only while none of its terminals runs a command, and its
         // key is forgotten once that close succeeds (a kept one stays).
+        // The reaper closes a tucked workspace like a short task's: only while none of its
+        // terminals runs a command, so a shell the person started there is never ended.
         let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {

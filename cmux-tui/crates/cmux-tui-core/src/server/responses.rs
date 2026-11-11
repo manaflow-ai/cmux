@@ -51,7 +51,8 @@ pub(super) fn send_request_error_with_delivery(
 }
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    writer.send_control(&response.into_value()).is_ok()
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
@@ -65,7 +66,8 @@ pub(super) fn send_response_with_details(
     retryable: Option<bool>,
     details: Option<Value>,
 ) -> bool {
-    let Ok(mut value) = serde_json::to_value(response) else { return false };
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    let mut value = response.into_value();
     if let Some(reason) = reason {
         value.insert("reason", Value::String(reason));
     }
@@ -85,6 +87,11 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .map(|error| error.code().to_string())
         .or_else(|| {
             error.downcast_ref::<super::LayoutRatioError>().map(|error| error.code().to_string())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::mux::DividerVisibilityError>()
+                .map(|error| error.code().to_string())
         })
         .or_else(|| {
             error.downcast_ref::<super::ViewportWidthError>().map(|error| error.code().to_string())

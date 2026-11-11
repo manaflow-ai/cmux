@@ -29,7 +29,7 @@
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
- *   agent daemon restart, each mid-turn and timed to recovery (cloud-chaos.ts).
+ *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -75,6 +75,15 @@
  * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
  * made) and set back to its earlier mode at the end.
  *
+ * Clean room: after the chat, the journey runs cloud-key-probe.py on the chat machine (as root when sudo asks no
+ * password): every process's environment and command line, and the files under the homes, /etc, /opt, /srv and the
+ * temp folders, searched for a model provider's key. The step names each finding by place and kind, never a value;
+ * a run that could not read everything (not root, an unreadable file or process, the walk past its budget) is unknown.
+ * With --gateway, --gateway-local or --keys-clean a finding or an unknown fails the step; otherwise it is report-only,
+ * a skip that lists the findings (the login copy puts the person's login on the machine by design).
+ * --keys-probe-out FILE appends the probe's whole answer with the run's tag and mode, one JSON line a run (back-to-back
+ * runs keep every record); --skip keys leaves it out.
+ *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
  * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
  * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
@@ -87,7 +96,8 @@
  * log, writes them to desktop-link.json in --out, and fails unless a note is `up` or `host_up`. No line means the
  * platform sent no rd_link (the team's CLOUD_RD_LINK is off). Then the machine is deleted (cloud-rd-link-readback.yml).
  * --cleanup-tag jr-… deletes the machine a run with that tag made (`cloud journey auto jr-…`, its exact name), for a
- * workflow's always() step after a run cut off before its own cleanup.
+ * workflow's always() step after a run cut off before its own cleanup. With --kept it also deletes the machine a
+ * --keep run with that tag made (`cloud journey jr-…`), for the operator who kept it.
  *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
@@ -96,7 +106,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -148,11 +158,17 @@ export type Status = "pass" | "fail" | "skip";
 export type Step = { step: string; status: Status; ms: number; detail: string };
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /\b(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g];
+// No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+  // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
+  // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
+  /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
+  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g,
+  /(?:AKIA|ASIA)[0-9A-Z]{16}/g, /("refresh_token"\s*:\s*")[^"\s]{20,}"/g];
 export function scrub(text: string, secrets: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join("[secret]");
-  for (const re of SECRET_SHAPES) out = out.replace(re, "[secret]");
+  for (const re of SECRET_SHAPES) out = out.replace(re, (whole, field?: string) => (typeof field === "string" ? `${field}[secret]"` : "[secret]"));
   return out;
 }
 
@@ -318,12 +334,14 @@ type ExecResult = { code: number; stdout: string; stderr: string };
 type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-function directExec(api: Api, machine: string, journey: Journey): Exec {
+export function directExec(api: Api, machine: string, journey: Journey): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
-    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: Math.min(timeoutMs, 300_000) });
+    // The HTTP request waits as long as the command may run, plus room for the answer to travel.
+    const runMs = Math.min(timeoutMs, 300_000);
+    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
@@ -819,7 +837,7 @@ export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "b
  * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
  * the first line, this the second when the run was cut off.
  */
-async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+async function cleanupTagMode(tag: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined, kept = false): Promise<number> {
   if (!/^jr-[0-9a-z]{1,16}$/.test(tag)) throw new Error(`--cleanup-tag ${JSON.stringify(tag.slice(0, 40))}: not a journey tag (jr-<base36>)`);
   if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
   const secrets = [password];
@@ -828,6 +846,8 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   const api = new Api(backend.api, team);
   api.bearer = s.access;
   const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
+  if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
   const mine = rows.filter((r) => names.has(r?.name) && r.status !== "deleted" && r.status !== "deleting");
   let failed = 0;
@@ -864,9 +884,54 @@ export function swiftRawString(source: string, name: string): string {
   return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
 }
 
+/** The clean-room provider key probe the journey runs on the chat machine after the chat. */
+export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
+export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
+export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
+export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; shipped?: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
+
+/** The probe sent as one exec: as root when sudo asks no password, so it reads every process and home. */
+export function keyProbeCommand(source: string, args: string[] = []): string {
+  if (source.includes("CMUX_KEY_PROBE")) throw new Error("the probe's source holds its own heredoc delimiter");
+  const rest = args.map((a) => ` ${shq(a)}`).join("");
+  return `if sudo -n true 2>/dev/null; then p="sudo -n python3"; else p=python3; fi; $p -I -${rest} <<'CMUX_KEY_PROBE'\n${source}\nCMUX_KEY_PROBE`;
+}
+
+/** The probe's answer from its `@@keyprobe ` line; throws when the probe printed none. */
+export function parseKeyProbe(stdout: string): KeyProbe {
+  const line = stdout.split("\n").find((l) => l.startsWith("@@keyprobe "));
+  if (!line) throw new Error(`the probe printed no answer: ${stdout.slice(-300)}`);
+  const p = JSON.parse(line.slice("@@keyprobe ".length));
+  if (!Array.isArray(p?.findings) || typeof p?.complete !== "boolean" || !Array.isArray(p?.gaps)) throw new Error(`the probe's answer has no findings list or coverage: ${line.slice(0, 300)}`);
+  return p as KeyProbe;
+}
+
+/**
+ * The step's result: a finding fails a clean check and is reported otherwise; no finding passes only when the probe
+ * read everything (`complete`), since a gap in what it read is "unknown", never "no key".
+ */
+export function keyProbeStatus(p: KeyProbe, clean: boolean): Status {
+  if (p.findings.length || !p.complete) return clean ? "fail" : "skip";
+  return "pass";
+}
+
+/** The findings, one `place where: what` each, then what the probe could read. Names and places only. */
+export function keyProbeDetail(p: KeyProbe): string {
+  const s = p.scanned ?? {};
+  const cover =
+    `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes, ${s.files ?? 0} files in ${p.ms} ms; ` +
+    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`) +
+    (p.shipped?.length ? `; ${p.shipped.length} key shape${p.shipped.length > 1 ? "s" : ""} in installed software, not counted` : "");
+  if (!p.findings.length) return p.complete ? `no provider key (${cover})` : `no finding, but not everything was read, so unknown (${cover})`;
+  const list = p.findings.map((f) => `${f.place} ${f.where}: ${f.what}`);
+  return `${p.findings.length} finding${p.findings.length > 1 ? "s" : ""}: ${list.join("; ")} (${cover})`;
+}
+
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** GitHub on a Cloud machine through the team connection, run on the guest (the journey's GitHub steps). */
+export const GITHUB_E2E_SH = fileURLToPath(new URL("./cloud-github-e2e.sh", import.meta.url));
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
@@ -1063,6 +1128,26 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * The guest program that prints the `"model":"..."` of every message in Claude session `id`'s transcript. It
+ * searches each Claude directory an agent can run with: CLAUDE_CONFIG_DIR as every running process has it (the
+ * launcher's effective one, e.g. ~/.config/cmux/claude-team that agent-auth.sh's team and gateway modes set on a
+ * shared machine), then this shell's CLAUDE_CONFIG_DIR, ~/.claude and ~/.config/cmux/claude-team.
+ */
+export function claudeTranscriptModelsProgram(id: string): string {
+  return (
+    `id=${shq(id)}; { for e in /proc/[0-9]*/environ; do tr '\\0' '\\n' 2>/dev/null < "$e" | sed -n 's/^CLAUDE_CONFIG_DIR=//p'; done; ` +
+    `printf '%s\\n' "\${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" "$HOME/.config/cmux/claude-team"; } 2>/dev/null | sort -u | ` +
+    `while IFS= read -r d; do [ -n "$d" ] || continue; for f in "$d"/projects/*/"$id".jsonl; do ` +
+    `[ -f "$f" ] && grep -ho '"model":"[^"]*"' "$f"; done; done | sort -u`
+  );
+}
+
+/** The models a {@link claudeTranscriptModelsProgram} printout names, `<synthetic>` (Claude Code's own notices) left out. */
+export function transcriptModels(stdout: string): string[] {
+  return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
+}
 
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
@@ -1606,6 +1691,27 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
   return result.failed.length ? 1 : 0;
 }
 
+/** `--delete-kept ID`: one machine a `--keep` run of this account made (`cloud journey jr-...`), read back first. */
+async function deleteKeptMode(id: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined, signIn: string): Promise<number> {
+  if (!/^vm_[a-z0-9]{20}$/.test(id)) throw new Error(`--delete-kept: not vm_<20 lowercase letters or digits>: ${JSON.stringify(id.slice(0, 60))}`);
+  const secrets: string[] = password ? [password] : [];
+  const api = new Api(backend.api, team);
+  if (signIn === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
+  else {
+    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    api.bearer = (await passwordSignIn(STACK[backend.stack], email, password)).access;
+  }
+  const m = await api.read("cloud.machine.get", { machine: id });
+  const name = String(m?.name ?? "");
+  if (!/^cloud journey jr-[a-z0-9]+$/.test(name)) {
+    console.log(JSON.stringify({ refused: id, reason: `named ${JSON.stringify(name.slice(0, 60))}, not a --keep journey's machine` }));
+    return 1;
+  }
+  await api.deleteMachine(id, `journey-delete-kept-${id}`);
+  console.log(JSON.stringify({ deleted: id, name }));
+  return 0;
+}
+
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -1652,8 +1758,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
+  // --delete-kept ID: delete one machine a --keep run of this account made (named `cloud journey jr-...`), and nothing else.
+  const kept = argValue("--delete-kept", argv);
+  if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   const cleanupTag = argValue("--cleanup-tag", argv);
-  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team);
+  if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -1679,6 +1788,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (gatewayCmux && gatewayLocal) throw new Error("--gateway and --gateway-local: pick one");
   if (gatewayLocal && gatewayUpstream === "stub") throw new Error("--gateway-local needs --gateway-upstream URL (the person's proxy, reachable from this computer)");
   const gatewayAny = Boolean(gatewayCmux || gatewayLocal);
+  // The clean room fails on a finding when the chat machine is meant to hold no key; otherwise it reports.
+  const keysClean = gatewayAny || argv.includes("--keys-clean");
+  const keysProbeOut = argValue("--keys-probe-out", argv);
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
@@ -1687,7 +1799,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
   // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
   const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
-  const provider: "claude" | "codex" | undefined = agent === "claude" || agent === "codex" ? agent : undefined;
+  // `claude/claude-sonnet-5-5` is the claude harness on that model (`acp ensure -m`): the same login and lifecycle legs.
+  const harness = agent.split("/")[0];
+  const provider: "claude" | "codex" | undefined = harness === "claude" || harness === "codex" ? harness : undefined;
+  const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
   const probeOut = argValue("--probe-out", argv);
@@ -1907,6 +2022,53 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+    // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
+    // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
+    // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
+    // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
+    const factsAt = Date.now();
+    try {
+      const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
+      const r = await exec([
+        `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
+        `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
+      ].join("; "));
+      const facts = r.stdout.trim().split("\n").join(" | ");
+      const imageFacts = JSON.stringify(image).slice(0, 300);
+      J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
+    } catch (e) {
+      J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+    }
+
+    // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+    // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
+    // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
+    // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
+    // connection. `--skip github` leaves both out.
+    if (!only.has("github")) {
+      const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+      const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
+      const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+        ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
+        : null;
+      if (!has || !/@@has 0/.test(has.stdout)) {
+        J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
+      } else {
+        await J.step("GitHub on the machine (stub)", async () => {
+          const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+        const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
+        if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
+        else await J.step("GitHub on the machine (live)", async () => {
+          if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
+          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+      }
+    }
 
     if (desktopLink) {
       // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
@@ -2075,17 +2237,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
-      // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
+      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
         const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
         const pre = await waitPreflight(exec, programs.preflight, team ? "owner or team" : "owner");
-        const folder = "/home/cmux/.cmux/credential-transfer";
-        const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
-        if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
+        const folder = "/home/cmux/.cmux/credential-transfer"; // made and checked by the preflight that just passed
         const file = `${folder}/${randomUUID().toUpperCase()}.json`;
         try {
           const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
@@ -2214,7 +2374,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
-    const lifecycle = provider && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
+    // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
@@ -2229,7 +2390,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
       await J.step("reply", async () => {
         const last = await awaitReply().catch(async (e: Error) => {
-          if (!gwExec && !gatewayLocal) throw e;
+          // Through a gateway, or any Codex chat (the model-plane route a Codex chat with no login of its own takes):
+          // say what the machine's Codex had to reach its model with, never only "no reply" (cloud chat matrix, 11-10).
+          if (!gwExec && !gatewayLocal && provider !== "codex") throw e;
           // Through a gateway, what the chat machine's Codex had to reach the edge with: the model-plane files, the
           // machine kind and Codex's auth choice, the provider its config names, and whether a login shell and the
           // daemon carry the edge's base URL and key (the base URL as edge, other or unset; the key as set or not).
@@ -2244,6 +2407,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             `for f in "$HOME/.acpmux/login-env.json" "$HOME/.cmux/acpmux/login-env.json"; do [ -f "$f" ] && python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); print(sys.argv[1], "age_s=%s" % (int(time.time()) - int(d.get("savedAt") or 0)), "secret_names=%s" % ",".join(d.get("secretNames") or []))' "$f" 2>&1; done`,
             `grep -hoE '(login shell env|login env|imported login shell environment)[^"]{0,160}' "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | tail -3`,
             `for p in $(pgrep -u "$(id -u)" -f 'cmux-tui|acpmux' | head -3); do echo "pid $p: $(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -E '^OPENAI_(BASE_URL|API_KEY)=' | sed 's/=.*/=set/' | tr '\\n' ' ')"; done`,
+            // The model plane itself, from the machine: status and time only, one bounded request each (a hung edge
+            // reads as 000 after 15 s), with the machine's own base URL and key, never printed.
+            `bash -lc 'm=$(grep -m1 -E "^model *=" "$HOME/.codex/config.toml" | cut -d\\" -f2); echo "codex model: \${m:-unset}"; for p in models responses; do if [ "$p" = models ]; then a=(); else a=(-H "content-type: application/json" -d "{\\"model\\":\\"\${m:-gpt-5}\\",\\"input\\":\\"ping\\"}"); fi; echo "edge $p: $(curl -sS -m 15 -o /dev/null -w "%{http_code} %{time_total}s" -H "authorization: Bearer \${OPENAI_API_KEY}" "\${a[@]}" "\${OPENAI_BASE_URL%/}/$p" 2>&1 | tail -c 160)"; done' 2>&1 | tail -3`,
+            // Which codex the chat runs, and what the image's auth rules (agent-auth.sh) would pick for it here.
+            `echo "codex: $(command -v codex) launcher=$([ -x /etc/cmux/codex ] && echo yes || echo no) running=$(ps -o args= -u "$(id -u)" | grep -E '(^|/)codex( |$)' | grep -v grep | head -1 | cut -c1-120)"`,
+            `bash -lc '[ -f /etc/cmux/agent-auth.sh ] && . /etc/cmux/agent-auth.sh && cmux_agent_auth_resolve codex && echo "agent-auth codex: $cmux_agent_auth_mode ($cmux_agent_auth_reason)"' 2>&1 | tail -1`,
+            // The session's own account of the turn: its last error or retry line (no prompt or reply text).
+            `${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -oE '"kind":"(turn_error|retry|error|status)"[^}]{0,300}' | tail -3`,
           ].join("; ");
           const d = await exec(probe).catch(() => null);
           throw new Error(`${e.message} (the chat machine: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 1500)})`);
@@ -2259,6 +2430,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
+      // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
+      // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
+      // about itself) and never `acp session info`, whose record names the model asked for and lists every model
+      // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
+      // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
+      if (askedModel && !modelStub && harness === "claude") {
+        await J.step("session model", async () => {
+          const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
+          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+          const ran = transcriptModels(t.stdout);
+          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
+          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
+          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
+        });
+      }
       if (modelStub && provider) {
         await J.step("stub: forwarded login and a tool round trip", async () => {
           const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
@@ -2365,6 +2553,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
+    // After the chat, while its processes still run: where a provider key sits on the chat machine.
+    if (only.has("keys")) {
+      J.skip(KEY_PROBE_STEP, "--skip keys");
+    } else {
+      const t0 = Date.now();
+      const mode = gatewayAny ? "gateway" : only.has("login") || !login || !provider ? "no login passed" : "login copy";
+      try {
+        // The walk gets 240 s of the exec route's 300 s; a walk cut short reads as incomplete, never clean.
+        const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--budget-s", "240"]), 290_000);
+        const probe = parseKeyProbe(r.stdout);
+        if (keysProbeOut) appendFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
+        const detail = keyProbeDetail(probe);
+        const status = keyProbeStatus(probe, keysClean);
+        J.record({ step: KEY_PROBE_STEP, status, ms: Date.now() - t0, detail: status === "skip" ? `report only (${mode}; --keys-clean fails it): ${detail}` : `${mode}: ${detail}` });
+      } catch (e) {
+        J.record({ step: KEY_PROBE_STEP, status: keysClean ? "fail" : "skip", ms: Date.now() - t0, detail: `the probe did not run: ${(e as Error).message}` });
+      }
+    }
+
     // The carrier is the only way into a Cloud machine (cmux-platform#1007 deletes the Native link_token and the relay
     // chat), so the journey connects with the carrier dial and nothing else.
     await J.step("connect (connect_info)", async () => {
@@ -2406,9 +2613,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
-        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
+        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
         for (const r of results) {
-          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.recover_ms ?? 0, detail: r.detail });
+          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.felt_ms ?? 0, detail: r.detail });
         }
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);

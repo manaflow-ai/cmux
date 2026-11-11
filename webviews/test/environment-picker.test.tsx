@@ -633,6 +633,87 @@ test("a started Cloud chat: the picker shows its machine and Bring Back Local", 
   expect(calls).toEqual([["offload", "bringBack"]]);
 });
 
+// Leo, 2026-11-10: "the whole \"move to cloud\" deserves a proper \"move to other cloud\" (by cloud i mean
+// vm for now) and \"move to local\"". One Move to… row opens every place the chat can go.
+test("Move to…: a chat on this Mac with two Cloud machines lists them, and a pick moves it there", async () => {
+  const moved: string[] = [];
+  const offloaded: unknown[] = [];
+  await mount(true, {
+    ...startedOn("local"),
+    onOffload: (kind: string) => offloaded.push(kind),
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  // One row in place of Move to Cloud: the list stays two lines.
+  expect(newRows().map(rowText)).toEqual([t("composer.moveToMenu")]);
+  await act(async () => newRows()[0]!.click());
+  // It opens the targets in place; nothing moved yet.
+  expect(doc().querySelector(".acpmux-env-popover.acpmux-env-moves")).not.toBeNull();
+  expect(newRows().map(rowText)).toEqual(["dev-box", "gpu-box"]);
+  expect(moved).toEqual([]);
+  await act(async () => newRows()[1]!.click());
+  expect(moved).toEqual(["vm-gpu"]);
+  expect(offloaded).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
+test("Move to…: a Cloud chat lists This Mac and the other machines", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => undefined,
+    moveTargets: [
+      { id: "local", label: "", kind: "local" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  await act(async () => newRows()[0]!.click());
+  expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "gpu-box"]);
+  await act(async () => newRows()[0]!.click());
+  expect(moved).toEqual(["local"]);
+});
+
+test("Move to…: a Cloud chat whose only target is This Mac keeps the Bring Back Local row it already names", async () => {
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => undefined,
+    moveTargets: [{ id: "local", label: "", kind: "local" }],
+    onMoveTo: () => undefined,
+  });
+  await openPicker();
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.bringBackLocal"),
+  ]);
+});
+
+test("Move to…: a chat that started on a Cloud machine gets the row with no other move, and a refused target is greyed", async () => {
+  const moved: string[] = [];
+  await mount(true, {
+    ...startedOn("cloud"),
+    offloads: [],
+    moveTargets: [
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+      { id: "vm-old", label: "old-box", kind: "cloud", reason: "Update this machine first" },
+    ],
+    onMoveTo: (id: string) => moved.push(id),
+  });
+  await openPicker();
+  expect(newRows().map(rowText)).toEqual([t("composer.moveToMenu")]);
+  await act(async () => newRows()[0]!.click());
+  const refused = newRows()[1]!;
+  expect(refused.querySelector(".acpmux-menu-description")?.textContent).toBe("Update this machine first");
+  await act(async () => refused.click());
+  expect(moved).toEqual([]);
+  await act(async () => newRows()[0]!.click());
+  expect(moved).toEqual(["vm-gpu"]);
+});
+
 test("a started Cloud chat's picker keeps its machine's load warning", async () => {
   const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings(DEFAULT_COMPOSER);
@@ -1479,27 +1560,23 @@ test("Leo's menu: the setup actions are the Where control's right-click menu, ea
 test("Leo's menu: the moved actions keep their homes in the app (palette, File menu, Settings, Cloud page)", async () => {
   const { readFileSync } = await import("node:fs");
   const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
-  const catalog = (name: string) =>
-    readFileSync(
-      new URL(`../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/${name}.swift`, import.meta.url),
-      "utf8",
-    );
-  const descriptor = (source: string, id: string) => {
-    const at = source.indexOf(`id: "${id}"`);
-    expect(at, id).toBeGreaterThan(-1);
-    const end = source.indexOf("ActionDescriptor(", at);
-    return source.slice(at, end < 0 ? undefined : end);
+  // The app's catalog (cmux-action-catalog in Rust), as its dump: the Rust and Swift tests both check
+  // that this file is what the app reads.
+  const actions: { id: string; surfaces: string[]; mainMenu: string | null }[] = JSON.parse(
+    readFileSync(new URL("../../plans/cmux-next/action-catalog.json", import.meta.url), "utf8"),
+  ).actions;
+  const descriptor = (id: string) => {
+    const found = actions.find((action) => action.id === id);
+    expect(found, id).toBeDefined();
+    return found!;
   };
-  const cloud = catalog("CloudActionCatalog");
-  const remote = catalog("RemoteActionCatalog");
-  const pane = catalog("PaneActionCatalog");
   // New Cloud Machine…, SSH… and Connect Phone… are command palette rows; Add Machine… is in the
   // File menu and Settings > Devices; Open Cloud… is the profile menu's Cloud row and the palette's.
-  expect(descriptor(cloud, CONNECT_ACTIONS.cloud)).toContain(".palette");
-  expect(descriptor(cloud, CONNECT_ACTIONS.phone)).toContain(".palette");
-  expect(descriptor(remote, CONNECT_ACTIONS.ssh)).toContain(".palette");
-  expect(descriptor(remote, CONNECT_ACTIONS.addMachine)).toContain("mainMenu: .file");
-  expect(descriptor(pane, CONNECT_ACTIONS.cloudPage)).toContain(".palette");
+  expect(descriptor(CONNECT_ACTIONS.cloud).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.phone).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.ssh).surfaces).toContain("palette");
+  expect(descriptor(CONNECT_ACTIONS.addMachine).mainMenu).toBe("file");
+  expect(descriptor(CONNECT_ACTIONS.cloudPage).surfaces).toContain("palette");
 });
 
 test("Leo's menu: Where shows where it runs, the machine chip which machine, each with its icon", async () => {

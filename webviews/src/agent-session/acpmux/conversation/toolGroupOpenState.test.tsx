@@ -28,8 +28,19 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "customElements",
+    "MutationObserver",
+    "ResizeObserver",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -37,8 +48,27 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // An edit's diff loads @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
+    // The diff follows the pane's theme attribute (EditDiffHunks.tsx).
+    MutationObserver: dom.window.MutationObserver,
+    // jsdom has no layout observer; the diff still subscribes to one.
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The diff card (Pierre's registered element) reads its DOM constructors (SVGElement,
+  // CSSStyleSheet, ShadowRoot) from the globals when it draws, as permission-edit-diff.test.tsx
+  // gives it them; each goes again in teardown.
+  for (const key of Object.getOwnPropertyNames(dom.window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(key in scope)) {
+      if (!saved.has(key)) saved.set(key, undefined);
+      scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+    }
   const container = dom.window.document.getElementById("root")!;
   await act(async () => {
     root = createRoot(container);

@@ -218,3 +218,15 @@ describe("shown lines", () => {
     expect(sectionItems(snapshot("flat", sampleRows), strings).at(-1)).toEqual({ type: "add", key: "add", gap: false });
   });
 });
+
+describe("the Cloud header names the active team", () => {
+  test("only the Cloud group's header carries the team", () => {
+    const items = sectionItems({ rows, style: "compact", cloudTeam: { name: "cmux", personal: false } }, strings);
+    const headers = items.flatMap((item) => (item.type === "header" ? [item] : []));
+    expect(headers.filter((header) => header.team).map((header) => header.key)).toEqual(["h:cloud"]);
+    expect(headers.find((header) => header.key === "h:cloud")?.team).toEqual({ name: "cmux", personal: false });
+    expect(sectionItems({ rows, style: "compact" }, strings).some((item) => item.type === "header" && item.team)).toBe(
+      false,
+    );
+  });
+});

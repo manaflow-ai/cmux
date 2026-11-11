@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -540,6 +540,67 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_state_growth_rows_have_their_own_part_god_rows_too(self):
+        self.assertTrue(cron.is_linux_part("web-ui-growth"))
+        self.assertEqual(cron.part_for_row("webui.state_growth.session_churn.entries_per_op@linux"), "web-ui-growth")
+        self.assertEqual(cron.part_for_row("webui.state_growth.god.chat_reopen.heap_bytes_per_op@linux"), "web-ui-growth")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-growth")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "state-growth"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
+        self.assertTrue(cron.is_linux_part("web-ui-god"))
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-god")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only",
+                                "chat-open,chat-switch,transcript-replay,chat-open-god,chat-switch-god,transcript-replay-god"])
+        self.assertEqual(cron.part_for_row("webui.chat_open.god.compact.latest@linux"), "web-ui-god")
+        self.assertEqual(cron.part_for_row("webui.god_ratio.chat_open.compact.latest@linux"), "web-ui-god")
+        self.assertEqual(cron.part_for_row("webui.chat_switch.god.churn.heap_kb_per_switch@linux"), "web-ui-god")
+        self.assertEqual(cron.part_for_row("webui.chat_switch.churn.heap_kb_per_switch@linux"), "web-ui")
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
+
+    GOD_REPORT = {"rows": [
+        {"name": "chat_switch.unread.latest", "p95": 63, "target": 100},
+        {"name": "chat_switch.god.unread.latest", "p95": 160, "target": 100},
+        {"name": "chat_open.compact.latest", "p95": 500, "target": 1000},
+        {"name": "chat_open.god.compact.latest", "p95": 550, "target": 1000},
+        {"name": "transcript_replay.live.cls", "p95": 0.38, "unit": "score", "target": 0.01, "floor": 0.001},
+        {"name": "transcript_replay.god.live.cls", "p95": 6.17, "unit": "score", "target": 0.01, "floor": 0.001},
+        {"name": "transcript_replay.long.token_slope_ms_per_krow", "p95": 0.9, "target": 0.1},
+        {"name": "transcript_replay.god.long.token_slope_ms_per_krow", "p95": 0.08, "target": 0.1},
+        {"name": "chat_switch.unread.idle_wakeups", "p95": 5, "unit": "count", "target": 0},
+        {"name": "chat_switch.god.unread.idle_wakeups", "p95": 6, "unit": "count", "target": 0},
+        {"name": "chat_switch.unread.long_ms", "p95": 0, "floor": 1},
+        {"name": "chat_switch.god.unread.long_ms", "p95": 84},
+        {"name": "chat_switch.read_ahead.long_ms", "p95": 2},
+        {"name": "chat_switch.god.read_ahead.long_ms", "p95": 84},
+        {"name": "chat_switch.god.churn.heap_kb_per_switch", "p95": 12, "unit": "KB", "target": 0, "floor": 4},
+        {"name": "transcript_replay.long.idle_ms_per_s", "p95": 1.43, "target": 1, "floor": 0.1},
+        {"name": "transcript_replay.god.long.idle_ms_per_s", "p95": 2.99, "target": 1, "floor": 0.1},
+        {"name": "chat_switch.churn.heap_kb_per_switch", "p95": 0, "unit": "KB", "target": 0, "floor": 4},
+    ], "failed": []}
+
+    def test_god_rows_get_a_ratio_to_their_twin_and_the_twins_stay_with_web_ui(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], self.GOD_REPORT, budgets_mod, {"rows": {}})
+        self.assertFalse([n for n in rows if ".god." not in n and not n.startswith("webui.god_ratio.")],
+                         "the ordinary twins are the web-ui part's rows")
+        ratios = {n: r["p95"] for n, r in rows.items() if n.startswith("webui.god_ratio.")}
+        self.assertEqual(ratios, {"webui.god_ratio.chat_switch.unread.latest": 2.54,
+                                  "webui.god_ratio.chat_open.compact.latest": 1.1,
+                                  "webui.god_ratio.transcript_replay.live.cls": 16.237,
+                                  "webui.god_ratio.transcript_replay.long.idle_ms_per_s": 2.091},
+                         "no ratio for a count, a slope, a per-operation row, or a twin at its floor or under GOD_RATIO_MIN")
+        bad, good = rows["webui.god_ratio.chat_switch.unread.latest"], rows["webui.god_ratio.chat_open.compact.latest"]
+        self.assertEqual((bad["unit"], bad["budget"], bad["god_p95"], bad["small_p95"]), ("x", 1.2, 160, 63))
+        self.assertTrue(cron.over_target("webui.god_ratio.chat_switch.unread.latest", bad, None))
+        self.assertFalse(cron.over_target("webui.god_ratio.chat_open.compact.latest", good, None))
+        growth = rows["webui.chat_switch.god.churn.heap_kb_per_switch"]
+        self.assertTrue(cron.over_target("webui.chat_switch.god.churn.heap_kb_per_switch", growth, None),
+                        "any growth per switch is over its target of 0")
+        listed = cron.find_regressions(rows, {}, None, None, budgets_mod)
+        self.assertIn("webui.god_ratio.chat_switch.unread.latest", {r["name"] for r in listed},
+                      "a god row past 1.2x its twin is listed in the issue even before it has a reference")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"

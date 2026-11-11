@@ -30,6 +30,9 @@ pub(crate) struct LoadPlan {
     pub(super) adopting: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
+    /// The start's store list read every chat folder: only then does a host whose chat it did
+    /// not name belong to a purged chat (`Hub::purged_at_start`).
+    pub(super) listed: bool,
 }
 
 impl Hub {
@@ -64,6 +67,18 @@ impl Hub {
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
         let _ready = LogsReady(&self.logs_ready);
         let mut sessions = self.sessions();
+        // A cold-archived chat's log is not read (`cold_archive.rs`): it holds nothing to restore,
+        // and a read would bring it back. Its first open reads it. A preview whose log is back
+        // (a crash between the rehydrate and its preview's drop) goes now, and the log is read.
+        // A chat left here waits for its own read once it is back, not for this pass's end
+        // (`session_log_loaded`).
+        sessions.retain(|s| {
+            let cold = self.cold_at_start(s);
+            if cold {
+                s.log_skipped.store(true, Ordering::SeqCst);
+            }
+            !cold
+        });
         sessions.sort_by_cached_key(|s| {
             let m = s.meta();
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
@@ -126,6 +141,19 @@ impl Hub {
     }
 
     async fn session_log_at(self: &Arc<Self>, session: &Arc<Session>, on_screen: bool) {
+        // A cold-archived chat being opened: its log comes back, then is read as any other's
+        // (`cold_archive.rs`; the startup pass left it).
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_some() {
+            let (hub, s) = (self.clone(), session.clone());
+            let warm = move || {
+                hub.warm_chat(&s);
+                hub.load_session_log(&s);
+            };
+            if let Err(e) = tokio::task::spawn_blocking(warm).await {
+                tracing::error!(session = %session.id, "rehydrating the chat failed: {e}");
+            }
+            return;
+        }
         if self.session_log_loaded(session) {
             return;
         }
@@ -143,9 +171,13 @@ impl Hub {
         }
     }
 
-    /// Whether `session`'s log is read, or every log is (or their load failed).
+    /// Whether `session`'s log is read, or every log is (or their load failed). The pass's end
+    /// does not count for a chat it left cold: decompressed after it, by a request or a read
+    /// through the store, its log is still to be read (second review of #39141: its transfer
+    /// authority stayed unset, and the ownership checks refused the chat).
     pub(crate) fn session_log_loaded(&self, session: &Session) -> bool {
-        session.log_loaded.load(Ordering::SeqCst) || self.logs_loaded()
+        session.log_loaded.load(Ordering::SeqCst)
+            || (self.logs_loaded() && !session.log_skipped.load(Ordering::SeqCst))
     }
 
     /// Reads one chat's log, once: its tail, a permission wait or turn the restart cut off, its

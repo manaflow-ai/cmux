@@ -165,6 +165,17 @@ fn auth_rules_answer_from_what_the_app_read() {
         &json!({"requested": "b", "resolved": "a", "available": ["a", "b"], "managed": null}),
     );
     assert_eq!(team, json!({"active": "a", "refusal": "notActive", "allowed": ["a", "b"]}));
+    let (_, rows) = call(
+        c"cloud_auth_team_rows",
+        &json!({"teams": [{"id": "a", "name": "cmux", "plan": "Team"}, {"id": "p", "name": "Personal"}], "active": "a"}),
+    );
+    assert_eq!(
+        rows,
+        json!({"rows": [
+            {"id": "a", "title": "cmux", "kind": "team", "active": true, "plan": "team"},
+            {"id": "p", "title": "Personal", "kind": "personal", "active": false, "plan": null},
+        ]})
+    );
     let (_, keys) = call(
         c"cloud_auth_launch_keys",
         &json!({"environment": {"CMUX_DEV_AUTH_PROFILE": "agent", "HOME": "/h"}}),

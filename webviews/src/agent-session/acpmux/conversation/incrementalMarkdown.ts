@@ -7,6 +7,23 @@ import { safeTail } from "./safeTail";
 
 export type KeyedBlock = { key: string; block: MdBlock };
 
+/// A finished message's parse, by its text: a row that mounts again (scrolled back into view, a
+/// fling passing over it, a chat reopened) reads the blocks it drew last time instead of parsing
+/// its whole text again on the frame that shows it. Least recently used out past the caps (entries,
+/// and characters of text held, so a few huge replies cannot pin megabytes).
+type WholeParse = {
+  closed: KeyedBlock[];
+  closedEnd: number;
+  tail: KeyedBlock[];
+  closedFences: number;
+  fenceOpen: boolean;
+};
+const WHOLE_PARSES_CAP = 2048;
+const WHOLE_PARSES_CHARS = 2_000_000;
+const wholeParses = new Map<string, WholeParse>();
+let wholeChars = 0;
+const wholeKey = (source: string, messageAt: number | undefined) => `${messageAt ?? ""}\u0000${source}`;
+
 const LIST_START = /^(\s*)([-*+]|\d+[.)])\s+/;
 const DISPLAY_OPEN = /^\s*\\\[/;
 const DISPLAY_CLOSE = /\\\]\s*$/;
@@ -43,6 +60,26 @@ export class IncrementalMarkdown {
     const messageAt = options.messageAt;
     if (source === this.source && streaming === this.streaming && messageAt === this.messageAt)
       return [...this.closed, ...this.tail];
+    // A parser that has drawn nothing yet, given a finished text it parsed before: the same blocks.
+    const fresh = this.source === "" && this.closedEnd === 0 && !streaming && source !== "";
+    if (fresh) {
+      const key = wholeKey(source, messageAt);
+      const known = wholeParses.get(key);
+      if (known) {
+        wholeParses.delete(key);
+        wholeParses.set(key, known);
+        this.streaming = false;
+        this.messageAt = messageAt;
+        this.source = source;
+        this.lastParsedLength = 0;
+        this.closed = [...known.closed];
+        this.closedEnd = known.closedEnd;
+        this.tail = known.tail;
+        this.closedFences = known.closedFences;
+        this.fenceOpen = known.fenceOpen;
+        return [...this.closed, ...this.tail];
+      }
+    }
     this.streaming = streaming;
     if (messageAt !== this.messageAt || !source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
     this.messageAt = messageAt;
@@ -61,6 +98,22 @@ export class IncrementalMarkdown {
     this.fenceOpen = (this.closedFences + fenceLines(rest)) % 2 === 1;
     // `parse` already keeps each tail block's object when it draws the same.
     this.tail = this.parse(streaming ? safeTail(rest) : rest, this.closed.length);
+    if (fresh) {
+      const key = wholeKey(source, messageAt);
+      wholeParses.set(key, {
+        closed: [...this.closed],
+        closedEnd: this.closedEnd,
+        tail: this.tail,
+        closedFences: this.closedFences,
+        fenceOpen: this.fenceOpen,
+      });
+      wholeChars += key.length;
+      while (wholeParses.size > WHOLE_PARSES_CAP || (wholeChars > WHOLE_PARSES_CHARS && wholeParses.size > 1)) {
+        const oldest = wholeParses.keys().next().value!;
+        wholeParses.delete(oldest);
+        wholeChars -= oldest.length;
+      }
+    }
     return [...this.closed, ...this.tail];
   }
 

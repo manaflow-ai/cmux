@@ -173,6 +173,14 @@ PARTS = [
     # The update-one bench (webviews/bench/update-one.bench.ts): one session's change at 100, 1,000 and 3,000 listed
     # sessions, its cost and its growth. Its own part, so the suite's other benches keep their 30-minute cap.
     {"name": "web-ui-scale", "where": "linux", "kind": "webui", "needs": "web-ui-scale"},
+    # The state-growth bench (webviews/bench/state-growth.bench.ts): what the pane's state layer keeps per operation
+    # that should keep nothing (sessions made and closed, chats reopened, reconnects mid-stream, a shell's output
+    # streaming), small and god side by side, after warm-up. Its own part (about 2 minutes).
+    {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
+    # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
+    # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
+    # six benches take about 13 minutes.
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -181,7 +189,9 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
-    (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"), (r"^webui\.", "web-ui"),
+    (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
+    (r"^webui\.state_growth\.", "web-ui-growth"),
+    (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
 ]
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
@@ -542,6 +552,39 @@ def rows_of_part(part, report, budgets_mod, budgets):
                                     "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                     "floor": floor,
                                     "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        if part.get("name") == "web-ui-god":
+            # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
+            ratios = god_ratio_rows(out)
+            out = {n: r for n, r in out.items() if part_for_row(n) == "web-ui-god"}
+            out.update(ratios)
+    return out
+
+
+def god_ratio_rows(rows):
+    """{webui.god_ratio.<twin>: row} for each god row with an ordinary twin in ROWS (pure): god p95 / twin p95, unit
+    x, budget GOD_RATIO_MAX. Rows of another unit, slopes and per-operation rows, and twins at or under their noise
+    floor get none."""
+    out = {}
+    for name, god in rows.items():
+        m = re.match(r"^webui\.([a-z0-9_]+)\.god\.(.+)$", name)
+        if not m:
+            continue
+        twin_name = f"webui.{m.group(1)}.{m.group(2)}"
+        twin = rows.get(twin_name)
+        unit = god.get("unit") or "ms"
+        if not twin or unit != (twin.get("unit") or "ms") or unit not in GOD_RATIO_UNITS or GOD_RATIO_SKIP_RE.search(name):
+            continue
+        small, big = twin.get("p95"), god.get("p95")
+        if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
+            continue
+        least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
+        if small <= max(twin.get("floor") or 0, least):
+            continue
+        ratio = round(big / small, 3)
+        version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
+        out[f"webui.god_ratio.{m.group(1)}.{m.group(2)}"] = {
+            "p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1, "measure_version": version,
+            "god_p95": big, "small_p95": small}
     return out
 
 
@@ -722,6 +765,11 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scale":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "update-one"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-growth":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-god":
+        only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1521,6 +1569,10 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
         elif need == "web-ui-scale":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-god":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+        elif need == "web-ui-growth":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need in ("perf-gate", "launch"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1560,6 +1612,21 @@ DIFF_LEGACY_VERSION = 1
 # The web-ui part's runner; a commit without it does not run the part. Its rows are webui.<the bench's PERF_ROW name>.
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
+STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
+# The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
+# shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
+GOD_FIXTURE = "webviews/bench/godFixture.ts"
+GOD_BENCHES = ["chat-open", "chat-switch", "transcript-replay"]
+# Leo, 2026-11-10: a god session must open and run the same, or close to the same, as a small one. A god row more
+# than this many times its twin is over target. Only time, size and shift rows have a ratio: a count or a slope
+# (a growth per operation or per row) has its own target, and a twin under its noise floor says nothing.
+GOD_RATIO_MAX = 1.2
+GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
+# The smallest twin a ratio means anything against: a 2 ms long task on the small chat would make 84 ms on the god chat
+# 42x, and a ratio of noise flaps. A god row whose twin is under it is still judged by its own target.
+GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
+GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at rest
+GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$)")  # a rate per second (idle_ms_per_s) keeps its ratio
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")

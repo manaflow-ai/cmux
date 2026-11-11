@@ -11,7 +11,7 @@
 
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -44,9 +44,14 @@ const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// How long opening an input-lane channel waits for a negotiated lane that
 /// is still connecting before it falls back to the main stream.
 const LANE_WAIT: Duration = Duration::from_secs(2);
-/// How long one full channel may hold the link reader before that channel
-/// is closed (`overflow`) so the rest of the link keeps flowing.
+/// How long a channel's owner may leave its full queue unread before that
+/// channel is closed (`overflow`).
 const CHANNEL_STALL: Duration = Duration::from_secs(3);
+/// Bytes one channel may hold between the link reader and its owner's queue
+/// ([`Inbox`]) before the reader waits for it. Above the god sessions' bursts
+/// (20,000 deltas after an outage is about 20 MB), so a channel read slowly
+/// never holds the others; still a bound on what one channel can hold.
+const CHANNEL_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 
 /// Which end of the link this is: the phone opens odd channel ids, the Mac
 /// even ones. Channel 0 carries pings.
@@ -345,10 +350,107 @@ impl Outbox {
 
 /// Where a channel's inbound events go.
 struct Route {
-    tx: mpsc::Sender<ChannelEvent>,
+    inbox: Inbox,
     /// The channel's sender's closed flag: the peer's close sets it, so a send
     /// in progress stops instead of streaming into a channel the peer dropped.
     closed: Arc<AtomicBool>,
+}
+
+/// A channel's inbound events on their way to its owner. The link reader
+/// hands each one over without waiting (up to [`CHANNEL_BUFFER_BYTES`]), and
+/// a task per channel delivers them, in order, into the owner's queue. One
+/// channel read slowly (a god session's backlog applied on a busy main
+/// actor) used to hold the reader, so every other channel and the link's
+/// pongs waited behind it, and the phone's 2 s probe redialed a healthy link
+/// (iOS reliability matrix, degenerate_slow_consumer_after_outage). A channel
+/// whose owner leaves its queue unread for [`CHANNEL_STALL`] is still closed
+/// `overflow`.
+#[derive(Clone)]
+struct Inbox {
+    tx: mpsc::UnboundedSender<ChannelEvent>,
+    owner: mpsc::Sender<ChannelEvent>,
+    buffered: Arc<AtomicUsize>,
+    room: Arc<Notify>,
+}
+
+fn event_bytes(event: &ChannelEvent) -> usize {
+    match event {
+        ChannelEvent::Data(data) => data.len(),
+        ChannelEvent::Closed(_) => 0,
+    }
+}
+
+impl Inbox {
+    fn new(owner: mpsc::Sender<ChannelEvent>, inner: &Arc<Inner>, stream: usize, channel: u32) -> Self {
+        let (tx, mut rx) = mpsc::unbounded_channel::<ChannelEvent>();
+        let buffered = Arc::new(AtomicUsize::new(0));
+        let room = Arc::new(Notify::new());
+        let link = Arc::downgrade(inner);
+        let deliver = owner.clone();
+        let (counted, woken) = (Arc::clone(&buffered), Arc::clone(&room));
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                let size = event_bytes(&event);
+                let closing = matches!(event, ChannelEvent::Closed(_));
+                let sent = tokio::time::timeout(CHANNEL_STALL, deliver.send(event)).await;
+                counted.fetch_sub(size, Ordering::AcqRel);
+                woken.notify_waiters();
+                match sent {
+                    Ok(Ok(())) if !closing => {}
+                    // Delivered the close, or the owner dropped its receiver.
+                    Ok(Ok(())) | Ok(Err(_)) => {
+                        if let Some(inner) = link.upgrade() {
+                            inner.lock_channels().remove(&channel);
+                        }
+                        return;
+                    }
+                    Err(_) => {
+                        if !closing && let Some(inner) = link.upgrade() {
+                            tracing::warn!(channel, "channel not read for {CHANNEL_STALL:?}; closing it");
+                            if inner.lock_channels().remove(&channel).is_some() {
+                                refuse(&inner, stream, channel, "overflow", "the channel was not read");
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+        });
+        Self { tx, owner, buffered, room }
+    }
+
+    /// Hands `event` to the channel. Waits only while the channel already
+    /// holds [`CHANNEL_BUFFER_BYTES`], at most [`CHANNEL_STALL`]; false when
+    /// it stayed full or is gone.
+    async fn push(&self, event: ChannelEvent) -> bool {
+        let size = event_bytes(&event);
+        let deadline = Instant::now() + CHANNEL_STALL;
+        loop {
+            let room = self.room.notified();
+            let held = self.buffered.load(Ordering::Acquire);
+            if held == 0 || held + size <= CHANNEL_BUFFER_BYTES {
+                break;
+            }
+            if tokio::time::timeout_at(deadline, room).await.is_err() {
+                return false;
+            }
+        }
+        self.buffered.fetch_add(size, Ordering::AcqRel);
+        if self.tx.send(event).is_err() {
+            self.buffered.fetch_sub(size, Ordering::AcqRel);
+            return false;
+        }
+        true
+    }
+
+    /// Queues `event` behind what the channel holds, without waiting (a close).
+    fn push_now(&self, event: ChannelEvent) {
+        let _ = self.tx.send(event);
+    }
+
+    fn owner_gone(&self) -> bool {
+        self.owner.is_closed()
+    }
 }
 
 struct Inner {
@@ -426,9 +528,9 @@ impl Inner {
             return;
         }
         tracing::debug!(reason, "link closed");
-        let channels: Vec<_> = self.lock_channels().drain().map(|(_, route)| route.tx).collect();
-        for tx in channels {
-            let _ = tx.try_send(ChannelEvent::Closed(CloseInfo::new("link_closed", reason)));
+        let channels: Vec<_> = self.lock_channels().drain().map(|(_, route)| route.inbox).collect();
+        for inbox in channels {
+            inbox.push_now(ChannelEvent::Closed(CloseInfo::new("link_closed", reason)));
         }
         self.pings.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.incoming_tx.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -685,7 +787,8 @@ impl Link {
         let id = self.inner.next_channel.fetch_add(2, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
-        self.inner.lock_channels().insert(id, Route { tx, closed: Arc::clone(&closed) });
+        let inbox = Inbox::new(tx, &self.inner, stream, id);
+        self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed) });
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
@@ -883,7 +986,8 @@ async fn read_loop<R>(
                 let class = Class::from(request.lane);
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
                 let closed = Arc::new(AtomicBool::new(false));
-                inner.lock_channels().insert(frame.channel, Route { tx, closed: Arc::clone(&closed) });
+                let inbox = Inbox::new(tx, &inner, stream, frame.channel);
+                inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
                 let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
                 let accepted = IncomingChannel {
                     service: request.service,
@@ -896,28 +1000,22 @@ async fn read_loop<R>(
                 }
             }
             FrameType::Data => {
-                let tx = inner.lock_channels().get(&frame.channel).map(|route| route.tx.clone());
-                if let Some(tx) = tx {
-                    // A full channel holds the reader only briefly: a channel
-                    // nobody reads must not stall the whole link (pings and
-                    // every other channel behind it, until the peer's
-                    // keepalive gives up). Past the stall budget the channel
-                    // is closed `overflow` on both sides and the link goes on.
-                    match tokio::time::timeout(CHANNEL_STALL, tx.send(ChannelEvent::Data(frame.payload)))
-                        .await
+                let inbox = inner.lock_channels().get(&frame.channel).map(|route| route.inbox.clone());
+                if let Some(inbox) = inbox {
+                    // The reader never waits on one channel's owner (see
+                    // `Inbox`), only on a channel holding its whole buffer.
+                    // Past the stall budget that channel is closed `overflow`
+                    // on both sides and the link goes on.
+                    if inbox.owner_gone() {
+                        inner.lock_channels().remove(&frame.channel);
+                    } else if !inbox.push(ChannelEvent::Data(frame.payload)).await
+                        && inner.lock_channels().remove(&frame.channel).is_some()
                     {
-                        Ok(Ok(())) => {}
-                        Ok(Err(_)) => {
-                            inner.lock_channels().remove(&frame.channel);
-                        }
-                        Err(_) => {
-                            tracing::warn!(
-                                channel = frame.channel,
-                                "channel not read for {CHANNEL_STALL:?}; closing it"
-                            );
-                            inner.lock_channels().remove(&frame.channel);
-                            refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
-                        }
+                        tracing::warn!(
+                        channel = frame.channel,
+                        "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                    );
+                        refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
                     }
                 }
             }
@@ -932,7 +1030,7 @@ async fn read_loop<R>(
                     for outbox in &inner.outboxes {
                         outbox.room.notify_waiters();
                     }
-                    let _ = route.tx.send(ChannelEvent::Closed(info)).await;
+                    route.inbox.push_now(ChannelEvent::Closed(info));
                 }
             }
         }
@@ -1424,6 +1522,63 @@ mod tests {
     /// attached) fills up; the link reader must not stall behind it, or
     /// pings and every other channel stop and the peer's keepalive closes a
     /// healthy link. The stuck channel is closed `overflow` instead.
+    #[tokio::test]
+    async fn a_channel_read_slowly_does_not_delay_the_others() {
+        // A god session's backlog applied 1 ms per delta: the owner reads, just
+        // slowly. Another channel's reply and the link's pong must not wait
+        // behind it (they used to: the reader sat on the full channel).
+        let (phone, mac) = pair();
+        const BACKLOG: usize = CHANNEL_DEPTH * 4;
+        let server = tokio::spawn(async move {
+            let backlog = mac.accept().await.expect("backlog");
+            let mut echo = mac.accept().await.expect("echo");
+            let flooder = tokio::spawn(async move {
+                let channel = backlog.channel;
+                for _ in 0..BACKLOG {
+                    if channel.send(Bytes::from_static(&[7u8; 256])).await.is_err() {
+                        break;
+                    }
+                }
+                channel
+            });
+            while let Some(ChannelEvent::Data(bytes)) = echo.channel.recv().await {
+                echo.channel.send(bytes).await.unwrap();
+            }
+            (mac, flooder.await.unwrap())
+        });
+        let mut backlog = phone.open("backlog", serde_json::json!({})).await.unwrap();
+        let mut echo = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let reader = tokio::spawn(async move {
+            let mut read = 0usize;
+            while read < BACKLOG {
+                match backlog.recv().await {
+                    Some(ChannelEvent::Data(_)) => {
+                        read += 1;
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                    _ => break,
+                }
+            }
+            read
+        });
+        // Let the backlog fill the slow channel's queue first.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let started = Instant::now();
+        echo.send(Bytes::from_static(b"still here")).await.unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), echo.recv()).await.expect("echo answered");
+        assert!(matches!(reply, Some(ChannelEvent::Data(b)) if &b[..] == b"still here"));
+        let echoed = started.elapsed();
+        let pong = tokio::time::timeout(Duration::from_secs(5), phone.ping()).await.unwrap().unwrap();
+        assert!(echoed < Duration::from_millis(500), "echo behind a slow channel took {echoed:?}");
+        assert!(pong < Duration::from_millis(500), "pong behind a slow channel took {pong:?}");
+        // Nothing lost or reordered on the slow channel, and it was not closed.
+        assert_eq!(reader.await.unwrap(), BACKLOG);
+        assert!(!phone.is_closed());
+        drop(echo);
+        phone.close("done");
+        let _ = server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn an_unread_channel_does_not_stall_the_link() {
         let (phone, mac) = pair();

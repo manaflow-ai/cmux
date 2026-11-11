@@ -83,21 +83,11 @@ pub enum Found {
     Networks {
         items: Vec<Value>,
     },
-    FirewallRules {
-        items: Vec<Value>,
-    },
-    FirewallRule {
-        rule: Value,
-    },
     /// The daemon's listening ports.
     #[serde(rename_all = "camelCase")]
     Ports {
         machine_id: String,
         ports: Vec<i64>,
-    },
-    /// The platform's live previews of a machine.
-    Previews {
-        inventory: Value,
     },
     /// `cloud port-list`'s forwards (`cloud.port.list`'s records).
     #[serde(rename_all = "camelCase")]
@@ -226,14 +216,6 @@ pub fn of(found: &Found) -> Answer {
                 .collect();
             answer(lines.join("\n"), json!({"count": items.len()}))
         }
-        Found::FirewallRules { items } => {
-            let lines: Vec<String> = items.iter().map(rule_line).collect();
-            answer(lines.join("\n"), json!({"count": items.len()}))
-        }
-        Found::FirewallRule { rule } => answer(
-            rule_line(rule),
-            json!({"id": get(rule, "id").unwrap_or(""), "action": get(rule, "action").unwrap_or("")}),
-        ),
         Found::Ports { machine_id, ports } => {
             let listed: Vec<String> = ports.iter().map(i64::to_string).collect();
             Answer {
@@ -242,7 +224,6 @@ pub fn of(found: &Found) -> Answer {
                 fields: object(json!({"machine_id": machine_id, "ports": listed.join(",")})),
             }
         }
-        Found::Previews { inventory } => previews(inventory),
         Found::PortList { machine_id, forwards } => {
             let forwards: Vec<Fields> = forwards.iter().map(forward_fields).collect();
             let lines: Vec<String> = forwards
@@ -261,11 +242,6 @@ pub fn of(found: &Found) -> Answer {
             answer(stdout.clone(), json!({"machine_id": machine_id, "exit_code": exit_code}))
         }
     }
-}
-
-fn rule_line(rule: &Value) -> String {
-    let description = get(rule, "description").or_else(|| get(rule, "action")).unwrap_or("");
-    format!("{}: {description}", get(rule, "id").unwrap_or(""))
 }
 
 /// A forward record of `cloud.port.list` / `cloud.port.forward` as result fields.
@@ -303,44 +279,6 @@ pub fn forward(record: &Value, names: &PortNames) -> Result<Answer, Said> {
         .and_then(Value::as_str)
         .ok_or_else(|| names.said("portFailed", &["no local port"]))?;
     Ok(Answer { text: Some(url.to_owned()), copyable: true, fields })
-}
-
-/// The live previews: one `port → url` line each, the listening ports and the unavailable ones.
-pub fn previews(inventory: &Value) -> Answer {
-    let list =
-        |name: &str| inventory.get(name).and_then(Value::as_array).cloned().unwrap_or_default();
-    let previews = list("previews");
-    let listening: Vec<i64> = list("listening").iter().filter_map(Value::as_i64).collect();
-    let lines: Vec<String> = previews
-        .iter()
-        .map(|p| {
-            format!(
-                "{} → {}",
-                p.get("port").and_then(Value::as_i64).unwrap_or(0),
-                get(p, "url").unwrap_or("")
-            )
-        })
-        .collect();
-    let rows: Vec<Value> = previews
-        .iter()
-        .map(|p| {
-            json!({"port": p.get("port").and_then(Value::as_i64).unwrap_or(0), "url": get(p, "url").unwrap_or(""),
-                   "origin": get(p, "origin").unwrap_or(""), "expiresAt": p.get("expiresAt").and_then(Value::as_f64).unwrap_or(0.0)})
-        })
-        .collect();
-    let unavailable: Vec<Value> = list("unavailable")
-        .iter()
-        .map(|u| json!({"port": u.get("port").and_then(Value::as_i64).unwrap_or(0), "code": get(u, "code").unwrap_or("")}))
-        .collect();
-    Answer {
-        text: (!lines.is_empty()).then(|| lines.join("\n")),
-        copyable: !lines.is_empty(),
-        fields: object(json!({
-            "machine_id": get(inventory, "machine").unwrap_or(""),
-            "ports": listening.iter().map(i64::to_string).collect::<Vec<_>>().join(","),
-            "listening": listening, "previews": rows, "unavailable": unavailable,
-        })),
-    }
 }
 
 /// The platform's share link of a port (`url`, `linkId`, `expiresAt`).

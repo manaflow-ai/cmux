@@ -23,7 +23,7 @@
 // until its own transition ends, then it goes, so idle keeps no count and no room for one. The motion
 // gate (`data-cmux-motion`, WebTheme) ends the transitions at once, and then the mark goes in the
 // same frame. Arms in composerHat.experiment.ts.
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
@@ -76,6 +76,14 @@ export function TrayPullTab({
     if (leaving && !slot.current?.getAnimations().some((animation) => animation.playState === "running"))
       setKept(undefined);
   }, [leaving]);
+  // The gap in the composer's line under the pill (subagents.css "The line stops at the hat") moves
+  // on the slot's clock only once the pill has been drawn: a tab that mounts already showing a count
+  // (the hat tucked while work runs) has its slot at full width at once, so its gap lands at once too.
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    let frame = requestAnimationFrame(() => (frame = requestAnimationFrame(() => setDrawn(true))));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const settle = (event: React.TransitionEvent<HTMLSpanElement>) => {
     if (leaving && event.target === event.currentTarget) setKept(undefined);
   };
@@ -95,6 +103,7 @@ export function TrayPullTab({
       data-waiting={waiting > 0 || undefined}
       // What the slot opens for (none, the dot, or the count's width in digits), so the composer's
       // top line can leave a gap the pill's width under it (subagents.css "The line stops at the hat").
+      data-drawn={drawn || undefined}
       data-mark={target === undefined ? undefined : target.kind === "dot" ? "dot" : String(target.text.length)}
     >
       <button

@@ -22,6 +22,14 @@ pub(super) fn restart_daemon_in_place(cli: &Path, socket: &Path) -> String {
     format!("{} daemon restart --socket {}", quote(cli), quote(socket))
 }
 
+/// Swaps the daemon this environment routes to for this CLI's build, keeping
+/// its terminals: for an error path that does not know its socket (`cmux ext`,
+/// unix only).
+#[cfg(unix)]
+pub(super) fn restart_routed_daemon() -> String {
+    format!("{} daemon restart", quote(&this_cli()))
+}
+
 /// A stop this daemon refuses (another build): `text` and the one command
 /// that restarts the daemon at `socket` with `cli`'s build
 /// (plans/cmux-next/version-skew.md).
