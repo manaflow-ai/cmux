@@ -5,6 +5,7 @@
 // uses, so the protocol code is the same over the bridge, the dev slot's real socket and mock mode.
 // The page never sees an endpoint or a token.
 import { postNative } from "./native";
+import { nativeTimedOut } from "./nativeError";
 import { AcpmuxRpcError } from "./handoff/protocol";
 import { deliverQuestionKeyRequest, isQuestionKeyRequest, type QuestionKeyRequest } from "./question/keyReply";
 
@@ -23,6 +24,12 @@ const CLOSED = 3;
 
 /// Host codes after which the connection is gone; others refuse one frame only.
 const FATAL = new Set(["transport.closed", "transport.stale_connection"]);
+
+/// How long `transport.open` may go unanswered. A host that never replies otherwise leaves the pane
+/// connecting for good, with no error and no retry; past it the socket fails as a refused open does
+/// (`closeError` `transport.open_timed_out`), and the pane's handshake loop asks again. Opening
+/// answers in milliseconds; a daemon that is starting is the host's wait, not this one.
+export const TRANSPORT_OPEN_TIMEOUT_MS = 15_000;
 
 const live = new Map<number, BridgeSocket>();
 
@@ -107,16 +114,32 @@ export class BridgeSocket {
   onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
   /// The host's error code when the host closed the connection (overflow, a bad first frame).
   closeError?: string;
+  /// Why the open failed, when the page can tell: its deadline passed (`native.timed_out`, the wait
+  /// named in `details.wait`).
+  openError?: Error;
   private connection?: number;
   private outbox: string[] = [];
   private flushQueued = false;
+  private openTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(private readonly post: Post = postNative) {
+  constructor(
+    private readonly post: Post = postNative,
+    openTimeoutMs = TRANSPORT_OPEN_TIMEOUT_MS,
+  ) {
     install();
+    this.openTimer = setTimeout(() => {
+      this.openTimer = undefined;
+      this.closeError = "transport.open_timed_out";
+      this.openError = nativeTimedOut("transport.open", openTimeoutMs);
+      this.failOpen();
+    }, openTimeoutMs);
     this.post<{ connection: number }>("transport.open").then(
       (reply) => {
+        this.stopOpenTimer();
         const connection = reply?.connection;
         if (typeof connection !== "number") return this.failOpen();
+        // Closed meanwhile (by the page, or the open's deadline): the host's late connection is
+        // closed, never left running with no page to read it.
         if (this.readyState === CLOSED) {
           void this.post("transport.close", { connection }).catch(() => undefined);
           return;
@@ -126,7 +149,10 @@ export class BridgeSocket {
         this.readyState = OPEN;
         this.onopen?.(new Event("open"));
       },
-      () => this.failOpen(),
+      () => {
+        this.stopOpenTimer();
+        this.failOpen();
+      },
     );
   }
 
@@ -140,6 +166,7 @@ export class BridgeSocket {
   }
 
   close(): void {
+    this.stopOpenTimer();
     if (this.readyState === CLOSED) return;
     const connection = this.connection;
     this.finish({ code: 1000, reason: "", wasClean: true });
@@ -169,6 +196,11 @@ export class BridgeSocket {
       // connection closes it here.
       if (error?.code && FATAL.has(error.code)) this.finish({ code: 1006, reason: error.code, wasClean: false });
     });
+  }
+
+  private stopOpenTimer(): void {
+    if (this.openTimer !== undefined) clearTimeout(this.openTimer);
+    this.openTimer = undefined;
   }
 
   private failOpen(): void {

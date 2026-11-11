@@ -616,6 +616,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  jitteredDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -7720,7 +7721,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // the handshakes fail past the deadline, then the waiting line or the failure.
             failingSince = Date.now();
             setRelinkingSince(failingSince);
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
             retryDelay = nextRetryDelay(retryDelay, true);
           },
           mockModule
@@ -9041,7 +9042,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // in flight asks again itself when it ends.
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
             retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
         }

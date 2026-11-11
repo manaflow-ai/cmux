@@ -49,7 +49,7 @@ import type {
 import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
+import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting, jitteredDelay } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -3204,9 +3204,14 @@ export class AcpmuxDirectClient {
         resolve(socket);
       };
       socket.onerror = () => {
-        this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
+        // The bridge's open that got no answer in time names its wait (bridgeSocket.ts `openError`,
+        // `native.timed_out`), so the handshake loop retries it as a recovery.
+        const openError = opened ? undefined : (socket as { openError?: Error }).openError;
+        this.wire.lifecycle("error", {
+          message: opened ? "WebSocket error" : (openError?.message ?? "Unable to connect"),
+        });
         this.opening = false;
-        reject(new Error(translate("error.connectFailed")));
+        reject(openError ?? new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
         // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
@@ -4282,12 +4287,15 @@ export class AcpmuxDirectClient {
       this.reconnectOwed = true;
       return;
     }
-    const delay = this.reconnectDelay;
+    // Jittered to 50-100% of the backoff step (home-channels DaemonGate.tsx): every tab restored
+    // over one daemon loses it at the same moment, and in lockstep they would all ask it again at
+    // the same moments too.
+    const delay = jitteredDelay(this.reconnectDelay);
     // Keep retrying forever while the daemon is unavailable, the pane's waiting snapshot visible
     // instead of a terminal failure. The wait doubles up to `RECONNECT_MAX_MS`: doubling without a
     // bound reached hours after a night of failed tries (a laptop asleep), so a chat came back long
     // after the machine had.
-    this.reconnectDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
     this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;

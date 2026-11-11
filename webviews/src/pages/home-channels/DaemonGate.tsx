@@ -96,16 +96,14 @@ export function DaemonGate({
   /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
    *  says whether it closed before the page took it (a close listener added later never fires). */
   const open = (endpoint: string, auth: DaemonAuth) =>
-    DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+    DaemonSocket.connect(endpoint, auth).then((daemon) => {
       let closed = false;
       daemon.onClose(() => (closed = true));
-      try {
-        const identity = await daemon.request<{ capabilities?: string[] }>("identify");
-        // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
-        if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
-      } catch (error) {
+      // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+      // `connect` read its identity, the probe that it answers at all.
+      if (!daemon.identity.capabilities?.includes("ws-conversations-v1")) {
         daemon.close();
-        throw error;
+        throw new Error(t("connect.tooOld"));
       }
       return { daemon, closed: () => closed };
     });
