@@ -625,7 +625,7 @@ impl ElementCache {
         let mut root =
             walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
         if let Some(bar) = bar {
-            let budget = max_nodes.saturating_sub(walk.elements.len());
+            let budget = max_nodes.saturating_sub(walk.elements.len()).min(MENU_NODES);
             if let Ok(menus) = walk.menu_bar(bar, budget, blocked) {
                 root.children.push(menus);
             }

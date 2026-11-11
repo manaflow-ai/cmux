@@ -196,7 +196,10 @@ pub fn menu_item_matches(
     menu_mods: i64,
 ) -> bool {
     let has = |m: Modifier| combo.modifiers.contains(&m);
-    let wanted = (if has(Modifier::Shift) { MENU_SHIFT } else { 0 })
+    // A shifted character ("+", "?") is its key with Shift: cmd++ is
+    // cmd+shift+=, as the menu reports it.
+    let implied_shift = matches!(&combo.key, Key::Char(c) if char_key(*c).is_some_and(|(_, shift)| shift) && !c.is_ascii_alphabetic());
+    let wanted = (if has(Modifier::Shift) || implied_shift { MENU_SHIFT } else { 0 })
         | (if has(Modifier::Alt) { MENU_OPTION } else { 0 })
         | (if has(Modifier::Control) { MENU_CONTROL } else { 0 })
         | (if has(Modifier::Meta) { 0 } else { MENU_NO_COMMAND });
@@ -206,7 +209,13 @@ pub fn menu_item_matches(
     match (&combo.key, cmd_char.filter(|c| !c.is_empty())) {
         (Key::Char(c), Some(item)) => {
             let mut chars = item.chars();
-            matches!((chars.next(), chars.next()), (Some(i), None) if i.to_lowercase().eq(c.to_lowercase()))
+            let Some(i) = chars.next() else { return false };
+            if chars.next().is_some() {
+                return false;
+            }
+            // The same key: the same letter, or the same key code ("=" and "+").
+            i.to_lowercase().eq(c.to_lowercase())
+                || matches!((char_key(i), char_key(*c)), (Some((a, _)), Some((b, _))) if a == b && !c.is_ascii_alphabetic())
         }
         (key, None) => match (key_code(key), virtual_key) {
             (Some((code, _)), Some(v)) => i64::from(code) == v,
@@ -214,4 +223,39 @@ pub fn menu_item_matches(
         },
         _ => false,
     }
+}
+
+/// A Services key equivalent ("@B", "$^@C", or a bare "M": Command is
+/// implied) as (key code, CGEvent modifier flags), on the ANSI layout.
+pub fn service_shortcut(equivalent: &str) -> Option<(u16, u64)> {
+    let mut flags = FLAG_COMMAND;
+    let mut key = None;
+    for c in equivalent.chars() {
+        match c {
+            '$' => flags |= FLAG_SHIFT,
+            '^' => flags |= FLAG_CONTROL,
+            '~' => flags |= FLAG_ALTERNATE,
+            '@' => flags |= FLAG_COMMAND,
+            other => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(other);
+            }
+        }
+    }
+    let key = key?;
+    let (code, shift) = char_key(key)?;
+    if shift || key.is_ascii_uppercase() {
+        // A capital or shifted character means Shift (services write "B" for ⇧⌘B).
+        flags |= FLAG_SHIFT;
+    }
+    Some((code, flags))
+}
+
+/// Whether a chord (key code and flags, Shift folded in) is one of the
+/// registered Services shortcuts.
+pub fn is_service_shortcut(code: u16, flags: u64, services: &[(u16, u64)]) -> bool {
+    let mask = FLAG_SHIFT | FLAG_CONTROL | FLAG_ALTERNATE | FLAG_COMMAND;
+    services.iter().any(|(c, f)| *c == code && (*f & mask) == (flags & mask))
 }

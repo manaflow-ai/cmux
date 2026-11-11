@@ -6,7 +6,7 @@
 use super::ax::{Ax, ax_error};
 use super::input::{self, Route};
 use super::sys::Cf;
-use super::{MacDesktop, Target, keymap, roles};
+use super::{MacDesktop, Target, keymap, roles, workspace};
 use crate::desktop::*;
 use crate::keys::KeyCombo;
 
@@ -442,11 +442,15 @@ pub(super) fn press_keys(
                 )));
             }
             roles::ShortcutPick::None => {
-                let others = combo.modifiers.iter().any(|m| *m != crate::keys::Modifier::Meta);
-                if !complete || !roles::unmatched_chord_allowed(true, others, d.denies_any()) {
-                    return Err(DesktopError::Unsupported(
-                        "no menu item has this shortcut, and posted as keys it could run a service that hands data to an app on the Computer Use deny list; use the app's menu items in the tree".into(),
-                    ));
+                // A cut-off search could have missed a menu item of a denied
+                // app; that matters only while some app is denied.
+                let service = keymap::is_service_shortcut(code, flags, &workspace::service_shortcuts());
+                if (!complete && d.denies_any()) || !roles::unmatched_chord_allowed(service, d.denies_any()) {
+                    return Err(DesktopError::Unsupported(if service {
+                        "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree".into()
+                    } else {
+                        "this app's menus are too deep to check this shortcut against the Computer Use deny list; use the app's menu items in the tree".into()
+                    }));
                 }
             }
         }
@@ -687,6 +691,7 @@ fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, rol
         return (Vec::new(), true);
     };
     let mut found = Vec::new();
+    let mut complete = true;
     let mut seen = 0usize;
     let mut stack: Vec<(Ax, usize)> = bar.elements("AXChildren").into_iter().rev().map(|c| (c, 0)).collect();
     while let Some((node, depth)) = stack.pop() {
@@ -711,18 +716,26 @@ fn shortcut_matches(d: &MacDesktop, pid: i32, combo: &KeyCombo) -> (Vec<(Ax, rol
                     enabled: node.bool("AXEnabled") != Some(false),
                     blocked: d.menu_item_blocked(&node),
                 };
+                let enabled = m.enabled;
                 found.push((node.clone(), m));
+                // AppKit runs the first enabled match: nothing after it matters.
+                if enabled {
+                    return (found, true);
+                }
             }
         }
         let children = node.elements("AXChildren");
-        if depth >= 6 && !children.is_empty() {
-            return (found, false);
+        if depth >= 6 {
+            // Too deep (a bookmark folder, a nested submenu): skip this
+            // branch, keep searching the rest, and say the search was cut.
+            complete &= children.is_empty();
+            continue;
         }
         for child in children.into_iter().rev() {
             stack.push((child, depth + 1));
         }
     }
-    (found, true)
+    (found, complete)
 }
 
 /// Whether `row` is its table's only selected row (true when the table does

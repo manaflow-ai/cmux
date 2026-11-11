@@ -327,7 +327,7 @@ pub fn menu_name_candidates(title: &str) -> Vec<&str> {
 /// Whether a submenu is a launch list: under the Apple menu (Recent Items:
 /// apps, documents, servers) or the app menu (Services), or one where most
 /// items name installed apps (Open With in any app and any language).
-pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Vec<String>) -> bool {
+pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Option<Vec<String>>) -> bool {
     if ctx.depth < 2 {
         return false;
     }
@@ -335,7 +335,7 @@ pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Vec<Strin
         return true;
     }
     let named: Vec<&String> = ctx.siblings.iter().filter(|t| !t.trim().is_empty()).collect();
-    let apps = named.iter().filter(|t| !resolve(menu_app_name(t).0).is_empty()).count();
+    let apps = named.iter().filter(|t| resolve(menu_app_name(t).0).is_some_and(|ids| !ids.is_empty())).count();
     named.len() >= 2 && apps * 2 >= named.len()
 }
 
@@ -351,7 +351,7 @@ pub fn is_launch_list(ctx: &MenuItemContext, resolve: &dyn Fn(&str) -> Vec<Strin
 pub fn menu_item_blocked(
     guard: &dyn crate::desktop::MenuGuard,
     ctx: &MenuItemContext,
-    resolve: &dyn Fn(&str) -> Vec<String>,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> bool {
     let (name, version) = menu_app_name(ctx.title);
     if name.is_empty() {
@@ -360,12 +360,18 @@ pub fn menu_item_blocked(
     // Menus add text after an app's name ("System Settings…, 1 update"):
     // every leading part of the title is checked, so none hides an app.
     for candidate in menu_name_candidates(ctx.title) {
-        let ids = resolve(candidate);
-        if ids.iter().any(|id| guard.app_blocked(id, candidate)) || guard.app_blocked("", candidate) {
+        if guard.app_blocked("", candidate) {
             return true;
         }
+        match resolve(candidate) {
+            // The name index is still being built: fail closed while any
+            // app is denied.
+            None => return guard.denies_any(),
+            Some(ids) if ids.iter().any(|id| guard.app_blocked(id, candidate)) => return true,
+            Some(_) => {}
+        }
     }
-    let ids = resolve(name);
+    let ids = resolve(name).unwrap_or_default();
     guard.denies_any() && is_launch_list(ctx, resolve) && (ids.is_empty() || version || ids.len() > 1)
 }
 
@@ -411,12 +417,42 @@ pub fn pick_shortcut(matches: &[ShortcutMatch]) -> ShortcutPick {
     }
 }
 
-/// Whether a chord the menu search did not find may still be posted as a key
-/// event: not while any app is denied when it has Command and another
-/// modifier (a service's shortcut can hand data to a denied app, and an
-/// incomplete search cannot rule that out).
-pub fn unmatched_chord_allowed(has_command: bool, other_modifiers: bool, denies_any: bool) -> bool {
-    !(has_command && other_modifiers && denies_any)
+/// Whether a chord the menu search did not find may still be posted as key
+/// events: yes, unless it is a registered Services shortcut while any app is
+/// denied (AppKit would run that service, which can hand the selection to a
+/// denied app). Page shortcuts (a web app's cmd+shift+7) are posted, as
+/// Codex does.
+pub fn unmatched_chord_allowed(is_service_shortcut: bool, denies_any: bool) -> bool {
+    !(is_service_shortcut && denies_any)
+}
+
+/// The NSKeyEquivalent "default" values in `pbs -dump` output (one per
+/// service that has a shortcut).
+pub fn service_equivalents(dump: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = dump;
+    while let Some(i) = rest.find("NSKeyEquivalent") {
+        rest = &rest[i..];
+        let Some(open) = rest.find('{') else { break };
+        let Some(close) = rest[open..].find('}') else { break };
+        let body = &rest[open + 1..open + close];
+        if let Some(d) = body.find("default") {
+            let value = body[d + "default".len()..]
+                .trim_start()
+                .trim_start_matches('=')
+                .trim()
+                .trim_end_matches(';')
+                .trim()
+                .trim_matches('"');
+            // A key equivalent is a few modifier marks and one key; longer
+            // values are menu titles that this dump also files here.
+            if !value.is_empty() && value.chars().count() <= 5 {
+                out.push(value.to_string());
+            }
+        }
+        rest = &rest[open + close..];
+    }
+    out
 }
 
 /// Whether background keys may go to the target window: it is the key

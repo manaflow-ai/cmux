@@ -250,78 +250,129 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
 /// The bundle ids of every installed app known by `name` (case-insensitive):
 /// its localized display name in the person's language ("Systemeinstellungen"
 /// on a German Mac), its bundle name, and its file name, across the app
-/// folders, plus the app LaunchServices finds by that name. Several ids for a
-/// shared name; none for an unknown one. The index is rebuilt after
-/// NAME_INDEX_TTL, so installed and removed apps show up.
-pub fn apps_named(name: &str) -> Vec<String> {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::Instant;
-    struct Index {
-        /// The app folders' modification times when the index was built:
-        /// installing, moving or removing an app changes one of them.
-        folders: Vec<Option<std::time::SystemTime>>,
-        checked: Instant,
-        by_name: HashMap<String, Vec<String>>,
-        /// Answers so far (a menu walk asks once per item and per sibling, so
-        /// LaunchServices is asked once per name per ANSWER_TTL).
-        answers: HashMap<String, Vec<String>>,
-        answered: Instant,
-    }
-    static INDEX: OnceLock<Mutex<Option<Index>>> = OnceLock::new();
+/// folders (and one level of subfolders: Setapp, Adobe, Chrome Apps), plus
+/// the app LaunchServices finds by that name when the index has none.
+/// Several ids for a shared name; none for an unknown one.
+///
+/// The index is built on a background thread and rebuilt when an app
+/// folder changes; while the first build runs, `None` (the caller refuses,
+/// fail-closed). Answers that needed LaunchServices are kept per name for
+/// ANSWER_TTL and tagged with the index generation they came from.
+pub fn apps_named(name: &str) -> Option<Vec<String>> {
     let key = name.trim().to_lowercase();
     if key.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
-    let cell = INDEX.get_or_init(|| Mutex::new(None));
-    let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
-    let stale = match guard.as_mut() {
-        None => true,
-        // A few stats, at most once per FOLDER_CHECK.
-        Some(ix) if ix.checked.elapsed() > FOLDER_CHECK => {
-            ix.checked = Instant::now();
-            folder_times() != ix.folders
-        }
-        Some(_) => false,
-    };
-    if stale {
-        let now = Instant::now();
-        *guard = Some(Index {
-            folders: folder_times(),
-            checked: now,
-            by_name: build_name_index(),
-            answers: HashMap::new(),
-            answered: now,
-        });
+    let index = names_index();
+    let (generation, by_name) = index.current()?;
+    if let Some(ids) = by_name.get(&key) {
+        return Some(ids.clone());
     }
-    let Some(ix) = guard.as_mut() else { return Vec::new() };
-    if ix.answered.elapsed() > ANSWER_TTL {
-        ix.answers.clear();
-        ix.answered = Instant::now();
+    if let Some(hit) = index.answer(&key, generation) {
+        return Some(hit);
     }
-    if let Some(hit) = ix.answers.get(&key) {
-        return hit.clone();
-    }
-    let mut ids = ix.by_name.get(&key).cloned().unwrap_or_default();
-    drop(guard);
-    if let Some(id) = launch_services_id(name.trim())
-        && !ids.contains(&id)
-    {
-        ids.push(id);
-    }
-    if let Some(ix) = cell.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        ix.answers.insert(key, ids.clone());
-    }
-    ids
+    let ids: Vec<String> = launch_services_id(name.trim()).into_iter().collect();
+    index.remember(key, generation, ids.clone());
+    Some(ids)
 }
 
 /// How often the app folders are checked for changes.
 const FOLDER_CHECK: Duration = Duration::from_secs(5);
-/// How long an answer that includes LaunchServices' lookup is reused.
+/// How long one LaunchServices answer is reused.
 const ANSWER_TTL: Duration = Duration::from_secs(60);
 
-fn folder_times() -> Vec<Option<std::time::SystemTime>> {
-    app_folders().iter().map(|d| std::fs::metadata(d).and_then(|m| m.modified()).ok()).collect()
+type NameMap = std::collections::HashMap<String, Vec<String>>;
+
+struct NamesIndex {
+    state: std::sync::Mutex<IndexState>,
+}
+
+struct IndexState {
+    generation: u64,
+    built: Option<std::sync::Arc<NameMap>>,
+    folders: Vec<Option<std::time::SystemTime>>,
+    checked: Option<std::time::Instant>,
+    building: bool,
+    /// name -> (index generation, when, ids), expired one by one.
+    answers: std::collections::HashMap<String, (u64, std::time::Instant, Vec<String>)>,
+}
+
+fn names_index() -> &'static NamesIndex {
+    static INDEX: std::sync::OnceLock<NamesIndex> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| NamesIndex {
+        state: std::sync::Mutex::new(IndexState {
+            generation: 0,
+            built: None,
+            folders: Vec::new(),
+            checked: None,
+            building: false,
+            answers: std::collections::HashMap::new(),
+        }),
+    })
+}
+
+impl NamesIndex {
+    /// The current index and its generation, starting a background rebuild
+    /// when an app folder changed (checked at most every FOLDER_CHECK). The
+    /// old index serves until the new one is ready; None before the first.
+    fn current(&'static self) -> Option<(u64, std::sync::Arc<NameMap>)> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let due = st.checked.is_none_or(|t| t.elapsed() > FOLDER_CHECK);
+        if due && !st.building {
+            st.checked = Some(std::time::Instant::now());
+            let folders = folder_times();
+            if st.built.is_none() || folders != st.folders {
+                st.building = true;
+                std::thread::Builder::new()
+                    .name("cu-app-names".into())
+                    .spawn(move || {
+                        let map = std::sync::Arc::new(build_name_index());
+                        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.generation += 1;
+                        st.built = Some(map);
+                        st.folders = folders;
+                        st.building = false;
+                        st.answers.clear();
+                    })
+                    .ok();
+            }
+        }
+        st.built.clone().map(|m| (st.generation, m))
+    }
+
+    fn answer(&self, key: &str, generation: u64) -> Option<Vec<String>> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        match st.answers.get(key) {
+            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => Some(ids.clone()),
+            Some(_) => {
+                st.answers.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn remember(&self, key: String, generation: u64, ids: Vec<String>) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // An answer from an older generation would outlive a rebuild: drop it.
+        if st.generation == generation {
+            st.answers.insert(key, (generation, std::time::Instant::now(), ids));
+        }
+    }
+}
+
+/// Builds the name index now, on this thread (tests, warm-up).
+pub fn warm_app_names() {
+    let index = names_index();
+    if index.current().is_none() {
+        let map = std::sync::Arc::new(build_name_index());
+        let mut st = index.state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.built.is_none() {
+            st.generation += 1;
+            st.built = Some(map);
+            st.folders = folder_times();
+        }
+    }
 }
 
 fn app_folders() -> Vec<std::path::PathBuf> {
@@ -343,6 +394,10 @@ fn app_folders() -> Vec<std::path::PathBuf> {
     dirs
 }
 
+fn folder_times() -> Vec<Option<std::time::SystemTime>> {
+    app_folders().iter().map(|d| std::fs::metadata(d).and_then(|m| m.modified()).ok()).collect()
+}
+
 fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
     let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     let mut add = |name: &str, id: &str| {
@@ -361,13 +416,25 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
         // SAFETY: +defaultManager returns the shared file manager.
         let fm: Option<Retained<AnyObject>> = unsafe { msg_send![fm_cls, defaultManager] };
         let Some(fm) = fm else { return };
+        let mut paths = Vec::new();
         for dir in app_folders() {
             let Ok(entries) = std::fs::read_dir(&dir) else { continue };
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("app") {
-                    continue;
+                if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                    paths.push(path);
+                } else if path.is_dir()
+                    && let Ok(inner) = std::fs::read_dir(&path)
+                {
+                    // One level of subfolders (Setapp, Adobe, Chrome Apps).
+                    paths.extend(
+                        inner.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
+                    );
                 }
+            }
+        }
+        {
+            for path in paths {
                 let Some(p) = path.to_str().and_then(Cf::string) else { continue };
                 let p_obj: *const AnyObject = p.ptr().cast();
                 // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
@@ -413,4 +480,33 @@ fn launch_services_id(name: &str) -> Option<String> {
         let bundle = bundle?;
         ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
     })
+}
+
+/// The key equivalents of the registered Services (what pasteboard server
+/// `pbs -dump` lists, NSKeyEquivalent "default"), as (key code, flags),
+/// re-read at most every 30 s. Empty when it cannot be read.
+pub fn service_shortcuts() -> Vec<(u16, u64)> {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    static CACHE: OnceLock<Mutex<Option<(Instant, Vec<(u16, u64)>)>>> = OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, list)) = guard.as_ref()
+        && at.elapsed() < Duration::from_secs(30)
+    {
+        return list.clone();
+    }
+    let list = std::process::Command::new("/System/Library/CoreServices/pbs")
+        .arg("-dump")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .map(|o| super::roles::service_equivalents(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| super::keymap::service_shortcut(e))
+        .collect::<Vec<_>>();
+    *guard = Some((Instant::now(), list.clone()));
+    list
 }

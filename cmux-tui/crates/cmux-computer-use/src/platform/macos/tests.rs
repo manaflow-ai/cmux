@@ -306,8 +306,8 @@ impl crate::desktop::MenuGuard for PolicyGuard {
 
 /// Installed apps by display name, as a German Mac lists them: two apps share
 /// "Ghostty" (an allowed copy and the denied one).
-fn resolve(name: &str) -> Vec<String> {
-    match name.to_lowercase().as_str() {
+fn resolve(name: &str) -> Option<Vec<String>> {
+    Some(match name.to_lowercase().as_str() {
         "terminal" => vec!["com.apple.Terminal".into()],
         "textedit" => vec!["com.apple.TextEdit".into()],
         "systemeinstellungen" | "system settings" => vec!["com.apple.systempreferences".into()],
@@ -316,7 +316,7 @@ fn resolve(name: &str) -> Vec<String> {
         "ghostty" => vec!["com.example.ghostty-viewer".into(), "com.mitchellh.ghostty".into()],
         "xcode" => vec!["com.apple.dt.Xcode".into()],
         _ => vec![],
-    }
+    })
 }
 
 fn blocked_in(guard: &PolicyGuard, top: Option<usize>, depth: usize, siblings: &[&str], title: &str) -> bool {
@@ -379,10 +379,11 @@ fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
     assert_eq!(roles::pick_shortcut(&[m("Svc", true, true), m("B", true, false)]), P::Blocked("Svc".into()));
     // A blocked disabled item is passed over like any disabled one.
     assert_eq!(roles::pick_shortcut(&[m("Svc", false, true), m("B", true, false)]), P::Press(1));
-    // A chord no menu item has: posted, except Command plus another modifier while any app is denied.
-    assert!(roles::unmatched_chord_allowed(true, false, true));
-    assert!(!roles::unmatched_chord_allowed(true, true, true));
-    assert!(roles::unmatched_chord_allowed(true, true, false));
+    // A chord no menu item has is posted (a web app's cmd+shift+7), unless it
+    // is a registered Services shortcut while some app is denied.
+    assert!(roles::unmatched_chord_allowed(false, true));
+    assert!(!roles::unmatched_chord_allowed(true, true));
+    assert!(roles::unmatched_chord_allowed(true, false));
 }
 
 #[test]
@@ -436,4 +437,68 @@ fn the_menu_walk_is_breadth_first_within_budget_and_depth() {
     let (slots, truncated) = roles::breadth_first(0u32, 100, 2, |n, _| Some(kids(*n)));
     assert_eq!(slots.iter().map(|s| s.node).collect::<Vec<_>>(), vec![0, 1, 2]);
     assert!(truncated);
+}
+
+#[test]
+fn services_shortcuts_are_read_from_the_pasteboard_server_dump() {
+    let dump = r#"
+        {
+        NSBundleIdentifier = "com.apple.AppleSpell";
+        NSKeyEquivalent =         {
+        };
+    },
+        {
+        NSKeyEquivalent =         {
+            default = B;
+        };
+        NSMenuItem = { default = "Send File To Bluetooth Device"; };
+    },
+        {
+        NSKeyEquivalent =         {
+            English = "$^@C";
+            default = "$^@C";
+        };
+    },
+        {
+        NSKeyEquivalent =         {
+            default = "New cmux Workspace Here";
+        };
+    }
+    "#;
+    assert_eq!(roles::service_equivalents(dump), vec!["B".to_string(), "$^@C".to_string()]);
+    let (b, _) = keymap::char_key('b').unwrap();
+    let (c, _) = keymap::char_key('c').unwrap();
+    // "B" is ⇧⌘B (a capital means Shift; Command is implied).
+    assert_eq!(keymap::service_shortcut("B"), Some((b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT)));
+    assert_eq!(
+        keymap::service_shortcut("$^@C"),
+        Some((c, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT | keymap::FLAG_CONTROL))
+    );
+    assert_eq!(keymap::service_shortcut("@"), None);
+    let services = vec![keymap::service_shortcut("B").unwrap()];
+    assert!(keymap::is_service_shortcut(b, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT, &services));
+    assert!(!keymap::is_service_shortcut(b, keymap::FLAG_COMMAND, &services));
+    let (seven, _) = keymap::char_key('7').unwrap();
+    assert!(!keymap::is_service_shortcut(seven, keymap::FLAG_COMMAND | keymap::FLAG_SHIFT, &services));
+}
+
+#[test]
+fn shifted_punctuation_matches_its_menu_item() {
+    use crate::keys::KeyCombo;
+    let m = |combo: &str, ch: &str, mods: i64| keymap::menu_item_matches(&KeyCombo::parse(combo).unwrap(), Some(ch), None, mods);
+    // Zoom In is ⌘+ in the menu ("+", no Shift bit) and ⇧⌘= on the keyboard.
+    assert!(m("cmd+shift+=", "+", keymap::MENU_SHIFT) || m("cmd+shift+=", "+", 0));
+    assert!(m("cmd++", "+", keymap::MENU_SHIFT));
+    assert!(m("cmd+=", "=", 0));
+    assert!(!m("cmd+=", "+", keymap::MENU_SHIFT));
+}
+
+#[test]
+fn menu_items_fail_closed_while_the_app_name_index_builds() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let pending = |_: &str| -> Option<Vec<String>> { None };
+    let ctx = roles::MenuItemContext { title: "TextEdit", top_index: Some(0), depth: 2, siblings: &[] };
+    assert!(roles::menu_item_blocked(&guard, &ctx, &pending));
+    let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
+    assert!(!roles::menu_item_blocked(&open, &ctx, &pending));
 }

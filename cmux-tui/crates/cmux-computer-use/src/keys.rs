@@ -102,6 +102,15 @@ impl KeyCombo {
         if text == "+" {
             return Ok(Self { modifiers: vec![], key: Key::Char('+') });
         }
+        // "cmd++" is Command and the plus key.
+        if let Some(head) = text.strip_suffix("++") {
+            let mut modifiers = Self::parse_modifiers(
+                &head.split('+').map(|t| t.trim().to_string()).collect::<Vec<_>>(),
+            )
+            .map_err(|e| format!("{e} in {text:?}"))?;
+            modifiers.sort();
+            return Ok(Self { modifiers, key: Key::Char('+') });
+        }
         let tokens: Vec<&str> = text.split('+').map(str::trim).collect();
         let (last, mods) = tokens.split_last().ok_or("empty key combo")?;
         let mut modifiers = Vec::new();
@@ -133,6 +142,16 @@ impl KeyCombo {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_trailing_double_plus_is_the_plus_key() {
+        let c = super::KeyCombo::parse("cmd++").unwrap();
+        assert_eq!((c.modifiers.clone(), c.key.clone()), (vec![super::Modifier::Meta], super::Key::Char('+')));
+        let c = super::KeyCombo::parse("ctrl+shift++").unwrap();
+        assert_eq!(c.key, super::Key::Char('+'));
+        assert_eq!(c.modifiers.len(), 2);
+        assert!(super::KeyCombo::parse("nope++").is_err());
+    }
+
     use super::*;
 
     #[test]
