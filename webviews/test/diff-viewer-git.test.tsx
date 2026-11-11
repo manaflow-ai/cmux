@@ -195,3 +195,83 @@ test("in Branch, as the chat's ± opens it, a file with work-tree changes gets S
   await act(async () => stages[0]!.click());
   expect(calls).toContainEqual(["cmux.diff.git.stage", { paths: ["src/upload.ts"] }]);
 });
+
+const { PullRequestActionButton, PullRequestActionStatus, usePullRequestAction } =
+  await import("../src/diff-viewer/PullRequestAction");
+type Source = NonNullable<ReturnType<typeof diffGitSource>>;
+function PullRequestViewer({ source, disabled = false }: { source: Source; disabled?: boolean }) {
+  const action = usePullRequestAction(source);
+  return (
+    <>
+      <PullRequestActionButton action={action} disabled={disabled} />
+      <PullRequestActionStatus action={action} />
+    </>
+  );
+}
+const prButton = () => host.querySelector<HTMLButtonElement>('[data-tool="pull-request"]')!;
+
+test("Create PR is optional and invokes one host operation for a fresh clean branch, showing remote errors", async () => {
+  expect(diffGitSource(page as never, OPS)?.pullRequest).toBeUndefined();
+  Object.defineProperty(dom.window.navigator, "languages", { configurable: true, get: () => ["en"] });
+  let finish!: (value: unknown) => void;
+  let fail!: (error: Error) => void;
+  const requests: [string, unknown][] = [];
+  const source = diffGitSource(
+    {
+      ...page,
+      call: (op: string, params: unknown) => {
+        requests.push([op, params]);
+        return new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        });
+      },
+    } as never,
+    [...OPS, "cmux.diff.git.pullRequest"],
+  )!;
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  expect(prButton().disabled).toBe(false);
+  expect(prButton().textContent).toBe("Create PR");
+  await act(async () => {
+    prButton().click();
+    prButton().click();
+  });
+  expect(requests).toEqual([["cmux.diff.git.pullRequest", {}]]);
+  expect(prButton().disabled).toBe(true);
+  expect(host.querySelector("output")?.textContent).toBe("Pushing…");
+  await act(async () => finish({ url: "https://github.com/o/r/pull/7", number: 7 }));
+  expect(prButton().disabled).toBe(false);
+  expect(host.querySelector("output")).toBeNull();
+  await act(async () => prButton().click());
+  await act(async () => fail(new Error("The remote branch is protected; push a feature branch.")));
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+    "The remote branch is protected; push a feature branch.",
+  );
+  expect(prButton().textContent).toBe("Create PR");
+  expect(prButton().disabled).toBe(false);
+  await act(async () => root.render(<PullRequestViewer source={source} disabled />));
+  expect(prButton().disabled).toBe(true);
+});
+
+test("Create PR discards completion from an old repository and from an unmounted page", async () => {
+  let fail!: (error: Error) => void;
+  const source = {
+    ...diffGitSource(page as never, OPS)!,
+    pullRequest: () =>
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+  };
+  const next = { ...source, pullRequest: async () => ({ url: "https://github.com/o/next/pull/9" }) };
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  await act(async () => prButton().click());
+  await act(async () => root.render(<PullRequestViewer source={next} />));
+  await act(async () => fail(new Error("Old repository rejection")));
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(prButton().disabled).toBe(false);
+  await act(async () => root.render(<PullRequestViewer source={source} />));
+  await act(async () => prButton().click());
+  await act(async () => root.render(null));
+  await act(async () => fail(new Error("Closed page rejection")));
+  expect(host.textContent).toBe("");
+});

@@ -119,14 +119,13 @@
   gap: var(--ds-space-1);
   max-width: 100%;
   height: 100%;
-  padding-inline: var(--hm-chip-padding, var(--ds-space-3));
+  padding-inline: var(--ds-space-3);
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--page-text) 10%, transparent);
   color: var(--page-text);
   font: inherit;
-  /* The sidebar's text size steps the chip's text (HomeMessagesHeaderMetrics.textStep). */
-  font-size: calc(var(--text-detail) + var(--hm-header-text-step, 0em));
+  font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
   cursor: default;
@@ -314,82 +313,6 @@
 .hm-row.compact .hm-dot {
   left: var(--ds-space-1);
 }
-/* The avatar-only list selects with a disc behind the avatar, not a row-wide slab
-   (HomeSidebarNeutralSelectionTests). */
-.hm-row.compact::before,
-.hm-tile.compact::before {
-  inset: auto;
-  left: 50%;
-  top: calc(var(--ds-space-3) - 4px);
-  width: var(--hm-disc);
-  height: var(--hm-disc);
-  border-radius: 50%;
-  transform: translateX(-50%);
-}
-.hm-tile.compact {
-  --hm-disc: calc(var(--hm-pin-avatar) + 8px);
-}
-
-/* A teammate with no DM yet: avatar and name on one line; the search's section header above them. */
-.hm-row.teammate .hm-row-head {
-  top: 50%;
-  transform: translateY(-50%);
-}
-.hm-section-head {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: flex-end;
-  padding: 0 var(--ds-space-4) var(--ds-space-1);
-  color: var(--page-text-2);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
-/* A swiped row slides over its actions; the strip shows only the revealed part. A release settles
-   it (open, closed) with the rows' own move; under the fingers it follows at once. */
-.hm-row.swiped {
-  z-index: var(--layer-raised);
-}
-.hm-scroller .hm-row.settling {
-  transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
-}
-.hm-swipe-strip {
-  position: absolute;
-  top: 0;
-  display: flex;
-  overflow: hidden;
-}
-.hm-swipe-strip.trailing {
-  right: 0;
-}
-.hm-swipe-strip.leading {
-  left: 0;
-}
-.hm-swipe-strip.settling {
-  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
-}
-.hm-swipe-action {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  border: 0;
-  padding: 0;
-  color: white;
-  cursor: default;
-}
-.hm-swipe-action.delete {
-  background: var(--ds-color-danger);
-}
-.hm-swipe-action.read,
-.hm-swipe-action.unread {
-  background: var(--hm-unread);
-}
 
 .hm-tile {
   display: flex;
@@ -466,6 +389,19 @@
   border-radius: inherit;
   object-fit: cover;
 }
+.hm-state-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--page-surface, Canvas);
+  background: var(--page-text-2);
+}
+.hm-state-mark.waiting {
+  background: var(--hc-warn, var(--page-text));
+}
 .hm-avatar-group {
   position: relative;
   display: inline-block;
@@ -509,7 +445,7 @@
 .hm-empty p {
   margin: 0;
   color: var(--page-text-2);
-  font-size: calc(var(--text-heading) + var(--hm-header-text-step, 0em));
+  font-size: var(--text-heading);
   font-weight: var(--weight-emphasis);
 }
 .hm-show-all,
@@ -569,9 +505,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hm-row,
-  .hm-tile,
-  .hm-scroller .hm-row.settling,
-  .hm-swipe-strip.settling {
+  .hm-tile {
     transition: none;
   }
 }
