@@ -413,13 +413,19 @@ export function playTurnFold(
   // clock and curve, as their own moves are; one read when the copy was made left it hiding where the
   // rows had been headed (review of #41337: a reply retargeted from 100 to 80 px, its copy's clip still
   // at 100). Only in a pass where a row moved or a copy was made: one box read per mounted row.
+  // A copy made after it slides over it too, on the same clock (it goes in later, so it draws over
+  // it): a reply that left mid-fold became a copy still sliding over a call's copy, and with only the
+  // mounted rows counted the call's clip was cancelled under it (review of #41444). O(copies²), a few.
   if (moved && fold.covers?.size) {
     const paths = rows.flatMap(({ node }) => {
       const moving = fold.moving.get(node);
       return moving ? [{ from: moving.top + moving.delta, to: moving.top, ...boxOf(node) }] : [];
     });
-    for (const [ghost, cover] of fold.covers) {
-      const frames = coverClip(cover.path, paths, cover.own);
+    const covers = [...fold.covers];
+    for (const [order, [ghost, cover]] of covers.entries()) {
+      const over =
+        order + 1 < covers.length ? [...paths, ...covers.slice(order + 1).map(([, later]) => later.path)] : paths;
+      const frames = coverClip(cover.path, over, cover.own);
       const key = frames ? JSON.stringify(frames) : undefined;
       if (key === cover.key) continue;
       if (cover.animation) {

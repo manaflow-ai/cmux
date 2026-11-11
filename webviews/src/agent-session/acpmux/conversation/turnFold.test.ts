@@ -137,3 +137,64 @@ test("a copy's clip follows the rows over it when a later pass places them somew
   );
   expect(clips()).toHaveLength(2);
 });
+
+test("a copy stays clipped under a row that left mid-fold and slides over it as a copy", () => {
+  const { thread, played, row } = setup();
+  row("line", 0, 60);
+  const call = row("call", 1, 60);
+  const reply = row("reply", 2, 40);
+  const start = 1000;
+  const fold: TurnFold = {
+    id: "line",
+    at: 0,
+    opening: false,
+    ms: 200,
+    start,
+    until: start + 300,
+    startRows: placedOf([
+      ["line", 0],
+      ["call", 60],
+      ["reply", 120],
+    ]),
+    startAt: 0,
+    moving: new Map([
+      [call, { id: "call", top: 60, delta: 0, reveal: false, animations: [] }],
+      [reply, { id: "reply", top: 120, delta: 0, reveal: false, animations: [] }],
+    ]),
+    copies: new Map(),
+    animations: new Set(),
+  };
+  const ghosts = new Set<HTMLElement>();
+  // The close hides the call: the reply slides from 120 up to 100 over the call's copy.
+  call.remove();
+  reply.setAttribute("aria-posinset", "2");
+  playTurnFold(
+    fold,
+    thread,
+    placedOf([
+      ["line", 0],
+      ["reply", 100],
+    ]),
+    undefined,
+    ghosts,
+    start,
+  );
+  const [callCopy] = [...ghosts];
+  const clipsOf = (node: unknown) => played.filter((entry) => entry.node === node && "clipPath" in entry.keyframes[0]!);
+  expect(clipsOf(callCopy).map((entry) => entry.keyframes.map(bottomOf))).toEqual([[0, 20]]);
+  // Part way, the reply leaves too (its row goes): it becomes a copy that goes on sliding from 120 to
+  // 100, on the fold's clock, over the call's copy. The call's copy keeps its clip until it has passed.
+  reply.remove();
+  playTurnFold(fold, thread, placedOf([["line", 0]]), undefined, ghosts, start + 50);
+  const replyCopy = [...ghosts].find((ghost) => ghost !== callCopy)!;
+  expect(replyCopy).toBeDefined();
+  const replyMove = played.find((entry) => entry.node === (replyCopy as unknown))!;
+  expect(replyMove.keyframes[0]!.translate).toBe("0 20px");
+  expect(replyMove.keyframes.at(-1)!.translate).toBe("0 0px");
+  const callClips = clipsOf(callCopy);
+  expect(callClips).toHaveLength(1);
+  expect(callClips[0]!.cancelled).toBe(false);
+  expect(callClips[0]!.keyframes.map(bottomOf)).toEqual([0, 20]);
+  // The reply's copy draws over the call's: nothing clips it.
+  expect(clipsOf(replyCopy)).toHaveLength(0);
+});
