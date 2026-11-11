@@ -444,26 +444,17 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        let _held = self.shared();
-        let Some(r) = self.reference(id)? else {
-            return self.inner.scan_back(id, after, before, skip, visit);
-        };
-        let mut going = true;
-        if before > r.through_seq + 1 {
-            self.inner.scan_back(id, after.max(r.through_seq), before, skip, &mut |rec| {
-                going = visit(rec);
-                going
-            })?;
-        }
-        if !going || after >= r.through_seq {
-            return Ok(());
-        }
-        let skip_other = |dir: &[u8], kind: &[u8]| {
-            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
-        };
-        self.scan_back(&r.session, after, before.min(r.through_seq + 1), &skip_other, &mut |rec| {
-            !is_history(&rec.kind) || visit(rec)
-        })
+        self.back(id, after, before, skip, visit, false)
+    }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, visit, true)
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
@@ -704,6 +695,64 @@ impl Store for ForkView {
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         self.inner.history_writer(id)
+    }
+}
+
+impl ForkView {
+    /// The inner store's `scan_back` (`indexed`: its `scan_back_indexed`).
+    fn inner_back(
+        &self,
+        indexed: bool,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if indexed {
+            self.inner.scan_back_indexed(id, after, before, skip, visit)
+        } else {
+            self.inner.scan_back(id, after, before, skip, visit)
+        }
+    }
+
+    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
+    /// history before the fork point.
+    fn back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+
+        let Some(r) = self.reference(id)? else {
+            return self.inner_back(indexed, id, after, before, skip, visit);
+        };
+        let mut going = true;
+        if before > r.through_seq + 1 {
+            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going || after >= r.through_seq {
+            return Ok(());
+        }
+        let skip_other = |dir: &[u8], kind: &[u8]| {
+            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
+        };
+        self.back(
+            &r.session,
+            after,
+            before.min(r.through_seq + 1),
+            &skip_other,
+            &mut |rec| !is_history(&rec.kind) || visit(rec),
+            indexed,
+        )
     }
 }
 

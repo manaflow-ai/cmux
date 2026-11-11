@@ -971,8 +971,12 @@ fn render_frame_owns_the_same_graphics_snapshot_as_text() {
     render.update(&mut terminal).unwrap();
     let frame = render.build_frame().unwrap();
 
-    let text =
-        frame.styled_rows().iter().flatten().map(|cell| cell.text.as_str()).collect::<String>();
+    let text = frame
+        .styled_rows()
+        .iter()
+        .flat_map(|row| row.iter())
+        .map(|cell| cell.text.as_str())
+        .collect::<String>();
     assert!(text.contains("frame"));
     assert_eq!(&*frame.kitty_graphics.image(40).unwrap().data, &[255, 0, 0]);
 

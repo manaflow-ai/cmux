@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextTestSupport
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 /// The Home list at launch (Lawrence 2026-10-21: "loading stat here is bad on app launch"): every
 /// input of the list beyond the conversations (each owner's order and pins, each Chief's avatar and
@@ -177,5 +178,78 @@ import Testing
         let cache = try Self.lastSession()
         #expect(cache.load(account: "acct_someone_else") == nil)
         #expect(cache.load(account: Self.account) != nil)
+    }
+
+    @Test func noRowMovesOrPopsInWhileTheLiveAnswersLand() throws {
+        let cache = try Self.lastSession()
+        let launch = Launch()
+        launch.prime(cache)
+        let (view, window) = Self.host()
+        defer { window.close() }
+        var layouts: [[String]] = []
+        for (_, model) in try launch.settle() {
+            view.update(model)
+            view.layoutSubtreeIfNeeded()
+            layouts.append(view.itemFramesInWindow.map { "\($0.id.rawValue) \($0.pinned) \(NSStringFromRect($0.frame))" })
+        }
+        #expect(!(layouts.first ?? []).isEmpty)
+        #expect(Set(layouts).count == 1, "the rows moved between launch stages: \(layouts)")
+    }
+
+    // MARK: Frames (for people: `.build/home-launch-frames.png`, before on the left, after on the right)
+
+    static func host() -> (HomeSidebarView, NSWindow) {
+        _ = NSApplication.shared
+        let view = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 520))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 520), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        return (view, window)
+    }
+
+    static func render(_ model: HomeSidebarModel) -> CGImage? {
+        let (view, window) = host()
+        defer { window.close() }
+        view.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
+        view.update(model)
+        view.layoutSubtreeIfNeeded()
+        CATransaction.flush()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep.cgImage
+    }
+
+    @Test func launchFrames() throws {
+        let cache = try Self.lastSession()
+        let before = Launch()
+        let after = Launch()
+        after.prime(cache)
+        let columns = try [before.settle(), after.settle()].map { $0.compactMap { Self.render($0.1) } }
+        let cell = try #require(columns.first?.first)
+        let gap = 16
+        let rows = columns.map(\.count).max() ?? 0
+        let width = cell.width * 2 + gap * 3
+        let height = (cell.height + gap) * rows + gap
+        let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(gray: 0.45, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        for (c, column) in columns.enumerated() {
+            for (r, image) in column.enumerated() {
+                let y = height - (r + 1) * (cell.height + gap)
+                ctx.draw(image, in: CGRect(x: gap + c * (cell.width + gap), y: y, width: image.width, height: image.height))
+            }
+        }
+        let image = try #require(ctx.makeImage())
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let out = package.appendingPathComponent(".build/home-launch-frames.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let dest = try #require(CGImageDestinationCreateWithURL(out as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(dest, image, nil)
+        #expect(CGImageDestinationFinalize(dest))
     }
 }

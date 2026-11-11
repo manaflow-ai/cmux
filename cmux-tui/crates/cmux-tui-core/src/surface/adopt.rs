@@ -3,6 +3,19 @@
 
 use super::*;
 
+/// Test seam (fault injection, debug builds): an adoption holds its Kitty
+/// image reservation this long before it connects to its host, as a slow
+/// host handshake or a long replay does.
+fn hold_adoption_after_kitty_reservation_for_test() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPT_CONNECT_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms.min(5_000)));
+    }
+}
+
 impl Surface {
     #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted(
@@ -41,6 +54,7 @@ impl Surface {
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
+        hold_adoption_after_kitty_reservation_for_test();
         let attachment = crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
             record,
             record_path,
@@ -78,6 +92,7 @@ impl Surface {
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
+        hold_adoption_after_kitty_reservation_for_test();
         let attachment = crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
             record,
             record_path,
@@ -208,6 +223,7 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),

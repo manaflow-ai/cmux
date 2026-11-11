@@ -101,6 +101,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -420,6 +421,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -1767,6 +1769,7 @@ jobs:
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
+            bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
             bash scripts/ci/tests/run-webviews-tests-retry.test.sh
             bash scripts/cmux-next/tests/cef-credits.test.sh
             bash scripts/cmux-next/tests/swift-test-summary.test.sh
@@ -2265,7 +2268,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 7200
           fi
           work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
           /bin/mkdir "$work/home" "$work/code"

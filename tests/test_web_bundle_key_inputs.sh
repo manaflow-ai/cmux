@@ -10,6 +10,8 @@
 # Runs the key script of this checkout against a scratch repository made from
 # HEAD's files (git archive), so it never touches this checkout's git config.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 # Every relative import outside webviews/ must resolve to a file the key hashes.
 export WEB_BUNDLE_KEY_STRICT=1
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -22,7 +24,7 @@ mkdir -p "$src"
 
 git -C "$ROOT" archive HEAD webviews web/data clients/ts/cloud Resources/markdown-viewer config schemas release-notes/next/highlights \
   Packages/Shared/CmuxAgentQuestion \
-  scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
+  scripts/cmux-next/web-bundle-key.py scripts/webviews_bun_version.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"
 git -C "$src" init -q
 git -C "$src" -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null add -A
@@ -175,5 +177,21 @@ for f in files:
 if missing:
     sys.exit("FAIL: imported web bundle inputs are not routed:\n  " + "\n  ".join(missing))
 PY
+
+# The toolchain part of the key is the bun webviews/package.json pins, read by the one
+# shared reader (scripts/webviews_bun_version.py): an npm entry listed first does not pick
+# it, and no bun pin stops the key instead of keying bundles to a guessed 1.4.4.
+pins="$TMP/pins"
+mkdir -p "$pins/webviews"
+identity() { env -u CMUX_WEB_BUN_VERSION CMUX_WEB_NODE_VERSION=24.22.1 python3 -I -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["toolchain_identity"](sys.argv[2]), end="")' "$KEY" "$pins" 2>&1; }
+printf '{"devEngines": {"packageManager": [{"name": "npm", "version": "10.9.2"}, {"name": "bun", "version": "1.4.5"}]}}\n' > "$pins/webviews/package.json"
+out=$(identity) || fail "npm listed first: $out"
+[[ "$out" == $'bun=1.4.5\nnode=24.22.1' ]] || fail "npm listed first must key bun 1.4.5: $out"
+printf '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n' > "$pins/webviews/package.json"
+status=0; out=$(identity) || status=$?
+[[ "$status" != 0 && "$out" == *"no bun in devEngines.packageManager"* ]] || fail "no bun pin must stop the key: $status $out"
+out=$(CMUX_WEB_BUN_VERSION=1.4.6 CMUX_WEB_NODE_VERSION=24.22.1 python3 -I -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["toolchain_identity"](sys.argv[2]), end="")' "$KEY" "$pins" 2>&1) \
+  || fail "CMUX_WEB_BUN_VERSION must key without reading the pin: $out"
+[[ "$out" == $'bun=1.4.6\nnode=24.22.1' ]] || fail "CMUX_WEB_BUN_VERSION must win: $out"
 
 echo "web-bundle-key inputs: ok"
