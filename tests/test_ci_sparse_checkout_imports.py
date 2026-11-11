@@ -88,6 +88,64 @@ CI_DIR = "scripts/ci"
 OPTIONAL_HANDLERS = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
 
 
+# --- the repo's files ----------------------------------------------------------------------------
+#
+# What the repo holds comes from git's index, not the working tree: a sparse worktree leaves files
+# out, and a check that asked the disk passed there while CI, with every file, failed (#41221 at
+# a77b32f4: Native/DiffSidecar/Cargo.toml). A folder that is not a git work tree's top (a fixture's
+# tmp root) is read from disk.
+
+
+@lru_cache(maxsize=None)
+def _git_index(root: str) -> frozenset[str] | None:
+    """Every file git tracks in the work tree whose top is `root`, or None when `root` is not one."""
+    try:
+        top = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"], capture_output=True,
+                             text=True, check=True).stdout.strip()
+        if Path(top).resolve() != Path(root).resolve():
+            return None
+        out = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return frozenset(rel for rel in out.split("\0") if rel)
+
+
+def repo_has(root: Path, rel: str) -> bool:
+    """Whether the repo at `root` has the file `rel` (in git's index, or on disk outside git)."""
+    index = _git_index(str(root))
+    if index is not None and rel in index:
+        return True
+    try:
+        return (root / rel).is_file()
+    except (OSError, ValueError):  # a name too long or with a NUL is no file
+        return False
+
+
+@lru_cache(maxsize=None)
+def _git_source(root: str, rel: str) -> str | None:
+    result = subprocess.run(["git", "-C", root, "show", f":{rel}"], capture_output=True)
+    return result.stdout.decode("utf-8", errors="replace") if result.returncode == 0 else None
+
+
+def repo_source(root: Path, rel: str) -> str | None:
+    """The text of the repo file `rel`: the working tree's copy, or the index's when a sparse checkout left it out."""
+    try:
+        return (root / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        pass
+    return _git_source(str(root), rel) if _git_index(str(root)) is not None else None
+
+
+def repo_workflows(root: Path) -> list[str]:
+    """The workflow file names under .github/workflows."""
+    index = _git_index(str(root))
+    names = {p.name for p in (root / ".github" / "workflows").glob("*.y*ml")}
+    if index is not None:
+        names |= {rel.rsplit("/", 1)[1] for rel in index
+                  if rel.startswith(".github/workflows/") and rel.count("/") == 2 and rel.endswith((".yml", ".yaml"))}
+    return sorted(names)
+
+
 # --- sparse-checkout entries -------------------------------------------------------------------
 
 
@@ -158,7 +216,7 @@ def checked_out(entries: list[str], paths: set[str], root: Path) -> frozenset[st
     the same neighbours they would in the real tree. Cached per (entries, paths).
     """
     named = {e.lstrip("/") for e in entries if not e.startswith("!")}
-    named = {rel for rel in named if rel and (root / rel).is_file()}
+    named = {rel for rel in named if rel and repo_has(root, rel)}
     return _git_checked_out(tuple(entries), frozenset(paths | named)) & paths
 
 
@@ -170,7 +228,7 @@ def listed_ci_scripts(entries: list[str], root: Path) -> list[str]:
             continue
         rel = entry.lstrip("/")
         if rel.startswith(CI_DIR + "/") and rel.endswith(".py") and not any(ch in rel for ch in "*?["):
-            if (root / rel).is_file():
+            if repo_has(root, rel):
                 out.append(rel)
     return out
 
@@ -225,14 +283,14 @@ def _resolve_under(base: str, parts: list[str], root: Path) -> list[str]:
     """Files `parts` loads below folder `base`: each package's __init__.py, then the module."""
     if not parts:
         init = f"{base}/__init__.py"
-        return [init] if (root / init).is_file() else []
+        return [init] if repo_has(root, init) else []
     files = []
     for n in range(1, len(parts) + 1):
         stem = "/".join([base, *parts[:n]])
-        if (root / f"{stem}.py").is_file():
+        if repo_has(root, f"{stem}.py"):
             files.append(f"{stem}.py")
             break  # a module, not a package: deeper names are attributes
-        if (root / stem / "__init__.py").is_file():
+        if repo_has(root, f"{stem}/__init__.py"):
             files.append(f"{stem}/__init__.py")
             continue
         break
@@ -269,9 +327,11 @@ def import_closure(script: str, root: Path) -> dict[str, str]:
     while todo:
         current = todo.pop()
         try:
-            source = (root / current).read_text(encoding="utf-8")
+            source = repo_source(root, current)
+            if source is None:
+                continue
             names = imported_names(source)
-        except (OSError, SyntaxError, UnicodeDecodeError):
+        except (SyntaxError, ValueError):
             continue
         for level, name in sorted(names):
             for dep in resolve(name, current, root, level):
@@ -287,8 +347,9 @@ def import_closure(script: str, root: Path) -> dict[str, str]:
 
 def non_cone_sparse_steps(root: Path):
     """(workflow, job, step name, entries) for each actions/checkout step with a non-cone sparse list."""
-    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for name in repo_workflows(root):
+        path = root / ".github" / "workflows" / name
+        doc = yaml.safe_load(repo_source(root, f".github/workflows/{name}") or "") or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
         for job_id, job in (jobs or {}).items():
             for index, step in enumerate((job or {}).get("steps") or []):
@@ -357,7 +418,7 @@ def listed_run_scripts(entries: list[str], run_text: str, root: Path, tests_only
             continue
         if tests_only and not is_test_file(rel):
             continue
-        if (root / rel).is_file() and re.search(rf"(?<![\w.-]){re.escape(rel)}\b", run_text):
+        if repo_has(root, rel) and re.search(rf"(?<![\w.-]){re.escape(rel)}\b", run_text):
             out.append(rel)
     return out
 
@@ -733,6 +794,9 @@ class _ReadFinder:
         local = _local_names(func)
         hidden = outer_locals | local
         env = {k: v for k, v in self.module_env.items() if k not in hidden}
+        for name in outer_locals - local:  # a closure sees its enclosing function's bindings
+            if name in def_env:
+                env[name] = def_env[name]
         params = [a.arg for a in [*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs]]
         for param in params:  # bound at entry; an assignment in the body replaces it from there on
             env[param] = frozenset({_Text(_PARAM + param)})
@@ -864,21 +928,18 @@ def read_paths(script: str, root: Path) -> set[str]:
     Only paths that are files in `root` count; directories, globs and anything built from a value
     that is not known where the read happens are skipped.
     """
-    try:
-        source = (root / script).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return set()
-    return reads_in_source(script, source, lambda rel: (root / rel).is_file())
+    source = repo_source(root, script)
+    return set() if source is None else reads_in_source(script, source, lambda rel: repo_has(root, rel))
 
 
 def _job_run_text(root: Path, workflow: str, job: str) -> str:
-    doc = yaml.safe_load((root / ".github" / "workflows" / workflow).read_text(encoding="utf-8")) or {}
+    doc = yaml.safe_load(repo_source(root, f".github/workflows/{workflow}") or "") or {}
     steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
     return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
 
 
 def _job_run_blocks(root: Path, workflow: str, job: str) -> list[str]:
-    doc = yaml.safe_load((root / ".github" / "workflows" / workflow).read_text(encoding="utf-8")) or {}
+    doc = yaml.safe_load(repo_source(root, f".github/workflows/{workflow}") or "") or {}
     steps = ((doc.get("jobs") or {}).get(job) or {}).get("steps") or []
     return [str(step.get("run") or "") for step in steps if isinstance(step, dict)]
 
@@ -1063,6 +1124,18 @@ READ_ALLOWLIST: list[tuple[str, str, str, str, str | tuple[str, ...], str]] = [
      "run only by cmd_run_linux_part (linux_bench_runs(ROOT, part)), the `run-linux-part` subcommand a Linux host "
      "runs in a full checkout of the measured commit (part_config's linux_bench_runs(\"\", ...) only hashes the "
      "argv); this job runs `fetch-state`"),
+    ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "Native/DiffSidecar/Cargo.toml",
+     "run-linux-part",
+     "the sidecar bench's --manifest-path in linux_bench_runs(ROOT, part), run only by cmd_run_linux_part, the "
+     "`run-linux-part` subcommand a Linux host runs in a full checkout of the measured commit; this job runs `fleet-check`, `run-part` and `part-cleanup`"),
+    ("cmux-next-perf-budgets.yml", "report", "scripts/cmux-next/perf-cron.py", "Native/DiffSidecar/Cargo.toml",
+     "run-linux-part",
+     "the sidecar bench's --manifest-path in linux_bench_runs(ROOT, part), run only by cmd_run_linux_part, the "
+     "`run-linux-part` subcommand a Linux host runs in a full checkout of the measured commit; this job runs `fetch-result`, `report` and `dispatch-next`"),
+    ("cmux-next-quality-report.yml", "report", "scripts/cmux-next/perf-cron.py", "Native/DiffSidecar/Cargo.toml",
+     "run-linux-part",
+     "the sidecar bench's --manifest-path in linux_bench_runs(ROOT, part), run only by cmd_run_linux_part, the "
+     "`run-linux-part` subcommand a Linux host runs in a full checkout of the measured commit; this job runs `fetch-state`"),
     ("stable-next.yml", "tick", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
      "write-feed",
      "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
@@ -1758,8 +1831,8 @@ class PerfCronScriptReadTests(unittest.TestCase):
             for alternative in alternatives:
                 for pattern in alternative.split():
                     re.compile(pattern)
-            self.assertTrue((ROOT / ".github/workflows" / workflow).is_file(), key)
-            self.assertTrue((ROOT / script).is_file() and (ROOT / rel).is_file(), key)
+            self.assertTrue(repo_has(ROOT, f".github/workflows/{workflow}"), key)
+            self.assertTrue(repo_has(ROOT, script) and repo_has(ROOT, rel), key)
 
 
 # The differential corpus's fixtures: (name, the script path it stands at, source). Names start with
@@ -1805,6 +1878,18 @@ DIFFERENTIAL_FIXTURES = [
     """))),
 ]
 
+DIFFERENTIAL_FIXTURES.append(("fixture:closure", "tests/test_risk_tier.py", textwrap.dedent("""\
+    from pathlib import Path
+
+    def outer():
+        p = Path("docs/x.md")
+
+        def inner():
+            return p.read_text()
+
+        return inner()
+""")))
+
 # What the base reader (33852f74) found that the current reader does not, each with why: only
 # writes and values replaced before any use. (corpus file, repo path, why)
 READ_REMOVALS = [
@@ -1815,30 +1900,20 @@ READ_REMOVALS = [
 ]
 
 
-def _tracked_files(root: Path) -> set[str] | None:
-    try:
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, check=True).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return {rel for rel in out.split("\0") if rel}
+def _tracked_files(root: Path) -> frozenset[str] | None:
+    return _git_index(str(root))
 
 
 def differential_corpus(root: Path, tracked: set[str]) -> list[tuple[str, str, str, object]]:
     """(name, script path, source, is_file) for every tracked tests/*.py, every script the real-tree
-    check scans, and DIFFERENTIAL_FIXTURES. Files and their existence come from git (the index, and
-    HEAD for a file a sparse checkout leaves out), so a full and a sparse checkout read the same corpus."""
+    check scans, and DIFFERENTIAL_FIXTURES. Files and their existence come from repo_has/repo_source
+    (git's index), the same answers the real-tree check gets, so a full and a sparse checkout agree."""
     scripts = {rel for rel in tracked if rel.startswith("tests/") and rel.count("/") == 1 and rel.endswith(".py")}
     for workflow, job, _step, entries in non_cone_sparse_steps(root):
         scripts.update(listed_run_scripts(entries, _job_run_text(root, workflow, job), root))
     corpus = []
     for rel in sorted(scripts):
-        path = root / rel
-        if path.is_file():
-            source = path.read_text(encoding="utf-8", errors="replace")
-        else:
-            source = subprocess.run(["git", "-C", str(root), "show", f"HEAD:{rel}"], capture_output=True,
-                                    text=True, errors="replace").stdout
-        corpus.append((rel, rel, source, tracked.__contains__))
+        corpus.append((rel, rel, repo_source(root, rel) or "", lambda path: repo_has(root, path)))
     fixture_files = lambda rel: rel.startswith("docs/") or rel == "tools/run.py"  # noqa: E731
     corpus.extend((name, script, source, fixture_files) for name, script, source in DIFFERENTIAL_FIXTURES)
     return corpus
@@ -1869,6 +1944,10 @@ class SparseReadDifferentialTests(unittest.TestCase):
         self.assertEqual(lost, [], "\n" + "\n".join(lost))
         stale = sorted(allowed - removed)
         self.assertEqual(stale, [], f"READ_REMOVALS entries no longer removed: {stale}")
+        # Every read the current reader finds in a job's run scripts is listed in its sparse checkout or
+        # allowlisted: a77b32f4's reads and its allowlist drifted apart (Native/DiffSidecar/Cargo.toml).
+        unhandled = unhandled_read_misses(ROOT)
+        self.assertEqual(unhandled, [], "\n" + "\n".join(unhandled))
 
     def test_removals_have_reasons(self) -> None:
         for name, rel, why in READ_REMOVALS:
