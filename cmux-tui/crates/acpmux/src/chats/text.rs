@@ -460,14 +460,17 @@ impl ChatText {
 }
 
 /// Not under a lost home (`config::mark_home_lost`), as the chat index saves its own cache: the
-/// home there may be another daemon's now, and the text is user data.
+/// home there may be another daemon's now, and the text is user data. Under a held home the
+/// write goes through the folder this daemon locked (`home_fs`), not its path, so a home replaced
+/// after the check passed never gets the text: it lands in the folder that was moved away, or
+/// nowhere. Whole or not at all: a synced temporary copy renamed over the file.
 fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
     let checked = crate::config::refuse_lost_home(path);
     if let Some(hook) = SAVE_CHECKED.get() {
         hook(checked.is_ok());
     }
     checked?;
-    Ok(cmux_chat_index::write_json_private(path, saved)?)
+    Ok(crate::home_fs::write_index_file(path, &serde_json::to_vec(saved)?)?)
 }
 
 /// Test seam: called on the saving thread between a save's home check and its write, with

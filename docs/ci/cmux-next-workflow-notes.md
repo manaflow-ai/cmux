@@ -2828,6 +2828,9 @@ Above `crash-ends-app` in `.github/workflows/cmux-next.yml`.
 
 The crash gate runs in cmux-scheme-compile on the app that job built. This
 job is its check: red when a crash froze the app instead of ending it.
+A push's compile that a newer push replaced while it waited for its
+concurrency group is no red here: the newer push's run carries the verdict
+(scripts/ci/needs_verdict.py SUPERSEDED_RULE).
 
 ## note-327
 
