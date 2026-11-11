@@ -27,6 +27,22 @@ class CellFilter(unittest.TestCase):
         self.assertEqual(len(cells), 30)
 
 
+class Args(unittest.TestCase):
+    def test_defaults_parse(self):
+        args = journey.parse_args(["--cli", "/bin/true", "--out", "/tmp/ccj-test"])
+        self.assertTrue(args.tag.startswith("ccj-"))
+        self.assertEqual(args.parallel, 1)
+
+    def test_app_needs_its_backend(self):
+        with self.assertRaises(SystemExit):
+            journey.parse_args(["--app", "/x.app", "--out", "/tmp/ccj-test"])
+
+    def test_answer_prompt_holds_its_token(self):
+        prompt, token = journey.answer_prompt("cjabc")
+        self.assertIn("cjabc", prompt)
+        self.assertTrue(token.endswith(" cjabc"))
+
+
 class Actionable(unittest.TestCase):
     def test_bare_retry_is_not(self):
         for message in ("", "Retry", "Something went wrong.", "Cloud start failed", "try again"):

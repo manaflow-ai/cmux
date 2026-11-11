@@ -53,6 +53,7 @@ import json
 import os
 import plistlib
 import random
+import secrets
 import re
 import shutil
 import signal
@@ -92,7 +93,7 @@ def parse_args(argv=None):
     where = parser.add_mutually_exclusive_group(required=True)
     where.add_argument("--app", help="a tagged DEV app bundle to launch, signed in from --credentials-file (CI)")
     where.add_argument("--cli", help="the CLI of a running app (live: the person's own app)")
-    parser.add_argument("--tag", default=f"ccj-{random.token_hex(4)}", help="names this run")
+    parser.add_argument("--tag", default=f"ccj-{secrets.token_hex(4)}", help="names this run")
     parser.add_argument("--cloud-backend", choices=("staging", "prod"))
     parser.add_argument("--expected-api-origin")
     parser.add_argument("--credentials-file")
@@ -183,7 +184,7 @@ class Journey(Matrix):
         value = self.call("debug.page", {"page": "cmux.agent", "action": "query", "selector": selector})
         return [str(e.get("text", "")) for e in (value.get("elements") or []) if isinstance(e, dict)]
 
-    def machines(self) -> dict[str, dict]:
+    def machine_rows(self) -> dict[str, dict]:
         code, out, _ = self.cmux("cloud", "list-machines", "--json", timeout=60)
         rows = (self.parsed(out).get("machines") or []) if code == 0 else []
         return {r["machine_id"]: r for r in rows if isinstance(r, dict) and r.get("machine_id")}
@@ -264,7 +265,7 @@ def new_machines(journey: Journey, before: set[str], since: float) -> list[str]:
     """Machines this app made since the cell began: its own creations first, else new ids not named by
     another run (the account is shared with other CI runs, whose machines are never ours to delete)."""
     ids = {str(r.get("machine_id") or r.get("id") or "") for r in journey.creations()} - {""}
-    rows = journey.machines()
+    rows = journey.machine_rows()
     fresh = {m for m, row in rows.items() if m not in before and not OTHER_RUNS.match(str(row.get("title") or ""))}
     return sorted((ids & set(rows)) | (ids - before) | fresh) if journey.composer else sorted(fresh)
 
@@ -273,7 +274,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
                   team_for_account: str, timeout: int) -> dict:
     cell = {"folder": folder_kind, "account": account, "mode": mode, "driver": "composer", "problems": []}
     problems = cell["problems"]
-    before = set(journey.machines())
+    before = set(journey.machine_rows())
     started = time.monotonic()
 
     # A new agent chat tab, as Agent Chat to New Tab makes it (no focus), then the composer's own picks.
@@ -330,7 +331,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     said_unavailable_before = any(UNAVAILABLE in t for t in journey.page_text(".acpmux-composer, .acpmux-composer-strip"))
 
     # Return.
-    word = f"cj{random.token_hex(4)}"
+    word = f"cj{secrets.token_hex(4)}"
     prompt, reply_token = answer_prompt(word)
     sent = journey.pane("compose_send", pane, text=prompt, timeout=60)
     cell["sent"] = sent.get("sent")
@@ -417,16 +418,16 @@ def cell_cli(journey: Journey, folder_kind: str, folder: Path | None, account: s
         cell["result"] = "skipped: live mode never switches the person's team or mode"
         return cell
     problems = cell["problems"]
-    before = set(journey.machines())
+    before = set(journey.machine_rows())
     started = time.monotonic()
-    word = f"cj{random.token_hex(4)}"
+    word = f"cj{secrets.token_hex(4)}"
     prompt, reply_token = answer_prompt(word)
     words = ["chat", "--on", "vm:new", "--prompt", prompt, "--wait", "--timeout", f"{timeout}s", "--json"]
     if folder is not None:
         words[3:3] = ["--from-folder", str(folder)]
     code, out, err = journey.cmux(*words, timeout=timeout + 120)
     answer = journey.parsed(out) if code == 0 else {}
-    made = sorted((set(journey.machines()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
+    made = sorted((set(journey.machine_rows()) - before) | ({answer["machine_id"]} if answer.get("machine_id") else set()))
     cell["machines_made"] = made
     if code == 0:
         cell["outcome"] = "started"
@@ -461,6 +462,8 @@ def grid(cells: list[dict]) -> str:
     for c in cells:
         result = c.get("result", "")
         mark = "pass" if result == "pass" else ("skip" if result.startswith("skipped") else "**RED**")
+        if mark == "skip":
+            result = result.removeprefix("skipped: ")
         said = "Cloud unavailable" if c.get("said_unavailable") else (c.get("team_tag") or "")
         detail = result if mark != "pass" else ""
         rows.append("| {f} | {a} | {m} | {mark}{d} | {o} | {s} | {chip} | {made} / {left} | {sec} |".format(
@@ -540,7 +543,11 @@ def main(argv=None) -> int:
                 setup = journey.seed_stale_team(team)
                 report["removed_team_after_launch"] = journey.team_id()
             for folder_kind, mode in wanted:
-                if setup:
+                if setup.startswith("no --team"):
+                    # Not a product red: the account has no team to test in. The table says so, and so does the run.
+                    cell = {"folder": folder_kind, "account": account, "mode": mode,
+                            "result": "skipped: not run: the agent account has no team (set CMUX_JOURNEY_PRODUCT_TEAM)"}
+                elif setup:
                     cell = {"folder": folder_kind, "account": account, "mode": mode, "result": f"fail: setup: {setup}"}
                 elif args.app:
                     try:
