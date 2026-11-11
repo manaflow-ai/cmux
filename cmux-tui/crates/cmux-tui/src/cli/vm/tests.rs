@@ -873,3 +873,24 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
     assert!(super::super::surface::VM_POINTER.contains("cmux vm --help"));
     assert!(super::super::surface::MACHINE_CATALOG_HELP.contains("cmux device"));
 }
+
+/// A fork an agent asked for waits on the person's Allow sheet: the CLI prints the app's sentence
+/// saying so, never the bare `ran: true`, `created: []` table that read as a fork with no machine.
+#[test]
+fn a_cloud_verb_waiting_for_allow_says_so() {
+    let params = json!({ "action": "cloud fork-machine" });
+    let waiting = json!({ "ran": true, "created": [], "result": {
+        "pending": true, "awaiting": "allow", "source_machine_id": "vm-abc",
+        "text": "Waiting for your answer in the cmux window: “Fork Cloud Machine”. Nothing changes until you answer.",
+    }});
+    let text = waiting_line(&params, &waiting).unwrap();
+    assert!(
+        text.starts_with("Waiting for your answer in the cmux window: “Fork Cloud Machine”."),
+        "{text}"
+    );
+    // Still working with nothing to ask: the field table, with its `pending: true`.
+    let working = json!({ "result": { "pending": true, "source_machine_id": "vm-abc" } });
+    assert!(waiting_line(&params, &working).is_none());
+    // Only Cloud verbs.
+    assert!(waiting_line(&json!({ "action": "share chat" }), &waiting).is_none());
+}
