@@ -97,7 +97,7 @@ if seeded and mode != "no-sync":
         os.makedirs(state, exist_ok=True)
         saved = {"version": 1, "source": record["browser"] + "/" + record["profileDirectory"],
                  "hosts": {} if mode == "empty-sync" else hosts}
-        open(os.path.join(state, "chrome_Default-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
+        open(os.path.join(state, "seed-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
 if mode in ("sync-crash", "no-sync", "empty-sync"):
     mode = "healthy"
 if mode == "seeded-no-home":

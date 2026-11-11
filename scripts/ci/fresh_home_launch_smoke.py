@@ -45,7 +45,8 @@ later), one that names the first arm's process, or one of another copy of the
 app is logged and kept under --out's not-counted/, never counted. The first
 arm does the same for its launch: a crash of another launch of an app with
 the same executable name on the host (another tagged build on a fleet Mac) is
-not its crash. A report that names no process counts in both arms. Without
+not its crash. A report that names no process is no crash alone, in either
+arm: it counts only beside the end of the launch's app (CRASH_FILTER). Without
 --arms only the empty home is launched, as before.
 
 Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
@@ -111,6 +112,10 @@ FIRST_RUN_MARK = "first_run.history_import_shown"
 # Chromium profile's cookies and keeps them in sync (seed_cookie_sync_home), launched from ROOT/SEEDED.
 EMPTY, SEEDED = "empty", "seeded"
 ARMS = (EMPTY, SEEDED)
+# How both arms match a crash report to their launch, for a caller that chooses the folder to give this tool: by
+# the process the report names (not_of_launch), never by the executable's name and the file's time alone. So the
+# account's real DiagnosticReports folder, which has the reports of every launch on the host, is safe to give.
+CRASH_FILTER = "pid"
 # The seeded arm's verdict when it launched nothing or the app never read the seeded store.
 NOT_RUN = "not-run"
 # Where --out keeps the crash reports the seeded arm found and did not count (not_of_launch says why in the log).
@@ -119,8 +124,10 @@ NOT_COUNTED = "not-counted"
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
 SEEDED_STARTUP_LIMIT = 45.0
 SEEDED_SCAN_WAIT = 30.0
-# The seeded source: the key the app gives a Chrome profile named Default (ImportSourceRecord.sourceKey).
-SEED_BROWSER, SEED_PROFILE = "chrome", "Default"
+# The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
+# app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
+# browser of that table, so it has none to ask for here, whatever a build does with the seeded cookies.
+SEED_BROWSER, SEED_PROFILE = "cmuxLaunchSmoke", "Default"
 # Made-up sites (RFC 2606 names) and how many cookies each has.
 SEED_HOSTS = tuple(f"{sub}example.{tld}" for tld in ("com", "org", "net") for sub in (".", "www.", "app.", "login."))
 SEED_COOKIES_PER_HOST = 20
@@ -162,8 +169,11 @@ def seed_cookie_sync_home(home: Path, bundle_id: str, now: float | None = None) 
 
     The store is not in a browser's own folder, so the app's browser detection finds no browser in this home. No
     baseline is written (BrowserImport/cookie-sync/ stays empty): the sync's first scan then saves its own and
-    reports nothing changed, so the app never asks the Keychain for a browser's key. Returns what the run checks
-    afterwards: the source's key, the baseline folder, and the hosts and rows written.
+    reports nothing changed, so the app imports nothing and never asks the Keychain for a browser's key. That is
+    the app's code of today. The home also holds it: SEED_BROWSER has no Keychain item name in the app and no
+    cookie reader (CookieImporter.read), so a build that imports at its first scan reads no key, cannot import
+    this source, and saves no baseline: the arm is then not-run, never a Keychain dialog on the host. Returns
+    what the run checks afterwards: the source's key, the baseline folder, and the hosts and rows written.
     """
     import sqlite3  # here, so a Python without it is this arm's cannot-run only
 
@@ -586,8 +596,11 @@ def crash_report_launch_time(path: Path) -> float | None:
     return None if stamp is None else stamp[0]
 
 
+NO_PROCESS = "it names no process"
+
+
 def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None,
-                  own: Path | None = None) -> str | None:
+                  own: Path | None = None, *, ended: bool = False) -> str | None:
     """Why the crash report at PATH is not of the launch with PID of the app copy APP, or None when it is or can
     be. crash_reports matches by the executable's name and the file's time alone, and ReportCrash writes a report
     some seconds after its process died: so a report of an EARLIER launch of this run (its app crashed while it
@@ -596,8 +609,10 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     and before which this launch had no process: a report of a process that died before it is never this
     launch's. That time is the only thing that tells an earlier launch's orphaned helper (its parent is pid 1,
     its path is in the same app copy) from this launch's. After it, a report counts when it names this launch or
-    a child of it, or another process of this run's app copy that is not of an earlier launch; one that names
-    neither a time nor a pid counts, as every report did before. OWN is a folder that only this launch writes
+    a child of it, or another process of this run's app copy that is not of an earlier launch. One that names no
+    process (a format this tool does not know, or a report read while macOS writes it) says nothing of whose it
+    is: it counts only when this launch's app ENDED in the watched time, as evidence beside that end, and is no
+    crash alone. OWN is a folder that only this launch writes
     (its part of the run's private root, with its HOME): a process whose program is there is of this launch too,
     as a detached daemon that the app put in its home is."""
     died = crash_report_time(path) if started is not None else None
@@ -612,7 +627,9 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
         return (f"its process was started at {datetime.fromtimestamp(born, timezone.utc):%H:%M:%S}Z, "
                 f"{started - born:.1f}s before this launch started")
     who = crash_report_process(path)
-    if who is None or pid in (who["pid"], who["parent"]):
+    if who is None:
+        return None if ended else f"{NO_PROCESS}, and this launch's app did not end"
+    if pid in (who["pid"], who["parent"]):
         return None
     if who["pid"] in earlier or who["parent"] in earlier:
         return f"it is of pid {who['pid']}, this run's earlier launch"
@@ -835,7 +852,7 @@ def launch_crash_reports(diagnostics: Path, executable: str, since: float, exite
     not_counted: dict[Path, str] = {}
 
     def skip(found: Path) -> str | None:
-        why = not_of_launch(found, pid, app, earlier, started, own)
+        why = not_of_launch(found, pid, app, earlier, started, own, ended=exited)
         if why is None:
             not_counted.pop(found, None)
         else:
@@ -843,6 +860,9 @@ def launch_crash_reports(diagnostics: Path, executable: str, since: float, exite
         return why
 
     crashes = awaited_crash_reports(diagnostics, executable, since, exited, skip)
+    if not crashes and any(why.startswith(NO_PROCESS) for why in not_counted.values()):
+        time.sleep(2)  # a report that was read while macOS wrote it names its process by now
+        crashes = awaited_crash_reports(diagnostics, executable, since, False, skip)
     return crashes, {found: not_counted[found] for found in sorted(not_counted) if found not in crashes}
 
 
@@ -926,8 +946,9 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         arm.update(verdict="fail", failures=seen["failures"])
     elif seen["cookie_sync"]["scanned_at"] is None:
         arm.update(verdict=NOT_RUN, reason=f"the app stayed up {elapsed:.0f}s with Home rendered, but its cookie sync "
-                   "did not read the seeded store (a build with no cookie sync, or one whose import store this tool "
-                   "does not make)")
+                   "did not read the seeded store (a build with no cookie sync, one whose import store this tool "
+                   "does not make, or one that imports cookies at its first scan: the seed's browser cannot be "
+                   "imported)")
     elif not seen["cookie_sync"]["scanned_hosts"]:
         # A baseline of no site: the sync opened the store and kept none of its rows, so this was not a launch
         # with "a cookie store with rows".
@@ -1039,8 +1060,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         stop(own_pids(root))
     # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
-    # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch); one that names no
-    # process counts, as every report did before.
+    # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
     # ROOT: while this arm runs, all that is under the run's private root is this launch's.
     crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
                                                 process.pid, app, frozenset(), launched_wall, root)
