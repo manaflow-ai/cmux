@@ -217,28 +217,80 @@ def frame_legacy(job, text):
 UNKNOWN = {"step_names": excuse.STEP_NAMES_UNKNOWN}
 
 
-def scaling_ratio(build, n, repeats=3):
+def scaling_ratio(build, n, repeats=3, min_seconds=0.005):
     """How a cost grows, with no wall-clock bound (#41236's review: a 0.04 s step failed a 0.5 s bound in a full run
-    on a loaded host). BUILD(size) makes the inputs and returns the call to time; the call runs REPEATS times at N
-    and at 4N in this process, and the answer is (best at 4N / best at N, best at N, best at 4N), in this process's
-    CPU seconds, so other processes' turns count on neither side. Linear gives about 4, quadratic about 16: a test
-    asserts well under quadratic (SCALING_LIMIT) and picks N so the N case is far above the timer's resolution."""
+    on a loaded host). BUILD(size) makes the inputs and returns the call to time. The call is timed at N and at 4N in
+    this process, the two sizes in turn so a burst of load hits both, each sample repeating the call until it takes
+    MIN_SECONDS (the same count at both sizes), the garbage collector off, best of REPEATS each, in this process's CPU
+    seconds (time.process_time), so other processes' turns count on neither side; leo-workspace's
+    tools/scaling_check.py is the same protocol. The answer is (best at 4N / best at N, best at N, best at 4N). Linear
+    gives about 4, quadratic about 16: a test asserts well under quadratic (SCALING_LIMIT, assert_scales)."""
+    import gc
+    import math
     import time
 
-    best = {}
-    for size in (n, 4 * n):
-        run = build(size)
-        took = []
-        for _ in range(repeats):
+    small, large = build(n), build(4 * n)
+
+    def sample(run, loops):
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
             began = time.process_time()
-            run()
-            took.append(time.process_time() - began)
-        best[size] = min(took)
-    return best[4 * n] / max(best[n], 1e-9), best[n], best[4 * n]
+            for _ in range(loops):
+                run()
+            return (time.process_time() - began) / loops
+        finally:
+            if enabled:
+                gc.enable()
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))  # the first call also warms caches
+    best_small = best_large = math.inf
+    for _ in range(repeats):
+        best_small = min(best_small, sample(small, loops))
+        best_large = min(best_large, sample(large, loops))
+    return best_large / max(best_small, 1e-9), best_small, best_large
 
 
 # The most a 4x larger input may cost relative to the smaller one: linear is about 4, quadratic about 16.
 SCALING_LIMIT = 8
+# A hang guard for one assert_scales, never a timing bound: what it guards is how the time grows.
+SCALING_CEILING = 120
+
+
+class ScalingHang(Exception):
+    pass
+
+
+def scaling_failure(build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """None when BUILD's call at 4N costs under SCALING_LIMIT times its cost at N (scaling_ratio) in one of ATTEMPTS
+    measurements (super-linear code is over it every time, a burst of load only once), else why not. A measurement
+    still running after CEILING seconds is a failure too (SIGALRM, a hang guard: the quadratic reading this replaced
+    would run for minutes)."""
+    import signal
+
+    def expire(signum, frame):
+        raise ScalingHang()
+    tries = []
+    old = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, ceiling)
+    try:
+        for _ in range(attempts):
+            ratio, small, large = scaling_ratio(build, n)
+            if ratio < SCALING_LIMIT:
+                return None
+            tries.append(f"{ratio:.1f}x ({small:.4f} CPU s at {n:,}, {large:.4f} at {4 * n:,})")
+    except ScalingHang:
+        tries.append(f"still running after {ceiling} s (a hang guard, not a timing bound)")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    return (f"{label}: 4x the input took {', then '.join(tries)}; linear is about 4x and quadratic 16x, the bound is "
+            f"{SCALING_LIMIT}x: the reading is super-linear in its input")
+
+
+def assert_scales(case, build, n, label, attempts=3, ceiling=SCALING_CEILING):
+    """Fail CASE unless BUILD's call scales under SCALING_LIMIT from N to 4N (scaling_failure)."""
+    if failure := scaling_failure(build, n, label, attempts, ceiling):
+        case.fail(failure)
 
 
 def placed_signature(job, text, base=False):
@@ -7880,9 +7932,7 @@ class StepOwnership(unittest.TestCase):
                     said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
                     self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want, f"{count:,} {label}")
                     return lambda: excuse.step_owners(job, log_text, **UNKNOWN)
-                ratio, small, large = scaling_ratio(build, n)
-                self.assertLess(ratio, SCALING_LIMIT, f"step_owners for {label}: {small:.4f} CPU s at {n:,}, "
-                                f"{large:.4f} at {4 * n:,} ({ratio:.1f}x for 4x the input; linear is about 4)")
+                assert_scales(self, build, n, f"step_owners for {label}")
 
     def test_every_case_has_its_test(self):
         self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
@@ -10790,6 +10840,32 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
 
 
+def one_step_flood(headers, steps):
+    """(job, log, step_names, the own headers' line numbers): STEPS workflow steps, step K from second 100 + 10K to
+    105 + 10K with its `Run x` header at its start, and the middle step printing the rest of HEADERS `Run x` lines in
+    its own times (a composite's inner steps, a script's `::group::Run`)."""
+    def at(second):
+        return f"2026-11-10T{clock(second)}Z"
+    flooded = steps // 2
+    job = {"steps": [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+                      "started_at": at(0), "completed_at": at(2)}]}
+    job["steps"] += [{"number": k + 2, "name": f"Step {k}", "status": "completed", "conclusion": "success",
+                      "started_at": at(100 + 10 * k), "completed_at": at(105 + 10 * k)} for k in range(steps)]
+    last = 105 + 10 * (steps - 1)
+    job["steps"].append({"number": steps + 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                         "started_at": at(last), "completed_at": at(last)})
+    names = excuse.StepNames({k + 2: True for k in range(steps)})
+    names.headers = {k + 2: ("Run x", True, False) for k in range(steps)}
+    lines, own = [f"{at(1.0)} Current runner version: '2.338.2'"], []
+    inner = headers - steps
+    for k in range(steps):
+        own.append(len(lines))
+        lines.append(f"{at(100.0 + 10 * k)} ##[group]Run x")
+        if k == flooded:
+            lines += [f"{at(100.0 + 10 * k + 4 * (n + 1) / (inner + 1))} ##[group]Run x" for n in range(inner)]
+    return job, "\n".join(lines), names, own
+
+
 class AlignedStartsIsLinear(unittest.TestCase):
     """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
     headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
@@ -10813,9 +10889,32 @@ class AlignedStartsIsLinear(unittest.TestCase):
             args = self.bench.reading_inputs(job, log_text)
             self.assertIsNone(excuse._aligned_starts(*args, names))  # every header fits every step: ambiguous
             return lambda: excuse._aligned_starts(*args, names)
-        ratio, small, large = scaling_ratio(build, 5_000)
-        self.assertLess(ratio, SCALING_LIMIT, f"_aligned_starts: {small:.4f} CPU s at 5,000 headers, {large:.4f} at "
-                        f"20,000 ({ratio:.1f}x for 4x the input; linear is about 4)")
+        assert_scales(self, build, 5_000, "_aligned_starts over 10 steps")
+
+    def test_twenty_steps_of_twenty_thousand_same_second_headers_cost_linear_in_the_headers(self):
+        # #41220's review at 9ae6ba5d, F1: "_aligned_starts expands `ways` to every matching header, and for each state
+        # on each step it scans all later starts. That's O(steps x starts^2). A PR-controlled log (a step printing
+        # `##[group]Run ...` 20,000 times, with 20 steps, within the new limits) takes billions of iterations, so the
+        # classifier hangs and gives no verdict." 5,000 and 20,000 (ALIGN_MAX_STARTS, the most it reads) same-second
+        # headers over 20 steps, each ambiguous (None: the whole-log comparison reads it, never an excuse). At
+        # 9ae6ba5d the 5,000 case alone runs for minutes, so assert_scales' hang guard fails it; now about 0.02 and
+        # 0.09 CPU s, a ratio near 4.
+        def build(headers):
+            job, log_text, names = self.bench.same_second_case(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertIsNone(excuse._aligned_starts(*args, names))
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts over 20 steps")
+
+    def test_a_step_printing_twenty_thousand_headers_is_still_placed(self):
+        # The same 20,000 headers in one of 20 steps, the others each in a second of its own: one choice fits, so the
+        # log is placed (each step's own header its first), at both sizes and linear in the headers.
+        def build(headers):
+            job, log_text, names, own = one_step_flood(headers, 20)
+            args = self.bench.reading_inputs(job, log_text)
+            self.assertEqual(excuse._aligned_starts(*args, names), own, f"{headers:,} headers")
+            return lambda: excuse._aligned_starts(*args, names)
+        assert_scales(self, build, 5_000, "_aligned_starts, one step's headers")
 
     def test_the_real_logs_read_the_same(self):
         fixtures = ROOT / "tests/fixtures/base_red_excuse_step_mapping"
@@ -10876,6 +10975,377 @@ class AlignedStartsIsLinear(unittest.TestCase):
         # Both answers are exercised, not only "nothing placed".
         self.assertGreater(placed, 100)
         self.assertGreater(refused, 100)
+
+
+def hostile_block(i):
+    """One block of HostileLog: a line each parser of base_red_excuse.py and test_reds.py looks for (a compile error,
+    each test runner's failure and summary, a crash, a rollup's and a ratchet's red, bun's and the gallery's lines, a
+    mangled Swift frame), each naming its own test I so nothing is deduplicated away, and openers left unclosed."""
+    return [f"Sources/A{i}.swift:{i}:1: error: boom {i}", f"\u2718 Test t{i}() recorded an issue at A.swift:1:1: x",
+            f"\u25c7 Test t{i}() started.", f"\u2718 Test t{i}() failed after 0.1 seconds with 1 issue.",
+            f"\u2718 Suite S{i} failed", f"Test Case '-[Mod.Suite test{i}]' started.",
+            f"Test Case '-[Mod.Suite test{i}]' failed (0.1 seconds).", f"FAILED: Mod / Suite{i} / test{i}()",
+            f"test m::t{i} ... FAILED", "test result: FAILED. 1 passed; 1 failed; 0 ignored",
+            f"thread 't{i}' panicked at src/a.rs:1:1:", f"FAIL: test_{i} (a.B)", "FAILED (failures=1)",
+            f"FAILED tests/test_a.py::test_{i}", "===== 1 failed, 2 passed in 0.10s =====",
+            "\u2718 Test run with 3 tests in 1 suite failed after 1.0 seconds with 1 issue.",
+            "bun test v1.2.0", f"webviews/test/a{i}.test.ts:", f"(fail) suite > t{i} [1.00ms]",
+            "error: expect(received).toBe(expected)", f"      at <anonymous> (/w/webviews/test/a{i}.test.ts:1:1)",
+            " 1 fail", f"FAIL webviews/test/a{i}.test.ts", f"##[error]red check: c{i}", f"- c{i} (failure)",
+            f"RED crate lint{i} where", "error: exited with unexpected signal code 11",
+            f"Process 'helper{i}' exited with unexpected signal code 11", f"0 Mod $s3Mod5SuiteC5test{i}yyF + 12",
+            "Test Suite 'All tests' started at 2026-11-10 12:00:00", "::group::x", "  shell: bash", "##[endgroup]",
+            "##[warning]w", '\u2718 Test "never closed (x', "\u25c7 Test a( ${{ <!-- (signal: Test Case '-[ at /w/"]
+
+
+class HostileLog:
+    """A red job's log N blocks long (hostile_block), in its failing step "Tests" after a passing "Build": LOG, and
+    FLOOD, the same with a `##[group]Run` header opening each block (so step_owners cannot place it). Its lines keep
+    one length at every N: what grows is the log, as a PR's test output can make it grow."""
+
+    def __init__(self, n):
+        self.n = n
+        steps = [("Build", "success", 3, 5), ("Tests", "failure", 20, 40)]
+        self.job = {"steps": framed_steps(steps)}
+
+        def rows(headers):
+            out = [("Build", 3, "##[group]Run make"), ("Build", 4, NEGATIVE_CASE), ("Tests", 20, "##[group]Run tests")]
+            for i in range(n):
+                at = 20 + i * 18 / n
+                if headers:
+                    out.append(("Tests", at, f"##[group]Run case {i}"))
+                out += [("Tests", at, text) for text in hostile_block(i)]
+            return [*out, ("Tests", 39, EXIT)]
+        self.log, self.flood = framed_log(rows(False)), framed_log(rows(True))
+        self.lines = excuse.test_reds.lines_of(self.log)
+        self.raw = self.log.splitlines()
+        self.view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=False)
+        self.base_view = excuse.failed_view(self.job, self.log, **UNKNOWN, base=True)
+        self.windows = [(excuse._stamp_time(step["started_at"]),
+                         excuse._stamp_time(step["completed_at"]) + excuse.timedelta(seconds=1))
+                        for step in self.job["steps"]]
+
+
+def _package():
+    return next(iter(excuse.PACKAGE_JOBS.values()))
+
+
+TR = excuse.test_reds
+# Every reader of a PR's log in base_red_excuse.py and test_reds.py (PrLogReadersScale finds them: a function with a
+# parameter READER_PARAMS names and no `github`), each as the call the sweep times on HostileLog(N) and (4N).
+SCANNERS = {
+    "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
+    "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
+    "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    "base_red_excuse.lines_of": lambda f: excuse.lines_of(f.log),
+    "base_red_excuse.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
+                                              excuse.step_owners(f.job, f.flood, **UNKNOWN)),
+    "base_red_excuse._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
+    "base_red_excuse._one_to_one_starts": lambda f: excuse._one_to_one_starts(
+        [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
+    "base_red_excuse.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
+    "base_red_excuse.failed_view": lambda f: excuse.failed_view(f.job, f.log, **UNKNOWN, base=False),
+    "base_red_excuse.view_text": lambda f: excuse.view_text(f.view),
+    "base_red_excuse.signature": lambda f: (excuse.signature(f.view), excuse.signature(f.base_view)),
+    "base_red_excuse.unnamed_tests": lambda f: excuse.unnamed_tests(f.view),
+    "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
+    "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
+    "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
+    "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
+    "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
+    "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
+    "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
+    "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
+    "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
+    "base_red_excuse.swift_without_comments": lambda f: excuse.swift_without_comments(f.log),
+    "base_red_excuse.package_tests": lambda f: excuse.package_tests(_package(), f.view),
+    "base_red_excuse.guard_tests": lambda f: excuse.guard_tests(f.view),
+    "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
+    "base_red_excuse.step_unnamed": lambda f: excuse.step_unnamed(f.view, "Tests"),
+    "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
+    "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
+    "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
+    "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
+        [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
+    "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
+    "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
+    "test_reds.echoed": lambda f: TR.echoed(f.lines),
+    "test_reds.passed_steps": lambda f: TR.passed_steps(f.lines),
+    "test_reds.volatile": lambda f: TR.volatile(f.log),
+    "test_reds.log_lines": lambda f: TR.log_lines(f.log),
+    "test_reds.lines_of": lambda f: TR.lines_of(f.log),
+    "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
+    "test_reds.failed_names": lambda f: TR.failed_names(f.lines),
+    "test_reds.unnamed_failures": lambda f: TR.unnamed_failures(f.lines),
+    "test_reds.bun_unnamed": lambda f: TR.bun_unnamed(f.lines),
+    "test_reds.failed_tests": lambda f: TR.failed_tests(f.lines, []),
+    "test_reds.issue_sites": lambda f: TR.issue_sites(f.lines),
+    "test_reds._words": lambda f: TR._words(f.log, []),
+    "test_reds._identifier": lambda f: TR._identifier("9" * 9 + f.log, 0, []),
+    "test_reds.demangle_test": lambda f: TR.demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds._demangle_test": lambda f: TR._demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
+    "test_reds.crashed_tests": lambda f: TR.crashed_tests(f.lines, set()),
+    "test_reds.signal_of": lambda f: TR.signal_of(f.log),
+    "test_reds.bun_diagnostic": lambda f: TR.bun_diagnostic(f.lines, "a.test.ts:1"),
+    "test_reds.read_bun": lambda f: TR.read_bun(f.lines, TR.Result()),
+    "test_reds.read": lambda f: TR.read(f.log),
+    "test_reds.parse_log": lambda f: TR.parse_log(f.log),
+    "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
+    "test_reds.exported_observations": lambda f: TR.exported_observations(f.lines),
+    "test_reds.observations": lambda f: TR.observations(f.log),
+    "test_reds._observations": lambda f: TR._observations(f.log),
+    "test_reds.flaky_failures": lambda f: TR.flaky_failures(f.log, "job", "wf.yml", {"schema": "tap-tests/v1"}),
+    "test_reds.classify": lambda f: TR.classify(f.log, f.log),
+    "test_reds.classify_any": lambda f: TR.classify_any(f.log, [("base", f.log)]),
+    "test_reds.web_head_part": lambda f: TR.web_head_part(f.log),
+    "test_reds.web_failures": lambda f: TR.web_failures(f.log),
+    "test_reds.merged_web": lambda f: TR.merged_web([f.log]),
+    "test_reds.web_head": lambda f: TR.web_head([f.log]),
+    "test_reds.web_compare": lambda f: TR.web_compare(["x"], TR.web_failures(f.log), [f.log], "the base"),
+    "test_reds.classify_web": lambda f: TR.classify_web([f.log], [f.log]),
+    "test_reds.classify_web_window": lambda f: TR.classify_web_window([f.log], [("base", [f.log])]),
+    "test_reds.web_cut_short": lambda f: TR.web_cut_short(f.log),
+    "test_reds.web_base_red_files": lambda f: TR.web_base_red_files([f.log]),
+    "test_reds.classify_web_cut_short": lambda f: TR.classify_web_cut_short(f.log, [("base", [f.log])]),
+    "test_reds.bisect_report": lambda f: TR.bisect_report(f.log),
+    "test_reds.gallery_read": lambda f: TR.gallery_read(f.log),
+    "test_reds.gallery_states": lambda f: TR.gallery_states(f.log),
+    "test_reds.gallery_entries": lambda f: TR.gallery_entries(f.log),
+    "test_reds.gallery_classify": lambda f: TR.gallery_classify(f.log, f.log),
+}
+# Readers the sweep does not time, each with why.
+NOT_SWEPT = {
+    "base_red_excuse._aligned_starts": "timed on its own adversarial shapes (AlignedStartsIsLinear): it reads a "
+                                       "workflow's headers, which HostileLog has none of",
+    "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
+                                      "test_reds.classify_web_window, each swept",
+    "test_reds._kept": "the parse cache: it calls the reader it is given",
+}
+
+
+class PrLogReadersScale(unittest.TestCase):
+    """#41220's review at 9ae6ba5d, F1's class: "classifier cost driven by PR-controlled log size. Detector: add
+    base_red_excuse's log parsers to the lazy-regex/scaling sweep (SCANNERS), so every parser that reads PR logs gets
+    an adversarial-shape scaling test." Each reader in SCANNERS is timed on HostileLog at N and 4N blocks
+    (assert_scales: a ratio, never seconds); a new reader of a PR's log fails the sweep until it is in SCANNERS (or in
+    NOT_SWEPT with why). PrLogPatternsScale does the same for each pattern on a long line."""
+    READER_PARAMS = {"log", "head_log", "base_log", "view", "head_view", "lines", "texts", "stack", "said", "text",
+                     "head_text", "base_text", "head_logs", "base_logs", "logs", "symbol"}
+    N = 150  # where a per-path replace already reads about 10x (normalise_error at 9ae6ba5d; 7.7x at 60)
+
+    def readers(self):
+        found = set()
+        for name in ("base_red_excuse", "test_reds"):
+            tree = ast.parse((ROOT / "scripts/ci" / f"{name}.py").read_text())
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    args = node.args
+                    params = {a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+                    if params & self.READER_PARAMS and "github" not in params:  # a fetcher reads through the readers
+                        found.add(f"{name}.{node.name}")
+        return found
+
+    def test_every_reader_of_a_pr_log_is_swept(self):
+        found = self.readers()
+        self.assertEqual(found - SCANNERS.keys() - NOT_SWEPT.keys(), set(),
+                         "a reader of a PR's log with no scaling check: add it to SCANNERS (its call on HostileLog)")
+        self.assertEqual((SCANNERS.keys() | NOT_SWEPT.keys()) - found, set(), "a stale SCANNERS or NOT_SWEPT entry")
+        self.assertFalse(SCANNERS.keys() & NOT_SWEPT.keys())
+
+    def test_every_reader_costs_linear_in_the_log(self):
+        logs = {}
+
+        def make(size):
+            if size not in logs:
+                logs[size] = HostileLog(size)
+            return logs[size]
+        self.assertIsInstance(make(self.N).view, excuse.FailedView)  # placed: the view readers read every line
+        for name, call in SCANNERS.items():
+            with self.subTest(reader=name):
+                def build(size, call=call):
+                    log = make(size)
+
+                    def run():
+                        try:
+                            call(log)
+                        except excuse.Refused:
+                            pass  # a refusal is an answer: it is timed like one
+                    return run
+                assert_scales(self, build, self.N, name)
+
+
+# The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
+OPENER_CANDIDATES = "xa0 _-./:<>\"'=#@!,;()[]{}|*+?$^%&~`\\Z9A"
+
+
+def _class_takes(ch, items):
+    import re._constants as constants  # python 3.11 and later, as scripts/ci requires
+    negate = hit = False
+    for op, av in items:
+        if op is constants.NEGATE:
+            negate = True
+        elif op is constants.LITERAL:
+            hit |= ord(ch) == av
+        elif op is constants.RANGE:
+            hit |= av[0] <= ord(ch) <= av[1]
+        elif op is constants.CATEGORY:
+            word = ch.isalnum() or ch == "_"
+            hit |= {"CATEGORY_DIGIT": ch.isdigit(), "CATEGORY_NOT_DIGIT": not ch.isdigit(),
+                    "CATEGORY_SPACE": ch.isspace(), "CATEGORY_NOT_SPACE": not ch.isspace(),
+                    "CATEGORY_WORD": word, "CATEGORY_NOT_WORD": not word}.get(str(av), False)
+    return hit != negate
+
+
+def regex_openers(pattern, flags):
+    """The shortest text that reaches each repeat of PATTERN (greedy, lazy or possessive) and each branch's end, one
+    character per class: hq's tools/agent-guards/test_lazy_regex_sweep.py's openers, for every repeat, since a greedy
+    `.*` before a literal reads to the line's end from each opener as a lazy one does."""
+    import re._constants as constants
+    import re._parser as parser
+    out, groups, found = [], {}, []
+
+    def walk(items):
+        for op, av in items:
+            if op is constants.LITERAL:
+                out.append(chr(av))
+            elif op is constants.NOT_LITERAL:
+                out.append("y" if av == ord("x") else "x")
+            elif op is constants.ANY:
+                out.append("x")
+            elif op is constants.IN:
+                out.append(next((c for c in OPENER_CANDIDATES if _class_takes(c, av)), "x"))
+            elif op in (constants.MAX_REPEAT, constants.MIN_REPEAT, constants.POSSESSIVE_REPEAT):
+                low, _, sub = av
+                found.append("".join(out))
+                for _ in range(low):
+                    walk(sub)
+            elif op is constants.SUBPATTERN:
+                start = len("".join(out))
+                walk(av[-1])
+                if av[0]:
+                    groups[av[0]] = "".join(out)[start:]
+            elif op is constants.ATOMIC_GROUP:
+                walk(av)
+            elif op is constants.BRANCH:
+                kept = list(out)
+                for branch in av[1]:
+                    walk(branch)
+                    found.append("".join(out))
+                    out[:] = kept
+                walk(av[1][0])  # what follows reads on from the first branch
+            elif op is constants.GROUPREF:
+                out.append(groups.get(av, ""))
+            elif op is constants.GROUPREF_EXISTS:
+                walk(av[1])
+    walk(parser.parse(pattern, flags))
+    return [opener.replace("\n", " ") for opener in dict.fromkeys(found) if opener]
+
+
+def module_patterns():
+    """(name, pattern) for each compiled pattern of base_red_excuse.py and test_reds.py at module level, alone or in a
+    tuple or list (test_reds.FAILED)."""
+    for module in (excuse, excuse.test_reds):
+        short = "test_reds" if module is excuse.test_reds else "base_red_excuse"
+        for key, value in vars(module).items():
+            if isinstance(value, re.Pattern):
+                yield f"{short}.{key}", value
+            elif isinstance(value, (tuple, list)):
+                for index, item in enumerate(value):
+                    if isinstance(item, re.Pattern):
+                        yield f"{short}.{key}[{index}]", item
+
+
+# Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
+# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
+# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+KNOWN_SUPERLINEAR = {
+    "base_red_excuse.ANSI": "an OSC escape (`\\x1b]`) never closed by BEL or ESC \\\\ reads to the end",
+    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
+    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
+    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
+    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
+    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
+    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
+    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
+    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
+    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
+    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+}
+
+
+class PrLogPatternsScale(unittest.TestCase):
+    """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
+    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
+    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
+    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
+    KNOWN_SUPERLINEAR."""
+    LINE = 3000
+    MEASURABLE = 0.0005
+    MOST = 200_000
+    CEILING = 10
+
+    def superlinear(self):
+        import gc
+        import signal
+        import time
+
+        def once(rx, text):
+            gc.disable()
+            try:
+                began = time.process_time()
+                for _ in rx.finditer(text):
+                    pass
+                return time.process_time() - began
+            finally:
+                gc.enable()
+        def expire(signum, frame):
+            raise ScalingHang()
+        previous = signal.getsignal(signal.SIGALRM)
+        found, seen = {}, 0
+        for name, rx in module_patterns():
+            for opener in regex_openers(rx.pattern, rx.flags):
+                seen += 1
+                if name in found:
+                    continue  # one opener is enough
+                count = max(1, self.LINE // len(opener))
+
+                def build(size, rx=rx, opener=opener):
+                    text = opener * size
+                    return lambda: [None for _ in rx.finditer(text)]
+                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+                signal.signal(signal.SIGALRM, expire)
+                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+                try:
+                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
+                            and 16 * count * len(opener) <= self.MOST:
+                        count *= 4
+                    large = min(once(rx, opener * 4 * count) for _ in range(2))
+                except ScalingHang:
+                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+                    continue
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous)
+                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                    continue
+                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
+                if name in KNOWN_SUPERLINEAR:
+                    found.setdefault(name, f"{large / small:.1f}x")
+                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                    found.setdefault(name, why)
+        return found, seen
+
+    def test_every_pattern_costs_linear_in_a_line(self):
+        found, seen = self.superlinear()
+        self.assertGreater(seen, 300, "the sweep found the patterns")
+        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
+        self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
+                         "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
+        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
+                         "linear now: drop it from KNOWN_SUPERLINEAR")
 
 
 if __name__ == "__main__":

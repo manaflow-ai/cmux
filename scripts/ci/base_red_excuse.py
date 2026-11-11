@@ -1072,6 +1072,17 @@ def _marker(index: int) -> str:
     return f"\0{letters}\0"
 
 
+MARKER = re.compile("\0([a-z]+)\0")
+
+
+def _marker_index(letters: str) -> int:
+    """The keep-list index _marker wrote as LETTERS."""
+    index = 0
+    for letter in letters:
+        index = index * 26 + ord(letter) - ord("a") + 1
+    return index - 1
+
+
 def mask_shas(text: str) -> str:
     """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
     return _sub_shas(text)
@@ -1101,9 +1112,12 @@ def normalise_error(text: str) -> str:
     # after the colon, is still masked.
     said = FILE_NAME.sub(keep_path, said)
     said = re.sub(r"\d+", "#", said)
-    for index, id_ in enumerate(kept):
-        said = said.replace(_marker(index), id_)
-    return said
+    # Each marker back to its id in one pass (a replace per id read the whole line once per path on it: a PR's line
+    # of N paths took N^2, PrLogReadersScale).
+    def restore(match: re.Match[str]) -> str:
+        index = _marker_index(match[1])
+        return kept[index] if index < len(kept) else match[0]
+    return MARKER.sub(restore, said) if kept else said
 
 
 def lines_of(log: str) -> list[str]:
@@ -3985,8 +3999,11 @@ ROLLUP_ANNOTATION = re.compile(r"^red check: (.+)$")
 # four markers hid the fifth). Every page of them is read (#41104's review F1: a first page of 100 can hide markers).
 ANNOTATION_STEP_CAP = 10
 EXIT_ANNOTATION = re.compile(r"^Process completed with exit code \d+\.?$")
-# A compiler's error line: `path/File.swift:12:5: error: message` (the column optional).
-COMPILE_ERROR = re.compile(r"([^\s:'\"]*[\w.+-]+\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
+# A compiler's error line: `path/File.swift:12:5: error: message` (the column optional). The path starts where a run
+# of path characters does (the lookbehind), and ends in one name character before its `.ext`: the same matches as
+# `[^\s:'"]*[\w.+-]+\.`, whose two overlapping repeats, tried from every character of the run, took more than 5 s on
+# one 12,000-character line of `x.x` (PrLogPatternsScale).
+COMPILE_ERROR = re.compile(r"(?<![^\s:'\"])([^\s:'\"]*[\w.+-]\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
 # The per-step reading is for one caller only: update_branch's choice to merge the base in, which only makes CI run
 # again. A land (merge_hold's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
 PER_STEP_PURPOSE = "update-branch"
