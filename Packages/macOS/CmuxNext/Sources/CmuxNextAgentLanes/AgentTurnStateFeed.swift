@@ -57,8 +57,8 @@ public final class AgentTurnStateFeed {
     /// A refused page's wait before it is asked again (acpmux paces list reads, `list.paced`).
     private var pageRetry: Task<Void, Never>?
     private var pageBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-    /// A list read again on the open connection after dropped lines (``resync()``) and not yet whole.
-    private var resyncing = false
+    /// The list read again on the open connection after dropped lines (``resync()``).
+    private var relist = AgentListResync()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
     /// - Parameters:
@@ -122,7 +122,7 @@ public final class AgentTurnStateFeed {
         usageRead = ([:], false, 0)
         paging = nil
         pageAsked = nil
-        resyncing = false
+        relist = AgentListResync()
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
         // line (MainActorLineBatch), and a chat's pushes while one waits are its newest alone
         // (`Message.key`). The main actor only sets the states that changed.
@@ -138,12 +138,17 @@ public final class AgentTurnStateFeed {
     }
 
     /// The list read again on the open watch after it dropped lines: the states stay on screen
-    /// meanwhile, and a read still out covers later drops too. It reconnected instead, which
+    /// meanwhile. A drop while that read is out is read once more after it lands
+    /// (``AgentListResync``): the read may predate what was dropped. It reconnected instead, which
     /// cleared every state and read the whole list again on each overflow (the app sent 31 MB
     /// list reads about seven times a minute on one Mac, 2026-11-11: "im at 100% cpu rn").
     private func resync() {
-        guard let subscription, !resyncing else { return }
-        resyncing = true
+        guard subscription != nil, relist.overflowed() else { return }
+        sendRelist()
+    }
+
+    private func sendRelist() {
+        guard let subscription else { return }
         paging = nil
         pageAsked = nil
         pageRetry?.cancel()
@@ -231,8 +236,12 @@ public final class AgentTurnStateFeed {
         /// One `_acpmux/peer_state_changed`: peer `peer`'s link is now `state` (connected,
         /// connecting, degraded, reconnecting or offline; a removed peer's last is offline).
         case peerState(peer: String, state: String)
-        /// acpmux refused a list page (id 2 or 4): it paces list reads (`list.paced`).
+        /// acpmux refused a list page (id 2 or 4) because it paces list reads (`list.paced`):
+        /// asked again after a wait.
         case pageRefused
+        /// acpmux answered a list page (id 2 or 4) with any other error (invalid params, an unknown
+        /// cursor): asking again would fail the same way, so the watch reconnects (with its backoff).
+        case pageFailed(String)
 
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
         /// same: each carries the chat's whole row. A purge is never replaced, nor anything else.
@@ -248,8 +257,10 @@ public final class AgentTurnStateFeed {
             let id = (message["id"] as? NSNumber)?.intValue
             if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
                 self = .page(AgentWatchPage(result: result), continued: id == 4)
-            } else if id == 2 || id == 4, message["error"] != nil {
-                self = .pageRefused
+            } else if id == 2 || id == 4, let error = message["error"] {
+                let fields = error as? [String: Any]
+                let reason = (fields?["data"] as? [String: Any])?["reason"] as? String
+                self = reason == "list.paced" ? .pageRefused : .pageFailed(fields?["message"] as? String ?? "\(error)")
             } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
                 let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
@@ -326,9 +337,10 @@ public final class AgentTurnStateFeed {
             }
             paging = nil
             pageAsked = nil
-            resyncing = false
             pageBackoff.reset()
             applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
+            // Lines dropped while that read was out: read the list once more.
+            if relist.listArrived() { sendRelist() }
             if !self.lanes.live { self.lanes.live = true }
             // A fresh page (the first, or after a reconnect): the peer list is read again.
             if !isMirror { peerStateChanged?(nil, nil) }
@@ -356,6 +368,11 @@ public final class AgentTurnStateFeed {
             if !isMirror { peerStateChanged?(peer, state) }
         case .pageRefused:
             retryPage()
+        case .pageFailed(let why):
+            logger.error("agent turn states: the list read failed (\(why, privacy: .public)); reconnecting")
+            guard let connection = subscription else { return }
+            connection.cancel()
+            lost(connection)
         }
     }
 
@@ -364,7 +381,7 @@ public final class AgentTurnStateFeed {
         subscription = nil
         paging = nil
         pageAsked = nil
-        resyncing = false
+        relist = AgentListResync()
         pageRetry?.cancel()
         pageRetry = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
@@ -406,5 +423,35 @@ public final class AgentTurnStateFeed {
         directoryWatch = source
         watchedDirectory = directory
         source.resume()
+    }
+}
+
+/// Whether the turn-state watch reads its list again after dropped lines: at once when no read is
+/// out, else once more after the read out lands (lines dropped meanwhile may postdate what that
+/// read saw). Before, a drop during a read was ignored and the read's end cleared the mark, so the
+/// sidebar could stay stale until the next drop or reconnect.
+struct AgentListResync {
+    private(set) var reading = false
+    private(set) var again = false
+
+    /// Lines were dropped: whether to send a list read now.
+    mutating func overflowed() -> Bool {
+        if reading {
+            again = true
+            return false
+        }
+        reading = true
+        return true
+    }
+
+    /// A whole list arrived: whether to send one more read (a drop came while it was out).
+    mutating func listArrived() -> Bool {
+        guard reading else { return false }
+        if again {
+            again = false
+            return true
+        }
+        reading = false
+        return false
     }
 }

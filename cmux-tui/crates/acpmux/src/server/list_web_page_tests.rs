@@ -123,6 +123,25 @@ impl Client {
         }
         (ids, sizes)
     }
+
+    /// The whole ACP `session/list`, its cursor followed by `session/list` itself: every id
+    /// (each page's rows, a repeat kept so the caller sees it), and each reply line's size.
+    async fn whole_acp_list(&mut self) -> (Vec<String>, Vec<usize>) {
+        let (mut page, size, _) = self.call(method::SESSION_LIST, json!({})).await;
+        let (mut ids, mut sizes, mut seen) = (Vec::new(), vec![size], HashSet::new());
+        loop {
+            for row in page["sessions"].as_array().expect("a session/list page lists sessions") {
+                ids.push(
+                    row["sessionId"].as_str().expect("an ACP row has its sessionId").to_owned(),
+                );
+            }
+            let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) else { break };
+            assert!(seen.insert(cursor.clone()), "session/list: the cursor {cursor} came twice");
+            let (next, size, _) = self.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
+            (page, sizes) = (next, [sizes, vec![size]].concat());
+        }
+        (ids, sizes)
+    }
 }
 
 fn sorted(mut ids: Vec<String>) -> Vec<String> {
@@ -193,17 +212,13 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
             assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} {m} {params}: {most} bytes");
             assert_eq!(sorted(ids), every_id(), "{origin:?} {m} {params}");
         }
-        // ACP's `session/list`, its cursor followed by `session/list` itself.
-        let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
-        let mut sizes = vec![size];
-        while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
-            assert!(sizes.len() < 1_000, "{origin:?} session/list never ends");
-            let (next, size, _) =
-                client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
-            (page, sizes) = (next, [sizes, vec![size]].concat());
-        }
+        // ACP's `session/list`, its cursor followed by `session/list` itself: every row once, as
+        // for the other methods. Sizes alone passed a paging that skipped or repeated rows.
+        let (ids, sizes) = client.whole_acp_list().await;
+        assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
+        assert_eq!(sorted(ids), every_id(), "{origin:?} session/list");
     }
 }
 
