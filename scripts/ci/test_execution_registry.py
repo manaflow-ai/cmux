@@ -6,8 +6,8 @@ commits in 14 days, and every pull request that touched it conflicted with the n
 2026-11-05, on splitting the hot files: "i meant can you do all of htem".
 
   - A fragment holds only [[test]] entries; the registry's `version = 1` is implied.
-  - The entry for tests/test_<area>_....py goes in <area>.toml when that file exists, and in
-    other.toml when it does not. Nothing lists the areas: a fragment's file is its area.
+  - The entry for a test_<area>_....py (in tests/ or anywhere else) goes in <area>.toml when that
+    file exists, and in other.toml when it does not. Nothing lists the areas: a fragment's file is its area.
   - Entries in a fragment are sorted by path, so two pull requests that add tests to one area
     insert at different lines instead of both at the top.
 

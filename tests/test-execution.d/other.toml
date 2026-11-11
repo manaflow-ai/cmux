@@ -2,6 +2,696 @@
 # Keep entries sorted by path; scripts/ci/test_execution_registry.py says how it is split.
 
 [[test]]
+path = ".github/actions/setup-cmux-tui-rust/tests/test_python_command.py"
+lane = "linux-guard"
+
+[[test]]
+path = ".github/scripts/test_run_cmux_tui_core_tests_isolated.py"
+lane = "linux-guard"
+
+[[test]]
+path = ".github/scripts/test_rust_workspaces.py"
+lane = "linux-guard"
+
+[[test]]
+path = "Native/OptChat/optchat-chief/measure/test_chief_digest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "Native/OptChat/optchat-chief/measure/test_chief_health.py"
+lane = "linux-guard"
+
+[[test]]
+path = "Native/OptChat/optchat-chief/measure/test_replay_cases.py"
+lane = "linux-guard"
+
+[[test]]
+path = "Native/OptChat/optchat-chief/measure/test_team_eval.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-next-ios/verify/e2e/test_rig_cleanup.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-next-ios/verify/e2e/test_rig_id.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/pane/tests/test_pane_emit_go.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_emit_cpp.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_emit_go.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_emit_java.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_emit_rust.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_emit_zig.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_enum_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_generate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_ir.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_naming.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_validate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/codegen/tests/test_writer.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/conformance/raw/test_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/conformance/test_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/examples/python-agent-watchdog/tests/test_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/examples/python-dev-orchestrator/tests/test_orchestrator.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_aio_stream_close.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_machine_catalog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_package_consumer.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_protocol.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/python/tests/test_resource_api.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/rust/scripts/test_sync_resource_api.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_crates_io_client.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_normalize_python_sdist.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_reconcile_registry_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_sri.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_validate_release_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_verify_crates_ownership.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_verify_go_module_source.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_verify_npm_provenance.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_verify_pypi_provenance.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/bindings/tests/test_wait_for_go_module.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/browser-host/test_browser_host_js_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/browser-host/test_linux_release_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/test_fetch_crates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/test_license_match.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/test_python_floor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/test_rust_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/dist/scripts/test_linux_packages.py"
+lane = "manual"
+reason = "not a unit test: a package checker that needs --version and built packages (cmux-tui release jobs run it with them)"
+
+[[test]]
+path = "cmux-tui/dist/scripts/test_package_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_frontend_docs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/test_verify_published_manifest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "cmux-tui/scripts/tests/test_measure_frames.py"
+lane = "linux-guard"
+
+[[test]]
+path = "ios/tests/test_appstore_entitlements.py"
+lane = "linux-guard"
+
+[[test]]
+path = "ios/tests/test_dogfood_readiness_app_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "ios/tests/test_testflight_prepare_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/ci/test_execution_registry.py"
+lane = "manual"
+reason = "not a test: the registry's own reader and fixer (fix, absorb, split, cat)"
+
+[[test]]
+path = "scripts/ci/test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/ci/test_touches_diff.py"
+lane = "manual"
+reason = "not a test: a tool that says whether a test touches a diff (needs a test argument)"
+
+[[test]]
+path = "scripts/ci/tests/test_base_red_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_compose_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_ghosttykit_repin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/notices/test_vt_link_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/proxy-demo/test_proxy_demo.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/test_one_motion_series.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/test_reduce_motion_audit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/test_split_scale_background.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/test_split_scale_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_arch_layers.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_arch_ratchet.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_arms.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_background.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_hover_preload_stalls.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_launch.py"
+lane = "manual"
+reason = "macOS only: bench-launch reads sw_vers, kqueue (select.KQ_NOTE_WRITE) and launchd's maxfiles; run it on a fleet Mac"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_launch_calls.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_launch_executable.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_memory_webkit_direct.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_power_guard.py"
+lane = "manual"
+reason = "macOS only: scripts/cmux-next/bench_memory.py loads /usr/lib/libproc.dylib at import (line 78); run it on a fleet Mac"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_power_loaded.py"
+lane = "manual"
+reason = "macOS only: scripts/cmux-next/bench_memory.py loads /usr/lib/libproc.dylib at import (line 78); run it on a fleet Mac"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_startup_agent_mark.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_startup_daemon_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_startup_linger.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_startup_owner_socket.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_startup_seed_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bench_terminal_resize.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_build_names.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_bundle_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_chat_open_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_chat_open_frames.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_chat_open_seed_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_every_action_sweep.py"
+lane = "manual"
+reason = "macOS only: every-action-sweep.py reads time.CLOCK_UPTIME_RAW (line 173); run it on a fleet Mac"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_git_stdin_never_piped.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_herdr_sync.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_holder_dogfood.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_hot_apply.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_idle_budget.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_kit_downloads.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_launch_shift.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_launch_time_profile.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_layer_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_live_apply.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_live_apply_loop.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_motion_inventory.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_open_panel_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_pane_perf_rows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perceived_speed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perf_completeness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perf_cron.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perf_cron_arch_report.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perf_cron_io.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_perf_stress_session.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_prepush_gate_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_prepush_window_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_push_from_host.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_quality_report.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_rj_fake_cli_agent.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_rj_rows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_rj_update.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_script_storm_worker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_settings_export_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_sidebar_perf_validate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_tag_teardown.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_teardown_clone_cleanup.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_update_harness_cleanup.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_window_zoom_motion.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/tests/test_workspace_scaling_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/workflows/test_gallery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/workflows/test_native.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/cmux-next/workflows/test_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/fuzz/browser/test_fuzz_model.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/fuzz/r3a/test_replay_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/fuzz/restore/test_restore_fuzz.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_build_cache.py"
+lane = "manual"
+reason = "needs zsh, which the Linux checks runner does not have; run it on a fleet Mac"
+
+[[test]]
+path = "scripts/journeys/test_ext_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_focused_terminal.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_fuzz.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_fuzz_sim.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_hid_inject_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_journey_end_hooks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_judge_goldens.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_judge_goldens_review.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_judge_goldens_truth.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_process_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_quitfuzz.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_reader_bands.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_run_release.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_run_stale.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_run_stale_result.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_run_vdisplay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_sidebar_film.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_smoke_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_video_judge.py"
+lane = "manual"
+reason = "needs the imageio-ffmpeg package (video_judge.py line 107), which the Linux checks runner does not have; run it in the journeys VM venv"
+
+[[test]]
+path = "scripts/journeys/test_video_judge_classes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/test_video_judge_clock.py"
+lane = "manual"
+reason = "needs the imageio-ffmpeg package (video_judge.py line 107), which the Linux checks runner does not have; run it in the journeys VM venv"
+
+[[test]]
+path = "scripts/journeys/tui-kit/test_load_profiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/tui-kit/test_tuikit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/journeys/video-cases/test_judge_pixel.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/measure/cu-bench/test_cu_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/perf-bench/tests/test_session_real.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/server-release/test_render.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/tests/test_analyze_ios_network_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/tests/test_readiness_soak.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/tests/test_vercel_merge_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/whats-new/test_community.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/whats-new/test_digest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "scripts/whats-new/test_validate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/automation-bench/cua/test_cua_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/fixtures/model-stub/test_model_stub.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
@@ -82,6 +772,10 @@ path = "tests/test_car_guards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cargo_locks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
@@ -150,6 +844,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_determinism_allowlist_ratchet.py"
 lane = "linux-guard"
 
 [[test]]
@@ -223,6 +921,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_git_fetch_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fixture_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fixture_global_config.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fixture_tmp_safety.py"
 lane = "linux-guard"
 
 [[test]]
@@ -416,6 +1126,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_needs_verdict.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch.py"
@@ -873,4 +1587,467 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_zsh_git_head_watch_no_fork.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests_v2/test_background_read_text_starts_terminal.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_background_split_send_text_starts_terminal.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_background_workspace_idle_thread_footprint.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_api_comprehensive.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_api_extended_families.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_api_p0.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_api_unsupported_matrix.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_cli_agent_port.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_cli_wait_and_screenshot.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_custom_keybinds.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_devtools_visibility_stability.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_dialog_completion.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_eval_domrect.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_file_url_load.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_goto_split.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_hidden_screenshot_fresh.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_open_split_reuse_policy.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_browser_panel_stability.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_background_terminal_helpers_start_pty.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_browser_console_errors_text.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_global_flags_and_v1_error_contract.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_id_format_defaults.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_identify_ref_resolution.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_new_workspace_background_metadata.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_new_workspace_command_queue.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_new_workspace_external_git_branch_refresh.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_new_workspace_layout_command_queue.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_non_focus_commands_preserve_workspace.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cli_sidebar_metadata_commands.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_click_by_hint_preview_toggle.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_close_surface_selection.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_close_workspace_selection.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cpu_usage.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ctrl_enter_keybind.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ctrl_interactive.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ctrl_socket.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_deep_split_chain_stays_responsive.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_focus_pane_by_number.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_focus_sidebar_keyboard.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_layout_save_open.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_mobile_terminal_paste_providers.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_mobile_terminal_paste_submit.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_mobile_workspace_list_all_windows.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_pane_break_swap_preserve_focus.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_read_screen_capture_pane_parity.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_rename_tab_cli_parity.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_rename_window_workspace_parity.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_restore_launch_lease_contention.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_signals_auto.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_socket_send_text_burst_intact.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_browser_favicon_uses_proxy.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_browser_move_rebinds_proxy.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_cli_metadata.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_cli_relay.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_daemon_resize_stdio.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_docker_bootstrap_nonlogin_shell.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_docker_forwarding.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_docker_reconnect.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_image_drop_upload.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_interactive_cmux_command_regression.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_last_surface_clears_remote_state.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_port_detection.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_proxy_bind_conflict.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_resize_scrollback_regression.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_second_session_mux_regression.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_shell_integration.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_remote_shortcuts_stay_remote.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_tui_file_preview.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_ssh_tui_workspace_selection.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_surface_catalog_stable_identity.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_surface_list_custom_titles.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_surface_move_reorder_api.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_tab_dragging.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_tab_workspace_action_naming.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_terminal_folder_link_opens_finder.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_terminal_markdown_line_link_opens_viewer.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_terminal_paste_delivery.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_terminal_path_link_hover_needs_file.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_terminal_path_link_not_browser.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_tmux_compat_geometry.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_tmux_compat_matrix.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_v1_panel_creation_preserves_focus.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_window_hints_keyboard.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_window_hints_sidebar_footer.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_window_hints_swiftui_controls.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_window_hints_web_page.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_windows_api.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_workspace_create_background_starts_terminal.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_workspace_create_initial_env.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_workspace_create_layout.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_workspace_relative.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "webviews/scripts/agent-pane/chat-load/test_cold_local.py"
+lane = "linux-guard"
+
+[[test]]
+path = "webviews/scripts/agent-pane/chat-load/test_daemon_bench.py"
 lane = "linux-guard"

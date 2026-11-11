@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "scripts/cmux-next/test_cloud_chat_matrix.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_capture_provision.py"
 lane = "manual"
 reason = "Run by hand before changing the Cloud capture provision scripts; no new CI tests (CLAUDE.md, Verification)."
@@ -33,3 +37,13 @@ reason = "Lawrence 2026-10-23: no new CI tests. Guardrails of scripts/ci/cmux_ne
 [[test]]
 path = "tests/test_cloud_vm_attach_retry_script.py"
 lane = "legacy"
+
+[[test]]
+path = "tests_v2/test_cloud_browser_userspace_e2e.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"
+
+[[test]]
+path = "tests_v2/test_cloud_workspace_layout_sync.py"
+lane = "manual"
+reason = "classic app socket test: needs a running classic cmux app with its socket (tests_v2/cmux.py); classic is frozen and no Linux job can start it"

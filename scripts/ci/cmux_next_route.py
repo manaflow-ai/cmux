@@ -321,6 +321,19 @@ CI_ONLY = (
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
+    # The test_*.py files outside tests/ the checks job runs (every test_*.py runs in some job), and what they read.
+    "scripts/journeys/*", "scripts/fuzz/*", "scripts/perf-bench/*", "scripts/measure/*", "cmux-next-ios/verify/e2e/*",
+    "scripts/tests/*", "ios/tests/*", ".github/scripts/*", "images/cmux-vm/machine-health/*",
+    "scripts/verify-iphone-auth.sh", "scripts/mobile-dev-launch.sh", "scripts/iphone-install-queue.sh",
+    "scripts/git-hooks/refresh_checks.py", "scripts/analyze-ios-network-log.py",
+    "ios/scripts/filter-ios-appstore-entitlements.py",
+    # What the newly run tests/ files read as fixtures or import; the macOS app build reads none of them.
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift",
+    "cmux-next-ios/UITests/AppReviewGateUITests.swift", "cmux-next-ios/project.yml",
+    "cmux-next-ios/reliability-matrix/cells.json", "cmux-next-ios/rust/Cargo.lock",
+    "cmux-next-ios/scripts/app_review_gate.py", "ios/Config/Release.xcconfig",
+    "ios/cmux/Settings.bundle/Acknowledgements.plist", "scripts/check-test-determinism.py",
+    "scripts/gallery-matrix/runner.ts", "scripts/generate-computer-use-helper-icon.swift",
 )
 # Files the app build or its packaging reads that the patterns above would route by their name to a Linux
 # tier: an app resource (THIRD_PARTY_LICENSES.md, *.md), a build phase's input list or helper
@@ -344,6 +357,9 @@ NATIVE_SCRIPT_INPUTS = (
     # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
     # Go toolchain it sources.
     "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
+    # What a checks-job test reads that the app build reads too: reload.sh sources the first two, and the
+    # Rust helper builds (build-acpmux.sh, build-diff-sidecar.sh, ...) source the third.
+    "scripts/lib/dev-secrets.sh", "scripts/lib/mobile-attach.sh", "scripts/lib/rust-targets.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")

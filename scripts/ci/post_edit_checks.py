@@ -6,7 +6,7 @@ the fix:
 
   workflow    a .github workflow or action file that does not parse as YAML, or a workflow in which
               the local actionlint finds a problem the HEAD version of the file does not have
-  test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.d/ entry (CI's registry check
+  test-reg    a new (untracked) test_*.py, anywhere, with no tests/test-execution.d/ entry (CI's registry check
               fails the pull request that adds an unregistered test)
   god-file    a CmuxNext Swift or cmux-tui Rust file that grew in lines against HEAD and that
               scripts/cmux-next/check-no-godfiles.sh, run on that file with CI's 20% warning slack,
@@ -39,7 +39,8 @@ PATH_KEYS = {"file_path", "filePath", "path", "filename", "target_file", "target
 # apply_patch-style tools carry their paths only in the patch text.
 PATCH_PATH = re.compile(r"\*\*\* (?:Add File|Update File|Move to): ([^\n\\\"]+)")
 WORKFLOW = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
-NEW_TEST = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
+# Any test_*.py, as the registry discovers them (validate_test_execution_registry.TEST_PATH_RE).
+NEW_TEST = re.compile(r"^(?:[^/]+/)*test_[A-Za-z0-9_.-]+\.py$")
 # The files check-no-godfiles.sh measures (it skips untracked and excluded Rust paths itself).
 GOD_FILE = re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Sources|Tests)/.+\.swift|cmux-tui/.+\.rs)$")
 GOD_FILE_SCRIPT = "scripts/cmux-next/check-no-godfiles.sh"
