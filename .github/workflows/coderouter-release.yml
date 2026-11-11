@@ -616,12 +616,14 @@ jobs:
     needs: build-linux
     if: github.repository_owner == 'manaflow-ai'
     # build-linux compiles outside the release environment, on whatever runner the Linux switch picks
-    # (LINUX_RUNNER, or a pool when CI_CLOUD_OVERFLOW_SAVED is set). This hosted job is the release
+    # (LINUX_RUNNER, or a pool when CI_CLOUD_OVERFLOW_SAVED is set). This job is the release
     # environment's step for that leg: it accepts the files only if they are byte for byte what
     # build-linux recorded, and release takes the digests from here. No Linux signing material
-    # exists today (only the macOS cells sign); if one is added, it is used in this job.
+    # exists today (only the macOS cells sign); if one is added, it is used in this job. It runs on
+    # our own Linux runners through the same selector as validate and prepare_release, never on a
+    # GitHub-hosted runner (tests/test_ci_self_hosted_guard.sh check_no_github_hosted_runners).
     environment: release
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:

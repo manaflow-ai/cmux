@@ -43,6 +43,9 @@ guards used to fall back to the raw string), a job copy that dropped the workflo
 `secrets: inherit` call followed into the workflow it calls (or named when it cannot be). Where the fix is one new
 reader, PRE_FIX_ONLY swaps back only that reader, so the fixture is shown to need exactly that fix. One more: a
 keychain-making script only named as text (a step name, a comment, an env value) makes no keychain: 29 fixtures.
+Two more (Codex, #40846 F2): a release-signer script, or `signing-keychain.sh create`, only named as text (a comment,
+an echo or printf, a quoted string, a heredoc body) is no invocation; both read through the keychain guard's one
+invocation detector (invocations()): 31 fixtures.
 
 The SIGNING_JOBS cap fixture has no pre-fix reader to swap in: its fix added the classification and changed no
 reader (the owned pick is read with the same dotted() and NEEDS_OUTPUT as before), so its only pre-fix is the guard
@@ -175,6 +178,14 @@ class KeychainListFixtures(unittest.TestCase):
 
     def test_release_pool_signers(self) -> None:
         self.assertEqual(self.guard.release_pool_signer_fixture_failures(self.documents), [])
+
+    def test_release_pool_signers_need_an_invocation(self) -> None:
+        """A release-signer path in a comment, echo, printf, quoted string or heredoc body signs nothing."""
+        self.assertEqual(self.guard.release_pool_signer_mention_fixture_failures(self.documents), [])
+
+    def test_managed_keychains_need_an_invocation(self) -> None:
+        """`signing-keychain.sh create` in a comment, echo or heredoc body makes no keychain."""
+        self.assertEqual(self.guard.managed_keychain_mention_fixture_failures(self.documents), [])
 
     def test_gated_secret_jobs(self) -> None:
         self.assertEqual(self.guard.gated_secret_fixture_failures(self.documents), [])
@@ -397,6 +408,15 @@ PRE_FIX_ONLY = {
         (KEYCHAIN, "script_made_keychain", lambda job: next(
             (script for script in importlib.import_module(KEYCHAIN).KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
             None)),),
+    # Codex, #40846 F2: the pre-fix readers matched the script path anywhere in the step's or the job's text.
+    "RELEASE_POOL_SIGNERS (a mention is no invocation)": (
+        (KEYCHAIN, "release_pool_signer", lambda job: min(
+            {path for step in job.get("steps") or [] if isinstance(step, dict)
+             and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")
+             for path in importlib.import_module(KEYCHAIN).RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", "")))},
+            default=None)),),
+    "MANAGED_KEYCHAINS (a mention is no invocation)": (
+        (KEYCHAIN, "makes_managed_keychain", lambda job: "signing-keychain.sh create" in json.dumps(job)),),
     "secrets: inherit (followed into the called workflow)": (
         ("workflow_jobs", "effective_secrets", lambda job, workflows=None, _seen=frozenset(): (
             workflow_jobs.secret_names(job), set())),),
@@ -458,6 +478,10 @@ FIXTURES = (
     ("RELEASE_POOL_SIGNERS (derived)", HERE, "KeychainListFixtures", "test_release_pool_signers", None),
     ("SCRIPT_MADE_KEYCHAINS (a mention is no invocation)", HERE, "KeychainListFixtures",
      "test_script_made_keychains_need_an_invocation", None),
+    ("RELEASE_POOL_SIGNERS (a mention is no invocation)", HERE, "KeychainListFixtures",
+     "test_release_pool_signers_need_an_invocation", None),
+    ("MANAGED_KEYCHAINS (a mention is no invocation)", HERE, "KeychainListFixtures",
+     "test_managed_keychains_need_an_invocation", None),
     ("runs-on per matrix cell (keychain rule 4)", HERE, "ResolverGaps",
      "test_a_signing_job_whose_matrix_linux_leg_reads_a_runner_variable_first_is_named", None),
     ("fromJSON literal matrix (a credentialed control)", HERE, "ResolverGaps",
@@ -488,8 +512,8 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_twenty_nine_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 29)
+    def test_there_are_thirty_one_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 31)
         self.assertLessEqual(set(PRE_FIX_ONLY), {row[0] for row in FIXTURES})
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:

@@ -612,34 +612,83 @@ def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
     return failures
 
 
-# Words a command may start with before the program it runs: `if !`, a shell, `exec`, `time`.
-_COMMAND_PREFIX = {"if", "!", "then", "do", "exec", "time", "bash", "sh", "command", "{", "("}
+# Words a simple command may start with before the program it runs: `if !`, a shell, `exec`, `time`, `env`.
+_COMMAND_PREFIX = {"if", "elif", "while", "until", "!", "then", "else", "do", "exec", "time", "command", "env",
+                   "nohup", "{", "}"}
+_SHELLS = {"bash", "sh", "zsh"}
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_PUNCTUATION = "();<>|&"
 
 
-def invoked_program(command: str) -> str | None:
-    """The program one logical command runs (commands()): its first word after env assignments and the
-    _COMMAND_PREFIX words, with a leading `./` dropped; None when there is none or it cannot be read."""
-    try:
-        words = shlex.split(command, posix=True)
-    except ValueError:
-        return None
-    for word in words:
-        if _ASSIGNMENT.match(word) or word in _COMMAND_PREFIX:
+def _command_break(token: str) -> bool:
+    """A shlex punctuation token (shlex joins a run of them, e.g. `);`) that ends one simple command and starts the
+    next: `;`, `&`, `&&`, `|`, `||`, parentheses. A redirection (`>`, `>&`, `<<`) holds `<` or `>` and is no break."""
+    return bool(token) and all(c in _PUNCTUATION for c in token) and not any(c in "<>" for c in token)
+
+
+def invocations(run: str) -> list[list[str]]:
+    """The one invocation detector: each simple command a `run:` block runs, as its words (the program first, a
+    leading `./` dropped). Only a command's program counts as run, so text that only names a script runs nothing:
+    comments (whole-line or trailing), echo and printf arguments and quoted strings (words after the program), and
+    heredoc bodies (skipped up to their delimiter). Env assignments, the _COMMAND_PREFIX words and a shell's
+    options before its script are skipped; `;`, `&&`, `||`, `|` and parentheses start a new command. A line shlex
+    cannot read runs nothing here, so a reader built on this fails closed (the job is named, not exempted)."""
+    found: list[list[str]] = []
+    delimiter: str | None = None
+    for line in re.sub(r"\\\n\s*", " ", run).splitlines():
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
             continue
-        return word.removeprefix("./")
-    return None
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            continue
+        words: list[str] = []
+        for index, token in enumerate(tokens):
+            if token in ("<<", "<<-") and index + 1 < len(tokens) and delimiter is None:
+                delimiter = tokens[index + 1].lstrip("-")
+            if _command_break(token):
+                if words:
+                    found.append(words)
+                words = []
+                continue
+            words.append(token)
+        if words:
+            found.append(words)
+    programs = []
+    for words in found:
+        start = 0
+        while start < len(words) and (_ASSIGNMENT.match(words[start]) or words[start] in _COMMAND_PREFIX):
+            start += 1
+        if start < len(words) and words[start] in _SHELLS:
+            start += 1
+            while start < len(words) and words[start].startswith("-"):
+                start += 1
+        if start < len(words):
+            programs.append([words[start].removeprefix("./"), *words[start + 1:]])
+    return programs
+
+
+def invoked_programs(step: dict) -> list[str]:
+    """The programs one step's `run:` invokes (invocations())."""
+    return [words[0] for words in invocations(str(step.get("run", "")))]
+
+
+def _certificate_steps(job: dict) -> list[dict]:
+    return [step for step in job.get("steps") or []
+            if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")]
 
 
 def script_made_keychain(job: dict) -> str | None:
     """The KEYCHAIN_MAKING_SCRIPTS script that a step reading the Developer ID certificate runs (its moved step
-    scripts already inline), if any. Only a command of that step's `run:` that invokes the script counts: a step
-    name, a comment, an env value or another step that only mentions it makes no keychain."""
-    for step in job.get("steps") or []:
-        if not isinstance(step, dict) or not workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64"):
-            continue
-        for command in commands(str(step.get("run", ""))):
-            program = invoked_program(command)
+    scripts already inline), if any. Only a command of that step's `run:` that invokes the script counts
+    (invocations()): a step name, a comment, an env value, an echo, a heredoc body or another step that only
+    mentions it makes no keychain."""
+    for step in _certificate_steps(job):
+        for program in invoked_programs(step):
             if program in KEYCHAIN_MAKING_SCRIPTS:
                 return program
     return None
@@ -647,12 +696,18 @@ def script_made_keychain(job: dict) -> str | None:
 
 def release_pool_signer(job: dict) -> str | None:
     """Rule 8: the release-signer script the job hands the Developer ID certificate to, read from the step that
-    reads APPLE_CERTIFICATE_BASE64 (any form); None when no such step runs one."""
-    found = set()
-    for step in job.get("steps") or []:
-        if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64"):
-            found.update(RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", ""))))
+    reads APPLE_CERTIFICATE_BASE64 (any form) and invokes it (invocations()); None when no such step runs one. A
+    comment, echo, printf, quoted string or heredoc body that only names the script is no signer."""
+    found = {program for step in _certificate_steps(job) for program in invoked_programs(step)
+             if RELEASE_SIGNER_SCRIPT.fullmatch(program)}
     return min(found) if found else None
+
+
+def makes_managed_keychain(job: dict) -> bool:
+    """Rule 3: some step runs `scripts/ci/signing-keychain.sh create` (invocations()), not only names it."""
+    return any(words[0] == "scripts/ci/signing-keychain.sh" and words[1:2] == ["create"]
+               for step in job.get("steps") or [] if isinstance(step, dict)
+               for words in invocations(str(step.get("run", ""))))
 
 
 def inline_keychain(job: dict) -> bool:
@@ -986,14 +1041,14 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 or any("ubuntu" not in cell or "macos" in cell for cell in cells)):
             failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
         certificate_steps = [step for step in steps if isinstance(step, dict) and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")]
-        if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
+        if not certificate_steps or any(pool_signer not in invoked_programs(step) for step in certificate_steps):
             failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")
         if secret_or_token(workflow_jobs.resolve(job).env):
             failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
     elif workflow_jobs.reads_secret(job, "APPLE_CERTIFICATE_BASE64") and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
-        if "signing-keychain.sh create" not in text and not script_made_keychain(job):
+        if not makes_managed_keychain(job) and not script_made_keychain(job):
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
