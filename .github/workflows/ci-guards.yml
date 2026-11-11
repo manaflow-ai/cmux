@@ -162,6 +162,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
+      # and .github/ (an allowlist with reasons that only shrinks).
+      - name: Validate no guessable shared-temp names
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_noclobber_sweep.py
+
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
