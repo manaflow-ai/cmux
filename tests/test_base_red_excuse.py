@@ -900,7 +900,8 @@ class PortableGhLog(unittest.TestCase):
 
     def test_logs_use_the_flag_and_strip_ansi_in_python(self):
         raw = self.read("")
-        self.assertIn("\x1b[31mred", raw)
+        # The reader strips the colour gh served, once, so no parser sees it (#41329's review F2).
+        self.assertEqual(raw, "2026-10-30T12:00:00.000Z red log\n")
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
@@ -8900,7 +8901,8 @@ LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unpl
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
-NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+# unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read", "unjudged"})
 
 
 def raw_log_reads(source, next_batch_source=None):
@@ -10019,6 +10021,17 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                 self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
                 self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
 
+    def test_a_recap_only_retry_counts_its_titles_once_placed_and_whole(self):
+        # #41329's review F1: two attempts that each recap `a > one` counted it twice, refused against a base that
+        # failed it once. The retry drops the superseded attempt's recap titles too.
+        retried = self.BASE_RECAP + ["--- retry, alone ---"] + self.BASE_RECAP
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(retried, self.BASE_RECAP)[0].startswith("excused "))
+                with self.assertRaisesRegex(excuse.Refused, "a > one"):
+                    path(self.HEAD_RECAP + ["--- retry, alone ---"]
+                         + self.HEAD_RECAP, self.BASE_RECAP)
+
     def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
         # The same rule for a name its results print twice: the placed path compared the window by name alone.
         twice = bun_lines(results=["a > one", "a > one"])
@@ -10034,6 +10047,81 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                     results=["a > one"], fail=2)
                 with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
                     path(unnamed_retry, self.BASE_ONE)
+
+
+
+class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
+    """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
+    recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base
+    alone excuses it, yet the combined window does. For each test, require the identity, diagnostic and count to all
+    hold on one verdict." """
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    NEWEST = bun_lines(recap=["a > one"], fail=1)
+    # bun with no file header names its results by title alone, as the recap does: the same test, its own error.
+    OLDER = ["bun test v1.3.0", "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]",
+             "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+
+    def judge(self, *bases):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, *self.HEAD_RECAP)
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                     "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            github.jobs[run] = failed_job(run, run, BASE_SHA)
+            github.logs[run] = log(SWIFT, TEST_STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_each_base_alone_refuses_it(self):
+        for bases in ((self.NEWEST,), (self.OLDER,)):
+            with self.subTest(base=bases[0][-1]), self.assertRaises(excuse.Refused):
+                self.judge(*bases)
+
+    def test_the_window_does_not_combine_one_verdicts_identity_with_anothers_count(self):
+        with self.assertRaisesRegex(excuse.Refused, "a > one x2"):
+            self.judge(self.NEWEST, self.OLDER)
+
+    def test_one_verdict_with_all_three_still_excuses(self):
+        said = self.judge(self.NEWEST, self.HEAD_RECAP)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+
+class SplitSectionsAreNeverJudgedAgain(unittest.TestCase):
+    """#41329's review follow-up F3 (base_red_excuse.py:1487): "re-parsing the concatenated failed sections runs
+    passed_steps again, so a failed section with no ##[error] can be read as passing and its unnamed Bun count dropped.
+    Parse each failed section on its own, and never re-judge pass or fail on text that's already been split." A
+    FailedView's text is a test_reds.Steps: each section is read as the failed step it was placed as."""
+
+    def sections(self):
+        echo = lambda script: [f"2026-11-11T12:00:0{n}.0Z {line}" for n, line in enumerate(
+            [f"##[group]Run {script}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"])]
+        # A failed step that printed no `##[error]` (the jobs API says it failed), then the step that did.
+        quiet = echo("bun test test/a.test.ts") + [f"2026-11-11T12:00:05.0Z {line}" for line in
+                                                     bun_lines(results=["a > one"], fail=2)]
+        loud = echo("cargo test") + [f"2026-11-11T12:00:09.0Z {line}" for line in (
+            "test tests::reconnects ... FAILED",
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+            "##[error]Process completed with exit code 101.")]
+        return quiet, loud
+
+    def view(self):
+        quiet, loud = self.sections()
+        steps = [{"name": "bun", "conclusion": "failure"}, {"name": "cargo", "conclusion": "failure"}]
+        return excuse.FailedView({"id": 1, "steps": steps}, False, steps,
+                                 [(0, "FAILED", quiet), (1, "FAILED", loud)])
+
+    def test_a_failed_sections_bun_count_is_kept_without_an_error_line(self):
+        view = self.view()
+        own = excuse.owned_unnamed(excuse.test_reds.read("\n".join(sum(self.sections(), []))), view)
+        self.assertEqual(own.unnamed, [" 2 fail"])
+        self.assertTrue(any(why.startswith(excuse.test_reds.UNNAMED_WHY) for why in own.truncated), own.truncated)
+        unnamed: list = []
+        excuse.test_reds.failed_in(excuse.view_text(view), unnamed)
+        self.assertEqual(unnamed, [" 2 fail"])
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):
