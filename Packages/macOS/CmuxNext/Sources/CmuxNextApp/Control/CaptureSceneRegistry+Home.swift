@@ -170,17 +170,17 @@ extension CaptureSceneRegistry {
         await Self.feedOp(daemon, "feed.withdraw", HomeNeedsYouCapture.withdrawParams)
         guard let controller = services.windows.controller(for: windowID), let chief = TopHomePageView.chief(services.home),
               (try? await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath)) != nil,
-              let executable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
+              var environment = QuitAgents.environment(services), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath(),
               let capture = try? HomeNeedsYouCapture(send: { op, data in Task { await Self.feedOp(daemon, op, data) } }) else {
-            return .object(["error": .string("no window, Chief, Needs you setting or socket"), "scene": .string(scene)])
+            return .object(["error": .string("no window, Chief, Needs you setting, acpmux environment or socket"), "scene": .string(scene)])
         }
         defer { capture.stop() }
+        (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
         TopPages.show(.home, services: services, in: controller.state)
         let page = controller.topPages.views[.home] as? TopHomePageView
         page?.show(ConversationID(chief))
         let bridge = AcpmuxPermissionFeedBridge(
-            environment: AcpmuxEnvironment(executable: executable, home: URL(fileURLWithPath: "/tmp", isDirectory: true),
-                                           socketPath: capture.socket, daemonArguments: [], childEnvironment: [:]),
+            environment: environment,
             owner: { _, body in capture.owner(body) }, isSignedIn: { true }, ownInstall: { "inst_capture_mac" },
             presenceKeys: { throw CancellationError() })
         bridge.start()

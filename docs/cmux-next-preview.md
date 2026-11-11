@@ -109,7 +109,7 @@ question. For example, `WorkspaceRowCloseNotchGalleryTests` writes the
 
 A change to agent permission prompts, the feed bridge (`AcpmuxPermissionFeedBridge`) or
 Needs you has its own scenes. They need no harness, phone or sign-in: an acpmux runs inside
-the app (`DebugHomeFakeAcpmux`) with one peer session holding a prompt, and the bridge's feed
+the app (`HomeNeedsYouCapture` in CmuxNextHome) with one peer session holding a prompt, and the bridge's feed
 calls go to the local daemon's feed. Chief Home's pinned Needs you section is the picture.
 
 * `scene:permission-feed-peer`: the bridge found the prompt at recovery and posted it; Needs
@@ -125,8 +125,8 @@ calls go to the local daemon's feed. Chief Home's pinned Needs you section is th
 cmux-ci capture <sha> --state tour:permission-feed-peer --pr <number>
 ```
 
-The scenes live in `CaptureSceneRegistry+HomeNeedsYou.swift`; change `DebugHomeFakeAcpmux.swift`
-to picture another prompt or notice.
+The scenes' glue is in `CaptureSceneRegistry+Home.swift`; change `HomeNeedsYouCapture.swift` to
+picture another prompt or notice.
 
 ## Sidebar close-notch example
 
