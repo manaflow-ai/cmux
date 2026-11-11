@@ -109,6 +109,8 @@ mod inference_gateway;
 #[cfg(unix)]
 mod inference_gateway_admin;
 #[cfg(unix)]
+mod inference_gateway_mac;
+#[cfg(unix)]
 mod inference_setup;
 mod internal;
 mod keys_help;
