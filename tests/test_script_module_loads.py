@@ -136,6 +136,7 @@ def sharing_test_files(root: Path = ROOT) -> list[str]:
 
 # Run in a fresh interpreter: imports each test module in the given order, then reports any repository file that
 # sys.modules holds a module object of (what `import name` returns) while a test module's globals hold another.
+# A test file this host cannot import (one that loads a Mac library) is listed apart and skipped.
 # Private copies nothing registers (tests/git_fixture_env.py, loaded by path in each test file by design because
 # `python3 -I` puts no folder on sys.path) are no second object of an importable module, so they do not count.
 ONE_OBJECT_PER_FILE = textwrap.dedent('''
@@ -143,7 +144,12 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
     root, order = sys.argv[1], json.loads(sys.argv[2])
     for folder in {os.path.dirname(os.path.join(root, rel)) for rel in order}:
         sys.path.insert(0, folder)
-    loaded = [importlib.import_module(os.path.basename(rel)[:-3]) for rel in order]
+    loaded, unimportable = [], {}
+    for rel in order:
+        try:
+            loaded.append(importlib.import_module(os.path.basename(rel)[:-3]))
+        except Exception as error:  # a test that needs a Mac library (bench_launch's libproc) cannot import here
+            unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
     def file_of(module):
         path = getattr(module, "__file__", None)
         real = os.path.realpath(path) if path else ""
@@ -162,7 +168,7 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
         every = {**held.get(path, {}), **objects}
         if len(every) > 1:
             two[os.path.relpath(path, root)] = sorted(every.values())
-    print(json.dumps(two))
+    print(json.dumps({"two": two, "unimportable": unimportable}))
 ''')
 
 POLLUTER = "tests/test_ci_change_areas.py::test_cmux_next_does_not_run_full_suite_for_unrelated_packages"
@@ -204,8 +210,9 @@ class ScriptModuleLoadTests(unittest.TestCase):
     def test_importing_the_sharing_test_files_in_either_order_leaves_one_module_per_file(self):
         shared = sharing_test_files()
         # The files whose path loads became imports, so a path load put back in any of them is caught here too.
-        for rel in ("tests/test_cmux_next_route.py", "tests/test_ci_change_areas.py",
-                    "tests/test_ci_guard_check_isolation.py", "scripts/cmux-next/tests/test_build_names.py"):
+        required = ("tests/test_cmux_next_route.py", "tests/test_ci_change_areas.py",
+                    "tests/test_ci_guard_check_isolation.py", "scripts/cmux-next/tests/test_build_names.py")
+        for rel in required:
             self.assertIn(rel, shared)
         for order in (shared, list(reversed(shared))):
             with self.subTest(first=order[0]):
@@ -213,7 +220,12 @@ class ScriptModuleLoadTests(unittest.TestCase):
                                       cwd=ROOT, capture_output=True, text=True, timeout=600,
                                       env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
                 self.assertEqual(done.returncode, 0, done.stderr[-4000:])
-                self.assertEqual(json.loads(done.stdout.strip().splitlines()[-1]), {})
+                result = json.loads(done.stdout.strip().splitlines()[-1])
+                self.assertEqual(result["two"], {})
+                # Files this host cannot import are skipped, never the ones the check is about, and never most.
+                for rel in required:
+                    self.assertNotIn(rel, result["unimportable"])
+                self.assertLess(len(result["unimportable"]), len(order) // 10, result["unimportable"])
 
     @unittest.skipUnless(importlib.util.find_spec("pytest"), "needs pytest")
     def test_the_route_polluter_and_its_victim_pass_in_either_order(self):
