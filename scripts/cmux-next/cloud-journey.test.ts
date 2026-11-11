@@ -936,6 +936,70 @@ describe("clean-room provider key probe", () => {
     return { out: r.stdout, probe: parseKeyProbe(r.stdout) };
   };
 
+  test("scrub removes an example of every shape the probe knows", () => {
+    // One example per probe shape, by its kind. A shape added to cloud-key-probe.py without an example here fails.
+    // Built at run time, like the fixtures above: a key-shaped literal in the source trips push protection.
+    const examples: Record<string, string> = {
+      "an Anthropic API key": tok("sk-ant-api03-", 24),
+      "an Anthropic OAuth token": tok("sk-ant-oat01-", 24),
+      "an Anthropic refresh token": tok("sk-ant-ort01-", 24),
+      "an OpenAI project key": tok("sk-proj-", 24),
+      "an OpenAI service account key": tok("sk-svcacct-", 24),
+      "an OpenAI admin key": tok("sk-admin-", 24),
+      "an OpenAI user key": `${tok("sk-", 20)}${["T3Bl", "bkFJ"].join("")}${tok("", 20)}`,
+      "an OpenRouter key": `sk-or-v1-${"0a1b2c3d".repeat(4)}`,
+      "a Google AI key": tok("AIza", 35),
+      "an xAI key": tok("xai-", 40),
+      "a Groq key": tok("gsk_", 40),
+      "a Hugging Face token": tok("hf_", 30),
+      "an AWS access key id": tok("AKIA", 16).toUpperCase(),
+      "an OAuth refresh token": `"refresh_token": "${tok("", 24)}"`,
+    };
+    const kinds = [...readFileSync(KEY_PROBE_PY, "utf8").matchAll(/^ {4}\("([^"]+)", re\.compile\(/gm)].map((m) => m[1]);
+    expect(kinds.length).toBeGreaterThan(10);
+    expect(Object.keys(examples).sort()).toEqual([...kinds].sort());
+    for (const [kind, example] of Object.entries(examples)) {
+      const out = scrub(`detail: ${example} end`);
+      expect(out, kind).toContain("[secret]");
+      expect(out, kind).not.toContain(example.replace(/^"refresh_token": "/, "").replace(/"$/, ""));
+    }
+  });
+
+  test("a key name in any case, a key inside a shell script's words, and a program's unshipped kinds are found", () => {
+    const keys = ["Gp8Kz3Af7Le2Do0Ie9Xm4Yn1Wr6Mq5Bt", "Hq9La4Bg8Mf3Ep1Jf0Yn5Zo2Xs7Nr6Cu", "Ir0Mb5Ch9Ng4Fq2Kg1Zo6Ap3Yt8Os7Dv"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": `HOME=/root\0openai_api_key=${keys[0]}\0`,
+      "proc/5/cmdline": `sh\0-c\0tool --mistral-api-key ${keys[1]} && run\0`,
+      "proc/6/comm": "bash\n",
+      "proc/6/environ": "HOME=/root\0",
+      "proc/6/cmdline": `bash\0-c\0sh -c "export groq_api_key=${keys[2]}; go"\0`,
+    });
+    // An ELF at a shipped program's place: its Google key shape is shipped, an Anthropic key in it is not.
+    const bin = join(root, "home/cmux/.local/share/cmux-tui/builds/b1/bin");
+    mkdirSync(bin, { recursive: true });
+    const anthropic = "sk-ant-api03-Js1Nc6Di0Oh5Gr3Lh2Ap7Bq4Zu9Pt8Ew";
+    const elf = Buffer.alloc(8192);
+    Buffer.from("\x7fELF", "latin1").copy(elf, 0);
+    Buffer.from("AIzaSy9Kq3Lw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0Pq3Zx").copy(elf, 2000);
+    Buffer.from(anthropic).copy(elf, 5000);
+    writeFileSync(join(bin, "tool"), elf);
+    try {
+      const { probe, out } = run(root);
+      for (const v of [...keys, anthropic]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "cmdline process bash (1 pid): GROQ_API_KEY",
+        "cmdline process bash (1 pid): MISTRAL_API_KEY",
+        "env process bash (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/.local/share/cmux-tui/builds/[a name]/bin/[a name]: an Anthropic API key",
+      ]);
+      expect(probe.shipped.map((f) => f.what)).toEqual(["a Google AI key"]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("names every planted key by place and kind, and prints no value", () => {
     const root = plant({
       "proc/101/comm": "claude\n",

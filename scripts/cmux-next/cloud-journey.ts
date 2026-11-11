@@ -81,7 +81,8 @@
  * a run that could not read everything (not root, an unreadable file or process, the walk past its budget) is unknown.
  * With --gateway, --gateway-local or --keys-clean a finding or an unknown fails the step; otherwise it is report-only,
  * a skip that lists the findings (the login copy puts the person's login on the machine by design).
- * --keys-probe-out FILE writes the probe's whole answer with the run's tag and mode; --skip keys leaves it out.
+ * --keys-probe-out FILE appends the probe's whole answer with the run's tag and mode, one JSON line a run (back-to-back
+ * runs keep every record); --skip keys leaves it out.
  *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
  * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
@@ -105,7 +106,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -159,13 +160,15 @@ export type Step = { step: string; status: Status; ms: number; detail: string };
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
 const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
-  // Model provider keys (cloud-key-probe.py SHAPES), whatever text carries one: a probe answer, an error, a path.
+  // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
+  // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
   /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
-  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g];
+  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g,
+  /(?:AKIA|ASIA)[0-9A-Z]{16}/g, /("refresh_token"\s*:\s*")[^"\s]{20,}"/g];
 export function scrub(text: string, secrets: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join("[secret]");
-  for (const re of SECRET_SHAPES) out = out.replace(re, "[secret]");
+  for (const re of SECRET_SHAPES) out = out.replace(re, (whole, field?: string) => (typeof field === "string" ? `${field}[secret]"` : "[secret]"));
   return out;
 }
 
@@ -2485,7 +2488,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The walk gets 240 s of the exec route's 300 s; a walk cut short reads as incomplete, never clean.
         const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--budget-s", "240"]), 290_000);
         const probe = parseKeyProbe(r.stdout);
-        if (keysProbeOut) writeFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
+        if (keysProbeOut) appendFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
         const detail = keyProbeDetail(probe);
         const status = keyProbeStatus(probe, keysClean);
         J.record({ step: KEY_PROBE_STEP, status, ms: Date.now() - t0, detail: status === "skip" ? `report only (${mode}; --keys-clean fails it): ${detail}` : `${mode}: ${detail}` });

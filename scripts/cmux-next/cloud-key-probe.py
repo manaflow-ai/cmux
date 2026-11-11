@@ -54,6 +54,8 @@ SHAPES = [
     ("an OAuth refresh token", re.compile(r'"refresh_token"\s*:\s*"([^"\s]{20,})"')),
 ]
 
+ALL_SHAPES = frozenset(kind for kind, _ in SHAPES)
+
 # Each shape's literal anchors: a shape can match only text that holds one, and a substring test is far cheaper than
 # the shape's own search (the walk's largest cost). An assertion keeps the two lists together.
 ANCHORS = {
@@ -140,24 +142,31 @@ LOGIN_FILES = {
 # Installed software, by place: what the image build put in /opt, and the harnesses' plugin caches.
 # Only the harnesses' own caches in a home count: a project's `.claude/plugins` (in a workspace) is the person's.
 SHIPPED = re.compile(r"^/opt/|^/(?:root|home/[^/]+)/(?:\.codex/\.tmp/plugins|\.claude/plugins)/")
-# Programs the machine's installers put in its home, matched only when the file is a program (ELF): acpmux and
-# cmux carry a secret scanner's list of known public Google keys, and Codex copies its own program to arg0/apply_patch.
-SHIPPED_PROGRAM = re.compile(r"^/home/[^/]+/(\.local/bin/(acpmux|cmux|cmux-tui)|\.local/share/cmux-tui/builds/[^/]+/bin/[^/]+|"
-                             r"\.codex/tmp/arg0/[^/]+/apply_patch)$")
+# Programs the machine's installers put in its home, matched only when the file is a program (ELF), each with the only
+# kinds of match it ships: acpmux and cmux carry a secret scanner's list of known public Google keys, and Codex (copied
+# to arg0/apply_patch) its own key prefixes. Any other kind in such a file, or a match in any other program there, is a
+# finding: the place alone never clears a file.
+SHIPPED_PROGRAMS = (
+    (re.compile(r"^/home/[^/]+/(?:\.local/bin/(?:acpmux|cmux|cmux-tui)|\.local/share/cmux-tui/builds/[^/]+/bin/[^/]+)$"),
+     frozenset({"a Google AI key"})),
+    (re.compile(r"^/home/[^/]+/\.codex/tmp/arg0/[^/]+/apply_patch$"),
+     frozenset({"an OpenAI project key", "an OpenAI admin key", "an OpenAI service account key"})),
+)
 
 
-def is_shipped(where, path):
-    """Whether a file's matches are installed software's public text, by where it is (and, for a program in a
-    home, that it is one)."""
+def shipped_kinds(where, path):
+    """The kinds of match in a file that are installed software's public text, by where it is: every shape under /opt
+    and in the harnesses' plugin caches, and for a program in a home (an ELF) only the kinds it ships. None: none."""
     if SHIPPED.search(where):
-        return True
-    if not SHIPPED_PROGRAM.search(where):
-        return False
-    try:
-        with open(path, "rb") as f:
-            return f.read(4) == b"\x7fELF"
-    except OSError:
-        return False
+        return ALL_SHAPES
+    for place, kinds in SHIPPED_PROGRAMS:
+        if place.search(where):
+            try:
+                with open(path, "rb") as f:
+                    return kinds if f.read(4) == b"\x7fELF" else None
+            except OSError:
+                return None
+    return None
 # The stand-ins AWS documents its examples with: only these exact values, so a real key that spells EXAMPLE by chance
 # is still a key.
 PUBLIC_VALUES = frozenset({"AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"})
@@ -192,10 +201,14 @@ def escape_hit(hit, text):
     ending once decoded."""
     return hit.group(0) == b"\\u00" and not any(TOKENS.search(r) for r in readings(text)[1:])
 # A key's name as a command-line word: `NAME=value`, `--name=value`, or `--name` then the value as the next word,
-# in any case, with `-` for `_`. Inside a longer word (a `sh -c` script) only the `NAME=value` form.
+# in any case, with `-` for `_`. A longer word (a `sh -c` script) is split into its shell words and read the same way.
 ARG_ASSIGN = re.compile(r"^-{0,2}([A-Za-z][A-Za-z0-9_-]*)=(.*)$", re.S)
 ARG_NAME = re.compile(r"^-{1,2}([A-Za-z][A-Za-z0-9_-]*)$")
-INLINE_ASSIGN = re.compile(r"(?:^|[\s;&|(`])(?:export\s+)?([A-Z][A-Z0-9_]*)=([^\s;&|)`]*)")
+INLINE_ASSIGN = re.compile(r"(?:^|[\s;&|(`])(?:export\s+)?([A-Za-z][A-Za-z0-9_]*)=([^\s;&|)`]*)")
+# A key name's ending in a script, `_` or `-` separated, in any case: where its words are split.
+SCRIPT_NAME_HINT = re.compile(r"[-_](?:key|token|json)\b", re.I)
+# How deep a script inside an argument is split again (`sh -c "bash -c '...'"`).
+SCRIPT_DEPTH = 3
 
 
 # Every value the probe judged a key by its context (a key name's value, a refresh token in JSON), whatever its shape:
@@ -397,9 +410,10 @@ def scan_env(entries):
         name, sep, value = entry.partition("=")
         if not sep:
             continue
-        if name in KEY_NAMES and value.strip() not in PLACEHOLDERS:
+        # A name in any case: a key's name in lower case is set the same way, and read by tools that fold case.
+        if name.upper() in KEY_NAMES and value.strip() not in PLACEHOLDERS:
             found(value)
-            out.append((name, value_finding(value) or "a value"))
+            out.append((name.upper(), value_finding(value) or "a value"))
         else:
             kind = value_finding(value)
             if kind:
@@ -419,7 +433,19 @@ def real_value(value):
     return v not in PLACEHOLDERS and not v.startswith("$")
 
 
-def scan_args(args):
+# A shell word: quoted and bare pieces run together (`--key="a b"`), or a run of separators (`;`, `&&`, `|`). An
+# unbalanced quote ends at the text's end. One regex pass: a long script costs its length once.
+SHELL_WORD = re.compile(r"""(?:'[^']*'?|"(?:\\.|[^"\\])*"?|[^\s'";&|()])+|[;&|()]+""")
+SHELL_QUOTED = re.compile(r"""'([^']*)'?|"((?:\\.|[^"\\])*)"?""")
+
+
+def shell_words(script):
+    """A script's words as a POSIX shell splits them, quotes taken off, its separators as their own words."""
+    return [SHELL_QUOTED.sub(lambda m: m.group(1) if m.group(1) is not None else m.group(2), w)
+            for w in SHELL_WORD.findall(script)]
+
+
+def scan_args(args, depth=0):
     """Findings in one command line: kinds, or key names given a value."""
     out = set()
     for i, arg in enumerate(args):
@@ -435,9 +461,20 @@ def scan_args(args):
             found(args[i + 1])
             out.add(key_name(m.group(1)))
         for m in INLINE_ASSIGN.finditer(arg):
-            if m.group(1) in KEY_NAMES and real_value(m.group(2)):
+            if key_name(m.group(1)) and real_value(m.group(2)):
                 found(m.group(2))
-                out.add(m.group(1))
+                out.add(key_name(m.group(1)))
+        if depth < SCRIPT_DEPTH and any(c.isspace() for c in arg):
+            # Only the stretches around key names' endings are split, overlapping ones merged: each byte at most once.
+            spans = []
+            for m in SCRIPT_NAME_HINT.finditer(arg):
+                a, b = max(0, m.start() - NAME_SPAN), m.end() + HIT_SPAN
+                if spans and a <= spans[-1][1]:
+                    spans[-1][1] = b
+                else:
+                    spans.append([a, b])
+            for a, b in spans:
+                out.update(scan_args(shell_words(arg[a:b]), depth + 1))
     return sorted(out)
 
 
@@ -868,9 +905,9 @@ def scan_files(root, deadline, report):
                 # Installed software's public text is a key's shape alone (a scanner's list of public keys). A key
                 # found by its context (a key's name given a secret, or a `"refresh_token":` field, as in an
                 # assignment in /opt/tool/.env) is configuration, a finding anywhere.
-                shipped = is_shipped(where, path)
+                shipped = shipped_kinds(where, path) or frozenset()
                 for line, what in hits:
-                    listed = report["shipped"] if shipped and what not in CONTEXTUAL else report["findings"]
+                    listed = report["shipped"] if what in shipped and what not in CONTEXTUAL else report["findings"]
                     listed.append({"place": "file", "where": where, "line": line, "what": what})
                 if out_of_time:
                     # A file read in part: what it showed is reported, and the walk is cut there.
