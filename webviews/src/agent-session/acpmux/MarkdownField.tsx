@@ -107,6 +107,10 @@ export type MarkdownFieldHandle = {
   /// Whether Backspace here would do nothing: an empty caret at the very start of a plain first
   /// paragraph (a heading, list item or quote there takes Backspace to lift itself).
   atStart(): boolean;
+  /// Whether the caret is on the prompt's first visual line ("up") or its last ("down"), wrapped
+  /// lines counted: ↑ or ↓ there has no line of the prompt to move to. True before the editor is
+  /// made (one line of plain text).
+  caretOnEdgeLine(direction: "up" | "down"): boolean;
   /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
   /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
   writeText(value: string, selectionStart: number, selectionEnd: number): void;
@@ -1579,6 +1583,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             $from.depth === 1 &&
             $from.parent.type.name === "paragraph"
           );
+        },
+        caretOnEdgeLine: (direction) => {
+          const current = view.current;
+          if (!current) return true;
+          const { doc, selection } = current.state;
+          // The caret's text block must be the prompt's first (or last), and the caret on that
+          // block's top (or bottom) visual line: ProseMirror measures the wrapped layout.
+          const edge = direction === "up" ? Selection.atStart(doc) : Selection.atEnd(doc);
+          if (edge.$head.parent !== selection.$head.parent) return false;
+          return current.endOfTextblock(direction);
         },
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;
