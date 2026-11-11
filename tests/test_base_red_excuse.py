@@ -8518,6 +8518,59 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
             return keys[0] - keys[1]
         raise AssertionError(comparator)
 
+    def test_next_batch_and_judge_agree_on_a_base_errored_section(self):
+        # Codex's finding on #40542 at 8dc7e0dc: next_batch read its base runs through failed_view's head role, so a
+        # base's ERRORED continue-on-error section (a passing lint step that prints an error) was base evidence, and
+        # next-batch said "no new failures" for this pair while judge() refused it. Each pair is (head, base), each
+        # side (steps, lines) as view_case reads them; judge refusing and next-batch finding a new failure must agree.
+        lint_then_rollup = ([("Lint", "success", 10, 12), ("Rollup", "failure", 20, 21)],
+                            [("Lint", 10, "##[group]Run scripts/lint.sh"), ("Lint", 11, NEW_RED),
+                             ("Lint", 11.5, EXIT), ("Rollup", 20, "##[group]Run scripts/rollup.sh"),
+                             ("Rollup", 20.6, "##[error]red check: Lint")])
+        repro = (VIEW_STEPS, [("Negative cases", 10, "##[group]Run python3 negative.py"),
+                              ("Negative cases", 11, FAKE_ISSUE), ("Negative cases", 11, FAKE_FAILED),
+                              ("Check", 20, "##[group]Run scripts/check.sh"), ("Check", 21, NEW_RED),
+                              ("Check", 21, EXIT)])
+        fails_fake = (VIEW_STEPS, [("Negative cases", 10, "##[group]Run python3 negative.py"),
+                                   ("Negative cases", 11, "ok: refused as expected"),
+                                   ("Check", 20, "##[group]Run scripts/check.sh"), ("Check", 21, FAKE_ISSUE),
+                                   ("Check", 21, FAKE_FAILED), ("Check", 21, EXIT)])
+        pairs = {"the reviewer's pair: an ERRORED lint section and a failed rollup on both sides":
+                     (lint_then_rollup, lint_then_rollup, True),
+                 "the Codex repro of F1 at 35f63387": (repro, fails_fake, True),
+                 "the same failed step's red on both sides": (repro, repro, False)}
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import next_batch
+
+        def job(job_id, run_id, sha, steps):
+            return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": "cmux-next static checks",
+                    "status": "completed", "conclusion": "failure", "steps": framed_steps(steps)}
+
+        for label, ((head_steps, head_lines), (base_steps, base_lines), refused) in pairs.items():
+            with self.subTest(pair=label):
+                github = FakeGitHub()
+                github.jobs = {1: job(1, 10, HEAD, head_steps), 2: job(2, 20, BASE_SHA, base_steps)}
+                github.logs = {1: framed_log(head_lines, "cmux-next static checks"),
+                               2: framed_log(base_lines, "cmux-next static checks")}
+                try:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                    judged = "excused"
+                except excuse.Refused as why:
+                    judged = f"refused: {why}"
+                controller = next_batch.Controller.__new__(next_batch.Controller)
+                controller.args = unittest.mock.Mock(repo=REPO)
+                controller.gh = unittest.mock.Mock()
+                controller.gh.api.side_effect = lambda route, **_: {"jobs": [
+                    copy.deepcopy(found) for found in github.jobs.values()
+                    if f"/runs/{found['run_id']}/" in route]}
+                controller.gh.runs.return_value = [{"id": 20, "head_branch": next_batch.BASE, "status": "completed",
+                                                    "event": "push", "conclusion": "failure", "head_sha": BASE_SHA}]
+                controller.job_log = lambda job_id: github.logs[job_id]
+                batch = controller.judge_web({"id": 10, "conclusion": "failure"}, BASE_SHA)
+                self.assertEqual(judged.startswith("refused"), refused, judged)
+                self.assertEqual(batch.startswith("failed: "), refused,
+                                 f"next-batch said {batch!r} where judge() {judged}")
+
     def test_swapping_head_and_base_mirrors_every_comparator(self):
         # Head and base are read alike: what one side's passing step prints is no failure of a head and no evidence
         # of a base, so a comparator finds on A over B exactly what is A's own, and on B over A what is B's, and nothing
