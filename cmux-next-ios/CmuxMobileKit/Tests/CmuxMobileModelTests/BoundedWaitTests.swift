@@ -8,12 +8,31 @@ import Testing
 /// The limit runs on a `RecordedClock`, so the test checks the deadline the
 /// wait slept until, not how long a loaded runner took to get there.
 @Suite struct BoundedWaitTests {
-    /// A wait that never ends and ignores cancellation.
-    final class Stuck: @unchecked Sendable {
+    /// A wait that never ends and ignores cancellation until released. A release
+    /// before the wait starts (the recorded clock can end the limit first) lets
+    /// the wait return at once, so the worker never leaks.
+    final class Stuck: @unchecked Sendable { // crash-allow: lock-guarded test recorder
         let lock = NSLock()
         var held: CheckedContinuation<Void, Never>?
-        func wait() async { await withCheckedContinuation { c in lock.withLock { held = c } } }
-        func release() { lock.withLock { held }?.resume() }
+        var released = false
+        func wait() async {
+            await withCheckedContinuation { c in
+                let now = lock.withLock { () -> Bool in
+                    if released { return true }
+                    held = c
+                    return false
+                }
+                if now { c.resume() }
+            }
+        }
+        func release() {
+            let waiting = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                released = true
+                defer { held = nil }
+                return held
+            }
+            waiting?.resume()
+        }
     }
 
     @Test func returnsAtTheLimitWhenTheWorkIgnoresCancellation() async {
