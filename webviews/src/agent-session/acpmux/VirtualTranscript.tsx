@@ -238,6 +238,18 @@ function drawnHeightOf(node: HTMLElement): number | undefined {
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }
 
+/// Whether any of `rows` is drawn inside the scroller's view (a row that grew there would draw over
+/// the rows under it until the transcript places them again). One rect read per row the observer
+/// reported, in its callback, where layout is already clean.
+function inSight(scroller: HTMLElement | null, rows: readonly HTMLElement[]): boolean {
+  if (!scroller || rows.length === 0) return false;
+  const view = scroller.getBoundingClientRect();
+  return rows.some((row) => {
+    const rect = row.getBoundingClientRect();
+    return rect.bottom > view.top && rect.top < view.bottom;
+  });
+}
+
 type TranscriptRange = { anchorId: string; focusId: string };
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
@@ -2204,8 +2216,21 @@ function TranscriptView({
             // over the live line under it, and the view a line short (agent-pane-stream-jitter's
             // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
             // height animation is placed before paint too, or the rows below overlap its body.
+            // A reader scrolled up keeps the batch only while the row that changed is out of sight:
+            // a reply growing on screen while the view does not follow it (the reader scrolled up a
+            // little to read it, or a jump or chase let go of the bottom) was placed in a task after
+            // the paint, so the frame drew its new line over the tool call or live line under it,
+            // and on a busy main thread for as long as that task waited (Leo, 2026-11-11: "esp when
+            // it's lagging, there's a breif moment where ther'es overlapping text between the sent
+            // out text (from you) and the subequent tool calls/thinking"). A row in sight is placed
+            // before paint, as a followed view's is.
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-            else if (followingRef.current || targets.some(heightFoldInFlight) || foldHolding(foldAnchor.current)) {
+            else if (
+              followingRef.current ||
+              targets.some(heightFoldInFlight) ||
+              foldHolding(foldAnchor.current) ||
+              inSight(ref.current, targets)
+            ) {
               for (let pass = 0; pass < 3; pass += 1) {
                 if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
                   pendingDrawn.current = new Map();
