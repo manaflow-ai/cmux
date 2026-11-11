@@ -9,7 +9,6 @@ import Testing
         var showing: [SpaceWindowShowing] = []
         func spaceWindowsShowing() -> [SpaceWindowShowing] { showing }
         func spaceWindowIsIncognito(_ windowID: String) -> Bool { false }
-        func spaceWindowBringToFront(_ windowID: String) {}
         func spaceWindowBringHere(_ space: ProfileKey, window windowID: String) {}
         func spaceWindowNewIncognitoSpace() {}
     }

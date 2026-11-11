@@ -175,7 +175,8 @@ extension WindowManager {
     /// An action run without view-change permission files the workspace
     /// into a window (the active one, else a new one behind) without
     /// showing it.
-    func reveal(workspaceID: String) -> WindowController? {
+    func reveal(workspaceID: String, here: Bool = false) -> WindowController? { // here: the current window takes it first (an agent's open)
+        if here, let into = registry.value.takesInto(workspaceID, preferring: active?.state.id), let state = states[into] { claim(workspaceID: workspaceID, in: state, select: false) }
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
         if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {

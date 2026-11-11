@@ -1,26 +1,18 @@
-/// What the strip offers on a space another window shows.
-public nonisolated enum SpaceWindowChoice: Hashable, Sendable {
-    /// Bring the window that shows it to the front (`SpaceWindowAction.goToWindow`).
-    case goToWindow
-    /// Move the space's workspaces into this window and show it here (`space.bringHere`).
-    case moveHere
-}
-
 /// What a click on a space mark does (`SpaceSwitcherLogic.click`).
 public nonisolated enum SpaceClick: Hashable, Sendable {
-    /// Nothing (the current space with no other window on it, under a style with no menu on it).
+    /// Nothing (the current space, which no other window shows).
     case none
-    /// Show the space in this window (today's click).
+    /// Show the space in this window.
     case switchHere
-    /// Bring the window that shows it to the front.
-    case goToWindow
-    /// Offer these choices in a menu at the mark.
-    case offer([SpaceWindowChoice])
+    /// This window takes the space from the other window that shows it, and shows it (`space.bringHere`). The click
+    /// never raises that window: a window is a space, and every space is one click away in any window (Leo 2026-11-11:
+    /// "it's essentially all the same window in a way if you want it to be").
+    case pullHere
     /// Open the whole space menu (the `menu` style's current space).
     case spaceMenu
 }
 
-/// The pure rules of the switcher's window marks: which spaces other windows show, and what a click offers.
+/// The pure rules of the switcher: which spaces other windows show, and what a click on a space does.
 public nonisolated struct SpaceSwitcherLogic {
     public nonisolated init() {}
     /// The spaces open windows other than `here` show, each with the frontmost such window. `windows` runs
@@ -33,19 +25,14 @@ public nonisolated struct SpaceSwitcherLogic {
         return result
     }
 
-    /// The choices for a space another window shows. Move Here never joins incognito and normal content
-    /// (design/spaces.md "Incognito"): neither from an incognito window nor into one.
-    public static func choices(for elsewhere: SpaceElsewhere, hereIsIncognito: Bool) -> [SpaceWindowChoice] {
-        elsewhere.incognito || hereIsIncognito ? [.goToWindow] : [.goToWindow, .moveHere]
-    }
-
-    /// What a click on `space` does in a window showing `active`, under `style`. `option` is Option held.
+    /// What a click on `space` does in a window showing `active`, under `style`. Every style switches this window: a
+    /// space another normal window shows comes here (`pullHere`), its own space too when another window also shows it.
+    /// Incognito never mixes with normal content (design/spaces.md "Incognito"): an incognito space, or any space from
+    /// an incognito window, takes the plain switch, whose own rule shows the incognito space's window.
     public static func click(_ space: ProfileKey, active: ProfileKey?, elsewhere: SpaceElsewhere?, hereIsIncognito: Bool,
-                             style: SpaceSwitcherStyle, option: Bool) -> SpaceClick {
+                             style: SpaceSwitcherStyle) -> SpaceClick {
         if space == active, style == .menu { return .spaceMenu }
-        // This window's own space is ringed too when another window also shows it: the same choices.
-        guard style.marksOtherWindows, let elsewhere else { return space == active ? .none : .switchHere }
-        if option { return .goToWindow }
-        return .offer(choices(for: elsewhere, hereIsIncognito: hereIsIncognito))
+        if let elsewhere, !elsewhere.incognito, !hereIsIncognito { return .pullHere }
+        return space == active ? .none : .switchHere
     }
 }

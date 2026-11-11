@@ -17,21 +17,19 @@ public nonisolated struct SpaceElsewhere: Hashable, Sendable {
 
 /// What the switcher asks the App to do for a space another window shows.
 public nonisolated enum SpaceWindowAction: Hashable, Sendable {
-    /// Bring the window that shows the space to the front (Go to Window, Option-click).
-    case goToWindow(ProfileKey)
-    /// Move the space into this window (Move Here, `space.bringHere`).
+    /// Move the space into this window and show it here (a click on its dot, `space.bringHere`).
     case moveHere(ProfileKey)
     /// Open a new incognito space (the space menu's New Incognito Space, `space.newIncognito`).
     case newIncognitoSpace
 }
 
 /// Which spaces other windows show, for one window's switcher (design/spaces.md "The switcher (PR 3)"). `install`
-/// fills it from the App's windows (`SpaceWindowSource`) and runs `perform`; the bar draws the marks and offers the
-/// choices from it.
+/// fills it from the App's windows (`SpaceWindowSource`) and runs `perform`; the bar draws its hints from it, and a
+/// click on such a space brings it into this window.
 @Observable @MainActor public final class SpaceWindowMarks {
     /// The spaces other open windows show, each with the frontmost one.
     public var elsewhere: [ProfileKey: SpaceElsewhere] = [:]
-    /// This window is incognito: Move Here is never offered (incognito and normal content never mix).
+    /// This window is incognito: no space moves into it (incognito and normal content never mix).
     public var windowIsIncognito = false
     /// Runs a switcher choice (the App's one path: the window registry and `space.bringHere`).
     @ObservationIgnored public var perform: ((SpaceWindowAction) -> Void)?
@@ -59,8 +57,6 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
     func spaceWindowsShowing() -> [SpaceWindowShowing]
     /// The window is incognito.
     func spaceWindowIsIncognito(_ windowID: String) -> Bool
-    /// Bring the window to the front (Go to Window).
-    func spaceWindowBringToFront(_ windowID: String)
     /// Move the space into the window and show it there (Move Here, `space.bringHere`).
     func spaceWindowBringHere(_ space: ProfileKey, window windowID: String)
     /// Open a new incognito space (`space.newIncognito`).
@@ -76,10 +72,6 @@ extension SpaceWindowMarks {
         perform = { [weak source] action in
             guard let source, let here = windowID() else { return }
             switch action {
-            case .goToWindow(let space):
-                guard let target = SpaceSwitcherLogic.shownElsewhere(source.spaceWindowsShowing(), here: here)[space]
-                else { return }
-                source.spaceWindowBringToFront(target.windowID)
             case .moveHere(let space):
                 source.spaceWindowBringHere(space, window: here)
             case .newIncognitoSpace:

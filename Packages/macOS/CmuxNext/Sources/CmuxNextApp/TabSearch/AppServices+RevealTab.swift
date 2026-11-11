@@ -17,13 +17,13 @@ extension AppServices {
     ///   - intent: How the window comes forward; `.bringForward` leaves the
     ///     key window alone (a link opened in the background).
     @discardableResult
-    func revealTab(_ id: String, intent: WindowActivation.Intent = .raise) -> Bool {
+    func revealTab(_ id: String, intent: WindowActivation.Intent = .raise, here: Bool = false) -> Bool {
         let located = locateTabOnAnyMachine(id)
         // A `tab_` link names a tab the strip may know by its first id.
         let tabID = located?.0.id ?? id
         guard let paneModel = located?.1,
               let workspace = daemon(for: paneModel).store.workspace(containing: paneModel.handle),
-              let window = windows.reveal(workspaceID: workspace.id) else { return false }
+              let window = windows.reveal(workspaceID: workspace.id, here: here) else { return false }
         window.state.selection.jump(to: tabID, in: paneModel.id, byPerson: ActionRunScope.isPersonsAction())
         window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
         paneController(for: paneModel)?.select(StripTabID(tabID))

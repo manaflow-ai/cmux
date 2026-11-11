@@ -188,7 +188,7 @@ extension WindowManager {
 }
 
 // The switcher's window marks (design/spaces.md "The switcher (PR 3)"): a window's spaces strip reads every other
-// window's space through these, and its Go to Window / Move Here run here (`SpaceWindowMarks.install`).
+// window's space through these, and a click on such a space brings it here (`SpaceWindowMarks.install`).
 extension WindowManager: SpaceWindowSource {
     func spaceWindowsShowing() -> [SpaceWindowShowing] {
         let value = registry.value
@@ -202,10 +202,6 @@ extension WindowManager: SpaceWindowSource {
     }
 
     func spaceWindowIsIncognito(_ windowID: String) -> Bool { isIncognito(window: windowID) }
-
-    func spaceWindowBringToFront(_ windowID: String) {
-        if let controller = controller(for: windowID) { bringToFront(controller) }
-    }
 
     func spaceWindowBringHere(_ space: SidebarProfileKey, window windowID: String) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: space.rawValue), origin: .user)

@@ -131,6 +131,23 @@ public struct WindowRegistry: Equatable, Sendable {
 
     public func isIncognito(_ windowID: String) -> Bool { incognito.contains(windowID) }
 
+    /// The open normal window an agent's or the CLI's open lands in: `preferred` (the window the person works in) when
+    /// it is one, else the most recent. Never a new window: a window is a space, and every space is reachable from any
+    /// window's space dots (Leo 2026-11-11: "it's essentially all the same window in a way if you want it to be").
+    public func currentOpen(preferring preferred: String?) -> String? {
+        if let preferred, window(preferred)?.isOpen == true, !isIncognito(preferred) { return preferred }
+        return mostRecentOpen()
+    }
+
+    /// The current window (``currentOpen(preferring:)``) that takes `workspaceID` from another open window before an
+    /// open shows it there, so that other window never comes forward; nil when it is already here, no open window lists
+    /// it, or the move would mix incognito and normal content.
+    public func takesInto(_ workspaceID: String, preferring preferred: String?) -> String? {
+        guard let here = currentOpen(preferring: preferred), let owner = owner(of: workspaceID), owner != here,
+              window(owner)?.isOpen == true, !crossesIncognito([workspaceID], to: here) else { return nil }
+        return here
+    }
+
     /// True when moving `workspaceIDs` into window `id` would cross between
     /// an incognito window and a normal one (a workspace no window lists
     /// crosses nothing).

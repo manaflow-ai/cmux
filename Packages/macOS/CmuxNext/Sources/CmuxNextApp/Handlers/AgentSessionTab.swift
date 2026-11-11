@@ -31,7 +31,7 @@ enum AgentSessionTab {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = services.agentTabs.tab(showing: session, host: host) {
-            if shows { _ = services.revealTab(shown) }
+            if shows { _ = services.revealTab(shown, here: true) } // in the window the person works in (Leo 2026-11-11)
             return
         }
         // A target that names nothing was refused by the lookup.
@@ -50,7 +50,7 @@ enum AgentSessionTab {
         context.registry.track(result: Task { @MainActor in
             do {
                 let created = try await pending.value()
-                if shows { _ = services.revealTab(created.key) }
+                if shows { _ = services.revealTab(created.key, here: true) }
                 logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
                 var result: [String: ActionResultValue] = [
                     "session": .string(session),

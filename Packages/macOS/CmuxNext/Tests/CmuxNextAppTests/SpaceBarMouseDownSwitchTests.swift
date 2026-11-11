@@ -6,9 +6,9 @@ import Testing
 /// Lawrence 2026-11-10: "make it so when i mousedown on switching space, it instantly switches". A press on a
 /// space in the sidebar's space bar shows that space in the press's own turn, as a browser tab activates on
 /// mouse-down; its release does nothing more. A press that then moves past the drag threshold drags the dot of
-/// the now current space. What a click answers with a menu or with another window (a space another window
-/// shows, the `menu` style's current space, Option-click's Go to Window) and the "+" still act on the release:
-/// the dot stays draggable under the press, and a release off the mark cancels them. Real mouse events on the bar.
+/// the now current space. A space another window shows (brought here), the `menu` style's current space (its
+/// menu) and the "+" still act on the release: the dot stays draggable under the press, and a release off the
+/// mark cancels them. Real mouse events on the bar.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SpaceBarMouseDownSwitchTests {
     typealias Bar = ProfileBarDotReorderTests.Bar
     typealias MarkedBar = SpaceSwitcherWindowMarksTests.Bar
@@ -185,27 +185,26 @@ import Testing
         #expect(bar.menus.count == 1)
     }
 
-    /// A space another window shows answers a click with Go to Window / Move Here. The menu opens on the
-    /// release: on the press its tracking would take the dot's drag.
-    @Test func aSpaceAnotherWindowShowsOffersItsChoicesOnTheRelease() {
+    /// A space another window shows comes into this window on the release: on the press, a drag of its dot would
+    /// move it here too. It never raises that window and opens no menu (Leo 2026-11-11).
+    @Test func aSpaceAnotherWindowShowsComesHereOnTheRelease() {
         let bar = MarkedBar(style: .ring)
         defer { bar.window.closeAfterTest() }
         Self.applyingIntents(bar)
         bar.view.mouseDown(with: Self.event(.leftMouseDown, at: 1, in: bar))
         #expect(bar.menus.isEmpty && bar.intents.isEmpty && bar.actions.isEmpty, "the press acted: \(bar.intents) \(bar.actions)")
         bar.view.mouseUp(with: Self.event(.leftMouseUp, at: 1, in: bar))
-        #expect(bar.menus.count == 1 && bar.intents.isEmpty)
+        #expect(bar.actions == [.moveHere(Self.keys[1])] && bar.intents.isEmpty && bar.menus.isEmpty, "\(bar.actions) \(bar.intents)")
     }
 
-    /// Option-click raises the window that shows the space: on the release, so a release off the mark cancels it.
-    @Test func optionPressGoesToTheWindowOnTheRelease() {
+    /// Option no longer goes to the other window: an Option-click brings the space here like any click.
+    @Test func optionClickAlsoBringsTheSpaceHere() {
         let bar = MarkedBar(style: .ring)
         defer { bar.window.closeAfterTest() }
         Self.applyingIntents(bar)
         bar.view.mouseDown(with: Self.event(.leftMouseDown, at: 1, in: bar, option: true))
-        #expect(bar.actions.isEmpty && bar.intents.isEmpty, "the press acted: \(bar.intents) \(bar.actions)")
         bar.view.mouseUp(with: Self.event(.leftMouseUp, at: 1, in: bar, option: true))
-        #expect(bar.actions == [.goToWindow(Self.keys[1])] && bar.intents.isEmpty && bar.menus.isEmpty)
+        #expect(bar.actions == [.moveHere(Self.keys[1])] && bar.intents.isEmpty && bar.menus.isEmpty)
     }
 
     /// The "+" makes a space on the release, as a button does.
