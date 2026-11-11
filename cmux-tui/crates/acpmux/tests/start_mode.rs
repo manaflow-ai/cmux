@@ -1544,3 +1544,29 @@ async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
     assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A switch onto another harness (`session/fork` with `_meta.acpmux.harness`, `hub/fork.rs`
+/// `Retarget`) starts in the mode a new chat of that harness would, and never over a profile that
+/// pins its mode: a profile pinned to `--permission-mode default` keeps asking, even under the full
+/// access default (review of cmux#41030, F1).
+#[tokio::test]
+async fn a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise() {
+    let dir = home("switch-pinned", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value = serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"], "kind": "claude-stdio"});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = |harness: &str| {
+        json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+               "_meta": {"acpmux": {"harness": harness}}})
+    };
+    let r = app.call("session/fork", switch("pinned")).await;
+    let pinned = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&pinned).await, "default", "a pinned profile keeps its mode");
+    let r = app.call("session/fork", switch("claude")).await;
+    let open = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&open).await, "bypassPermissions", "an unpinned one takes the start mode");
+    let _ = std::fs::remove_dir_all(&dir);
+}
