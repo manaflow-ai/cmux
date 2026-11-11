@@ -53,7 +53,6 @@ import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptR
 import type { BubbleContext, BubbleHostFacts, FileAction, FileTarget } from "./bubbleMenu";
 import { NO_BUBBLE_HOST } from "./bubbleMenu";
 import { MediaViewerHost } from "../viewer/MediaViewer";
-import { useWidgetKeep } from "../cards/widget/widgetService";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
@@ -242,7 +241,6 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       now,
     ],
   );
-  useWidgetKeep(messages);
   const [pinnedHeight, setPinnedHeight] = useState(0);
   // A toast over the message box takes room under the newest message (+ToastRoom.swift): a row of
   // its height ends the transcript while it shows, so the rows move up with it and back down after.

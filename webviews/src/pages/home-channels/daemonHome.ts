@@ -37,7 +37,6 @@ import {
   type HomeParticipant,
   type HomeLinkPreviewPart,
   type HomeLocation,
-  type HomeWidgetPart,
   type HomePart,
   type HomeQuestion,
   type HomeQuestionItem,
@@ -170,32 +169,22 @@ function part(raw: Json): HomePart {
       return place;
     }
     case "widget":
+      // Chat widgets are gone; a message an older build stored with one shows its fallback text.
       return widgetPart(raw);
     default:
       return { type: "other", text: unknownPartText(raw) };
   }
 }
 
-/** A stored `widget` part (Swift `HomeWireMapping` "widget"): without an app or a fallback it reads
- * as its fallback, else its link, as text. */
+/** A stored `widget` part (chat widgets are gone): its fallback, else its link, as text. */
 export function widgetPart(raw: Json): HomePart {
   const fallback = typeof raw.fallback === "string" ? raw.fallback : "";
-  const url = typeof raw.url === "string" && raw.url ? raw.url : undefined;
-  if (typeof raw.app !== "string" || !raw.app || !fallback) return { type: "other", text: fallback || url || "" };
-  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? (raw.props as Json) : {};
-  const widget: HomeWidgetPart = {
-    type: "widget",
-    app: raw.app,
-    widget: typeof raw.widget === "string" && raw.widget ? raw.widget : "cmux.chat.widget/1",
-    props,
-    fallback,
-  };
-  if (url) widget.url = url;
-  return widget;
+  const url = typeof raw.url === "string" && raw.url ? raw.url : "";
+  return { type: "other", text: fallback || url };
 }
 
 /** A part type this page does not draw, as native showed it (HomeCoreMapping): by its link when it
- * carries one, else its type (ConversationPart.plainText). A widget is `widgetPart`'s. */
+ * carries one, else its type (ConversationPart.plainText). A stored widget is `widgetPart`'s. */
 export function unknownPartText(raw: Json): string {
   if (typeof raw.url === "string" && raw.url) return raw.url;
   return String(raw.type ?? "");

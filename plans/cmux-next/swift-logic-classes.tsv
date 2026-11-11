@@ -804,8 +804,6 @@ CmuxNextAgentPane	enum	AgentPaneNewTabLayout	0	LOGIC	100	0	Packages/macOS/CmuxNe
 CmuxNextAgentPane	struct	AgentPaneOpenTab	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabChoices.swift	from enum AgentPaneNewTabLayout:4: New Tab page model: kind, layout, edits
 CmuxNextAgentPane	enum	AgentPaneNewTabEdit	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabEdit.swift	New Tab page model: kind, layout, edits
 CmuxNextAgentPane	class	AgentPaneNewTabFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabFrame.swift	from class AgentPaneNewTabFrame:12: Cached New Tab page snapshots
-CmuxNextAgentPane	extension	AgentPaneNewTabWeather	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabWeather.swift	Weather widget reading and formatting
-CmuxNextAgentPane	struct	AgentPaneNewTabWeather	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNewTabWeather.swift	Weather widget reading and formatting
 CmuxNextAgentPane	class	AgentPaneNotice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNotice.swift	Pane notice state raised for agent service
 CmuxNextAgentPane	extension	AgentPaneModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNotice.swift	from class AgentPaneNotice:10: Pane notice state raised for agent service
 CmuxNextAgentPane	extension	AgentPaneView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneNotice.swift	from class AgentPaneNotice:10: Pane notice state raised for agent service
@@ -960,7 +958,6 @@ CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextAgentPane	enum	AgentPaneNeedsYouStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NeedsYou.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NeedsYou.swift	from enum AgentPaneNeedsYouStyle:6: Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NewTabPicks.swift	Debug-settings tunable key and default
-CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NewTabWidgets.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+OutsideChats.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+PointerInspector.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SubagentTray.swift	Debug-settings tunable key and default
@@ -2297,9 +2294,6 @@ CmuxNextApp	extension	PaneController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	struct	NewTabPageHandler	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabPage.swift	New Tab page handler: place sources, actions, projects, jump/edit, command mapping
 CmuxNextApp	enum	NewTabSlot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabSlot.swift	from enum NewTabSlot:16: New Tab slot placement rules (after/start, list limit)
 CmuxNextApp	struct	NewTabSuccession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabSuccession.swift	from struct NewTabSuccession:16: New Tab succession: order, deadlines, expiry
-CmuxNextApp	class	NewTabWeather	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabWeather.swift	weather widget network fetch and city rule
-CmuxNextApp	extension	AgentPaneNewTab	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabWeather.swift	from class NewTabWeather:10: weather widget network fetch and city rule
-CmuxNextApp	extension	NewTabWeather	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabWeather.swift	weather widget network fetch and city rule
 CmuxNextApp	enum	NewTerminalStart	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTerminalStart.swift	cwd rule for a new terminal start
 CmuxNextApp	struct	NewWorkspaceFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewWorkspaceFocus.swift	how a new workspace takes focus
 CmuxNextApp	enum	DebugNotifications	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/DebugNotifications.swift	DEBUG notifications probe
@@ -9638,10 +9632,7 @@ CmuxNextSettings	extension	NewTabPosition	0	LOGIC	100	0	Packages/macOS/CmuxNext/
 CmuxNextSettings	enum	NewTabTemplate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	CmuxConfigSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	from enum NewTabTemplate:3: Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NewTabTemplate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
-CmuxNextSettings	extension	NewTabWidgetSettings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetEdits.swift	Maps other editors settings into cmux.json section
-CmuxNextSettings	extension	SettingsController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetEdits.swift	from extension NewTabWidgetSettings:13: Maps other editors settings into cmux.json section
-CmuxNextSettings	extension	CmuxConfigSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetSettings.swift	from struct NewTabWidgetSettings:6: Setting parser: config path, default, validation and diagnostic for one cmux.json key
-CmuxNextSettings	struct	NewTabWidgetSettings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetSettings.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
+CmuxNextSettings	extension	SettingsController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SettingsController+NewTabTemplate.swift	Saves the New Tab style switch pick as tabs.newTabTemplate
 CmuxNextSettings	enum	NewTerminalWorkspaceSetting	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTerminalWorkspaceSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NewTerminalWorkspaceSetting	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTerminalWorkspaceSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NotificationConfigParser	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NotificationConfigParser+Sounds.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
@@ -9748,8 +9739,6 @@ CmuxNextSettings	enum	GroupHoverCardOrderSetting	0	GENERATED	0	0	Packages/macOS/
 CmuxNextSettings	enum	HoverCardLayoutSetting	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HoverCardsChoices.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	LabsSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	from extension CmuxConfigSnapshot:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	CmuxConfigSnapshot	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	enum	NewTabWidgetSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	from extension NewTabWidgetSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	extension	NewTabWidgetSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	NowPlayingSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift	from extension NowPlayingSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	NowPlayingSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	NowPlayingSettings	1	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py

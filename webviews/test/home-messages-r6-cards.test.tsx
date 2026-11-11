@@ -343,6 +343,29 @@ test("a part the page does not draw shows what native did: a widget's fallback, 
     { type: "poll", url: "https://example.com/poll/1" },
     { type: "poll" },
   ]).parts.map((part) => partText(part));
-  // A widget without an app reads as its fallback (Swift HomeWireMapping, home-messages-widgets.test.tsx).
+  // Chat widgets are gone: a stored widget part reads as its fallback (Swift HomeWireMapping).
   expect(texts).toEqual(["Sunny, 21°C", "no app", "https://example.com/poll/1", "poll"]);
+});
+
+test("a stored chat widget draws as a plain text bubble, never a widget card", () => {
+  // Chat widgets are gone (Nov 9: "remove widgets completely").
+  const host = render(
+    bubbles([
+      wire(
+        [
+          {
+            type: "widget",
+            app: "cmux/pr-card",
+            widget: "cmux.chat.widget/1",
+            fallback: "PR #7: open",
+            props: { number: 7 },
+          },
+        ],
+        "agent_mux",
+        4,
+      ),
+    ])[0]!,
+  );
+  expect(host.querySelector(".hm-widget, [data-widget]")).toBeNull();
+  expect(host.querySelector(".mt-text")?.textContent).toBe("PR #7: open");
 });

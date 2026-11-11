@@ -45,9 +45,8 @@ extension SettingsSchema {
         "sidebar.workspaceRow.agentStatus": [.bool(true)], "sidebar.workspaceRow.log": [.bool(true)],
         "sidebar.workspaceRow.notification": [.bool(true)], "tabs.newTabNowPlaying": [.bool(true)],
         "tabs.newTabPosition": [.string("end")], "tabs.newTabTemplate": [.string("default"), .string("cards")],
-        "tabs.newTabWidgets.greeting": [.bool(true)], "ui.animations.newWorkspace": [.bool(false)],
-        "ui.paneAnimations": [.bool(false)], "updates.idleInstallMaxWaitSeconds": [.number(900)],
-        "updates.installOnQuit": [.bool(true)], "workspaces.autoArchive.style": [.string("suggest")],
-        "workspaces.newPlacement": [.string("top")],
+        "ui.animations.newWorkspace": [.bool(false)], "ui.paneAnimations": [.bool(false)],
+        "updates.idleInstallMaxWaitSeconds": [.number(900)], "updates.installOnQuit": [.bool(true)],
+        "workspaces.autoArchive.style": [.string("suggest")], "workspaces.newPlacement": [.string("top")],
     ]
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 621,
   "sections": [
     {
       "id": "general",
@@ -1382,114 +1382,6 @@
           ]
         },
         {
-          "key": "tabs.newTabWidgets.actions",
-          "title": "Show Quick Actions on New Tab",
-          "help": "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.chats",
-          "title": "Show Recent Chats on New Tab",
-          "help": "Your recent chats under the composer. The palette finds any chat.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.clock",
-          "title": "Show Clock on New Tab",
-          "help": "A quiet local time display beside the composer.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.greeting",
-          "title": "Ask What to Work On on New Tab",
-          "help": "A headline over the composer that asks what to work on, with the project as a picker.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.machines",
-          "title": "Show Machines on New Tab",
-          "help": "Your machines and whether each is online.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.order",
-          "title": "New Tab Widget Order",
-          "help": "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
-          "kind": "string_list",
-          "default": [
-            "projects",
-            "actions",
-            "chats"
-          ],
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.projects",
-          "title": "Show Projects on New Tab",
-          "help": "A card of this Mac and its recent projects over the composer.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.quote",
-          "title": "Show Quote of the Day on New Tab",
-          "help": "A bundled public-domain quote, changing daily.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.styleDots",
-          "title": "Show Template Dots on New Tab",
-          "help": "Dots under the page that switch its template.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.timer",
-          "title": "Show Stopwatch on New Tab",
-          "help": "A small elapsed-time stopwatch beside the composer.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.warmGreeting",
-          "title": "Show Warm Greeting on New Tab",
-          "help": "A time-of-day greeting such as Good afternoon.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.weather",
-          "title": "Show Weather on New Tab",
-          "help": "The current weather and today's high and low, for the city below or your time zone's city.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
-          "key": "tabs.newTabWidgets.weatherCity",
-          "title": "Weather City",
-          "help": "A city for the weather widget. Empty uses your time zone's city.",
-          "kind": "text",
-          "default": "",
-          "group": "Tabs"
-        },
-        {
           "key": "tabs.overflow",
           "title": "Tab Overflow",
           "help": "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
@@ -2022,14 +1914,6 @@
             "transcript",
             "messages"
           ]
-        },
-        {
-          "key": "agentPane.display.promptCoach",
-          "title": "Prompt Coach",
-          "help": "After a chat that took several corrections, shows how its first prompt could have said it all at once.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.rail.side",
@@ -6605,14 +6489,6 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
-        },
-        {
-          "key": "cloud.turnCheckpoints",
-          "title": "Save a Checkpoint Before Each Cloud Chat Turn",
-          "help": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"

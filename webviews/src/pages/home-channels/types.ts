@@ -271,24 +271,7 @@ export type HomePart =
   | HomeQuestion
   | HomeLinkPreviewPart
   | HomeLocation
-  | HomeWidgetPart
   | { type: "other"; text: string };
-
-/** An agent's chat widget (`Part::Widget`, cmux-tui cmux-conversation `widget.rs`;
- * plans/cmux-next/chat-widgets-DESIGN.md section 3): a Mac with the named app draws it as a card
- * from the app's `cmux.chat.widget/1` export; everywhere else, and until it loads, the fallback. */
-export interface HomeWidgetPart {
-  type: "widget";
-  /** The app id, `publisher/name`. */
-  app: string;
-  /** The interface the app implements (`cmux.chat.widget/1`). */
-  widget: string;
-  /** The export's input (a JSON object, data only). */
-  props: Record<string, unknown>;
-  /** Plain text every client without the card shows (copy, search, previews). */
-  fallback: string;
-  url?: string;
-}
 
 /** One option of a question item (`QuestionItem.options`). */
 export interface HomeQuestionOption {

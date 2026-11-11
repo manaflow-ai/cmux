@@ -16,7 +16,6 @@
 // - Gaps are Messages' measured ones (points, drawn as CSS pixels).
 import { PENDING_PREFIX, partShows, partText, pendingMessages, threadOf } from "../../home-channels/model";
 import { isApprovalCard } from "../cards/approval/approval";
-import { fallbackHeight } from "../cards/widget/widgetModel";
 import type { HomeDraft } from "../../home-channels/drafts";
 import type { PendingSend } from "../../home-channels/store";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
@@ -436,7 +435,6 @@ export function estimateRow(row: TranscriptRow): number {
       if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);
       if (part?.type === "link_preview") return row.gap + (part.image ? 220 : 56);
       if (part?.type === "location") return row.gap + 56;
-      if (part?.type === "widget") return row.gap + fallbackHeight(part.fallback);
       const text = part ? partText(part) : "";
       const lines = text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0);
       return row.gap + 16 + 18 * Math.min(lines, 400) + (row.approval ? 36 : 0);

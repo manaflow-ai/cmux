@@ -177,8 +177,6 @@ export function partText(part: HomePart): string {
       return part.title ?? part.url;
     case "location":
       return part.label ?? coordinates(part);
-    case "widget":
-      return part.fallback;
   }
 }
 

@@ -52,7 +52,6 @@ import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine
 import type { TranscriptExtras } from "../transcript/extras";
 import { OutgoingTyping } from "../transcript/outgoingTyping";
 import { useAgents } from "../cards/pills/useAgents";
-import { hostWidgets, WidgetContext } from "../cards/widget/widgetService";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -115,8 +114,6 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const chiefFace = useHostStream(host, DetailOps.chiefFace, parseChiefFace, undefined);
   const chiefPlace = useHostStream(host, DetailOps.chiefPlace, parseChiefPlace, undefined);
   const dictation = useHostDictation(host);
-  // Chat widgets draw from the app's widget host (HomeMessagesWidgets.swift); none: their fallback.
-  const widgets = useMemo(() => (host ? hostWidgets(host) : undefined), [host]);
   // Photos and videos go through the app's preparation before they upload (location removed
   // unless Settings > Home keeps it), as the native composer's did. No host (a browser): as they are.
   const prepareFile = useMemo(() => (host ? hostPrepareFile(host) : undefined), [host]);
@@ -356,7 +353,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
   }
 
   return (
-    <WidgetContext.Provider value={widgets}>
+    <>
       <div className="hm-detail-frame">{main}</div>
       <Sheet
         view={view}
@@ -376,7 +373,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
           if (id) void openMade(id);
         }}
       />
-    </WidgetContext.Provider>
+    </>
   );
 }
 

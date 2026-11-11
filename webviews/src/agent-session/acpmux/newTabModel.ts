@@ -10,8 +10,6 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
-import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
-import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject } from "./newtab/startedProject";
@@ -98,17 +96,6 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
-  /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
-  widgets?: boolean;
-  /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (none: the composer alone).
-  pageWidgets?: PageWidget[];
-  /// The weather widget's last reading (`tabs.newTabWidgets.weather`, newtab/ambient.ts).
-  weather?: NewTabWeather;
-  /// `tabs.newTabWidgets.greeting` is set to false in cmux.json, not left to the default: Minimal
-  /// keeps no room for the headline over the composer, which stays where it sat with the greeting
-  /// off (newtab/screen.css .nt-headline-slot).
-  headlineOff?: true;
   /// The page lists only its own connection's chats, not the store every page shares (another
   /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
@@ -155,8 +142,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
-  const pageWidgets = parsePageWidgets(object.pageWidgets);
-  const weather = parseWeather(object.weather);
   const order = suggestionOrder(object.suggestionOrder);
   const start = readNewTabStart(object.start);
   return {
@@ -185,10 +170,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
-    ...(object.widgets === true ? { widgets: true } : {}),
-    ...(pageWidgets ? { pageWidgets } : {}),
-    ...(weather ? { weather } : {}),
-    ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
