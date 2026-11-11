@@ -1774,18 +1774,20 @@ async fn serve_connection_from(
                 }
                 // A peer link sent this request on two paths (`dual_requests.rs`): in order, so
                 // the copy read first runs it and the other answers with its answer.
-                let dual = dual_requests::key_for(conn.dual_principal, &m, params.as_ref())
-                    .and_then(dual_requests::admit);
+                let seen = dual_requests::key_for(conn.dual_principal, &m, params.as_ref());
+                let dual_key = seen.as_ref().map(|(key, _)| key.clone());
+                let dual = seen.and_then(dual_requests::admit);
+                let dual_key = dual_key.filter(|_| dual.is_some());
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
-                let mut ticket = conn.in_flight.begin(&id, &m, slot);
+                let mut ticket = conn.in_flight.begin(&id, &m, slot, dual_key);
                 #[cfg(test)]
                 cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
-                    let first = match dual_requests::before_run(dual).await {
+                    let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
                             // A cancel's part on this connection is its own (`dual_requests.rs`).
@@ -1809,11 +1811,22 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
-                    let served = crate::request_cancel::until_cancelled(cancel, serve).await;
+                    // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
+                    let also = first.as_mut().and_then(dual_requests::First::take_stop);
+                    let served = crate::request_cancel::until_either(cancel, also, serve).await;
                     // Cancelled: the cancel answered it, and a copy sent on another path gets
                     // that answer too (`dual_requests.rs`).
                     let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))
                     else {
+                        // Stopped by a cancel of its copy on another connection: this copy's
+                        // answer here is still owed, and is the cancel's.
+                        if conn.in_flight.finish(&ticket) {
+                            let cancelled = Err(crate::request_cancel::cancelled_error());
+                            conn.send_replying(
+                                &dual_requests::reply(id.clone(), cancelled),
+                                Some(&m),
+                            );
+                        }
                         tracing::debug!(
                             target: crate::request_cancel::LOG_TARGET,
                             conn = %conn.id,
@@ -1859,8 +1872,13 @@ async fn serve_connection_from(
             // own requests, so a read-only machine, a teammate and a trigger may send it.
             Message::Notification { method: m, params } if m == method::CANCEL_REQUEST => {
                 if let Some(id) = params.as_ref().and_then(crate::request_cancel::named_id)
-                    && let Some(cancelled) = conn.in_flight.cancel(id)
+                    && let Some((cancelled, dual)) = conn.in_flight.cancel(id)
                 {
+                    // One copy of a request sent on two paths: the copy that runs stops,
+                    // whichever connection it came on, and a later one never runs.
+                    if let Some(key) = dual {
+                        dual_requests::cancel(&key);
+                    }
                     let error = crate::request_cancel::cancelled_error();
                     conn.send_replying(&Message::err(id.clone(), error), Some(&cancelled));
                 }
