@@ -304,11 +304,10 @@ public final class HomeStore {
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
                                              expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:],
                                              started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? [])) ?? items
-        if let feed = feedRows, feed.conversation == id,
-           let chief = summary(id)?.participants.first(where: \.isChief)?.id {
+        if let feed = feedRows, feed.conversation == id {
             // A window that does not reach the start shows no rows older than its first message.
             let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
-            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief, since: since)
+            items = HomeFeedRow.inserting(feed.rows, into: items, since: since)
         }
         transcriptCache[id] = (version, me, items)
         return items
