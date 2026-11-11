@@ -371,6 +371,9 @@ struct WorkspaceShellView: View {
     @State private var splitSidebarShownUntilWorkspacePicked = false
     /// Once per process, so a later fold or unfold keeps the user's pick.
     @MainActor private static var launchSelectionHandled = false
+    /// Set from launch until the user picks, creates or deep-links into a
+    /// workspace; the phone split detail stays empty meanwhile.
+    @State var splitDetailAwaitsWorkspacePick = false
     #if os(iOS)
     /// Measured width of the split sidebar column. Feeds the root toolbar's
     /// content-width environment so the computer picker budgets against the
@@ -530,7 +533,7 @@ struct WorkspaceShellView: View {
                     detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
                 )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
-                clearLaunchWorkspaceSelectionIfNeeded()
+                beginLaunchWorkspacePickIfNeeded()
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
@@ -1084,7 +1087,7 @@ struct WorkspaceShellView: View {
             #endif
         } detail: {
             workspaceDestination(
-                for: store.selectedWorkspaceID,
+                for: splitDetailWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
@@ -1107,23 +1110,14 @@ struct WorkspaceShellView: View {
                   !splitSidebarShownUntilWorkspacePicked else { return }
             splitSidebarHidden = MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(visibility)
         }
-        .onChange(of: store.selectedWorkspaceID) { _, workspaceID in
-            // The launch showed the list only because nothing was picked;
-            // the first pick restores the layout the user left.
-            guard splitSidebarShownUntilWorkspacePicked, workspaceID != nil else { return }
-            splitSidebarShownUntilWorkspacePicked = false
-            splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
-                sidebarWasHidden: splitSidebarHidden
-            )
-        }
         .onAppear {
             hasPresentedSplitDetail = true
             // `.automatic` lets portrait collapse the sidebar while the binding
             // still reads `.automatic`, which hides the detail's show-sidebar
             // control. An explicit state keeps the toggle reachable.
-            clearLaunchWorkspaceSelectionIfNeeded()
+            beginLaunchWorkspacePickIfNeeded()
             if hostsSplitDestinationsInSidebar, splitColumnVisibility == .automatic {
-                let hasSelectedWorkspace = store.selectedWorkspaceID != nil
+                let hasSelectedWorkspace = splitDetailWorkspaceID != nil
                 splitSidebarShownUntilWorkspacePicked = !hasSelectedWorkspace && splitSidebarHidden
                 splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.launchSplitColumnVisibility(
                     sidebarWasHidden: splitSidebarHidden,
@@ -1450,19 +1444,35 @@ struct WorkspaceShellView: View {
         )
     }
 
-    /// Drops the store's startup selection (the first cached workspace) so a
-    /// phone launch opens on the workspace list. Runs from whichever launch
-    /// `onAppear` fires first.
-    private func clearLaunchWorkspaceSelectionIfNeeded() {
+    /// Starts a phone launch on the workspace list. Runs from whichever
+    /// launch `onAppear` fires first, once per process.
+    private func beginLaunchWorkspacePickIfNeeded() {
         guard !Self.launchSelectionHandled else { return }
         Self.launchSelectionHandled = true
         #if os(iOS)
-        guard MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+        splitDetailAwaitsWorkspacePick = MobileWorkspaceShellLayoutPolicy.launchAwaitsWorkspacePick(
             isPhoneIdiom: UIDevice.current.userInterfaceIdiom == .phone,
             hasPendingDeeplink: store.deeplinkWorkspaceNavigationRequest != nil
-        ) else { return }
-        store.selectedWorkspaceID = nil
+        )
         #endif
+    }
+
+    /// The workspace the split detail and sidebar highlight show: none until
+    /// the launch's first pick, ignoring the store's own selection.
+    private var splitDetailWorkspaceID: MobileWorkspacePreview.ID? {
+        splitDetailAwaitsWorkspacePick ? nil : store.selectedWorkspaceID
+    }
+
+    /// Ends the launch wait at an explicit open (a tap, search result,
+    /// create or deep link), and brings back a sidebar the user had hidden.
+    func noteWorkspacePicked() {
+        guard splitDetailAwaitsWorkspacePick else { return }
+        splitDetailAwaitsWorkspacePick = false
+        guard splitSidebarShownUntilWorkspacePicked else { return }
+        splitSidebarShownUntilWorkspacePicked = false
+        splitColumnVisibility = MobileWorkspaceShellLayoutPolicy.restoredSplitColumnVisibility(
+            sidebarWasHidden: splitSidebarHidden
+        )
     }
 
     private func toggleSplitSidebar() {
@@ -1583,7 +1593,7 @@ struct WorkspaceShellView: View {
         return WorkspaceListView(
             workspaces: store.workspaces,
             groups: store.workspaceGroups,
-            selectedWorkspaceID: store.selectedWorkspaceID,
+            selectedWorkspaceID: splitDetailWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,
             workspaceChangesCapable: store.workspaceChangesCapable,
@@ -1861,6 +1871,7 @@ struct WorkspaceShellView: View {
     /// the request so a later size-class change cannot replay a stale push.
     private func consumeDeeplinkNavigationRequestIfNeeded() {
         guard let request = store.deeplinkWorkspaceNavigationRequest else { return }
+        noteWorkspacePicked()
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         #if os(iOS)
         // Split navigation has no per-tab stacks: the store's selection
@@ -1970,6 +1981,7 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspaceImmediately(_ id: MobileWorkspacePreview.ID) {
+        noteWorkspacePicked()
         pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
@@ -1985,6 +1997,7 @@ struct WorkspaceShellView: View {
     /// the top instead of the search tab's bottom control. Popping back lands
     /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
+        noteWorkspacePicked()
         store.recordAppEvent(
             .searchResultSelected,
             correlationID: id.rawValue,

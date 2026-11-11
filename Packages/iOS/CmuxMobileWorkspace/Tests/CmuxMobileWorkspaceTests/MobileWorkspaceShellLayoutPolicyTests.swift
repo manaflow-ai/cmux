@@ -99,19 +99,19 @@ import Testing
 
     @Test func phoneLaunchStartsOnTheListUnlessADeepLinkIsWaiting() {
         #expect(
-            MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+            MobileWorkspaceShellLayoutPolicy.launchAwaitsWorkspacePick(
                 isPhoneIdiom: true,
                 hasPendingDeeplink: false
             )
         )
         #expect(
-            !MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+            !MobileWorkspaceShellLayoutPolicy.launchAwaitsWorkspacePick(
                 isPhoneIdiom: true,
                 hasPendingDeeplink: true
             )
         )
         #expect(
-            !MobileWorkspaceShellLayoutPolicy.launchClearsWorkspaceSelection(
+            !MobileWorkspaceShellLayoutPolicy.launchAwaitsWorkspacePick(
                 isPhoneIdiom: false,
                 hasPendingDeeplink: false
             )

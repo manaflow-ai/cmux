@@ -77,14 +77,16 @@ public struct MobileWorkspaceShellLayoutPolicy {
         !hostsSplitDestinationsInSidebar
     }
 
-    /// Whether a launch drops the store's startup selection, which is just the
-    /// first cached workspace, so a phone opens on the workspace list in every
-    /// orientation. A pending deep link (a notification tap) keeps its target.
+    /// Whether a launch keeps the phone split detail empty until the user
+    /// picks a workspace. The store selects one on its own (the first cached
+    /// row, then the Mac's focused workspace once the list arrives); a phone
+    /// opens on the workspace list instead, in every orientation. A pending
+    /// deep link (a notification tap) keeps its target.
     /// - Parameters:
     ///   - isPhoneIdiom: Whether the device is a phone.
     ///   - hasPendingDeeplink: Whether a deep link is waiting to open a workspace.
     /// - Returns: `true` when the phone should start on the list.
-    public static func launchClearsWorkspaceSelection(
+    public static func launchAwaitsWorkspacePick(
         isPhoneIdiom: Bool,
         hasPendingDeeplink: Bool
     ) -> Bool {
