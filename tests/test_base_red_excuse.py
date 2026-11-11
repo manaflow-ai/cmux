@@ -5809,8 +5809,12 @@ class WsCheckGitHub:
                  "##[endgroup]", "ws-check step ok: .github/workflows/tools-tests.yml test: passing (exit 0, ran 3, "
                  "skipped 0, gh calls 0)"]
         for step, printed in red.items():
-            lines += [f"##[group]{step}", *printed, "##[endgroup]",
-                      f"ws-check step FAILED: {step} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
+            # PRINTED is the step's lines, or {unit: lines} for a step split into units: each unit its own group and
+            # result line, labelled "STEP [UNIT]" (leo-workspace ws_check_run.py since its units).
+            for label, out in ([(f"{step} [{unit}]", out) for unit, out in printed.items()]
+                               if isinstance(printed, dict) else [(step, printed)]):
+                lines += [f"##[group]{label}", *out, "##[endgroup]",
+                          f"ws-check step FAILED: {label} (exit 1, ran 4, skipped 0, gh calls 0{seconds})"]
         lines.append("WS_CHECK_RESULT=" + json.dumps({"failed": failed, "head": sha, "ok": not failed, "steps": steps,
                                                        "suites": 9, "tests_ran": 400, "tests_skipped": 0}))
         self.logs[run_id * 10 + 1] = "\n".join(f"2026-11-05T04:39:27.9954759Z {line}" for line in lines)
@@ -5885,6 +5889,43 @@ class WsCheckPerTest(unittest.TestCase):
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
         self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, seconds=", 62.1 s")
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, seconds=", 0.4 s")
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_step_split_into_units_is_read_from_each_units_lines(self):
+        # leo-workspace#4322 at aa928f1c (run 43011639090): ws_check_run.py labels each unit's group and result line
+        # "STEP [UNIT]" and ends it with its CPU (", cpu 16.4 s, 18.3 s)"), while WS_CHECK_RESULT names the STEP. Read
+        # only as "ws-check step FAILED: STEP (exit", the red was refused "has no 'ws-check step FAILED: ...' line"
+        # though the log held it, so no red split into units could be excused.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        red = {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned"),
+                       "test_lane_place.py 2/4": self.ws_deploy("test_place")}}
+        self.gh.verdict(HEAD, 1, red, seconds=", cpu 16.4 s, 18.3 s")
+        self.gh.verdict(self.gh.TIP, 2, red, seconds=", cpu 15.0 s, 17.9 s")
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        for suite, test in (("test_ws_deploy_swap.py", "test_old_releases_are_pruned"),
+                            ("test_lane_place.py", "test_place")):
+            self.assertIn(f"excused 'ws-check' test '{other} :: [{suite}] {test} (__main__.FastForward.{test})': "
+                          f"red on main {self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)",
+                          audit)
+        # A test of one unit that main does not fail is still the head's own, whatever unit main's red is in.
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_ws_deploy_swap.py": self.ws_deploy("test_old_releases_are_pruned")}},
+                        seconds=", cpu 15.0 s, 17.9 s")
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_place"):
+            self.judge()
+
+    def test_a_same_named_test_in_another_suite_does_not_excuse_it(self):
+        # cmux#41298 F1: every suite runs as __main__, so test_new.py's and test_old.py's test_check both print
+        # "test_check (__main__.FastForward.test_check)". Read by name alone, main's red in test_old.py excused the
+        # head's new red in test_new.py. A test is named with its suite; only a shard number may differ.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_new.py": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_old.py": self.ws_deploy("test_check")}})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*\[test_new\.py\] test_check"):
+            self.judge()
+        # The same suite in another shard is the same test.
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_check")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
     def test_a_test_failing_on_main_too_is_excused_by_name(self):

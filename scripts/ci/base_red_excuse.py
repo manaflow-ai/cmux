@@ -4724,8 +4724,16 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s"), and since
+# its units it carries the step's CPU first (", cpu 1.0 s, 30.0 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, cpu [\d.]+ s)?(?:, [\d.]+ s)?\)$")
+# Since ws_check_run.py splits a step into its units (a suite each, a big suite in shards), each unit prints its own
+# group and result line labelled "STEP [UNIT]" ("... [test_ws_deploy_swap.py]", "... [test_lane_place.py 2/4]"), while
+# WS_CHECK_RESULT's `failed` names the STEP alone. Read as only "ws-check step FAILED: STEP (exit", every red split into
+# units was refused "has no 'ws-check step FAILED: STEP' line" though the log held it (leo-workspace#4322 at aa928f1c,
+# run 43011639090: `every other tools/test_*.py ... [test_ws_deploy_swap.py]`; #4297 at 7c9ae719, run 42997255537).
+WS_CHECK_UNIT = r"(?: \[[^\]\n]+\])?"
+WS_CHECK_SHARD = re.compile(r" \d+/\d+$")  # "[test_lane_place.py 2/4]": a big suite's shard
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -4831,14 +4839,25 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
-        end = next((n for n in range(at - 1, -1, -1) if lines[n].startswith(f"ws-check step FAILED: {step} (exit ")),
-                   None)
-        if end is None:
+        # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
+        # each read in its own group; the step's tests and lines are every red unit's together.
+        result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
+        ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
+        if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
+        tests, printed = set(), set()
         try:
-            steps[step] = ws_check_step(lines, end, step)
+            for end, unit in ends:
+                red = ws_check_step(lines, end, step + unit)
+                # A test is named with its unit's suite ("[test_new.py] test_check (__main__.FastForward.test_check)"):
+                # every suite runs as __main__, so two suites' same-named tests read alike and one's red on the base
+                # excused the other's on the head (cmux#41298 F1). A shard number ("2/4") is dropped, since shards move.
+                suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
+                tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
+                printed |= red["lines"]
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
     return "fail", dict(found, steps=steps)
 
 
